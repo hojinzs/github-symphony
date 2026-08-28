@@ -581,8 +581,7 @@ export async function fetchProjectIssues(
   const currentUserLogin = config.assignedOnly
     ? await fetchCurrentUserLogin(config, fetchImpl)
     : null;
-  let excludedCount = 0;
-  let repositoryExcludedCount = 0;
+  const nonDispatchableByReason: Record<string, number> = {};
   let latestRateLimits: GitHubRateLimitPayload | null = null;
   const skippedItems: NonNullable<TrackedIssueList["skippedItems"]> = [];
 
@@ -604,22 +603,6 @@ export async function fetchProjectIssues(
       }
 
       if (!isRepositoryFilterableProjectItem(item)) {
-        if (config.repositoryFilter) {
-          repositoryExcludedCount += 1;
-        }
-        return [];
-      }
-
-      if (currentUserLogin && !isIssueAssignedToLogin(item, currentUserLogin)) {
-        excludedCount += 1;
-        return [];
-      }
-
-      if (
-        config.repositoryFilter &&
-        !isIssueInRepository(item, config.repositoryFilter)
-      ) {
-        repositoryExcludedCount += 1;
         return [];
       }
 
@@ -647,7 +630,16 @@ export async function fetchProjectIssues(
         return [];
       }
 
-      return [normalized];
+      const issue = applyDispatchabilityRules(normalized, item, {
+        currentUserLogin,
+        repositoryFilter: config.repositoryFilter,
+      });
+      if (!issue.dispatchable) {
+        const reason = getDispatchabilityReasonCategory(issue.dispatchReason);
+        nonDispatchableByReason[reason] =
+          (nonDispatchableByReason[reason] ?? 0) + 1;
+      }
+      return [issue];
     });
 
     issues.push(...pageIssues);
@@ -664,23 +656,13 @@ export async function fetchProjectIssues(
     });
   }
 
-  if (currentUserLogin) {
-    emitAssignedOnlyFilterEvent({
-      projectId: config.projectId,
-      currentUserLogin,
-      includedCount: issues.length,
-      excludedCount,
-    });
-  }
-
-  if (config.repositoryFilter) {
-    emitRepositoryFilterEvent({
-      projectId: config.projectId,
-      repository: `${config.repositoryFilter.owner}/${config.repositoryFilter.name}`,
-      includedCount: issues.length,
-      excludedCount: repositoryExcludedCount,
-    });
-  }
+  emitDispatchabilityDerivationEvent({
+    projectId: config.projectId,
+    currentUserLogin,
+    repository: config.repositoryFilter ?? null,
+    includedCount: issues.length,
+    nonDispatchableByReason,
+  });
 
   latestRateLimits = finalizeGraphQLRateLimitCycle(
     latestRateLimits,
@@ -1915,19 +1897,6 @@ async function fetchCurrentUserLogin(
   return payload.login;
 }
 
-function isIssueAssignedToLogin(
-  item: GraphQLProjectItem,
-  login: string
-): boolean {
-  if (item.content?.__typename !== "Issue") {
-    return false;
-  }
-
-  return (item.content.assignees?.nodes ?? []).some(
-    (assignee) => assignee?.login === login
-  );
-}
-
 function isRepositoryFilterableProjectItem(
   item: GraphQLProjectItem
 ): item is GraphQLProjectItem & {
@@ -1939,51 +1908,116 @@ function isRepositoryFilterableProjectItem(
   );
 }
 
-function isIssueInRepository(
+function applyDispatchabilityRules(
+  issue: GitHubTrackedIssue,
   item: GraphQLProjectItem & {
     content: GraphQLIssueNode | GraphQLPullRequestNode;
   },
-  repository: { owner: string; name: string }
-): boolean {
-  const itemRepository = item.content.repository;
-  const itemOwner = itemRepository.owner.login.toLowerCase();
-  const itemName = itemRepository.name.toLowerCase();
-  const filterOwner = repository.owner.toLowerCase();
-  const filterName = repository.name.toLowerCase();
+  options: {
+    currentUserLogin: string | null;
+    repositoryFilter: { owner: string; name: string } | null | undefined;
+  }
+): GitHubTrackedIssue {
+  const reason =
+    getAssignedOnlyDispatchReason(item, options.currentUserLogin) ??
+    getRepositoryDispatchReason(issue, options.repositoryFilter) ??
+    getPullRequestHeadDispatchReason(issue);
 
-  return itemOwner === filterOwner && itemName === filterName;
+  return reason
+    ? { ...issue, dispatchable: false, dispatchReason: reason }
+    : issue;
 }
 
-function emitAssignedOnlyFilterEvent(input: {
-  projectId: string;
-  currentUserLogin: string;
-  includedCount: number;
-  excludedCount: number;
-}): void {
-  console.info(
-    JSON.stringify({
-      event: "tracker-assigned-only-filtered",
-      projectId: input.projectId,
-      currentUserLogin: input.currentUserLogin,
-      includedCount: input.includedCount,
-      excludedCount: input.excludedCount,
-    })
+function getAssignedOnlyDispatchReason(
+  item: GraphQLProjectItem & {
+    content: GraphQLIssueNode | GraphQLPullRequestNode;
+  },
+  currentUserLogin: string | null
+): string | null {
+  if (!currentUserLogin) {
+    return null;
+  }
+
+  if (item.content.__typename !== "Issue") {
+    return "Pull request items are not dispatched under assigned-only mode.";
+  }
+
+  const isAssigned = (item.content.assignees?.nodes ?? []).some(
+    (assignee) => assignee?.login === currentUserLogin
   );
+  return isAssigned ? null : `Issue is not assigned to ${currentUserLogin}.`;
 }
 
-function emitRepositoryFilterEvent(input: {
+function getRepositoryDispatchReason(
+  issue: GitHubTrackedIssue,
+  repositoryFilter: { owner: string; name: string } | null | undefined
+): string | null {
+  if (!repositoryFilter) {
+    return null;
+  }
+
+  const isInScope =
+    issue.repository.owner.toLowerCase() ===
+      repositoryFilter.owner.toLowerCase() &&
+    issue.repository.name.toLowerCase() === repositoryFilter.name.toLowerCase();
+  return isInScope
+    ? null
+    : `Repository ${issue.repository.owner}/${issue.repository.name} is outside configured repository scope ${repositoryFilter.owner}/${repositoryFilter.name}.`;
+}
+
+function getPullRequestHeadDispatchReason(
+  issue: GitHubTrackedIssue
+): string | null {
+  const pullRequest = issue.metadata.pullRequest;
+  if (!pullRequest) {
+    return null;
+  }
+
+  const headRepository = pullRequest.headRepository;
+  const sameRepository =
+    headRepository != null &&
+    headRepository.owner.toLowerCase() === issue.repository.owner.toLowerCase() &&
+    headRepository.name.toLowerCase() === issue.repository.name.toLowerCase();
+  return sameRepository
+    ? null
+    : `Fork pull requests are unsupported for automatic checkout/push (${headRepository ? `${headRepository.owner}/${headRepository.name}` : "unknown fork"} -> ${issue.repository.owner}/${issue.repository.name}).`;
+}
+
+function getDispatchabilityReasonCategory(reason: string | null | undefined): string {
+  if (reason?.startsWith("Issue is not assigned") || reason?.startsWith("Pull request items")) {
+    return "assignment";
+  }
+  if (reason?.startsWith("Repository ")) {
+    return "repository";
+  }
+  return "forkPullRequest";
+}
+
+function emitDispatchabilityDerivationEvent(input: {
   projectId: string;
-  repository: string;
+  currentUserLogin: string | null;
+  repository: { owner: string; name: string } | null;
   includedCount: number;
-  excludedCount: number;
+  nonDispatchableByReason: Record<string, number>;
 }): void {
+  if (!input.currentUserLogin && !input.repository) {
+    return;
+  }
+
   console.info(
     JSON.stringify({
-      event: "tracker-repository-filtered",
+      event: "tracker-dispatchability-derived",
       projectId: input.projectId,
-      repository: input.repository,
+      ...(input.currentUserLogin
+        ? { currentUserLogin: input.currentUserLogin }
+        : {}),
+      ...(input.repository ? { repository: input.repository } : {}),
       includedCount: input.includedCount,
-      excludedCount: input.excludedCount,
+      nonDispatchableCount: Object.values(input.nonDispatchableByReason).reduce(
+        (count, value) => count + value,
+        0
+      ),
+      nonDispatchableByReason: input.nonDispatchableByReason,
     })
   );
 }

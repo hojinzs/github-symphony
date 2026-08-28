@@ -5,7 +5,7 @@ import type {
   OrchestratorTrackerConfig,
   TrackedIssueList,
 } from "@gh-symphony/core";
-import { filterIssuesByPickupLabels } from "@gh-symphony/core";
+import { resolvePickupLabelDispatchReason } from "@gh-symphony/core";
 import {
   fetchGithubIssueStatesByIds,
   fetchGithubProjectIssueByRepositoryAndNumber,
@@ -18,15 +18,7 @@ import {
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
     const issues = await listProjectIssues(project, dependencies);
-    const filtered = filterIssuesByPickupLabels(
-      issues,
-      project
-    ) as TrackedIssueList;
-    if (filtered !== issues) {
-      filtered.rateLimits = (issues as TrackedIssueList).rateLimits;
-      filtered.skippedItems = (issues as TrackedIssueList).skippedItems;
-    }
-    return filtered;
+    return applyPickupLabelDispatchability(issues, project);
   },
 
   async listIssuesByStates(project, states, dependencies = {}) {
@@ -163,6 +155,23 @@ export async function findGithubProjectIssue(
     parsed.number,
     dependencies.fetchImpl
   );
+}
+
+function applyPickupLabelDispatchability(
+  issues: TrackedIssueList,
+  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0]
+): TrackedIssueList {
+  const result = issues.map((issue) => {
+    const dispatchReason = resolvePickupLabelDispatchReason(issue, project);
+    if (!issue.dispatchable || !dispatchReason) {
+      return issue;
+    }
+
+    return { ...issue, dispatchable: false, dispatchReason };
+  }) as TrackedIssueList;
+  result.rateLimits = issues.rateLimits;
+  result.skippedItems = issues.skippedItems;
+  return result;
 }
 
 async function listProjectIssues(

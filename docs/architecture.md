@@ -64,7 +64,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
-- GitHub Project V2: `packages/tracker-github` (including source issue state and linked-PR metadata kept distinct from Project workflow status)
+- GitHub Project V2: `packages/tracker-github` (including source issue state and linked-PR metadata kept distinct from Project workflow status); it returns all active scoped items and derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason.
 - Linear: `packages/tracker-linear`
 - File-based (E2E only): `packages/tracker-file`
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`

@@ -1827,9 +1827,23 @@ describe("OrchestratorService", () => {
       requestFails: false,
       targetIdentifier: "acme/platform#99",
     },
+    {
+      name: "non-dispatchable terminal candidate",
+      metadata: { sourceState: "CLOSED" },
+      terminalFact: "issue_closed",
+      requestFails: false,
+      targetIdentifier: null,
+      dispatchable: false,
+    },
   ])(
     "reconciles a $name to Done without dispatching",
-    async ({ metadata, terminalFact, requestFails, targetIdentifier }) => {
+    async ({
+      metadata,
+      terminalFact,
+      requestFails,
+      targetIdentifier,
+      dispatchable = true,
+    }) => {
       const tempRoot = await mkdtemp(
         join(tmpdir(), "orchestrator-terminal-candidate-")
       );
@@ -1852,7 +1866,7 @@ describe("OrchestratorService", () => {
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
-        dispatchable: true,
+        dispatchable,
         assigneeId: null,
         blockedBy: [],
         createdAt: "2026-03-08T00:00:00.000Z",
@@ -1912,7 +1926,7 @@ describe("OrchestratorService", () => {
       expect(result.summary.dispatched).toBe(0);
       expect(result.summary.suppressed).toBe(0);
       expect(spawnImpl).not.toHaveBeenCalled();
-      if (targetIdentifier) {
+      if (targetIdentifier || !dispatchable) {
         expect(requestState).not.toHaveBeenCalled();
         expect(info).not.toHaveBeenCalledWith(
           expect.stringContaining(
@@ -1952,6 +1966,78 @@ describe("OrchestratorService", () => {
       }
     }
   );
+
+  it("does not publish active PR advisories for non-dispatchable items", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-nondispatchable-advisory-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const issue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Out-of-scope issue",
+      description: null,
+      priority: null,
+      state: "Todo",
+      branchName: null,
+      url: "https://github.com/acme/platform/issues/1",
+      labels: [],
+      dispatchable: false,
+      dispatchReason: "repository does not match the configured scope",
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      repository,
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        itemId: "item-1",
+      },
+      metadata: {
+        sourceState: "OPEN",
+        linkedPullRequests: [
+          {
+            id: "pr-2",
+            number: 2,
+            identifier: "acme/platform#2",
+            url: "https://github.com/acme/platform/pull/2",
+            state: "OPEN",
+            merged: false,
+          },
+        ],
+      },
+    };
+    const issues = Object.assign([issue], {
+      rateLimits: null,
+      skippedItems: [],
+    }) as TrackedIssueList;
+    const upsertIssueComment = vi.fn();
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue(issues),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+      upsertIssueComment,
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: vi.fn() as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(upsertIssueComment).not.toHaveBeenCalled();
+  });
 
   it("passes worktree-cache settings into issue populate", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
@@ -7051,10 +7137,8 @@ Prefer focused changes.
 
     const result = await service.runOnce();
 
-    expect(result.health).toBe("degraded");
-    expect(result.lastError).toMatch(
-      /fork pull requests are unsupported for automatic checkout\/push \(contributor\/platform -> acme\/platform\)/
-    );
+    expect(result.health).toBe("idle");
+    expect(result.lastError).toBeNull();
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
@@ -7090,10 +7174,8 @@ Prefer focused changes.
 
     const result = await service.runOnce();
 
-    expect(result.health).toBe("degraded");
-    expect(result.lastError).toMatch(
-      /fork pull requests are unsupported for automatic checkout\/push \(unknown fork -> acme\/platform\)/
-    );
+    expect(result.health).toBe("idle");
+    expect(result.lastError).toBeNull();
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 

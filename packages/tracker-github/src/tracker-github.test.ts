@@ -627,6 +627,40 @@ describe("resolveTrackerAdapter", () => {
     });
   });
 
+  it("marks fork pull request Project items non-dispatchable during polling", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+
+    const issues = await adapter.listIssues(makeProjectConfig(), {
+      token: "dependencies-token",
+      fetchImpl: async () =>
+        makeJsonResponse(
+          makeProjectItemsPayload([
+            makePullRequestProjectItem({
+              itemId: "item-pr-fork",
+              pullRequestId: "pr-fork",
+              number: 9,
+              title: "Forked pull request",
+              headRepository: {
+                name: "platform-fork",
+                url: "https://github.com/contributor/platform-fork",
+                owner: { login: "contributor" },
+              },
+            }),
+          ])
+        ),
+    });
+
+    expect(issues[0]).toMatchObject({
+      dispatchable: false,
+      dispatchReason:
+        "Fork pull requests are unsupported for automatic checkout/push (contributor/platform-fork -> acme/platform).",
+    });
+  });
+
   it("attaches Issue linked pull request metadata from closedByPullRequestsReferences", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
@@ -2210,7 +2244,7 @@ describe("resolveTrackerAdapter", () => {
     expect(issues.map((issue) => issue.state)).toEqual(["Done"]);
   });
 
-  it("falls back to legacy assignedOnly tracker setting with a deprecation warning", async () => {
+  it("keeps unassigned issues visible but marks them non-dispatchable for assignedOnly", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -2296,13 +2330,20 @@ describe("resolveTrackerAdapter", () => {
         }
       );
 
-      expect(issues).toHaveLength(1);
-      expect(issues[0]?.identifier).toBe("acme/platform#1");
+      expect(issues).toHaveLength(2);
+      expect(issues[0]).toMatchObject({
+        identifier: "acme/platform#1",
+        dispatchable: true,
+        assigneeId: "machine-user",
+      });
+      expect(issues[1]).toMatchObject({
+        identifier: "acme/platform#2",
+        dispatchable: false,
+        assigneeId: "someone-else",
+        dispatchReason: "Issue is not assigned to machine-user.",
+      });
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
-      );
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"excludedCount":1')
+        expect.stringContaining('"event":"tracker-dispatchability-derived"')
       );
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("Deprecated tracker.settings.assignedOnly")
@@ -2458,16 +2499,30 @@ describe("resolveTrackerAdapter", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       expect(platformIssues.map((issue) => issue.identifier)).toEqual([
         "acme/platform#1",
-      ]);
-      expect(webIssues.map((issue) => issue.identifier)).toEqual([
         "acme/web#2",
       ]);
-      const webIssueIds = new Set(webIssues.map((issue) => issue.id));
-      expect(platformIssues.some((issue) => webIssueIds.has(issue.id))).toBe(
-        false
-      );
+      expect(webIssues.map((issue) => issue.identifier)).toEqual([
+        "acme/platform#1",
+        "acme/web#2",
+      ]);
+      expect(platformIssues[1]).toMatchObject({
+        dispatchable: false,
+        dispatchReason:
+          "Repository acme/web is outside configured repository scope acme/platform.",
+      });
+      expect(webIssues[0]).toMatchObject({
+        dispatchable: false,
+        dispatchReason:
+          "Repository acme/platform is outside configured repository scope acme/web.",
+      });
+      expect(platformIssues.filter((issue) => issue.dispatchable)).toEqual([
+        expect.objectContaining({ identifier: "acme/platform#1" }),
+      ]);
+      expect(webIssues.filter((issue) => issue.dispatchable)).toEqual([
+        expect.objectContaining({ identifier: "acme/web#2" }),
+      ]);
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-repository-filtered"')
+        expect.stringContaining('"event":"tracker-dispatchability-derived"')
       );
     } finally {
       infoSpy.mockRestore();
@@ -2513,7 +2568,9 @@ describe("resolveTrackerAdapter", () => {
 
     expect(issues.map((issue) => issue.identifier)).toEqual([
       "acme/platform#1",
+      "acme/web#2",
     ]);
+    expect(issues[1]).toMatchObject({ dispatchable: false });
   });
 
   it("allows tracker repository '*' to opt out of repository dispatch scoping", async () => {
@@ -2610,7 +2667,12 @@ describe("resolveTrackerAdapter", () => {
       }
     );
 
-    expect(issues.map((issue) => issue.identifier)).toEqual(["acme/web#2"]);
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+      "acme/web#2",
+    ]);
+    expect(issues[0]).toMatchObject({ dispatchable: false });
+    expect(issues[1]).toMatchObject({ dispatchable: true });
   });
 
   it("matches repository filters case-insensitively", async () => {
@@ -2655,7 +2717,9 @@ describe("resolveTrackerAdapter", () => {
 
     expect(issues.map((issue) => issue.identifier)).toEqual([
       "acme/platform#1",
+      "acme/web#2",
     ]);
+    expect(issues.map((issue) => issue.dispatchable)).toEqual([true, false]);
   });
 
   it("excludes assigned issues from other repositories before dispatch", async () => {
@@ -2703,7 +2767,9 @@ describe("resolveTrackerAdapter", () => {
 
     expect(issues.map((issue) => issue.identifier)).toEqual([
       "acme/platform#1",
+      "acme/web#2",
     ]);
+    expect(issues.map((issue) => issue.dispatchable)).toEqual([true, false]);
   });
 
   it("excludes Project V2 draft items without repository content when scoped", async () => {
@@ -5622,7 +5688,7 @@ describe("pickup label filtering", () => {
     }),
   ]);
 
-  it("lists only issues matching the configured pickup labels", async () => {
+  it("keeps non-matching pickup-label issues visible but non-dispatchable", async () => {
     const config = makeProjectConfig();
     config.tracker.settings = {
       ...config.tracker.settings,
@@ -5636,7 +5702,16 @@ describe("pickup label filtering", () => {
 
     expect(issues.map((issue) => issue.identifier)).toEqual([
       "acme/platform#1",
+      "acme/platform#2",
+      "acme/platform#3",
     ]);
+    expect(issues.map((issue) => issue.dispatchable)).toEqual([true, false, false]);
+    expect(issues[1]?.dispatchReason).toBe(
+      'Issue has excluded pickup label "beta".'
+    );
+    expect(issues[2]?.dispatchReason).toBe(
+      "Issue is missing a required pickup label (alpha)."
+    );
   });
 
   it("keeps every issue when no pickup labels are configured", async () => {
@@ -5666,6 +5741,8 @@ describe("pickup label filtering", () => {
 
     expect(issues.map((issue) => issue.identifier)).toEqual([
       "acme/platform#1",
+      "acme/platform#2",
+      "acme/platform#3",
     ]);
     expect("rateLimits" in issues).toBe(true);
   });
