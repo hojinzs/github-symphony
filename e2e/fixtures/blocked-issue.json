@@ -36,6 +36,8 @@
     "branchName": null,
     "url": null,
     "labels": [],
+    "dispatchable": false,
+    "dispatchReason": "Blocked by unresolved file tracker issue: test-owner/test-repo#20.",
     "blockedBy": [
       {
         "id": "issue-blocker-1",

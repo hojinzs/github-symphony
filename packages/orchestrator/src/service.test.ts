@@ -9498,7 +9498,7 @@ Prefer focused changes.
     );
   });
 
-  it("does not use continuation retry timing when a Todo issue gains a non-terminal blocker", async () => {
+  it("uses adapter-derived blocker dispatchability for Todo continuation", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-continuation-blocked-retry-")
@@ -9576,16 +9576,13 @@ Prefer focused changes.
       }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
-    const loadRetryPolicySpy = vi.spyOn(service as never, "loadRetryPolicy");
-
     await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:07.000Z");
-    expect(updatedRun?.nextRetryAt).not.toBe("2026-03-08T00:00:01.000Z");
-    expect(issueRecords[0]?.completedOnce).toBe(false);
-    expect(loadRetryPolicySpy).toHaveBeenCalled();
+    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:01.000Z");
+    expect(updatedRun?.nextRetryAt).not.toBe("2026-03-08T00:00:07.000Z");
+    expect(issueRecords[0]?.completedOnce).toBe(true);
   });
 
   it("does not retry a stalled worker protected by a live foreign owner", async () => {
