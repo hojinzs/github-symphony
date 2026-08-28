@@ -1,5 +1,18 @@
 # @gh-symphony/cli
 
+## 0.13.0
+
+### Minor Changes
+
+- [#646](https://github.com/hojinzs/github-symphony/pull/646) [`bc921e4`](https://github.com/hojinzs/github-symphony/commit/bc921e453cc16d95736cdd8271b3d0d62f39d196) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add host-global `gh-symphony instances` discovery with lifecycle status, endpoint, phase, and daemon lock-safe PID handling ([#486](https://github.com/hojinzs/github-symphony/issues/486)).
+
+- [#705](https://github.com/hojinzs/github-symphony/pull/705) [`e33afbc`](https://github.com/hojinzs/github-symphony/commit/e33afbcd37e82bc12ce2ed8850982b9da1b6fffd) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Refactor tracker integration so provider-native references and GitHub linked PR
+  canonicalization stay behind tracker-adapter hooks ([#665](https://github.com/hojinzs/github-symphony/issues/665)).
+
+### Patch Changes
+
+- [#683](https://github.com/hojinzs/github-symphony/pull/683) [`0265fb4`](https://github.com/hojinzs/github-symphony/commit/0265fb4e889d4b632df85044206c51a2b932ca3e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#653](https://github.com/hojinzs/github-symphony/issues/653) by refreshing only the canonical tracker item before retry dispatch, cleaning terminal retry workspaces, and requeueing refresh or capacity failures safely.
+
 ## 0.12.0
 
 ### Minor Changes
