@@ -26,13 +26,16 @@ import {
 import {
   saveGlobalConfig,
   saveProjectConfig,
+  updateGlobalConfig,
   type CliProjectConfig,
 } from "./config.js";
 import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
+import { standaloneProjectId } from "./standalone-project.js";
 
 export type RepoInitFlags = {
   repoDir: string;
   workflowFile?: string;
+  configDir?: string;
 };
 
 const INTERNAL_PROJECT_ID = "repository";
@@ -81,6 +84,7 @@ export function parseRepoRuntimeFlags(args: readonly string[]): RepoInitFlags {
 export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   configDir: string;
   projectId: string;
+  registryProjectId?: string;
   workflowPath: string;
   repository: RepositoryRef;
 }> {
@@ -181,6 +185,19 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     projects: [INTERNAL_PROJECT_ID],
   });
 
+  const configDir = flags.configDir ? resolve(flags.configDir) : runtimeRoot;
+  const registryProjectId = `repo-${standaloneProjectId(repoDir)}`;
+  if (configDir !== runtimeRoot) {
+    await saveProjectConfig(configDir, registryProjectId, {
+      ...projectConfig,
+      projectId: registryProjectId,
+    });
+    await updateGlobalConfig(configDir, (config) => ({
+      activeProject: registryProjectId,
+      projects: Array.from(new Set([...config.projects, registryProjectId])),
+    }));
+  }
+
   const orchestratorConfig: OrchestratorProjectConfig = {
     projectId: INTERNAL_PROJECT_ID,
     slug: projectConfig.slug,
@@ -195,6 +212,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   return {
     configDir: runtimeRoot,
     projectId: INTERNAL_PROJECT_ID,
+    ...(configDir !== runtimeRoot ? { registryProjectId } : {}),
     workflowPath,
     repository,
   };
