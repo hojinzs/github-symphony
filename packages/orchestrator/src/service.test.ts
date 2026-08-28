@@ -1862,10 +1862,11 @@ describe("OrchestratorService", () => {
       pid: 4101,
       unref: vi.fn(),
     });
+    const currentTime = new Date("2026-03-08T00:00:00.000Z");
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: spawnImpl as never,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      now: () => currentTime,
     });
 
     const first = await service.runOnce();
@@ -14504,7 +14505,7 @@ Prefer focused changes.
     await mkdir(join(repository.path, "scripts"), { recursive: true });
     await writeFile(
       join(repository.path, "scripts", "setup-env.sh"),
-      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$STAGING_API_HOST" > "$SYMPHONY_REPOSITORY_PATH/.after_create_host"\nprintf "%s\\n" "$FILE_ONLY" > "$SYMPHONY_REPOSITORY_PATH/.after_create_file_only"\n',
+      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$STAGING_API_HOST" > "$SYMPHONY_REPOSITORY_PATH/.after_create_host"\nprintf "%s\\n" "$FILE_ONLY" > "$SYMPHONY_REPOSITORY_PATH/.after_create_file_only"\nprintf "%s\\n" "${SYMPHONY_ISSUE_STATE-unset}" > "$SYMPHONY_REPOSITORY_PATH/.after_create_issue_state"\n',
       "utf8"
     );
     await chmod(join(repository.path, "scripts", "setup-env.sh"), 0o755);
@@ -14552,6 +14553,287 @@ Prefer focused changes.
     await expect(
       readFile(join(repositoryPath, ".after_create_file_only"), "utf8")
     ).resolves.toBe("from-project-env\n");
+    await expect(
+      readFile(join(repositoryPath, ".after_create_issue_state"), "utf8")
+    ).resolves.toBe("unset\n");
+  });
+
+  it("fails a before_run hook without spawning the worker and queues a retry", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-before-run-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+  blocker_check_states: [Todo]
+hooks:
+  before_run: hooks/fail-before-run.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+---
+Test hook failure.
+`,
+      }
+    );
+    await mkdir(join(repository.path, "hooks"), { recursive: true });
+    await writeFile(
+      join(repository.path, "hooks", "fail-before-run.sh"),
+      "#!/usr/bin/env bash\nprintf 'before run failed' >&2\nexit 1\n",
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "fail-before-run.sh"), 0o755);
+    execSync(`git -C ${shell(repository.path)} add hooks/fail-before-run.sh`, {
+      stdio: "ignore",
+    });
+    execSync(
+      `git -C ${shell(repository.path)} commit -m failing-before-run-hook`,
+      {
+        stdio: "ignore",
+      }
+    );
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4311, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        state: "retry_queued",
+        retryEntry: expect.objectContaining({
+          error: expect.stringContaining("before_run hook failure"),
+        }),
+      }),
+    ]);
+  });
+
+  it("fails workspace creation when after_create fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-after-create-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+  blocker_check_states: [Todo]
+hooks:
+  after_create: hooks/fail-after-create.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+codex:
+  command: codex app-server
+---
+Test hook failure.
+`,
+      }
+    );
+    await mkdir(join(repository.path, "hooks"), { recursive: true });
+    await writeFile(
+      join(repository.path, "hooks", "fail-after-create.sh"),
+      "#!/usr/bin/env bash\nprintf 'after create failed' >&2\nexit 1\n",
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "fail-after-create.sh"), 0o755);
+    execSync(
+      `git -C ${shell(repository.path)} add hooks/fail-after-create.sh`,
+      {
+        stdio: "ignore",
+      }
+    );
+    execSync(
+      `git -C ${shell(repository.path)} commit -m failing-after-create-hook`,
+      {
+        stdio: "ignore",
+      }
+    );
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4312, unref: vi.fn() });
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => currentTime,
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        state: "retry_queued",
+        retryEntry: expect.objectContaining({
+          error: expect.stringContaining("after_create hook failure"),
+        }),
+      }),
+    ]);
+    currentTime = new Date("2026-03-08T00:01:00.000Z");
+    await service.runOnce();
+
+    // The failed setup directory was removed, so retrying runs after_create
+    // again and never bypasses it to spawn a worker.
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        state: "retry_queued",
+        retryEntry: expect.objectContaining({
+          error: expect.stringContaining("after_create hook failure"),
+        }),
+      }),
+    ]);
+  });
+
+  it("runs after_create only for a new workspace and before_run for retries", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-reused-workspace-hooks-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+  blocker_check_states: [Todo]
+hooks:
+  after_create: hooks/count-after-create.sh
+  before_run: hooks/fail-before-run.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+---
+Test workspace hook retries.
+`,
+      }
+    );
+    await mkdir(join(repository.path, "hooks"), { recursive: true });
+    await writeFile(
+      join(repository.path, "hooks", "count-after-create.sh"),
+      "#!/usr/bin/env bash\nprintf 'after_create\\n' >> \"$SYMPHONY_WORKSPACE_PATH/.after_create_calls\"\n",
+      "utf8"
+    );
+    await writeFile(
+      join(repository.path, "hooks", "fail-before-run.sh"),
+      "#!/usr/bin/env bash\nprintf 'before_run\\n' >> \"$SYMPHONY_WORKSPACE_PATH/.before_run_calls\"\nprintf 'before run failed' >&2\nexit 1\n",
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "count-after-create.sh"), 0o755);
+    await chmod(join(repository.path, "hooks", "fail-before-run.sh"), 0o755);
+    execSync(`git -C ${shell(repository.path)} add hooks`, {
+      stdio: "ignore",
+    });
+    execSync(
+      `git -C ${shell(repository.path)} commit -m reused-workspace-hook-counts`,
+      { stdio: "ignore" }
+    );
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4313, unref: vi.fn() });
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => currentTime,
+    });
+
+    await service.runOnce();
+    currentTime = new Date("2026-03-08T00:01:00.000Z");
+    await service.runOnce();
+    currentTime = new Date("2026-03-08T00:02:00.000Z");
+    await service.runOnce();
+
+    const workspaceKey = (
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    )[0]?.workspaceKey;
+    const repositoryPath = join(
+      resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey ?? ""
+      ),
+      "repository"
+    );
+    await expect(
+      readFile(join(repositoryPath, "..", ".after_create_calls"), "utf8")
+    ).resolves.toBe("after_create\n");
+    await expect(
+      readFile(join(repositoryPath, "..", ".before_run_calls"), "utf8")
+    ).resolves.toBe("before_run\nbefore_run\nbefore_run\n");
+    expect(spawnImpl).not.toHaveBeenCalled();
   });
 
   it("resolves standalone project .env $VAR values with host precedence", async () => {

@@ -9,7 +9,11 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildHookExecutionEnv, executeWorkspaceHook } from "./hooks.js";
+import {
+  buildHookExecutionEnv,
+  executeWorkspaceHook,
+  MAX_HOOK_OUTPUT_BYTES,
+} from "./hooks.js";
 
 const tempDirs: string[] = [];
 
@@ -73,6 +77,64 @@ describe("executeWorkspaceHook", () => {
     });
 
     expect(result.outcome).toBe("timeout");
+  });
+
+  it("drains large stdout without waiting for the timeout", async () => {
+    const repositoryPath = await mkdtemp(join(tmpdir(), "hook-stdout-"));
+    tempDirs.push(repositoryPath);
+    await writeFile(
+      join(repositoryPath, "large-output.sh"),
+      "#!/usr/bin/env bash\nhead -c 131072 /dev/zero\n",
+      "utf8"
+    );
+    await chmod(join(repositoryPath, "large-output.sh"), 0o755);
+
+    const result = await executeWorkspaceHook({
+      kind: "before_run",
+      hooks: {
+        afterCreate: null,
+        beforeRun: "large-output.sh",
+        afterRun: null,
+        beforeRemove: null,
+      },
+      repositoryPath,
+      env: {},
+      trusted: true,
+      timeoutMs: 1_000,
+    });
+
+    expect(result.outcome).toBe("success");
+  });
+
+  it("bounds failed hook stderr diagnostics", async () => {
+    const repositoryPath = await mkdtemp(join(tmpdir(), "hook-stderr-"));
+    tempDirs.push(repositoryPath);
+    await writeFile(
+      join(repositoryPath, "large-error.sh"),
+      "#!/usr/bin/env bash\nyes '가나다라' | head -c 8192 >&2\nexit 1\n",
+      "utf8"
+    );
+    await chmod(join(repositoryPath, "large-error.sh"), 0o755);
+
+    const result = await executeWorkspaceHook({
+      kind: "before_run",
+      hooks: {
+        afterCreate: null,
+        beforeRun: "large-error.sh",
+        afterRun: null,
+        beforeRemove: null,
+      },
+      repositoryPath,
+      env: {},
+      trusted: true,
+      timeoutMs: 1_000,
+    });
+
+    expect(result.outcome).toBe("failure");
+    expect(Buffer.byteLength(result.error ?? "", "utf8")).toBeLessThanOrEqual(
+      MAX_HOOK_OUTPUT_BYTES
+    );
+    expect(result.error).not.toContain("�");
   });
 
   it("supports repository-relative hook paths via bash execution", async () => {

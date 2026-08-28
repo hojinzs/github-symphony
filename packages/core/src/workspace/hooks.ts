@@ -35,6 +35,7 @@ export type HookExecutionOptions = {
 };
 
 const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
+export const MAX_HOOK_OUTPUT_BYTES = 4 * 1024;
 
 export async function executeHook(
   options: HookExecutionOptions
@@ -62,9 +63,23 @@ export async function executeHook(
       stdio: "pipe",
     });
 
-    const stderrChunks: Buffer[] = [];
+    // Drain both pipes so a verbose hook cannot block on the OS pipe buffer.
+    // Retain only the bounded diagnostic suffix used by the orchestrator.
+    let stderr: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    const appendOutput = (
+      current: Buffer<ArrayBufferLike>,
+      chunk: Buffer<ArrayBufferLike>
+    ): Buffer<ArrayBufferLike> => {
+      const combined = Buffer.concat([current, chunk]);
+      return combined.length > MAX_HOOK_OUTPUT_BYTES
+        ? combined.subarray(-MAX_HOOK_OUTPUT_BYTES)
+        : combined;
+    };
+    child.stdout?.on("data", () => {
+      // Output is deliberately discarded after draining.
+    });
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderrChunks.push(chunk);
+      stderr = appendOutput(stderr, chunk);
     });
 
     if (timeoutMs > 0) {
@@ -87,7 +102,37 @@ export async function executeHook(
         clearTimeout(timer);
       }
       const durationMs = Date.now() - start;
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+      // A bounded suffix can begin midway through a UTF-8 sequence. Drop its
+      // continuation bytes before decoding so diagnostics stay valid text.
+      while (stderr.length > 0 && (stderr[0]! & 0b1100_0000) === 0b1000_0000) {
+        stderr = stderr.subarray(1);
+      }
+      // A hook may be terminated immediately after a partial code point.
+      // Remove that suffix instead of emitting a replacement character.
+      let trailingContinuationBytes = 0;
+      for (
+        let index = stderr.length - 1;
+        index >= 0 && (stderr[index]! & 0b1100_0000) === 0b1000_0000;
+        index -= 1
+      ) {
+        trailingContinuationBytes += 1;
+      }
+      if (trailingContinuationBytes > 0) {
+        const leadingIndex = stderr.length - trailingContinuationBytes - 1;
+        const leadingByte = stderr[leadingIndex];
+        const expectedContinuationBytes =
+          leadingByte !== undefined && (leadingByte & 0b1111_1000) === 0b1111_0000
+            ? 3
+            : leadingByte !== undefined && (leadingByte & 0b1111_0000) === 0b1110_0000
+              ? 2
+              : leadingByte !== undefined && (leadingByte & 0b1110_0000) === 0b1100_0000
+                ? 1
+                : 0;
+        if (trailingContinuationBytes < expectedContinuationBytes) {
+          stderr = stderr.subarray(0, leadingIndex);
+        }
+      }
+      const errorOutput = stderr.toString("utf8").trim();
 
       if (timedOut) {
         resolveResult({
@@ -106,7 +151,7 @@ export async function executeHook(
           outcome: "failure",
           exitCode: code,
           durationMs,
-          error: stderr || `Hook "${kind}" exited with code ${code}`,
+          error: errorOutput || `Hook "${kind}" exited with code ${code}`,
         });
         return;
       }
@@ -253,9 +298,7 @@ export function buildHookExecutionEnv(
   return Object.fromEntries(
     Object.entries(env).filter(([key]) => {
       return (
-        allowed.has(key) ||
-        key.startsWith("SYMPHONY_") ||
-        key.startsWith("LC_")
+        allowed.has(key) || key.startsWith("SYMPHONY_") || key.startsWith("LC_")
       );
     })
   );
@@ -263,7 +306,9 @@ export function buildHookExecutionEnv(
 
 function resolveHookCommandSpawn(
   command: string
-): { ok: true; command: string; args: string[] } | { ok: false; error: string } {
+):
+  | { ok: true; command: string; args: string[] }
+  | { ok: false; error: string } {
   const trimmed = command.trim();
   if (!trimmed) {
     return { ok: false, error: "Hook command is empty." };

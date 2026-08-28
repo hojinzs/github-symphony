@@ -19,6 +19,7 @@ import {
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
   executeWorkspaceHook,
+  resolveHookCommand,
   isStateTerminal,
   isMatchingIssueRun,
   matchesWorkflowState,
@@ -128,6 +129,14 @@ function resolveTrackerSecretEnvironmentNames(
     return [];
   }
   return declaration.call(trackerAdapter);
+}
+
+function isSuccessfulHookResult(result: HookResult): boolean {
+  return result.outcome === "success" || result.outcome === "skipped";
+}
+
+function formatFatalHookError(result: HookResult): string {
+  return `${result.kind} hook ${result.outcome}: ${result.error ?? "unknown hook failure"}`;
 }
 
 export function clampPollInterval(intervalMs: number): number {
@@ -2794,11 +2803,17 @@ export class OrchestratorService {
       recursive: true,
       mode: 0o700,
     });
+    // `mkdir` is the source of truth: persisted workspace metadata can outlive
+    // a deleted directory, and a directory can predate its metadata.
+    const createdWorkspaceDirectory = await mkdir(issueWorkspacePath, {
+      recursive: true,
+      mode: 0o700,
+    });
+    const createdNow = createdWorkspaceDirectory !== undefined;
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
-      existingWorkspace:
-        existingWorkspaceAtConfiguredRoot && !workspaceQuarantined,
+      existingWorkspace: !createdNow && !workspaceQuarantined,
       pullRequestBranch,
       allowDirtyExistingWorkspace:
         recovery?.kind === "incomplete-turn-dirty-workspace",
@@ -2818,7 +2833,35 @@ export class OrchestratorService {
     );
     await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
 
-    if (!existingWorkspaceAtConfiguredRoot || workspaceQuarantined) {
+    const shouldSaveWorkspaceRecord =
+      !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;
+
+    // Run after_create only when this process actually created the directory.
+    // If it fails, remove the partial workspace so a retry creates it again
+    // rather than starting in an uninitialized directory.
+    if (createdNow) {
+      const afterCreateResult = await this.runHook(
+        "after_create",
+        tenant,
+        repositoryDirectory,
+        issue.repository,
+        {
+          projectId: tenant.projectId,
+          workspaceKey,
+          issueSubjectId,
+          issueIdentifier: issue.identifier,
+          workspacePath: issueWorkspacePath,
+          repositoryPath: repositoryDirectory,
+          eventRunId: runId,
+        }
+      );
+      if (!isSuccessfulHookResult(afterCreateResult)) {
+        await rm(issueWorkspacePath, { recursive: true, force: true });
+        throw new Error(formatFatalHookError(afterCreateResult));
+      }
+    }
+
+    if (shouldSaveWorkspaceRecord) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
         projectId: tenant.projectId,
@@ -2833,35 +2876,6 @@ export class OrchestratorService {
         lastError: null,
       };
       await this.store.saveIssueWorkspace(workspaceRecord);
-
-      // Run after_create hook for new issue workspaces
-      const afterCreateResult = await this.runHook(
-        "after_create",
-        tenant,
-        repositoryDirectory,
-        issue.repository,
-        {
-          projectId: tenant.projectId,
-          workspaceKey,
-          issueSubjectId,
-          issueIdentifier: issue.identifier,
-          workspacePath: issueWorkspacePath,
-          repositoryPath: repositoryDirectory,
-        }
-      );
-      if (
-        afterCreateResult &&
-        afterCreateResult.outcome !== "success" &&
-        afterCreateResult.outcome !== "skipped"
-      ) {
-        await this.store.appendRunEvent(runId, {
-          at: now.toISOString(),
-          event: "hook-failed",
-          projectId: tenant.projectId,
-          hook: "after_create",
-          error: afterCreateResult.error ?? null,
-        } as OrchestratorEvent);
-      }
     }
 
     const workflow = workflowForPopulate;
@@ -2893,7 +2907,7 @@ export class OrchestratorService {
       repositoryDirectory,
       agentCommand,
     });
-    await this.runHook(
+    const beforeRunResult = await this.runHook(
       "before_run",
       tenant,
       repositoryDirectory,
@@ -2909,6 +2923,9 @@ export class OrchestratorService {
         state: issue.state,
       }
     );
+    if (!isSuccessfulHookResult(beforeRunResult)) {
+      throw new Error(formatFatalHookError(beforeRunResult));
+    }
 
     const runtimeTimeouts = resolveWorkflowRuntimeTimeouts(workflow.workflow);
     const buildRunRecord = (
@@ -3421,29 +3438,7 @@ export class OrchestratorService {
       );
     }
 
-    if (run.issueWorkspaceKey) {
-      const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-        this.resolveIssueWorkspaceRoot(tenant),
-        run.issueWorkspaceKey
-      );
-
-      await this.runHook(
-        "after_run",
-        tenant,
-        run.workingDirectory,
-        run.repository,
-        {
-          projectId: run.projectId,
-          workspaceKey: run.issueWorkspaceKey,
-          issueSubjectId: run.issueSubjectId,
-          issueIdentifier: run.issueIdentifier,
-          workspacePath: issueWorkspacePath,
-          repositoryPath: run.workingDirectory,
-          runId: run.runId,
-          state: run.issueState,
-        }
-      );
-    }
+    await this.runAfterRunHook(tenant, run);
 
     const currentTrackerProgress =
       runWithTokens.runPhase === "succeeded" &&
@@ -4466,7 +4461,7 @@ export class OrchestratorService {
 
   /**
    * Execute a workspace lifecycle hook using the workflow configuration
-   * loaded from the repository. Failures are logged and mirrored to the
+   * loaded from the repository. Starts and bounded failures are logged and mirrored to the
    * run event stream when a run id is available.
    */
   private async runHook(
@@ -4482,6 +4477,7 @@ export class OrchestratorService {
       workspacePath: string;
       repositoryPath: string;
       runId?: string;
+      eventRunId?: string;
       state?: string;
     },
     resolution?: ProjectWorkflowResolution
@@ -4505,6 +4501,11 @@ export class OrchestratorService {
           tenant,
           buildHookEnv(context)
         );
+        if (resolveHookCommand(workflowResolution.workflow.hooks, kind)) {
+          this.writeStderr(
+            `[orchestrator] starting ${kind} hook for ${context.issueIdentifier}`
+          );
+        }
         result = await executeWorkspaceHook({
           kind,
           hooks: workflowResolution.workflow.hooks,
@@ -4532,9 +4533,10 @@ export class OrchestratorService {
       this.writeStderr(
         `[orchestrator] ${kind} hook failed for ${context.issueIdentifier}: ${errorMessage}`
       );
-      if (context.runId) {
+      const eventRunId = context.eventRunId ?? context.runId;
+      if (eventRunId) {
         try {
-          await this.store.appendRunEvent(context.runId, {
+          await this.store.appendRunEvent(eventRunId, {
             at: this.now().toISOString(),
             event: "hook-failed",
             projectId: tenant.projectId,
@@ -4550,6 +4552,33 @@ export class OrchestratorService {
     }
 
     return result;
+  }
+
+  private async runAfterRunHook(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord
+  ): Promise<void> {
+    if (!run.issueWorkspaceKey) return;
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      this.resolveIssueWorkspaceRoot(tenant),
+      run.issueWorkspaceKey
+    );
+    await this.runHook(
+      "after_run",
+      tenant,
+      run.workingDirectory,
+      run.repository,
+      {
+        projectId: run.projectId,
+        workspaceKey: run.issueWorkspaceKey,
+        issueSubjectId: run.issueSubjectId,
+        issueIdentifier: run.issueIdentifier,
+        workspacePath,
+        repositoryPath: run.workingDirectory,
+        runId: run.runId,
+        state: run.issueState,
+      }
+    );
   }
 
   private readProjectEnv(
