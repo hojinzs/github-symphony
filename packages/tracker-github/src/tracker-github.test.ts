@@ -4906,9 +4906,7 @@ describe("resolveTrackerAdapter", () => {
       ],
       createdAt: "2026-03-13T00:00:00.000Z",
       updatedAt: "2026-03-14T00:00:00.000Z",
-      metadata: {
-        assignees: ["octocat"],
-      },
+      assigneeId: "octocat",
     });
   });
 
@@ -4991,6 +4989,9 @@ describe("resolveTrackerAdapter", () => {
 
           expect(body.query).toContain("... on PullRequest");
           expect(body.query).toContain("headRefName");
+          expect(body.query).toContain("baseRefName");
+          expect(body.query).toContain("headRepository");
+          expect(body.query).toContain("createdAt");
           expect(body.variables.issueIds).toEqual(["pr-1"]);
 
           return new Response(
@@ -5024,6 +5025,27 @@ describe("resolveTrackerAdapter", () => {
     expect(issues[0]?.branchName).toBe("feature/pr-card");
     expect(issues[0]?.url).toBe("https://github.com/acme/platform/pull/42");
     expect(issues[0]?.tracker.itemId).toBe("item-pr-1");
+    expect(issues[0]).toMatchObject({
+      title: "Add refresh normalization",
+      description: "PR body",
+      createdAt: "2026-03-13T00:00:00.000Z",
+      metadata: {
+        contentType: "PullRequest",
+        pullRequest: {
+          title: "Add refresh normalization",
+          body: "PR body",
+          state: "OPEN",
+          isDraft: false,
+          merged: false,
+          baseRefName: "main",
+          headRepository: {
+            owner: "acme",
+            name: "fork",
+          },
+          createdAt: "2026-03-13T00:00:00.000Z",
+        },
+      },
+    });
   });
 
   it("fails loudly when a refreshed Project item omits the state field", async () => {
@@ -5044,18 +5066,24 @@ describe("resolveTrackerAdapter", () => {
     });
     node.projectItems.nodes[0]!.fieldValues.nodes = [];
 
-    await expect(
-      adapter.fetchIssueStatesByIds(makeProjectConfig(), ["issue-1"], {
-        token: "dependencies-token",
-        fetchImpl: async () =>
-          new Response(JSON.stringify({ data: { nodes: [node] } }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
-      })
-    ).rejects.toThrow(
-      'github_project_state_field_missing: Project item item-missing-state did not include configured state field "Status". Issue: acme/platform#1.'
-    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(
+        adapter.fetchIssueStatesByIds(makeProjectConfig(), ["issue-1"], {
+          token: "dependencies-token",
+          fetchImpl: async () =>
+            new Response(JSON.stringify({ data: { nodes: [node] } }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        })
+      ).rejects.toThrow(
+        'github_project_state_field_missing: Project item item-missing-state did not include configured state field "Status". Issue: acme/platform#1.'
+      );
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("attaches GitHub API rate-limit headers to fetched issue state lookups", async () => {
@@ -5921,6 +5949,11 @@ function makePullRequestStateLookupNode(input: {
   state: string;
   isArchived?: boolean;
   headRefName?: string | null;
+  title?: string;
+  body?: string | null;
+  baseRefName?: string | null;
+  isDraft?: boolean | null;
+  merged?: boolean | null;
   pageInfo?: {
     endCursor: string | null;
     hasNextPage: boolean;
@@ -5930,14 +5963,26 @@ function makePullRequestStateLookupNode(input: {
     __typename: "PullRequest" as const,
     id: input.pullRequestId,
     number: input.number,
+    title: input.title ?? "Add refresh normalization",
+    body: input.body ?? "PR body",
     url: `https://github.com/acme/platform/pull/${input.number}`,
+    state: "OPEN",
+    isDraft: input.isDraft ?? false,
+    merged: input.merged ?? false,
     updatedAt: "2026-03-14T00:00:00.000Z",
     headRefName: input.headRefName ?? null,
+    baseRefName: input.baseRefName ?? "main",
+    headRepository: {
+      name: "fork",
+      url: "https://github.com/acme/fork",
+      owner: { login: "acme" },
+    },
     repository: {
       name: "platform",
       url: "https://github.com/acme/platform",
       owner: { login: "acme" },
     },
+    createdAt: "2026-03-13T00:00:00.000Z",
     projectItems: {
       nodes: [
         {

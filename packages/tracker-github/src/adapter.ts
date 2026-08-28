@@ -499,8 +499,7 @@ export function normalizeProjectItem(
       item.content.state ?? null,
       linkedPullRequests,
       linkedPullRequestsTruncated,
-      isArchived,
-      normalizeAssigneeLogins(item.content.assignees?.nodes ?? [])
+      isArchived
     ),
     rateLimits,
   };
@@ -2187,6 +2186,18 @@ function normalizeIssueStateLookupNode(
     return null;
   }
 
+  if (projectItem.isArchived !== true) {
+    const fieldValues = extractFieldValues(
+      projectItem.fieldValues?.nodes ?? []
+    );
+    requireProjectItemState(
+      fieldValues,
+      lifecycle,
+      projectItem.id,
+      `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`
+    );
+  }
+
   const normalized = normalizeRepositoryIssueLookup(
     projectId,
     issue,
@@ -2195,17 +2206,9 @@ function normalizeIssueStateLookupNode(
     priority,
     rateLimits
   );
-  if (normalized || projectItem.isArchived === true) {
+  if (normalized) {
     return normalized;
   }
-
-  const fieldValues = extractFieldValues(projectItem.fieldValues?.nodes ?? []);
-  requireProjectItemState(
-    fieldValues,
-    lifecycle,
-    projectItem.id,
-    `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`
-  );
   return null;
 }
 
@@ -2306,18 +2309,16 @@ function withIssueMetadata(
   sourceState: string | null,
   linkedPullRequests: GitHubPullRequestMetadata[],
   linkedPullRequestsTruncated = false,
-  isArchived = false,
-  assignees: string[] = []
+  isArchived = false
 ): TrackedIssue["metadata"] {
-  const metadata = assignees.length === 0 ? {} : { assignees };
   if (
     linkedPullRequests.length === 0 &&
     !linkedPullRequestsTruncated &&
     !isArchived
   ) {
     return sourceState === null
-      ? { ...fieldValues, ...metadata }
-      : withGitHubMetadata(fieldValues, { sourceState, ...metadata });
+      ? fieldValues
+      : withGitHubMetadata(fieldValues, { sourceState });
   }
 
   return withGitHubMetadata(fieldValues, {
@@ -2325,14 +2326,7 @@ function withIssueMetadata(
     linkedPullRequests,
     linkedPullRequestsTruncated,
     isArchived,
-    ...metadata,
   });
-}
-
-function normalizeAssigneeLogins(
-  nodes: Array<{ login: string | null } | null>
-): string[] {
-  return nodes.flatMap((node) => (node?.login ? [node.login] : []));
 }
 
 async function resolveIssueProjectItemForStateLookup(
