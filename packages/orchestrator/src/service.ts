@@ -2537,13 +2537,20 @@ export class OrchestratorService {
       repository.name
     );
     const environment = this.resolveProjectEnvironment(tenant);
-    const resolution = tenant.workflowSource?.path
-      ? await loadWorkflowFile(tenant.workflowSource.path, environment)
-      : await loadRepositoryWorkflow(
-          this.resolveWorkflowRepositoryDirectory(repository),
-          repository,
-          environment
-        );
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    const resolution =
+      tenant.workflowSource?.path
+        ? await loadWorkflowFile(
+            tenant.workflowSource.path,
+            environment,
+            trackerAdapter
+          )
+        : await loadRepositoryWorkflow(
+            this.resolveWorkflowRepositoryDirectory(repository),
+            repository,
+            environment,
+            trackerAdapter
+          );
     return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
   }
 

@@ -17,6 +17,7 @@ import {
   acquireRepositoryLock,
   cloneRepositoryForRun,
   ensureIssueWorkspaceRepository,
+  loadWorkflowFile,
   removeIssueWorkspaceWorktree,
   renderIssueBranchName,
   releaseRepositoryLock,
@@ -1264,6 +1265,41 @@ describe("sanitizeRepositoryCloneUrl", () => {
         "https://x-access-token:secret-token@github.com/acme/platform.git"
       )
     ).toBe("https://github.com/acme/platform.git");
+  });
+});
+
+describe("loadWorkflowFile", () => {
+  it("uses the selected tracker adapter for provider validation", async () => {
+    const workflowPath = join(testConfigDir, "WORKFLOW.md");
+    const validateProviderConfig = vi.fn(() => []);
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: file
+  provider:
+    issues_path: /tmp/issues.json
+  state_field: Status
+  active_states:
+    - Ready
+  terminal_states:
+    - Done
+codex:
+  command: codex
+---
+Prompt`,
+      "utf8"
+    );
+
+    const resolution = await loadWorkflowFile(workflowPath, process.env, {
+      validateProviderConfig,
+    });
+
+    expect(resolution.isValid).toBe(true);
+    expect(validateProviderConfig).toHaveBeenCalledWith({
+      issues_path: "/tmp/issues.json",
+      state_field: "Status",
+    });
   });
 });
 

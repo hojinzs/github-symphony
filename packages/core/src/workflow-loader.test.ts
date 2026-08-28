@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkflowConfigStore } from "./workflow/loader.js";
 import {
-  parseWorkflowMarkdown,
+  parseWorkflowMarkdown as parseWorkflowMarkdownStrict,
   WorkflowValidationError,
 } from "./workflow/parser.js";
 import { isStateActive } from "./workflow/lifecycle.js";
@@ -14,6 +14,27 @@ import {
 } from "./workflow/config.js";
 
 const tempDirs: string[] = [];
+
+const testAdapter = {
+  defaultLifecycle: () => ({
+    stateFieldName: "Status",
+    activeStates: ["Todo", "In Progress"],
+    terminalStates: ["Done"],
+    blockerCheckStates: ["Todo"],
+    planningStates: [],
+  }),
+};
+
+function parseWorkflowMarkdown(
+  markdown: string,
+  env?: NodeJS.ProcessEnv,
+  options: Parameters<typeof parseWorkflowMarkdownStrict>[2] = {}
+) {
+  return parseWorkflowMarkdownStrict(markdown, env, {
+    ...options,
+    trackerAdapter: options.trackerAdapter ?? testAdapter,
+  });
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -160,6 +181,354 @@ Prompt`,
     expect(workflow.tracker.kind).toBe("custom-tracker");
   });
 
+  it("preserves provider-owned keys and delegates validation to the selected adapter", () => {
+    const validateProviderConfig = vi.fn(() => []);
+    const workflow = parseWorkflowMarkdownStrict(
+      `---
+tracker:
+  kind: custom-tracker
+  provider:
+    tenant: acme
+    nested:
+      enabled: true
+  active_states:
+    - Queued
+  terminal_states:
+    - Closed
+  state_field: Workflow
+codex:
+  command: codex
+---
+Prompt`,
+      process.env,
+      {
+        supportedTrackerKinds: ["custom-tracker"],
+        trackerAdapter: { validateProviderConfig },
+      }
+    );
+
+    expect(workflow.tracker.provider).toEqual({
+      tenant: "acme",
+      nested: { enabled: true },
+      state_field: "Workflow",
+    });
+    expect(validateProviderConfig).toHaveBeenCalledWith(
+      workflow.tracker.provider
+    );
+  });
+
+  it("resolves provider validation and lifecycle defaults from tracker.kind", () => {
+    const selectedAdapter = {
+      validateProviderConfig: vi.fn(() => []),
+      defaultLifecycle: () => ({
+        stateFieldName: "Workflow",
+        activeStates: ["Queued"],
+        terminalStates: ["Closed"],
+        blockerCheckStates: ["Queued"],
+        planningStates: [],
+      }),
+    };
+    const resolveTrackerAdapter = vi.fn((kind: string) =>
+      kind === "custom-tracker" ? selectedAdapter : undefined
+    );
+
+    const workflow = parseWorkflowMarkdownStrict(
+      `---
+tracker:
+  kind: custom-tracker
+  provider:
+    tenant: acme
+codex:
+  command: codex
+---
+Prompt`,
+      process.env,
+      {
+        supportedTrackerKinds: ["custom-tracker"],
+        resolveTrackerAdapter,
+      }
+    );
+
+    expect(resolveTrackerAdapter).toHaveBeenCalledWith("custom-tracker");
+    expect(selectedAdapter.validateProviderConfig).toHaveBeenCalledWith({
+      tenant: "acme",
+    });
+    expect(workflow.lifecycle).toMatchObject({
+      stateFieldName: "Workflow",
+      activeStates: ["Queued"],
+      terminalStates: ["Closed"],
+      blockerCheckStates: ["Queued"],
+      planningStates: [],
+    });
+  });
+
+  it("promotes flat tracker keys while retaining provider-owned values", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: github-project
+  provider:
+    endpoint: https://provider.example.test/graphql
+    custom_setting: retained
+  api_key: $TRACKER_TOKEN
+  endpoint: https://deprecated.example.test/graphql
+  project_slug: platform
+  active_states:
+    - Ready
+  terminal_states:
+    - Done
+  state_field: Status
+codex:
+  command: codex
+---
+Prompt`,
+      { TRACKER_TOKEN: "token" } as NodeJS.ProcessEnv
+    );
+
+    expect(workflow.tracker.provider).toMatchObject({
+      api_key: "$TRACKER_TOKEN",
+      endpoint: "https://provider.example.test/graphql",
+      project_slug: "platform",
+      custom_setting: "retained",
+    });
+    expect(workflow.tracker.deprecatedKeys).toEqual([
+      "api_key",
+      "project_slug",
+      "endpoint",
+      "state_field",
+    ]);
+    expect(workflow.tracker.apiKey).toBe("token");
+    expect(workflow.tracker.endpoint).toBe(
+      "https://provider.example.test/graphql"
+    );
+  });
+
+  it("projects provider aliases onto compatibility fields", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    api_key: $TRACKER_TOKEN
+    endpoint: https://provider.example.test/graphql
+  state_field: Status
+  active_states: [Ready]
+  terminal_states: [Done]
+codex:
+  command: codex
+---
+Prompt`,
+      { TRACKER_TOKEN: "token" } as NodeJS.ProcessEnv
+    );
+
+    expect(workflow.tracker).toMatchObject({
+      projectId: "project-123",
+      apiKey: "token",
+      endpoint: "https://provider.example.test/graphql",
+    });
+  });
+
+  it("uses provider values consistently when deprecated flat keys coexist", () => {
+    const workflow = parseWorkflowMarkdownStrict(`---
+tracker:
+  kind: linear
+  project_id: flat-project
+  api_key: flat-key
+  endpoint: https://flat.example.test
+  state_field: Flat state
+  active_states: [Todo]
+  terminal_states: [Done]
+  provider:
+    project_id: provider-project
+    api_key: provider-key
+    endpoint: https://provider.example.test
+    state_field: Provider state
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.tracker).toMatchObject({
+      projectId: "provider-project",
+      apiKey: "provider-key",
+      endpoint: "https://provider.example.test",
+      stateFieldName: "Provider state",
+      deprecatedKeys: ["api_key", "project_id", "endpoint", "state_field"],
+    });
+  });
+
+  it("projects provider lifecycle and policy aliases", () => {
+    const workflow = parseWorkflowMarkdownStrict(`---
+tracker:
+  kind: github-project
+  provider:
+    state_field: Workflow
+    active_states: [Provider ready]
+    terminal_states: [Provider done]
+    pickup_labels:
+      include: agent, dev-ready
+    priority:
+      source: labels
+      labels:
+        urgent: 0
+    blocker_check_states: Ready, In progress
+    planning_states:
+      - Backlog
+  active_states: [Flat ready]
+  terminal_states: [Flat done]
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.tracker).toMatchObject({
+      stateFieldName: "Workflow",
+      activeStates: ["Provider ready"],
+      terminalStates: ["Provider done"],
+      pickupLabels: { include: ["agent", "dev-ready"], exclude: [] },
+      priority: { source: "labels", labels: { urgent: 0 } },
+      blockerCheckStates: ["Ready", "In progress"],
+      planningStates: ["Backlog"],
+    });
+  });
+
+  it("keeps provider-only lifecycle configuration usable without an adapter", () => {
+    const workflow = parseWorkflowMarkdownStrict(`---
+tracker:
+  kind: github-project
+  provider:
+    state_field: Workflow
+  active_states: [Ready]
+  terminal_states: [Done]
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.lifecycle.stateFieldName).toBe("Workflow");
+  });
+
+  it("reports every adapter provider validation error", () => {
+    const errors = [
+      new WorkflowValidationError(
+        "workflow_validation_error",
+        "tracker.provider.project",
+        "project is required."
+      ),
+      new WorkflowValidationError(
+        "workflow_validation_error",
+        "tracker.provider.token",
+        "token is required."
+      ),
+    ];
+    expect(() =>
+      parseWorkflowMarkdownStrict(
+        `---
+tracker:
+  kind: github-project
+  active_states: [Ready]
+  terminal_states: [Done]
+  state_field: Status
+codex:
+  command: codex
+---
+Prompt`,
+        process.env,
+        { trackerAdapter: { validateProviderConfig: () => errors } }
+      )
+    ).toThrow(
+      /project is required\. \(1 additional provider validation error: token is required\.\)/
+    );
+  });
+
+  it("loads the bundled Linear example with deprecated lifecycle defaults", async () => {
+    const markdown = await readFile(
+      new URL("../../../docs/examples/linear-WORKFLOW.md", import.meta.url),
+      "utf8"
+    );
+    const workflow = parseWorkflowMarkdownStrict(markdown, {
+      LINEAR_API_KEY: "test-key",
+    } as NodeJS.ProcessEnv);
+
+    expect(workflow.lifecycle).toMatchObject({ stateFieldName: "Status" });
+    expect(workflow.tracker.projectSlug).toBe("symphony-0c79b11b75ea");
+  });
+
+  it("preserves lifecycle defaults until adapters provide their own", () => {
+    const workflow = parseWorkflowMarkdownStrict(`---
+tracker:
+  kind: github-project
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.lifecycle).toMatchObject({
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+    });
+  });
+
+  it("uses lifecycle defaults for legacy sectioned workflows", () => {
+    const workflow = parseWorkflowMarkdownStrict(
+      "## Prompt Guidelines\n\nPrompt",
+      process.env,
+      {
+        compatibilityMode: "legacy",
+      }
+    );
+
+    expect(workflow.lifecycle).toMatchObject({
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+    });
+  });
+
+  it.each([
+    ["active_states", "Ready, In progress", ["Done"]],
+    ["terminal_states", ["Ready"], "Done, Cancelled"],
+  ])(
+    "rejects comma-separated %s values",
+    (key, activeStates, terminalStates) => {
+      expect(() =>
+        parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  active_states: ${Array.isArray(activeStates) ? "[Ready]" : activeStates}
+  terminal_states: ${Array.isArray(terminalStates) ? "[Done]" : terminalStates}
+  state_field: Status
+codex:
+  command: codex
+---
+Prompt`)
+      ).toThrow(`"${key}"`);
+    }
+  );
+
+  it("keeps validation errors on the flat alias source path", () => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdownStrict(
+        `---
+tracker:
+  kind: linear
+  api_key: $MISSING_TRACKER_TOKEN
+codex:
+  command: codex
+---
+Prompt`,
+        {}
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({ path: "tracker.api_key" });
+  });
+
   it("rejects non-positive per-state concurrency overrides", () => {
     let thrown: unknown;
     try {
@@ -278,7 +647,7 @@ Prompt body.
   });
 
   it("defaults blocker checks to the first configured active state", () => {
-    const workflow = parseWorkflowMarkdown(`---
+    const workflow = parseWorkflowMarkdownStrict(`---
 tracker:
   kind: github-project
   active_states:
@@ -617,72 +986,31 @@ Prompt body.
     });
   });
 
-  it.each(["project_id", "projectId", "teamId", "team_id"])(
-    "rejects Linear tracker alias %s",
-    (key) => {
-      expect(() =>
-        parseWorkflowMarkdown(`---
-tracker:
-  kind: linear
-  project_slug: symphony-0c79b11b75ea
-  ${key}: forbidden
-codex:
-  command: codex app-server
----
-Prompt body.
-`)
-      ).toThrow(
-        `Workflow front matter field "tracker.${key}" is not supported for tracker.kind "linear"; use "tracker.project_slug".`
-      );
-    }
-  );
-
-  it("requires project_slug for Linear tracker config", () => {
-    expect(() =>
-      parseWorkflowMarkdown(`---
-tracker:
-  kind: linear
-codex:
-  command: codex app-server
----
-Prompt body.
-`)
-    ).toThrow(
-      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+  it("surfaces typed provider validation errors from the selected adapter", () => {
+    const adapterError = new WorkflowValidationError(
+      "workflow_validation_error",
+      "tracker.provider.project_slug",
+      "project_slug is required by this adapter."
     );
-  });
-
-  it("rejects blank project_slug for Linear tracker config", () => {
     expect(() =>
-      parseWorkflowMarkdown(`---
+      parseWorkflowMarkdownStrict(
+        `---
 tracker:
   kind: linear
-  project_slug: ""
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+  state_field: Status
 codex:
   command: codex app-server
 ---
 Prompt body.
-`)
-    ).toThrow(
-      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
-    );
-  });
-
-  it("rejects blank endpoint for Linear tracker config", () => {
-    expect(() =>
-      parseWorkflowMarkdown(`---
-tracker:
-  kind: linear
-  project_slug: symphony-0c79b11b75ea
-  endpoint: ""
-codex:
-  command: codex app-server
----
-Prompt body.
-`)
-    ).toThrow(
-      'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
-    );
+`,
+        process.env,
+        { trackerAdapter: { validateProviderConfig: () => [adapterError] } }
+      )
+    ).toThrow(adapterError);
   });
 
   it("resolves environment indirection from yaml front matter", () => {
@@ -1050,7 +1378,7 @@ describe("WorkflowConfigStore", () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
     tempDirs.push(root);
     const workflowPath = join(root, "WORKFLOW.md");
-    const store = new WorkflowConfigStore();
+    const store = new WorkflowConfigStore({ trackerAdapter: testAdapter });
     const secret = "project-and-host-secret";
     const changedSecret = "changed-project-and-host-secret";
 
@@ -1078,7 +1406,7 @@ describe("WorkflowConfigStore", () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
     tempDirs.push(root);
     const workflowPath = join(root, "WORKFLOW.md");
-    const store = new WorkflowConfigStore();
+    const store = new WorkflowConfigStore({ trackerAdapter: testAdapter });
 
     await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
 

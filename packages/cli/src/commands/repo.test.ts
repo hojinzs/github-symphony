@@ -592,7 +592,7 @@ Handle {{issue.identifier}}.
     );
   });
 
-  it("fails Linear repo init when tracker.project_slug is missing", async () => {
+  it("defers missing Linear project_slug validation to the adapter", async () => {
     const repoDir = await createGitRepo();
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
@@ -619,10 +619,8 @@ Handle {{issue.identifier}}.
       stderr.restore();
     }
 
-    expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain(
-      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
-    );
+    expect(process.exitCode).toBeUndefined();
+    expect(stderr.output()).toBe("");
   });
 
   it("fails Linear repo init when LINEAR_API_KEY reference is unresolved", async () => {

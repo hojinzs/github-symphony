@@ -17,6 +17,7 @@ import {
   createDefaultWorkflowResolution,
   formatWorkflowValidationError,
   WorkflowConfigStore,
+  type OrchestratorTrackerAdapter,
   type RepositoryRef,
   type WorkflowResolution,
 } from "@gh-symphony/core";
@@ -27,9 +28,17 @@ import {
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 import { getSupportedTrackerKinds } from "./tracker-adapters.js";
 
-const workflowConfigStore = new WorkflowConfigStore({
+const defaultWorkflowConfigStore = new WorkflowConfigStore({
   supportedTrackerKinds: getSupportedTrackerKinds(),
 });
+type WorkflowTrackerAdapterHooks = Pick<
+  OrchestratorTrackerAdapter,
+  "validateProviderConfig" | "defaultLifecycle"
+>;
+const workflowConfigStores = new WeakMap<
+  WorkflowTrackerAdapterHooks,
+  WorkflowConfigStore
+>();
 const LOCK_RETRY_MS = 100;
 const LOCK_STALE_MS = 30 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 2 * 60 * 1000;
@@ -637,18 +646,24 @@ export async function quarantineIssueWorkspace(
 export async function loadRepositoryWorkflow(
   repositoryDirectory: string,
   _repository: RepositoryRef,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  trackerAdapter?: WorkflowTrackerAdapterHooks
 ): Promise<WorkflowResolution> {
-  return loadWorkflowFile(join(repositoryDirectory, "WORKFLOW.md"), env);
+  return loadWorkflowFile(
+    join(repositoryDirectory, "WORKFLOW.md"),
+    env,
+    trackerAdapter
+  );
 }
 
 /** Load a workflow from an explicitly selected file without repository lookup. */
 export async function loadWorkflowFile(
   workflowPath: string,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  trackerAdapter?: WorkflowTrackerAdapterHooks
 ): Promise<WorkflowResolution> {
   try {
-    return await workflowConfigStore.load(workflowPath, env);
+    return await getWorkflowConfigStore(trackerAdapter).load(workflowPath, env);
   } catch (error) {
     if (isMissingFileError(error)) {
       return createDefaultWorkflowResolution();
@@ -659,6 +674,24 @@ export async function loadWorkflowFile(
       formatWorkflowValidationError(error)
     );
   }
+}
+
+function getWorkflowConfigStore(
+  trackerAdapter?: WorkflowTrackerAdapterHooks
+): WorkflowConfigStore {
+  if (!trackerAdapter) {
+    return defaultWorkflowConfigStore;
+  }
+
+  let store = workflowConfigStores.get(trackerAdapter);
+  if (!store) {
+    store = new WorkflowConfigStore({
+      supportedTrackerKinds: getSupportedTrackerKinds(),
+      trackerAdapter,
+    });
+    workflowConfigStores.set(trackerAdapter, store);
+  }
+  return store;
 }
 
 export function runGitCommand(args: string[]): Promise<void> {

@@ -1,7 +1,4 @@
-import {
-  DEFAULT_WORKFLOW_LIFECYCLE,
-  type WorkflowLifecycleConfig,
-} from "./lifecycle.js";
+import type { WorkflowLifecycleConfig } from "./lifecycle.js";
 
 export type WorkflowHooksConfig = {
   afterCreate: string | null;
@@ -13,6 +10,10 @@ export type WorkflowHooksConfig = {
 
 export type WorkflowTrackerConfig = {
   kind: string | null;
+  /** Adapter-owned configuration, including unknown provider-specific keys. */
+  provider: Record<string, unknown>;
+  /** Flat tracker keys promoted into provider for backwards compatibility. */
+  deprecatedKeys: string[];
   endpoint: string | null;
   apiKey: string | null;
   projectSlug: string | null;
@@ -165,6 +166,8 @@ export const DEFAULT_WORKFLOW_HOOKS: WorkflowHooksConfig = {
 
 export const DEFAULT_WORKFLOW_TRACKER: WorkflowTrackerConfig = {
   kind: null,
+  provider: {},
+  deprecatedKeys: [],
   endpoint: null,
   apiKey: null,
   projectSlug: null,
@@ -172,14 +175,14 @@ export const DEFAULT_WORKFLOW_TRACKER: WorkflowTrackerConfig = {
     include: [],
     exclude: [],
   },
-  activeStates: DEFAULT_WORKFLOW_LIFECYCLE.activeStates,
-  terminalStates: DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
+  activeStates: [],
+  terminalStates: [],
   projectId: null,
-  stateFieldName: DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
+  stateFieldName: "",
   priority: null,
   priorityFieldName: null,
-  blockerCheckStates: DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates,
-  planningStates: DEFAULT_WORKFLOW_LIFECYCLE.planningStates,
+  blockerCheckStates: [],
+  planningStates: [],
 };
 
 export const DEFAULT_WORKFLOW_WORKSPACE: WorkflowWorkspaceConfig = {
@@ -218,7 +221,13 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   agent: DEFAULT_WORKFLOW_AGENT,
   runtime: null,
   codex: DEFAULT_WORKFLOW_CODEX,
-  lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+  lifecycle: {
+    stateFieldName: "",
+    activeStates: [],
+    terminalStates: [],
+    blockerCheckStates: [],
+    planningStates: [],
+  },
   format: "default",
   githubProjectId: null,
   agentCommand: DEFAULT_CODEX_COMMAND,
