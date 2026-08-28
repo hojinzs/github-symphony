@@ -154,6 +154,11 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
     return issues.filter((issue) => ids.has(issue.id));
   },
 
+  getTrackerItemId(issue) {
+    const itemId = issue.nativeRef?.itemId;
+    return typeof itemId === "string" ? itemId : null;
+  },
+
   resolveTerminalFact(issue) {
     const terminalFact = issue.metadata.terminalFact;
     if (!terminalFact || typeof terminalFact !== "object") {
@@ -290,8 +295,8 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       tracker: {
         adapter: "file",
         bindingId: project.tracker.bindingId,
-        itemId: run.issueId,
       },
+      nativeRef: { itemId: run.issueId },
       metadata: {},
     };
   },

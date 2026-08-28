@@ -2234,6 +2234,57 @@ function createDispatchAdapter(
           itemId: run.issueId,
         },
       }),
+    getTrackerItemId: (issue) =>
+      (typeof issue.nativeRef?.itemId === "string"
+        ? issue.nativeRef.itemId
+        : issue.tracker.itemId) ?? null,
+    resolveCanonicalIssues: (candidates) => {
+      const pullRequests = new Map(
+        candidates
+          .filter((issue) => issue.metadata.contentType === "PullRequest")
+          .map((issue) => [issue.id, issue])
+      );
+      const linked = new Set<string>();
+      return candidates.flatMap((issue) => {
+        if (issue.metadata.contentType === "PullRequest") {
+          return [];
+        }
+        const references = issue.metadata.linkedPullRequests ?? [];
+        for (const reference of references) linked.add(reference.id);
+        const resolved = references.map((reference) => {
+          const projectItem = pullRequests.get(reference.id);
+          return projectItem
+            ? { ...reference, projectState: projectItem.state }
+            : reference;
+        });
+        return [
+          references.some((reference) => pullRequests.has(reference.id))
+            ? { ...issue, metadata: { ...issue.metadata, linkedPullRequests: resolved } }
+            : issue,
+        ];
+      }).concat(
+        candidates.filter(
+          (issue) =>
+            issue.metadata.contentType === "PullRequest" && !linked.has(issue.id)
+        )
+      );
+    },
+    matchesIssueIdentifier: (issue, identifier) =>
+      issue.identifier === identifier ||
+      issue.metadata.linkedPullRequests?.some(
+        (pullRequest) => pullRequest.identifier === identifier
+      ) === true,
+    findActiveLinkedPullRequest: (issue, lifecycle) => {
+      const states = new Set(lifecycle.activeStates.map((state) => state.toLowerCase()));
+      const pullRequest = issue.metadata.linkedPullRequests?.find(
+        (candidate) =>
+          typeof candidate.projectState === "string" &&
+          states.has(candidate.projectState.toLowerCase())
+      );
+      return pullRequest?.projectState
+        ? { id: pullRequest.id, identifier: pullRequest.identifier, projectState: pullRequest.projectState }
+        : null;
+    },
   };
 }
 

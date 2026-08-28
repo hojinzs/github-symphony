@@ -494,6 +494,15 @@ export function normalizeProjectItem(
       bindingId: projectId,
       itemId: item.id,
     },
+    nativeRef: {
+      itemId: item.id,
+      contentType: "Issue",
+      sourceState: item.content.state ?? null,
+      linkedPullRequests,
+      linkedPullRequestsTruncated,
+      projectFieldValues: fieldValues,
+    } as TrackedIssue["nativeRef"],
+    isArchived,
     metadata: withIssueMetadata(
       fieldValues,
       item.content.state ?? null,
@@ -546,6 +555,14 @@ function normalizePullRequestProjectItem(
       bindingId: projectId,
       itemId: item.id,
     },
+    nativeRef: {
+      itemId: item.id,
+      contentType: "PullRequest",
+      pullRequest,
+      linkedPullRequests: [],
+      projectFieldValues: fieldValues,
+    } as TrackedIssue["nativeRef"],
+    isArchived: item.isArchived === true,
     metadata: withGitHubMetadata(fieldValues, {
       contentType: "PullRequest",
       pullRequest,

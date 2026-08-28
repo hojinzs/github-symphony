@@ -23,7 +23,6 @@ import {
 export { OrchestratorService, createStore };
 export {
   resolveAdaptivePollIntervalMs,
-  resolveCanonicalSubjectIssues,
 } from "./service.js";
 export type { OrchestratorLogLevel };
 export * from "./runtime-factory.js";

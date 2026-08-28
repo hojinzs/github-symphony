@@ -271,10 +271,15 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       tracker: {
         adapter: "linear",
         bindingId: project.tracker.bindingId,
-        itemId: run.issueId,
       },
+      nativeRef: { itemId: run.issueId },
       metadata: {},
     };
+  },
+
+  getTrackerItemId(issue) {
+    const itemId = issue.nativeRef?.itemId;
+    return typeof itemId === "string" ? itemId : null;
   },
 };
 
@@ -477,9 +482,8 @@ export function normalizeLinearIssue(
       bindingId: project.tracker.bindingId,
       itemId: id,
     },
-    metadata: {
-      projectSlug,
-    },
+    nativeRef: { itemId: id, projectSlug },
+    metadata: {},
     rateLimits: options.rateLimits ?? null,
   };
 }

@@ -102,7 +102,9 @@ export function detectDuplicatePlacements(
     duplicates.push({
       issueId,
       issueIdentifier: placements[0]?.identifier ?? issueId,
-      duplicateItemIds: placements.map((placement) => placement.tracker.itemId),
+      duplicateItemIds: placements.map(
+        (placement) => placement.tracker.itemId ?? ""
+      ),
     });
   }
 

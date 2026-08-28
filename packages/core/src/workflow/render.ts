@@ -104,7 +104,7 @@ export function buildPromptVariables(
     issue: {
       id: issue.id,
       identifier: issue.identifier,
-      number: issue.number,
+      number: issue.number ?? 0,
       title: issue.title,
       description: issue.description,
       priority: issue.priority,
@@ -170,7 +170,7 @@ function buildPullRequestContextFromIssue(
 ): TrackedPullRequestContext {
   return {
     id: issue.id,
-    number: issue.number,
+      number: issue.number ?? 0,
     identifier: issue.identifier,
     url: issue.url,
     state: null,

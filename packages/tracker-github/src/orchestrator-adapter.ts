@@ -3,6 +3,7 @@ import type {
   OrchestratorTrackerAdapter,
   OrchestratorTrackerDependencies,
   OrchestratorTrackerConfig,
+  TrackedIssue,
   TrackedIssueList,
 } from "@gh-symphony/core";
 import { resolvePickupLabelDispatchReason } from "@gh-symphony/core";
@@ -81,12 +82,141 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
         bindingId: project.tracker.bindingId,
         itemId: run.trackerItemId ?? "",
       },
+      nativeRef: { itemId: run.trackerItemId ?? "" },
       metadata: {},
     };
   },
 
+  resolveCanonicalIssues(issues) {
+    const pullRequestsById = new Map<string, TrackedIssue>();
+    const pullRequestsByIdentifier = new Map<string, TrackedIssue>();
+    for (const issue of issues) {
+      if (githubNative(issue).contentType !== "PullRequest") continue;
+      pullRequestsById.set(issue.id, issue);
+      pullRequestsByIdentifier.set(issue.identifier, issue);
+    }
+
+    const linkedIds = new Set<string>();
+    const linkedIdentifiers = new Set<string>();
+    const canonical: TrackedIssue[] = [];
+    for (const issue of issues) {
+      const native = githubNative(issue);
+      if (native.contentType === "PullRequest") continue;
+      const linked = native.linkedPullRequests ?? [];
+      if (linked.length === 0) {
+        canonical.push(issue);
+        continue;
+      }
+      let merged = false;
+      const resolved = linked.map((pullRequest) => {
+        linkedIds.add(pullRequest.id);
+        linkedIdentifiers.add(pullRequest.identifier);
+        const projectPullRequest =
+          pullRequestsById.get(pullRequest.id) ??
+          pullRequestsByIdentifier.get(pullRequest.identifier);
+        if (!projectPullRequest) return pullRequest;
+        merged = true;
+        return {
+          ...pullRequest,
+          projectState: projectPullRequest.state,
+          projectItemId: githubNative(projectPullRequest).itemId,
+          priority: projectPullRequest.priority,
+        };
+      });
+      canonical.push(
+        merged
+          ? {
+              ...issue,
+              nativeRef: {
+                ...(issue.nativeRef ?? {}),
+                linkedPullRequests: resolved,
+              } as TrackedIssue["nativeRef"],
+            }
+          : issue
+      );
+    }
+    for (const pullRequest of issues) {
+      if (githubNative(pullRequest).contentType !== "PullRequest") continue;
+      if (
+        !linkedIds.has(pullRequest.id) &&
+        !linkedIdentifiers.has(pullRequest.identifier)
+      ) {
+        canonical.push(pullRequest);
+      }
+    }
+    return canonical;
+  },
+
+  matchesIssueIdentifier(issue, identifier) {
+    return (
+      issue.identifier === identifier ||
+      githubNative(issue).linkedPullRequests?.some(
+        (pullRequest) => pullRequest.identifier === identifier
+      ) === true
+    );
+  },
+
+  getTrackerItemId(issue) {
+    return githubNative(issue).itemId ?? null;
+  },
+
+  resolveBranchCheckoutTarget(issue) {
+    const native = githubNative(issue);
+    const pullRequest =
+      native.contentType === "PullRequest"
+        ? (native.pullRequest ?? native.linkedPullRequests?.[0])
+        : (native.linkedPullRequests?.[0] ?? null);
+    if (!pullRequest) {
+      if (native.contentType === "PullRequest") {
+        throw new Error(
+          `Cannot checkout pull request branch for ${issue.identifier}: missing pull request reference.`
+        );
+      }
+      return null;
+    }
+    const headRefName = pullRequest.headRefName?.trim();
+    if (!headRefName) {
+      throw new Error(
+        `Cannot checkout pull request branch for ${pullRequest.identifier}: missing headRefName.`
+      );
+    }
+    const headRepository = pullRequest.headRepository ?? null;
+    if (
+      !headRepository ||
+      headRepository.owner.toLowerCase() !== issue.repository.owner.toLowerCase() ||
+      headRepository.name.toLowerCase() !== issue.repository.name.toLowerCase()
+    ) {
+      const source = headRepository
+        ? `${headRepository.owner}/${headRepository.name}`
+        : "unknown fork";
+      throw new Error(
+        `Cannot checkout pull request branch for ${pullRequest.identifier}: fork pull requests are unsupported for automatic checkout/push (${source} -> ${issue.repository.owner}/${issue.repository.name}).`
+      );
+    }
+    return { headRefName };
+  },
+
+  findActiveLinkedPullRequest(issue, lifecycle) {
+    const activeStates = new Set(
+      lifecycle.activeStates.map((state) => state.trim().toLowerCase())
+    );
+    const pullRequest = githubNative(issue).linkedPullRequests?.find(
+      (candidate) =>
+        typeof candidate.projectState === "string" &&
+        activeStates.has(candidate.projectState.trim().toLowerCase())
+    );
+    return pullRequest?.projectState
+      ? {
+          id: pullRequest.id,
+          identifier: pullRequest.identifier,
+          projectState: pullRequest.projectState,
+        }
+      : null;
+  },
+
   resolveTerminalFact(issue) {
-    if (issue.metadata.sourceState?.trim().toLowerCase() === "closed") {
+    const native = githubNative(issue);
+    if (native.sourceState?.trim().toLowerCase() === "closed") {
       return {
         kind: "issue_closed",
         reason: "Source issue is closed while its Project status is active.",
@@ -94,7 +224,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       };
     }
 
-    const mergedPullRequest = issue.metadata.linkedPullRequests?.find(
+    const mergedPullRequest = native.linkedPullRequests?.find(
       (pullRequest) =>
         pullRequest.merged === true ||
         pullRequest.state?.trim().toLowerCase() === "merged"
@@ -137,6 +267,26 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     );
   },
 };
+
+type GitHubNativeRef = {
+  itemId?: string;
+  contentType?: "Issue" | "PullRequest";
+  sourceState?: string | null;
+  linkedPullRequests?: Array<{
+    id: string;
+    identifier: string;
+    state: string | null;
+    merged?: boolean | null;
+    projectState?: string | null;
+    headRefName?: string | null;
+    headRepository?: { owner: string; name: string } | null;
+  }>;
+  pullRequest?: NonNullable<GitHubNativeRef["linkedPullRequests"]>[number];
+};
+
+function githubNative(issue: TrackedIssue): GitHubNativeRef {
+  return (issue.nativeRef ?? {}) as unknown as GitHubNativeRef;
+}
 
 export async function findGithubProjectIssue(
   project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
