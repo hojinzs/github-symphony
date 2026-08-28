@@ -389,6 +389,7 @@ describe("linearTrackerAdapter", () => {
               nodes: [],
               pageInfo: { hasNextPage: false, endCursor: null },
             },
+            viewer: { id: "user-1" },
           },
         })
       );
@@ -419,7 +420,7 @@ describe("linearTrackerAdapter", () => {
       });
       expect(request.variables.filter).not.toHaveProperty("assignee");
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+        expect.stringContaining('"event":"tracker-dispatchable-derived"')
       );
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("Deprecated tracker.settings.assignedOnly")
@@ -433,7 +434,33 @@ describe("linearTrackerAdapter", () => {
     }
   });
 
-  it("emits assignedOnly observability for locally derived eligibility", async () => {
+  it("fails closed when assignedOnly cannot resolve the Linear viewer", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [
+              linearIssueNode("ENG-1", [], { assignee: { id: null } }),
+              linearIssueNode("ENG-2", [], { assignee: { id: "user-1" } }),
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.listIssues(makeProject(), {
+        assignedOnly: true,
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.toThrow(
+      "Linear assignedOnly is enabled but the authenticated viewer id could not be resolved"
+    );
+  });
+
+  it("emits dispatchability derivation observability", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const fetchImpl = vi.fn().mockResolvedValue(
@@ -453,6 +480,7 @@ describe("linearTrackerAdapter", () => {
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
             },
+            viewer: { id: "user-1" },
           },
         })
       );
@@ -465,19 +493,19 @@ describe("linearTrackerAdapter", () => {
 
       expect(issues).toHaveLength(1);
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+        expect.stringContaining('"event":"tracker-dispatchable-derived"')
       );
       expect(infoSpy).toHaveBeenCalledWith(
         expect.stringContaining('"tracker":"linear"')
       );
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"assigneeFilter":"assignee.id"')
+        expect.stringContaining('"assignmentScope":"viewer"')
       );
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"includedCount":0')
+        expect.stringContaining('"dispatchableCount":0')
       );
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"excludedCount":1')
+        expect.stringContaining('"nonDispatchableCount":1')
       );
     } finally {
       infoSpy.mockRestore();
@@ -718,7 +746,7 @@ describe("linearTrackerAdapter", () => {
         assigneeId: "user-1",
       });
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+        expect.stringContaining('"event":"tracker-dispatchable-derived"')
       );
     } finally {
       infoSpy.mockRestore();
@@ -997,15 +1025,20 @@ describe("linearTrackerAdapter", () => {
     expect(env).not.toHaveProperty("LINEAR_TEAM_ID");
   });
 
-  it("preserves the Linear native assignee id when normalizing an issue", () => {
-    expect(
-      normalizeLinearIssue(makeProject(), "project-slug", {
+  it("derives assignedOnly eligibility through the normalizer options object", () => {
+    const issue = normalizeLinearIssue(
+      makeProject(),
+      "project-slug",
+      {
         id: "issue-1",
         identifier: "eng-123",
         state: { name: "Todo" },
         assignee: { id: "user-1" },
-      }).assigneeId
-    ).toBe("user-1");
+      },
+      { assignedOnly: true, viewerId: "user-1" }
+    );
+
+    expect(issue).toMatchObject({ assigneeId: "user-1", dispatchable: true });
   });
 
   it("forwards normalized Linear credentials to the worker", () => {

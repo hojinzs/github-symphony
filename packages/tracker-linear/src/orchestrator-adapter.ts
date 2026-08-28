@@ -7,8 +7,8 @@ import {
   type OrchestratorTrackerDependencies,
   type TrackedIssue,
   type TrackedIssueList,
+  filterIssuesByPickupLabels,
 } from "@gh-symphony/core";
-import { filterIssuesByPickupLabels } from "@gh-symphony/core";
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
 const DEFAULT_PAGE_SIZE = 50;
@@ -306,15 +306,22 @@ async function listLinearIssues(
     pageSize: config.pageSize,
     maxPages: config.maxPages,
   });
+  if (config.assignedOnly && result.viewerId === null) {
+    throw new Error(
+      "Linear assignedOnly is enabled but the authenticated viewer id could not be resolved; refusing to derive dispatch eligibility."
+    );
+  }
 
   const fetchedIssues = result.nodes.map((node) =>
     normalizeLinearIssue(
       project,
       config.projectSlug,
       node,
-      config.assignedOnly,
-      result.rateLimits,
-      result.viewerId
+      {
+        assignedOnly: config.assignedOnly,
+        rateLimits: result.rateLimits,
+        viewerId: result.viewerId,
+      }
     )
   ) as TrackedIssueList;
   Object.defineProperty(fetchedIssues, "rateLimits", {
@@ -325,11 +332,13 @@ async function listLinearIssues(
   });
 
   if (config.assignedOnly) {
-    emitAssignedOnlyFilterEvent({
+    emitDispatchableDerivedEvent({
       projectSlug: config.projectSlug,
-      includedCount: fetchedIssues.filter((issue) => issue.dispatchable).length,
-      excludedCount: fetchedIssues.filter((issue) => !issue.dispatchable)
+      dispatchableCount: fetchedIssues.filter((issue) => issue.dispatchable)
         .length,
+      nonDispatchableCount: fetchedIssues.filter(
+        (issue) => !issue.dispatchable
+      ).length,
     });
   }
 
@@ -371,7 +380,7 @@ async function fetchPaginatedLinearIssues(
       after,
     });
     latestRateLimits = response.rateLimits ?? latestRateLimits;
-    viewerId = response.data.viewer?.id ?? viewerId;
+    viewerId ??= normalizeLinearUserId(response.data.viewer?.id);
     const connection: LinearConnection<LinearIssueNode> | null | undefined =
       response.data.issues;
     issues.push(...(connection?.nodes ?? []));
@@ -417,10 +426,13 @@ export function normalizeLinearIssue(
   project: OrchestratorProjectConfig,
   projectSlug: string,
   issue: LinearIssueNode,
-  assignedOnly = false,
-  rateLimits: Record<string, unknown> | null = null,
-  viewerId: string | null = null
+  options: {
+    assignedOnly?: boolean;
+    rateLimits?: Record<string, unknown> | null;
+    viewerId?: string | null;
+  } = {}
 ): TrackedIssue {
+  const assigneeId = normalizeLinearUserId(issue.assignee?.id);
   const id = requireString(issue.id, "Linear issue id");
   const identifier = sanitizeLinearIdentifier(
     requireString(issue.identifier, "Linear issue identifier")
@@ -443,8 +455,10 @@ export function normalizeLinearIssue(
     labels: (issue.labels?.nodes ?? [])
       .map((label) => label.name)
       .filter((label): label is string => typeof label === "string"),
-    dispatchable: !assignedOnly || issue.assignee?.id === viewerId,
-    assigneeId: issue.assignee?.id ?? null,
+    dispatchable:
+      !options.assignedOnly ||
+      (assigneeId !== null && assigneeId === options.viewerId),
+    assigneeId,
     blockedBy: (issue.inverseRelations?.nodes ?? [])
       .filter((relation) => relation.type === "blocks")
       .map((relation) => ({
@@ -466,7 +480,7 @@ export function normalizeLinearIssue(
     metadata: {
       projectSlug,
     },
-    rateLimits,
+    rateLimits: options.rateLimits ?? null,
   };
 }
 
@@ -721,21 +735,25 @@ function readStringArray(value: unknown): string[] | undefined {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
-function emitAssignedOnlyFilterEvent(input: {
+function emitDispatchableDerivedEvent(input: {
   projectSlug: string;
-  includedCount: number;
-  excludedCount: number;
+  dispatchableCount: number;
+  nonDispatchableCount: number;
 }): void {
   console.info(
     JSON.stringify({
-      event: "tracker-assigned-only-filtered",
+      event: "tracker-dispatchable-derived",
       tracker: "linear",
       projectSlug: input.projectSlug,
-      assigneeFilter: "assignee.id",
-      includedCount: input.includedCount,
-      excludedCount: input.excludedCount,
+      assignmentScope: "viewer",
+      dispatchableCount: input.dispatchableCount,
+      nonDispatchableCount: input.nonDispatchableCount,
     })
   );
+}
+
+function normalizeLinearUserId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function requireString(value: unknown, label: string): string {
