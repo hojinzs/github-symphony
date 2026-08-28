@@ -278,20 +278,13 @@ type GraphQLProjectFieldsResponse = {
   } | null;
 };
 
-type GraphQLIssueStateLookupNode = {
-  __typename: "Issue" | "PullRequest";
-  id: string;
-  number: number;
-  url?: string | null;
-  updatedAt: string | null;
-  headRefName?: string | null;
-  repository: {
-    name: string;
-    url: string;
-    owner: { login: string };
-  };
-  projectItems: GraphQLIssueProjectItemsConnection | null;
-};
+type GraphQLIssueStateLookupNode =
+  | (GraphQLIssueNode & {
+      projectItems: GraphQLIssueProjectItemsConnection | null;
+    })
+  | (GraphQLPullRequestNode & {
+      projectItems: GraphQLIssueProjectItemsConnection | null;
+    });
 
 type GraphQLIssueStatesByIdsResponse = {
   nodes?: Array<GraphQLIssueStateLookupNode | null> | null;
@@ -485,8 +478,8 @@ export function normalizeProjectItem(
     labels: normalizeLabelNames(item.content.labels?.nodes ?? []),
     dispatchable: true,
     assigneeId:
-      item.content.assignees?.nodes?.find((assignee) => assignee?.login)?.login ??
-      null,
+      item.content.assignees?.nodes?.find((assignee) => assignee?.login)
+        ?.login ?? null,
     blockedBy,
     createdAt: item.content.createdAt,
     updatedAt: trackedUpdatedAt,
@@ -724,6 +717,14 @@ export async function fetchIssueStatesByIds(
 
   const issues: GitHubTrackedIssue[] = [];
   const cycleConfig = beginGraphQLRateLimitCycle(config);
+  const priorityOptionIds =
+    !config.priority && config.priorityFieldName
+      ? await fetchPriorityOptionOrder(
+          cycleConfig,
+          config.priorityFieldName,
+          fetchImpl
+        )
+      : undefined;
   let latestRateLimits: GitHubRateLimitPayload | null = null;
 
   for (const issueIdBatch of chunkValues([...new Set(issueIds)], 100)) {
@@ -751,6 +752,13 @@ export async function fetchIssueStatesByIds(
         node,
         projectItem,
         config.lifecycle,
+        {
+          explicit: config.priority,
+          legacy: {
+            fieldName: config.priorityFieldName,
+            optionIds: priorityOptionIds,
+          },
+        },
         rateLimits
       );
       if (normalized) {
@@ -2168,6 +2176,7 @@ function normalizeIssueStateLookupNode(
   issue: GraphQLIssueStateLookupNode | null,
   projectItem: GraphQLIssueProjectItemNode | null,
   lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
+  priority: PriorityResolutionInput = {},
   rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
   if (issue?.__typename !== "Issue" && issue?.__typename !== "PullRequest") {
@@ -2177,66 +2186,35 @@ function normalizeIssueStateLookupNode(
     return null;
   }
 
-  const fieldValues = extractFieldValues(projectItem.fieldValues?.nodes ?? []);
-  const isArchived = projectItem.isArchived === true;
-  const repository = issue.repository;
-  const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
-  const state = isArchived
-    ? ARCHIVED_PROJECT_ITEM_STATE
-    : requireProjectItemState(
-        fieldValues,
-        lifecycle,
-        projectItem.id,
-        identifier
-      );
-  const url =
-    issue.url ??
-    `${repository.url}/${issue.__typename === "PullRequest" ? "pull" : "issues"}/${issue.number}`;
+  if (projectItem.isArchived !== true) {
+    const fieldValues = extractFieldValues(
+      projectItem.fieldValues?.nodes ?? []
+    );
+    requireProjectItemState(
+      fieldValues,
+      lifecycle,
+      projectItem.id,
+      `${issue.repository.owner.login}/${issue.repository.name}#${issue.number}`
+    );
+  }
 
-  return {
-    id: issue.id,
-    identifier,
-    number: issue.number,
-    title: identifier,
-    description: null,
-    priority: null,
-    state,
-    branchName:
-      issue.__typename === "PullRequest" ? (issue.headRefName ?? null) : null,
-    url,
-    labels: [],
-    dispatchable: true,
-    assigneeId: null,
-    blockedBy: [],
-    createdAt: null,
-    updatedAt: projectItem.updatedAt ?? issue.updatedAt,
-    repository: {
-      owner: repository.owner.login,
-      name: repository.name,
-      url: repository.url,
-      cloneUrl: deriveCloneUrl(repository.url),
-    },
-    tracker: {
-      adapter: "github-project",
-      bindingId: projectId,
-      itemId: projectItem.id,
-    },
-    metadata:
-      issue.__typename === "PullRequest"
-        ? withGitHubMetadata(fieldValues, {
-            contentType: "PullRequest",
-            isArchived,
-          })
-        : withGitHubMetadata(fieldValues, {
-            isArchived,
-          }),
-    rateLimits,
-  };
+  const normalized = normalizeRepositoryIssueLookup(
+    projectId,
+    issue,
+    projectItem,
+    lifecycle,
+    priority,
+    rateLimits
+  );
+  if (normalized) {
+    return normalized;
+  }
+  return null;
 }
 
 function normalizeRepositoryIssueLookup(
   projectId: string,
-  issue: GraphQLRepositoryIssueLookupNode | null,
+  issue: GraphQLIssueStateLookupNode | GraphQLRepositoryIssueLookupNode | null,
   projectItem: GraphQLIssueProjectItemNode | null,
   lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
   priority: PriorityResolutionInput = {},
@@ -3217,13 +3195,48 @@ const ISSUE_STATES_BY_IDS_QUERY = `
       ... on Issue {
         id
         number
+        title
+        body
         url
+        state
+        createdAt
         updatedAt
+        labels(first: 20) {
+          nodes {
+            name
+          }
+        }
+        assignees(first: 20) {
+          nodes {
+            login
+          }
+        }
         repository {
           name
           url
           owner {
             login
+          }
+        }
+        blockedBy(first: 100) {
+          nodes {
+            id
+            number
+            state
+            repository {
+              name
+              owner {
+                login
+              }
+            }
+          }
+        }
+        closedByPullRequestsReferences(first: 20) {
+          nodes {
+            ...PullRequestMetadata
+          }
+          pageInfo {
+            hasNextPage
           }
         }
         projectItems(first: 100, includeArchived: true) {
@@ -3264,18 +3277,7 @@ const ISSUE_STATES_BY_IDS_QUERY = `
         }
       }
       ... on PullRequest {
-        id
-        number
-        url
-        updatedAt
-        headRefName
-        repository {
-          name
-          url
-          owner {
-            login
-          }
-        }
+        ...PullRequestMetadata
         projectItems(first: 100, includeArchived: true) {
           nodes {
             id
@@ -3314,6 +3316,35 @@ const ISSUE_STATES_BY_IDS_QUERY = `
         }
       }
     }
+  }
+
+  fragment PullRequestMetadata on PullRequest {
+    id
+    number
+    title
+    body
+    url
+    state
+    isDraft
+    merged
+    headRefName
+    baseRefName
+    headRepository {
+      name
+      url
+      owner {
+        login
+      }
+    }
+    repository {
+      name
+      url
+      owner {
+        login
+      }
+    }
+    createdAt
+    updatedAt
   }
 `;
 
