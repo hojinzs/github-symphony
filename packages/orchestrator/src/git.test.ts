@@ -898,12 +898,13 @@ describe("worktree-cache issue workspaces", () => {
       })
     ).resolves.toBe(repositoryDirectory);
 
-    execSync(
-      `git -C "${repositoryDirectory}" checkout -b symphony/issue-1-agent-work`
-    );
     await writeFile(join(repositoryDirectory, "unpushed.txt"), "keep\n");
     execSync(`git -C "${repositoryDirectory}" add unpushed.txt`);
     execSync(`git -C "${repositoryDirectory}" commit -m "Keep unpushed work"`);
+    const unpushedCommit = execSync(
+      `git -C "${repositoryDirectory}" rev-parse HEAD`,
+      { encoding: "utf8" }
+    ).trim();
     const cleanupResults: unknown[] = [];
     await removeIssueWorkspaceWorktree({
       repository,
@@ -926,27 +927,62 @@ describe("worktree-cache issue workspaces", () => {
     const bareDirectory = globalBareRepositoryDirectory({ repository });
     expect(
       execSync(
-        `git -C "${bareDirectory}" show-ref --verify refs/heads/symphony/issue-1-agent-work`,
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/symphony/project-one/acme-platform-1`,
         { encoding: "utf8" }
       )
-    ).toContain("refs/heads/symphony/issue-1-agent-work");
+    ).toContain("refs/heads/symphony/project-one/acme-platform-1");
     expect(cleanupResults).toContainEqual({
-      branch: "symphony/issue-1-agent-work",
+      branch: "symphony/project-one/acme-platform-1",
       outcome: "retained",
       reason: "unreachable-from-origin",
     });
-    await expect(
-      ensureIssueWorkspaceRepository({
-        repository,
-        issueWorkspacePath: join(tempRoot, "workspaces", "issue-1-revived"),
-        existingWorkspace: false,
-        populateStrategy: "worktree-cache",
-        projectSlug: "project-one",
-        issueIdentifier: "acme/platform#1",
-      })
-    ).resolves.toBe(
+    const revivedDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "issue-1-revived"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#1",
+    });
+    expect(revivedDirectory).toBe(
       join(tempRoot, "workspaces", "issue-1-revived", "repository")
     );
+    expect(
+      execSync(`git -C "${revivedDirectory}" rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(unpushedCommit);
+  });
+
+  it("collects a pushed branch created from the configured template", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "custom-template"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#14",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+    });
+    const branch = "agents/project-one/acme-platform-14";
+    execSync(`git -C "${repositoryDirectory}" push origin ${branch}`);
+
+    await removeIssueWorkspaceWorktree({
+      repository,
+      repositoryDirectory,
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#14",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+    });
+
+    const bareDirectory = globalBareRepositoryDirectory({ repository });
+    expect(() =>
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/${branch}`
+      )
+    ).toThrow();
   });
 
   it("collects pushed agent branches but retains branches linked to another worktree", async () => {

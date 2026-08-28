@@ -208,6 +208,11 @@ export async function removeIssueWorkspaceWorktree(input: {
   await withGlobalBareRepositoryCache(
     { repository: input.repository },
     async (bare) => {
+      const branch = renderIssueBranchName({
+        template: input.branchTemplate,
+        projectSlug: input.projectSlug,
+        issueIdentifier: input.issueIdentifier,
+      });
       await ignoreMissingWorktree(
         runGitCommand([
           "-C",
@@ -219,7 +224,7 @@ export async function removeIssueWorkspaceWorktree(input: {
         ])
       );
       await runGitCommand(["-C", bare, "worktree", "prune"]);
-      for (const result of await pruneReachableAgentBranches(bare)) {
+      for (const result of await pruneReachableAgentBranches(bare, branch)) {
         input.onBranchCleanup?.(result);
       }
     }
@@ -238,8 +243,19 @@ export type AgentBranchCleanupResult = {
  * branch with an unpushed tip must remain available for recovery indefinitely.
  */
 async function pruneReachableAgentBranches(
-  bareDirectory: string
+  bareDirectory: string,
+  ownedBranch: string
 ): Promise<AgentBranchCleanupResult[]> {
+  // The cache may have skipped its TTL-bound fetch. Refresh and prune the
+  // tracking refs before treating one as proof that a local branch is durable.
+  await runGitCommand([
+    "-C",
+    bareDirectory,
+    "fetch",
+    "origin",
+    "--prune",
+    "+refs/heads/*:refs/remotes/origin/*",
+  ]);
   const [branches, linkedBranches, originRefs] = await Promise.all([
     listGitRefs(bareDirectory, "refs/heads/"),
     listLinkedWorktreeBranches(bareDirectory),
@@ -247,7 +263,9 @@ async function pruneReachableAgentBranches(
   ]);
   const results: AgentBranchCleanupResult[] = [];
 
-  for (const branch of branches.filter(isCacheAgentBranch)) {
+  for (const branch of branches.filter((candidate) =>
+    isCacheAgentBranch(candidate, ownedBranch)
+  )) {
     if (linkedBranches.has(branch)) {
       results.push({
         branch,
@@ -284,8 +302,12 @@ async function pruneReachableAgentBranches(
   return results;
 }
 
-function isCacheAgentBranch(branch: string): boolean {
-  return branch.startsWith("feat/") || branch.startsWith("symphony/");
+function isCacheAgentBranch(branch: string, ownedBranch: string): boolean {
+  return (
+    branch === ownedBranch ||
+    branch.startsWith("feat/") ||
+    branch.startsWith("symphony/")
+  );
 }
 
 async function listGitRefs(
@@ -399,16 +421,27 @@ async function ensureIssueWorkspaceWorktree(input: {
             (await readOriginDefaultBranch(bare));
           const baseRef = `refs/remotes/origin/${baseBranch}`;
           await runGitCommand(["-C", bare, "worktree", "prune"]);
-          await runGitCommand([
-            "-C",
-            bare,
-            "worktree",
-            "add",
-            "-B",
-            branch,
-            repositoryDirectory,
-            baseRef,
-          ]);
+          if (await hasLocalBranch(bare, branch)) {
+            await runGitCommand([
+              "-C",
+              bare,
+              "worktree",
+              "add",
+              repositoryDirectory,
+              branch,
+            ]);
+          } else {
+            await runGitCommand([
+              "-C",
+              bare,
+              "worktree",
+              "add",
+              "-B",
+              branch,
+              repositoryDirectory,
+              baseRef,
+            ]);
+          }
           return repositoryDirectory;
         }
       );
@@ -437,6 +470,25 @@ async function ensureIssueWorkspaceWorktree(input: {
       await rm(repositoryDirectory, { recursive: true, force: true });
     }
     throw error;
+  }
+}
+
+async function hasLocalBranch(
+  bareDirectory: string,
+  branch: string
+): Promise<boolean> {
+  try {
+    await runGitCommand([
+      "-C",
+      bareDirectory,
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branch}`,
+    ]);
+    return true;
+  } catch {
+    return false;
   }
 }
 
