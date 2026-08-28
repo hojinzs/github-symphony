@@ -2343,41 +2343,6 @@ function normalizeLabelNames(
     .sort();
 }
 
-function withGitHubMetadata(
-  fieldValues: Record<string, string>,
-  metadata: Record<string, unknown>
-): TrackedIssue["metadata"] {
-  return {
-    ...fieldValues,
-    ...metadata,
-  } as TrackedIssue["metadata"];
-}
-
-function withIssueMetadata(
-  fieldValues: Record<string, string>,
-  sourceState: string | null,
-  linkedPullRequests: GitHubPullRequestMetadata[],
-  linkedPullRequestsTruncated = false,
-  isArchived = false
-): TrackedIssue["metadata"] {
-  if (
-    linkedPullRequests.length === 0 &&
-    !linkedPullRequestsTruncated &&
-    !isArchived
-  ) {
-    return sourceState === null
-      ? fieldValues
-      : withGitHubMetadata(fieldValues, { sourceState });
-  }
-
-  return withGitHubMetadata(fieldValues, {
-    sourceState,
-    linkedPullRequests,
-    linkedPullRequestsTruncated,
-    isArchived,
-  });
-}
-
 async function resolveIssueProjectItemForStateLookup(
   config: GitHubTrackerConfig,
   issue: GraphQLIssueStateLookupNode | null,
