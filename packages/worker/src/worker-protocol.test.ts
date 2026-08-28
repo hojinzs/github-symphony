@@ -58,15 +58,11 @@ function createFakeChild(): {
   child: ChildProcessWithoutNullStreams;
   stdout: PassThrough;
   stdin: PassThrough;
-  emitExit: (code: number | null, signal: string | null) => void;
-  killed: boolean;
 } {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const emitter = new EventEmitter();
-  let killed = false;
-
   const child = {
     pid: 12345,
     stdin,
@@ -75,19 +71,13 @@ function createFakeChild(): {
     once: emitter.once.bind(emitter),
     on: emitter.on.bind(emitter),
     emit: emitter.emit.bind(emitter),
-    kill: () => {
-      killed = true;
-    },
+    kill: () => {},
   } as unknown as ChildProcessWithoutNullStreams;
 
   return {
     child,
     stdout,
     stdin,
-    emitExit: (code, signal) => emitter.emit("exit", code, signal),
-    get killed() {
-      return killed;
-    },
   };
 }
 
@@ -1011,13 +1001,12 @@ function sendStartupRequestsForEnv(
 
   void ctx.sendRequest("thread-1", "thread/start", {
     cwd: "/tmp",
-    developerInstructions: "test prompt",
     approvalPolicy,
     sandbox: threadSandbox,
   });
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId: "thread-1",
-    input: [{ type: "text", text: "continue" }],
+    input: [{ type: "text", text: "test prompt" }],
     cwd: "/tmp",
     title: composeTurnTitle(
       env.SYMPHONY_ISSUE_IDENTIFIER,
@@ -1061,7 +1050,6 @@ async function sendStartupHandshake(
 
   const threadPromise = ctx.sendRequestWithTimeout("thread-1", "thread/start", {
     cwd: "/tmp",
-    developerInstructions: "test prompt",
     approvalPolicy,
     sandbox: threadSandbox,
   });
@@ -1077,7 +1065,7 @@ async function sendStartupHandshake(
 
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId,
-    input: [{ type: "text", text: "continue" }],
+    input: [{ type: "text", text: "test prompt" }],
     cwd: "/tmp",
     title: composeTurnTitle(
       env.SYMPHONY_ISSUE_IDENTIFIER,
@@ -1431,7 +1419,6 @@ describe("read timeout (3.5)", () => {
         method: "thread/start",
         params: {
           cwd: "/tmp",
-          developerInstructions: "test prompt",
           approvalPolicy: "on-request",
           sandbox: "workspace-write",
         },
@@ -1442,7 +1429,7 @@ describe("read timeout (3.5)", () => {
         method: "turn/start",
         params: {
           threadId: "thread-1",
-          input: [{ type: "text", text: "continue" }],
+          input: [{ type: "text", text: "test prompt" }],
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
@@ -1486,7 +1473,6 @@ describe("read timeout (3.5)", () => {
         method: "thread/start",
         params: {
           cwd: "/tmp",
-          developerInstructions: "test prompt",
           approvalPolicy: "on-request",
           sandbox: "workspace-write",
         },
@@ -1497,7 +1483,7 @@ describe("read timeout (3.5)", () => {
         method: "turn/start",
         params: {
           threadId: "thread-from-server",
-          input: [{ type: "text", text: "continue" }],
+          input: [{ type: "text", text: "test prompt" }],
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
@@ -1525,7 +1511,6 @@ describe("read timeout (3.5)", () => {
       method: "thread/start",
       params: {
         cwd: "/tmp",
-        developerInstructions: "test prompt",
         approvalPolicy: "never",
         sandbox: "danger-full-access",
       },
@@ -1536,7 +1521,7 @@ describe("read timeout (3.5)", () => {
       method: "turn/start",
       params: {
         threadId: "thread-1",
-        input: [{ type: "text", text: "continue" }],
+        input: [{ type: "text", text: "test prompt" }],
         cwd: "/tmp",
         title: "Untitled issue",
         approvalPolicy: "never",
@@ -1560,11 +1545,10 @@ describe("read timeout (3.5)", () => {
       method: "turn/start",
       params: {
         threadId: "thread-1",
-        input: [{ type: "text", text: "continue" }],
+        input: [{ type: "text", text: "test prompt" }],
         cwd: "/tmp",
         title: "acme/repo#1: Test issue",
         approvalPolicy: "never",
-        sandboxPolicy: undefined,
       },
     });
   });
@@ -1586,11 +1570,10 @@ describe("read timeout (3.5)", () => {
       method: "turn/start",
       params: {
         threadId: "thread-1",
-        input: [{ type: "text", text: "continue" }],
+        input: [{ type: "text", text: "test prompt" }],
         cwd: "/tmp",
         title: "acme/repo#1",
         approvalPolicy: "never",
-        sandboxPolicy: undefined,
       },
     });
 
@@ -1608,11 +1591,10 @@ describe("read timeout (3.5)", () => {
       method: "turn/start",
       params: {
         threadId: "thread-1",
-        input: [{ type: "text", text: "continue" }],
+        input: [{ type: "text", text: "test prompt" }],
         cwd: "/tmp",
         title: "Test issue",
         approvalPolicy: "never",
-        sandboxPolicy: undefined,
       },
     });
   });

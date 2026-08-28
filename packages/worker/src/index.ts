@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  buildIssueIdentityHeader,
   classifySessionExit,
   DEFAULT_AGENT_INPUT_REQUIRED_REASON,
   parseWorkflowMarkdown,
@@ -55,7 +54,7 @@ import {
   shouldExposeLinearGraphQLTool,
   resolveWorkerRuntimeRoute,
 } from "./runtime-routing.js";
-import { buildContinuationTurnInput } from "./thread-resume.js";
+import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
 import {
   findCwdBoundaryViolation,
@@ -73,6 +72,13 @@ import {
   updateRefreshFailureCount,
 } from "./turn-lease.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
+import {
+  createCodexProtocolExitError,
+  createCodexProtocolFailureGate,
+  createCodexProtocolLineFramer,
+  createCodexProtocolProcessError,
+  shouldFailOnCodexChildExit,
+} from "./codex-protocol-guard.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
@@ -160,6 +166,7 @@ console.log(
 );
 
 let childProcess: ChildProcess | null = null;
+let workerTerminationRequested = false;
 let runtimeAdapter: AgentRuntimeAdapter | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let orchestratorChannelDrainPending = false;
@@ -168,7 +175,6 @@ let orchestratorHeartbeatTimer: NodeJS.Timeout | null = null;
 const MAX_PENDING_ORCHESTRATOR_CHANNEL_PAYLOADS = 16;
 const ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS = 250;
 const ORCHESTRATOR_CHANNEL_HEARTBEAT_INTERVAL_MS = 10_000;
-
 function composeTurnTitle(
   issueIdentifierValue: string | undefined,
   issueTitleValue: string | undefined
@@ -195,6 +201,7 @@ function shutdown(signal: NodeJS.Signals) {
 
   shutdownPromise = (async () => {
     if (childProcess?.pid) {
+      workerTerminationRequested = true;
       try {
         process.kill(childProcess.pid, "SIGTERM");
       } catch {
@@ -627,7 +634,10 @@ async function startAssignedRun() {
       runtimeState.runPhase = "failed";
 
       if (runtimeState.run) {
-        runtimeState.run.lastError = error.message;
+        runtimeState.run.lastError =
+          (error as NodeJS.ErrnoException).code === "ENOENT"
+            ? `codex_not_found: ${error.message}`
+            : error.message;
       }
       void persistSessionTokenUsageArtifact(launcherEnv);
     });
@@ -1055,9 +1065,6 @@ async function runCodexClientProtocol(
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);
 
-  // Buffer to accumulate incomplete lines from codex stdout
-  let lineBuffer = "";
-
   // Accumulate streaming delta events so they log as a single line
   let deltaBuffer: { itemId: string; text: string } | null = null;
 
@@ -1083,6 +1090,17 @@ async function runCodexClientProtocol(
   let consecutiveNonProductiveTurns = 0;
   let consecutiveRefreshFailures = 0;
   let convergenceDetected = false;
+  let terminationRequested = false;
+
+  function requestChildTermination(): void {
+    terminationRequested = true;
+    workerTerminationRequested = true;
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // A terminal failure can race with normal child-process cleanup.
+    }
+  }
 
   function resolvePendingTurnCompletion(): void {
     if (turnCompletedResolve) {
@@ -1150,7 +1168,29 @@ async function runCodexClientProtocol(
     }
   }
 
+  function rejectPendingRequests(error: Error): void {
+    for (const pending of pendingRequests.values()) {
+      pending.reject(error);
+    }
+    pendingRequests.clear();
+  }
+
+  const protocolFailureGate = createCodexProtocolFailureGate({
+    onFailure(error) {
+      rejectPendingRequests(error);
+      markTurnTerminalFailure("failed", error.message);
+    },
+    terminate: requestChildTermination,
+  });
+
+  function failProtocol(error: Error): void {
+    protocolFailureGate.fail(error);
+  }
+
   function sendMessage(msg: Record<string, unknown>): void {
+    if (protocolFailureGate.failure()) {
+      return;
+    }
     const line = JSON.stringify(msg) + "\n";
     child.stdin?.write(line);
   }
@@ -1160,6 +1200,10 @@ async function runCodexClientProtocol(
     method: string,
     params: Record<string, unknown>
   ): Promise<unknown> {
+    const failure = protocolFailureGate.failure();
+    if (failure) {
+      return Promise.reject(failure);
+    }
     return new Promise((resolve, reject) => {
       pendingRequests.set(id, { resolve, reject });
       sendMessage({ jsonrpc: "2.0", id, method, params });
@@ -1218,13 +1262,7 @@ async function runCodexClientProtocol(
         process.stderr.write(
           `[worker] turn_timeout: turn exceeded ${turnTimeoutMs}ms — killing codex process\n`
         );
-        if (child.pid) {
-          try {
-            process.kill(child.pid, "SIGTERM");
-          } catch {
-            // Already gone.
-          }
-        }
+        requestChildTermination();
         reject(new Error("turn_timeout: turn exceeded time limit"));
       }, turnTimeoutMs);
 
@@ -1335,13 +1373,7 @@ async function runCodexClientProtocol(
     if (runtimeState.run) {
       runtimeState.run.lastError = reason;
     }
-    if (child.pid) {
-      try {
-        process.kill(child.pid, "SIGTERM");
-      } catch {
-        // Already gone.
-      }
-    }
+    requestChildTermination();
     if (activeTurnTelemetry) {
       emitTurnFailedEvent(
         activeTurnTelemetry,
@@ -1372,7 +1404,11 @@ async function runCodexClientProtocol(
           event.payload.threadId,
           event.payload.turnId,
           event.payload.arguments
-        );
+        ).catch((error: unknown) => {
+          process.stderr.write(
+            `[worker] dynamic tool call ${event.payload.callId} dispatch failed: ${error instanceof Error ? error.message : String(error)}\n`
+          );
+        });
         emitObservedAgentEvent(event);
         return true;
       case "agent.inputRequired":
@@ -1493,11 +1529,7 @@ async function runCodexClientProtocol(
       process.stderr.write(`[worker] ${reason}\n`);
       emitOrchestratorChannelEvent("worker_identity_violation");
       markTurnTerminalFailure("failed", reason);
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        // The codex process may already be gone.
-      }
+      requestChildTermination();
       return;
     }
 
@@ -1527,23 +1559,39 @@ async function runCodexClientProtocol(
     }
   }
 
-  // Wire up line-delimited JSON parsing from codex stdout
+  // Wire up line-delimited JSON parsing from codex stdout.
+  const frameCodexStdout = createCodexProtocolLineFramer({
+    onMessage: handleServerMessage,
+    onNonJson: (line) => {
+      process.stderr.write(`[worker] codex stdout (non-JSON): ${line}\n`);
+    },
+    onFailure: failProtocol,
+  });
   child.stdout.on("data", (chunk: Buffer) => {
-    lineBuffer += chunk.toString("utf8");
-    const lines = lineBuffer.split("\n");
-    lineBuffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const msg = JSON.parse(trimmed) as Record<string, unknown>;
-        handleServerMessage(msg);
-      } catch {
-        // Non-JSON output from codex (e.g. startup logs); ignore
-        process.stderr.write(`[worker] codex stdout (non-JSON): ${trimmed}\n`);
-      }
+    if (!protocolFailureGate.failure()) {
+      frameCodexStdout(chunk);
     }
+  });
+
+  child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+    if (
+      !shouldFailOnCodexChildExit({
+        terminationRequested: terminationRequested || workerTerminationRequested,
+        runPhase: runtimeState.runPhase,
+      })
+    ) {
+      return;
+    }
+    const error = createCodexProtocolExitError(code, signal);
+    process.stderr.write(`[worker] ${error.message}\n`);
+    failProtocol(error);
+  });
+
+  child.on("error", (cause: Error) => {
+    failProtocol(createCodexProtocolProcessError(cause));
+  });
+  child.stdin.on("error", (cause: Error) => {
+    failProtocol(createCodexProtocolProcessError(cause));
   });
 
   try {
@@ -1570,7 +1618,6 @@ async function runCodexClientProtocol(
 
     const baseThreadParams = {
       cwd: plan.cwd,
-      developerInstructions: renderedPrompt,
       approvalPolicy,
       sandbox: threadSandbox,
       config: {
@@ -1686,19 +1733,14 @@ async function runCodexClientProtocol(
 
       // #507: continuation turns carry the engine-owned identity header so
       // the agent never loses its issue binding after the initial prompt.
-      const turnInput = isFirstTurn
-        ? renderedPrompt
-        : [
-            buildIssueIdentityHeader({
-              issueIdentifier: issueIdentifier || "the assigned issue",
-              issueTitle: env.SYMPHONY_ISSUE_TITLE ?? null,
-            }),
-            "",
-            buildContinuationTurnInput({
-              continuationGuidance,
-              cumulativeTurnCount: turn,
-            }),
-          ].join("\n");
+      const turnInput = buildCodexTurnInput({
+        isFirstTurn,
+        renderedPrompt,
+        issueIdentifier,
+        issueTitle: env.SYMPHONY_ISSUE_TITLE,
+        continuationGuidance,
+        cumulativeTurnCount: turn,
+      });
 
       process.stderr.write(
         `[worker] starting codex turn ${turnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`
@@ -1925,6 +1967,14 @@ async function runCodexClientProtocol(
       }
     } else if (errMsg.startsWith("turn_timeout:")) {
       runtimeState.runPhase = "timed_out";
+      if (runtimeState.run) {
+        runtimeState.run.lastError = errMsg;
+      }
+    } else if (
+      errMsg.startsWith("port_exit:") ||
+      errMsg.startsWith("response_error:") ||
+      errMsg.startsWith("codex_not_found:")
+    ) {
       if (runtimeState.run) {
         runtimeState.run.lastError = errMsg;
       }

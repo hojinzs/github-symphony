@@ -8,6 +8,12 @@ const TERMINAL_RUN_PHASES = new Set<RunAttemptPhase>([
   "canceled_by_reconciliation",
 ]);
 
+export function isTerminalRunPhase(
+  runPhase: RunAttemptPhase | null
+): runPhase is RunAttemptPhase {
+  return runPhase !== null && TERMINAL_RUN_PHASES.has(runPhase);
+}
+
 export function resolveExitRunPhase(
   currentRunPhase: RunAttemptPhase | null,
   exit: {
@@ -15,7 +21,7 @@ export function resolveExitRunPhase(
     signal: NodeJS.Signals | null;
   }
 ): RunAttemptPhase {
-  if (currentRunPhase && TERMINAL_RUN_PHASES.has(currentRunPhase)) {
+  if (isTerminalRunPhase(currentRunPhase)) {
     return currentRunPhase;
   }
 
