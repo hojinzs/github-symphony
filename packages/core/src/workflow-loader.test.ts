@@ -257,6 +257,8 @@ Prompt`,
       stateFieldName: "Workflow",
       activeStates: ["Queued"],
       terminalStates: ["Closed"],
+      blockerCheckStates: ["Queued"],
+      planningStates: [],
     });
   });
 
@@ -362,6 +364,8 @@ tracker:
   kind: github-project
   provider:
     state_field: Workflow
+    active_states: [Provider ready]
+    terminal_states: [Provider done]
     pickup_labels:
       include: agent, dev-ready
     priority:
@@ -371,8 +375,8 @@ tracker:
     blocker_check_states: Ready, In progress
     planning_states:
       - Backlog
-  active_states: [Ready]
-  terminal_states: [Done]
+  active_states: [Flat ready]
+  terminal_states: [Flat done]
 codex:
   command: codex
 ---
@@ -380,6 +384,8 @@ Prompt`);
 
     expect(workflow.tracker).toMatchObject({
       stateFieldName: "Workflow",
+      activeStates: ["Provider ready"],
+      terminalStates: ["Provider done"],
       pickupLabels: { include: ["agent", "dev-ready"], exclude: [] },
       priority: { source: "labels", labels: { urgent: 0 } },
       blockerCheckStates: ["Ready", "In progress"],
@@ -502,6 +508,27 @@ Prompt`)
     }
   );
 
+  it("keeps validation errors on the flat alias source path", () => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdownStrict(
+        `---
+tracker:
+  kind: linear
+  api_key: $MISSING_TRACKER_TOKEN
+codex:
+  command: codex
+---
+Prompt`,
+        {}
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({ path: "tracker.api_key" });
+  });
+
   it("rejects non-positive per-state concurrency overrides", () => {
     let thrown: unknown;
     try {
@@ -620,7 +647,7 @@ Prompt body.
   });
 
   it("defaults blocker checks to the first configured active state", () => {
-    const workflow = parseWorkflowMarkdown(`---
+    const workflow = parseWorkflowMarkdownStrict(`---
 tracker:
   kind: github-project
   active_states:
