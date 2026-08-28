@@ -99,7 +99,7 @@ describe("normalizeGithubProjectItem", () => {
         {
           id: "issue-9",
           identifier: "other/shared#9",
-          state: "Done"
+          state: "CLOSED"
         }
       ],
       createdAt: "2026-03-07T09:00:00.000Z",
