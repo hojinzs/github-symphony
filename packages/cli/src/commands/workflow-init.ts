@@ -1358,7 +1358,7 @@ function formatLifecycleValue(states: string[]): string {
 }
 
 function formatLifecycleSummaryLines(
-  lifecycle: WorkflowLifecycleConfig,
+  lifecycle: WorkflowLifecycleConfig & { blockerCheckStates?: string[] },
   waitStates: string[]
 ): string[] {
   return [
@@ -1367,7 +1367,7 @@ function formatLifecycleSummaryLines(
     `  Active         ${lifecycle.activeStates.join(", ") || "(none)"}`,
     `  Wait           ${waitStates.join(", ") || "(none)"}`,
     `  Terminal       ${lifecycle.terminalStates.join(", ") || "(none)"}`,
-    `  Blocker check  ${formatLifecycleValue(lifecycle.blockerCheckStates)}`,
+    `  Blocker check  ${formatLifecycleValue(lifecycle.blockerCheckStates ?? [])}`,
     `  Planning       ${formatLifecycleValue(lifecycle.planningStates)}`,
   ];
 }

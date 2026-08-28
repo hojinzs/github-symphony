@@ -32,7 +32,7 @@ export type GenerateWorkflowInput = {
   priority: WorkflowPriorityConfig | null;
   includePriorityTemplates?: boolean;
   mappings: Record<string, StateMapping>;
-  lifecycle: WorkflowLifecycleConfig;
+  lifecycle: WorkflowLifecycleConfig & { blockerCheckStates?: string[] };
   runtime: string;
   pollIntervalMs?: number;
   concurrency?: number;
@@ -132,7 +132,7 @@ function buildTrackerFrontMatter(
     }
   }
 
-  tracker.blocker_check_states = input.lifecycle.blockerCheckStates;
+  tracker.blocker_check_states = input.lifecycle.blockerCheckStates ?? [];
   tracker.planning_states = input.lifecycle.planningStates;
 
   return tracker;
@@ -306,10 +306,7 @@ function stringifyYamlNode(
     }
     return value.flatMap((entry) => {
       if (isYamlNestedValue(entry)) {
-        return [
-          `${prefix}-`,
-          ...stringifyYamlNode(entry, indent + 2),
-        ];
+        return [`${prefix}-`, ...stringifyYamlNode(entry, indent + 2)];
       }
       return [`${prefix}- ${formatYamlScalar(entry)}`];
     });
@@ -335,9 +332,7 @@ function isYamlObject(
   );
 }
 
-function formatYamlScalar(
-  value: YamlFrontMatterNode
-): string {
+function formatYamlScalar(value: YamlFrontMatterNode): string {
   if (isYamlQuotedString(value)) {
     return JSON.stringify(value.value);
   }

@@ -375,14 +375,14 @@ idle → [inject issue + refresh]
 
 ### Predefined Fixtures
 
-| File                                       | Purpose                                                          |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `e2e/fixtures/happy-path.json`             | Single issue (state: Ready)                                      |
-| `e2e/fixtures/multi-issue.json`            | 3 issues (concurrency test, concurrency_limit=2)                 |
-| `e2e/fixtures/blocked-issue.json`          | Issue with blockedBy                                             |
-| `e2e/fixtures/dispatch-start-failure.json` | Poison first candidate followed by a healthy dispatch candidate  |
-| `e2e/fixtures/non-dispatchable.json`       | File-tracker issue with `dispatchable: false`; must not dispatch |
-| `e2e/fixtures/terminal-candidate.json`     | Closed source issue left in active Project status                |
+| File                                       | Purpose                                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| `e2e/fixtures/happy-path.json`             | Single issue (state: Ready)                                                  |
+| `e2e/fixtures/multi-issue.json`            | 3 issues (concurrency test, concurrency_limit=2)                             |
+| `e2e/fixtures/blocked-issue.json`          | Adapter-derived non-dispatchable issue with best-effort `blockedBy` metadata |
+| `e2e/fixtures/dispatch-start-failure.json` | Poison first candidate followed by a healthy dispatch candidate              |
+| `e2e/fixtures/non-dispatchable.json`       | File-tracker issue with `dispatchable: false`; must not dispatch             |
+| `e2e/fixtures/terminal-candidate.json`     | Closed source issue left in active Project status                            |
 
 ### Predefined Scenario Documents
 

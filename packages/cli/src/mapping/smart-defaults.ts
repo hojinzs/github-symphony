@@ -1,6 +1,9 @@
 import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type { StateRole, StateMapping } from "../config.js";
 
+export type WorkflowLifecycleConfigWithBlockerCheckStates =
+  WorkflowLifecycleConfig & { blockerCheckStates: string[] };
+
 // ── 3.1: Smart defaults pattern matching ─────────────────────────────────────
 
 const ROLE_PATTERNS: Array<{ role: StateRole; pattern: RegExp }> = [
@@ -52,7 +55,7 @@ export function toWorkflowLifecycleConfig(
     blockerCheckStates?: string[];
     planningStates?: string[];
   } = {}
-): WorkflowLifecycleConfig {
+): WorkflowLifecycleConfigWithBlockerCheckStates {
   const activeStates: string[] = [];
   const terminalStates: string[] = [];
 

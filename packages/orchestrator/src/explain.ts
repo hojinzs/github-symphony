@@ -3,7 +3,6 @@ import {
   isStateTerminal,
   deriveLegacyWorkspaceKey,
   isRecoveryWorkspaceActionable,
-  matchesWorkflowState,
   type IssueWorkspaceRecord,
   type IssueOrchestrationRecord,
   type OrchestratorRunRecord,
@@ -20,7 +19,6 @@ export type DispatchExplainCheck = {
     | "project_item_present"
     | "tracker_dispatchability"
     | "workflow_state"
-    | "blockers"
     | "runtime_ownership"
     | "dispatch_limits";
   status: DispatchExplainSeverity;
@@ -53,7 +51,6 @@ export type ExplainDispatchInput = {
   identifier: string;
   issue: TrackedIssue | null;
   projectRepository: RepositoryRef | null;
-  allIssues: readonly TrackedIssue[];
   lifecycle: WorkflowLifecycleConfig;
   issueRecords: readonly IssueOrchestrationRecord[];
   issueWorkspaces?: readonly IssueWorkspaceRecord[];
@@ -108,7 +105,6 @@ export function explainIssueDispatch(
 
   checks.push(explainTrackerDispatchability(issue));
   checks.push(explainWorkflowState(issue, input.lifecycle));
-  checks.push(explainBlockers(issue, input.lifecycle, input.allIssues));
   checks.push(
     explainRuntimeOwnership(
       issue,
@@ -153,11 +149,10 @@ export function explainIssueDispatch(
 
 export function isIssueCandidateEligibleWithReason(
   issue: TrackedIssue,
-  lifecycle: WorkflowLifecycleConfig,
-  issues: readonly TrackedIssue[]
+  lifecycle: WorkflowLifecycleConfig
 ): {
   eligible: boolean;
-  reason: "not_dispatchable" | "inactive_state" | "blocked" | null;
+  reason: "not_dispatchable" | "inactive_state" | null;
 } {
   if (!issue.dispatchable) {
     return { eligible: false, reason: "not_dispatchable" };
@@ -167,11 +162,7 @@ export function isIssueCandidateEligibleWithReason(
     return { eligible: false, reason: "inactive_state" };
   }
 
-  if (!issueHasBlockingDependency(issue, lifecycle, issues)) {
-    return { eligible: true, reason: null };
-  }
-
-  return { eligible: false, reason: "blocked" };
+  return { eligible: true, reason: null };
 }
 
 function explainTrackerDispatchability(
@@ -349,7 +340,6 @@ function explainWorkflowState(
       details: {
         activeStates: lifecycle.activeStates,
         terminalStates: lifecycle.terminalStates,
-        blockerCheckStates: lifecycle.blockerCheckStates,
         canonicalIssueState: issue.state,
         linkedPullRequestIdentifier: linkedPullRequest.identifier,
         linkedPullRequestProjectState: linkedPullRequest.projectState,
@@ -365,7 +355,6 @@ function explainWorkflowState(
     details: {
       activeStates: lifecycle.activeStates,
       terminalStates: lifecycle.terminalStates,
-      blockerCheckStates: lifecycle.blockerCheckStates,
     },
     hint: "Move the GitHub Project item to an active state or run 'gh-symphony workflow preview' to inspect WORKFLOW.md state mappings.",
   };
@@ -395,39 +384,6 @@ export function findActiveLinkedPullRequest(
   }
 
   return null;
-}
-
-function explainBlockers(
-  issue: TrackedIssue,
-  lifecycle: WorkflowLifecycleConfig,
-  issues: readonly TrackedIssue[]
-): DispatchExplainCheck {
-  if (!matchesWorkflowState(issue.state, lifecycle.blockerCheckStates)) {
-    return {
-      id: "blockers",
-      status: "pass",
-      message: `Blocker checks do not apply to state "${issue.state}".`,
-      details: { blockerCheckStates: lifecycle.blockerCheckStates },
-    };
-  }
-
-  const blockers = unresolvedBlockers(issue, lifecycle, issues);
-  if (blockers.length === 0) {
-    return {
-      id: "blockers",
-      status: "pass",
-      message: "No unresolved blockers prevent dispatch.",
-      details: { blockedBy: issue.blockedBy },
-    };
-  }
-
-  return {
-    id: "blockers",
-    status: "block",
-    message: `Issue has ${blockers.length} unresolved blocker${blockers.length === 1 ? "" : "s"}.`,
-    details: { blockers },
-    hint: "Move blocker issues to a terminal state or update the blocker relationship in GitHub.",
-  };
 }
 
 function explainRuntimeOwnership(
@@ -622,48 +578,6 @@ function explainDispatchLimits(
       stateLimit: stateLimit ?? null,
     },
   };
-}
-
-function issueHasBlockingDependency(
-  issue: TrackedIssue,
-  lifecycle: WorkflowLifecycleConfig,
-  issues: readonly TrackedIssue[]
-): boolean {
-  if (
-    !matchesWorkflowState(issue.state, lifecycle.blockerCheckStates) ||
-    issue.blockedBy.length === 0
-  ) {
-    return false;
-  }
-
-  return unresolvedBlockers(issue, lifecycle, issues).length > 0;
-}
-
-function unresolvedBlockers(
-  issue: TrackedIssue,
-  lifecycle: WorkflowLifecycleConfig,
-  issues: readonly TrackedIssue[]
-): Array<{
-  id: string | null;
-  identifier: string | null;
-  state: string | null;
-}> {
-  return issue.blockedBy.filter((blockerRef) => {
-    if (blockerRef.state && isStateTerminal(blockerRef.state, lifecycle)) {
-      return false;
-    }
-
-    if (blockerRef.identifier) {
-      const blockerIssue = issues.find(
-        (candidate) => candidate.identifier === blockerRef.identifier
-      );
-      if (blockerIssue?.state) {
-        return !isStateTerminal(blockerIssue.state, lifecycle);
-      }
-    }
-
-    return true;
-  });
 }
 
 function latestRunForIssue(

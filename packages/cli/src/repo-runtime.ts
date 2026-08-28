@@ -113,8 +113,12 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
       ? { projectSlug: workflow.tracker.projectSlug }
       : {}),
     ...(trackerAdapter === "linear"
-      ? { activeStates: workflow.tracker.activeStates.join("\n") }
+      ? {
+          activeStates: workflow.tracker.activeStates.join("\n"),
+          terminalStates: workflow.tracker.terminalStates.join("\n"),
+        }
       : {}),
+    blockerCheckStates: workflow.tracker.blockerCheckStates.join("\n"),
     repository: `${repository.owner}/${repository.name}`,
   };
   if (

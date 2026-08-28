@@ -2284,6 +2284,7 @@ export class OrchestratorService {
     return {
       ...trackerDependencies,
       workflowLifecycle: resolution.lifecycle,
+      workflowTracker: resolution.workflow.tracker,
     };
   }
 
@@ -2326,7 +2327,7 @@ export class OrchestratorService {
       }
       lifecyclesByIssueIdentifier.set(issue.identifier, lifecycle);
 
-      if (!this.isIssueCandidateEligible(issue, lifecycle, issues)) {
+      if (!this.isIssueCandidateEligible(issue, lifecycle)) {
         continue;
       }
 
@@ -2453,15 +2454,13 @@ export class OrchestratorService {
 
   private isIssueCandidateEligible(
     issue: TrackedIssue,
-    lifecycle: WorkflowLifecycleConfig,
-    issues: readonly TrackedIssue[]
+    lifecycle: WorkflowLifecycleConfig
   ): boolean {
     if (issue.isArchived === true) {
       return false;
     }
 
-    return isIssueCandidateEligibleWithReason(issue, lifecycle, issues)
-      .eligible;
+    return isIssueCandidateEligibleWithReason(issue, lifecycle).eligible;
   }
 
   private async publishLinkedPullRequestActiveAdvisories(
@@ -4108,9 +4107,8 @@ export class OrchestratorService {
         return "failure";
       }
       return this.isIssueCandidateEligible(
-        eligibleContext.issue,
-        resolution.lifecycle,
-        eligibleContext.issues
+        eligibleContext,
+        resolution.lifecycle
       )
         ? "continuation"
         : "failure";
@@ -4151,6 +4149,8 @@ export class OrchestratorService {
         {
           ...this.createTrackerDependencies(),
           ...trackerDependencies,
+          workflowLifecycle: resolution.lifecycle,
+          workflowTracker: resolution.workflow.tracker,
         }
       );
       const issue = issues.find(
@@ -4194,6 +4194,13 @@ export class OrchestratorService {
     | { action: "requeue"; error: string }
   > {
     try {
+      const resolution = await this.loadProjectWorkflow(tenant, run.repository);
+      if (!isUsableWorkflowResolution(resolution)) {
+        return {
+          action: "requeue",
+          error: "retry refresh failed: workflow policy unavailable",
+        };
+      }
       const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
       const issues = await trackerAdapter.fetchIssueStatesByIds(
         tenant,
@@ -4201,6 +4208,8 @@ export class OrchestratorService {
         {
           ...this.createTrackerDependencies(),
           ...trackerDependencies,
+          workflowLifecycle: resolution.lifecycle,
+          workflowTracker: resolution.workflow.tracker,
         }
       );
       const issue = issues.find(
@@ -4209,17 +4218,10 @@ export class OrchestratorService {
       if (!issue) {
         return { action: "release" };
       }
-      const resolution = await this.loadProjectWorkflow(tenant, run.repository);
-      if (!isUsableWorkflowResolution(resolution)) {
-        return {
-          action: "requeue",
-          error: "retry refresh failed: workflow policy unavailable",
-        };
-      }
       if (isStateTerminal(issue.state, resolution.lifecycle)) {
         return { action: "release", issue, terminal: true };
       }
-      return this.isIssueCandidateEligible(issue, resolution.lifecycle, [issue])
+      return this.isIssueCandidateEligible(issue, resolution.lifecycle)
         ? { action: "restart", issue }
         : { action: "release", issue };
     } catch (error) {
@@ -4236,16 +4238,20 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     issueIdentifier: string,
     trackerDependencies: OrchestratorTrackerDependencies = {}
-  ): Promise<{ issue: TrackedIssue; issues: TrackedIssue[] } | null> {
+  ): Promise<TrackedIssue | null> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    const candidateDependencies =
+      await this.resolveCandidateTrackerDependencies(tenant, {
+        ...this.createTrackerDependencies(),
+        ...trackerDependencies,
+      });
     const issues = await trackerAdapter.listIssues(tenant, {
-      fetchImpl: this.dependencies.fetchImpl,
-      ...trackerDependencies,
+      ...candidateDependencies,
     });
     const issue = issues.find(
       (candidate) => candidate.identifier === issueIdentifier
     );
-    return issue ? { issue, issues } : null;
+    return issue ?? null;
   }
 
   private async loadWorkspaceForIssue(

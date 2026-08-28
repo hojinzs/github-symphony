@@ -855,7 +855,7 @@ function validateWorkflow(
       stateFieldName: workflow.lifecycle.stateFieldName,
       activeStates: workflow.lifecycle.activeStates,
       terminalStates: workflow.lifecycle.terminalStates,
-      blockerCheckStates: workflow.lifecycle.blockerCheckStates,
+      blockerCheckStates: workflow.tracker.blockerCheckStates,
       planningStates: workflow.lifecycle.planningStates,
       pollingIntervalMs: workflow.polling.intervalMs,
       workspaceRoot: workflow.workspace.root,

@@ -11,6 +11,7 @@ import {
   type ProjectStatusSnapshot,
   type RepositoryRef,
   type WorkflowLifecycleConfig,
+  type WorkflowTrackerConfig,
 } from "@gh-symphony/core";
 import {
   explainIssueDispatch,
@@ -121,56 +122,8 @@ const handler = async (
     throw error;
   }
 
-  const trackerAdapter = resolveTrackerAdapter(projectConfig.tracker);
-  const orchestratorProject = {
-    ...projectConfig,
-    repository: workflowRepository,
-  } as OrchestratorProjectConfig;
-  const trackerDependencies = {
-    token,
-    projectItemsCache: createProjectItemsCache(),
-  };
   const runtimeRoot = options.configDir;
-  const issuesPromise = trackerAdapter.listIssues(
-    orchestratorProject,
-    trackerDependencies
-  );
-  const issuePromise =
-    projectConfig.tracker.adapter === "github-project"
-      ? findGithubProjectIssue(
-          orchestratorProject,
-          identifier,
-          trackerDependencies
-        )
-      : issuesPromise.then(
-          (issues) =>
-            issues.find(
-              (candidate) =>
-                candidate.identifier.trim().toLowerCase() ===
-                identifier.trim().toLowerCase()
-            ) ?? null
-        );
-  const [issues, issue, issueRecords, issueWorkspaces, runs, snapshot] =
-    await Promise.all([
-      issuesPromise,
-      issuePromise,
-      readJsonFile<IssueOrchestrationRecord[]>(
-        join(runtimeRoot, "issues.json")
-      ),
-      readIssueWorkspaces(runtimeRoot, projectConfig.projectId),
-      readRuns(runtimeRoot, projectConfig.projectId),
-      readJsonFile<ProjectStatusSnapshot>(join(runtimeRoot, "status.json")),
-    ]);
-  const canonicalIssues =
-    trackerAdapter.resolveCanonicalIssues?.(issues) ?? issues;
-  const canonicalIssue =
-    canonicalIssues.find(
-      (candidate) =>
-        trackerAdapter.matchesIssueIdentifier?.(candidate, identifier) ??
-        candidate.identifier.trim().toLowerCase() ===
-          identifier.trim().toLowerCase()
-    ) ?? issue;
-
+  const runs = await readRuns(runtimeRoot, projectConfig.projectId);
   let workflow: ExplainWorkflowSettings;
   try {
     workflow = await loadExplainWorkflow({
@@ -193,6 +146,56 @@ const handler = async (
     throw error;
   }
 
+  const trackerAdapter = resolveTrackerAdapter(projectConfig.tracker);
+  const orchestratorProject = {
+    ...projectConfig,
+    repository: workflowRepository,
+  } as OrchestratorProjectConfig;
+  const trackerDependencies = {
+    token,
+    projectItemsCache: createProjectItemsCache(),
+    workflowLifecycle: workflow.lifecycle,
+    workflowTracker: workflow.tracker,
+  };
+  const issuesPromise = trackerAdapter.listIssues(
+    orchestratorProject,
+    trackerDependencies
+  );
+  const issuePromise =
+    projectConfig.tracker.adapter === "github-project"
+      ? findGithubProjectIssue(
+          orchestratorProject,
+          identifier,
+          trackerDependencies
+        )
+      : issuesPromise.then(
+          (issues) =>
+            issues.find(
+              (candidate) =>
+                candidate.identifier.trim().toLowerCase() ===
+                identifier.trim().toLowerCase()
+            ) ?? null
+        );
+  const [issues, issue, issueRecords, issueWorkspaces, snapshot] =
+    await Promise.all([
+      issuesPromise,
+      issuePromise,
+      readJsonFile<IssueOrchestrationRecord[]>(
+        join(runtimeRoot, "issues.json")
+      ),
+      readIssueWorkspaces(runtimeRoot, projectConfig.projectId),
+      readJsonFile<ProjectStatusSnapshot>(join(runtimeRoot, "status.json")),
+    ]);
+  const canonicalIssues =
+    trackerAdapter.resolveCanonicalIssues?.(issues) ?? issues;
+  const canonicalIssue =
+    canonicalIssues.find(
+      (candidate) =>
+        trackerAdapter.matchesIssueIdentifier?.(candidate, identifier) ??
+        candidate.identifier.trim().toLowerCase() ===
+          identifier.trim().toLowerCase()
+    ) ?? issue;
+
   const activeRunCount = runs.filter((run) =>
     isActiveRunRecordStatus(run.status)
   ).length;
@@ -200,7 +203,6 @@ const handler = async (
     identifier,
     issue: canonicalIssue,
     projectRepository: projectConfig.repository ?? null,
-    allIssues: canonicalIssues,
     lifecycle: workflow.lifecycle,
     issueRecords: issueRecords ?? [],
     issueWorkspaces,
@@ -236,6 +238,7 @@ export default handler;
 
 type ExplainWorkflowSettings = {
   lifecycle: WorkflowLifecycleConfig;
+  tracker: Pick<WorkflowTrackerConfig, "blockerCheckStates" | "terminalStates">;
   maxConcurrentAgents: number;
   maxConcurrentAgentsByState: Record<string, number>;
 };
@@ -270,6 +273,7 @@ async function loadExplainWorkflow(input: {
       );
       return {
         lifecycle: resolution.lifecycle,
+        tracker: resolution.workflow.tracker,
         maxConcurrentAgents: resolution.workflow.agent.maxConcurrentAgents,
         maxConcurrentAgentsByState:
           resolution.workflow.agent.maxConcurrentAgentsByState,

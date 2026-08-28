@@ -257,9 +257,9 @@ Prompt`,
       stateFieldName: "Workflow",
       activeStates: ["Queued"],
       terminalStates: ["Closed"],
-      blockerCheckStates: ["Queued"],
       planningStates: [],
     });
+    expect(workflow.tracker.blockerCheckStates).toEqual(["Queued"]);
   });
 
   it("promotes flat tracker keys while retaining provider-owned values", () => {
@@ -613,7 +613,7 @@ Prompt`,
     expect(workflow.tracker.kind).toBe("github-project");
     expect(workflow.tracker.priority).toBeNull();
     expect(workflow.tracker.priorityFieldName).toBe("Priority");
-    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Todo"]);
+    expect(workflow.tracker.blockerCheckStates).toEqual(["Todo"]);
     expect(workflow.lifecycle.planningStates).toEqual([]);
     expect(workflow.polling.intervalMs).toBe(30000);
     expect(workflow.repository).toEqual({
@@ -642,7 +642,7 @@ codex:
 Prompt body.
 `);
 
-    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Todo"]);
+    expect(workflow.tracker.blockerCheckStates).toEqual(["Todo"]);
     expect(workflow.lifecycle.planningStates).toEqual([]);
   });
 
@@ -661,7 +661,7 @@ codex:
 Prompt body.
 `);
 
-    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Ready"]);
+    expect(workflow.tracker.blockerCheckStates).toEqual(["Ready"]);
     expect(workflow.lifecycle.planningStates).toEqual([]);
   });
 
@@ -683,7 +683,7 @@ codex:
 Prompt body.
 `);
 
-    expect(workflow.lifecycle.blockerCheckStates).toEqual([]);
+    expect(workflow.tracker.blockerCheckStates).toEqual([]);
     expect(workflow.lifecycle.planningStates).toEqual(["Todo"]);
   });
 
@@ -1369,7 +1369,7 @@ Prompt body.
     expect(workflow.lifecycle.activeStates).toContain("Land");
     expect(isStateActive("Land", workflow.lifecycle)).toBe(true);
     expect(isStateActive("In review", workflow.lifecycle)).toBe(false);
-    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Ready"]);
+    expect(workflow.tracker.blockerCheckStates).toEqual(["Ready"]);
   });
 });
 

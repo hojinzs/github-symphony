@@ -24,6 +24,10 @@ export type WorkflowTrackerConfig = {
   stateFieldName: string;
   priority: WorkflowPriorityConfig | null;
   priorityFieldName: string | null;
+  /**
+   * Deprecated flat compatibility alias for tracker-owned blocker eligibility.
+   * Adapters receive this as tracker settings; core lifecycle logic never reads it.
+   */
   blockerCheckStates: string[];
   planningStates: string[];
 };
@@ -225,7 +229,6 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
     stateFieldName: "",
     activeStates: [],
     terminalStates: [],
-    blockerCheckStates: [],
     planningStates: [],
   },
   format: "default",

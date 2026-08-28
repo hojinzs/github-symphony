@@ -279,7 +279,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -309,7 +308,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -328,9 +326,10 @@ describe("explainIssueDispatch", () => {
       })
     );
 
-    expect(
-      isIssueCandidateEligibleWithReason(issue, lifecycle, [issue])
-    ).toEqual({ eligible: false, reason: "not_dispatchable" });
+    expect(isIssueCandidateEligibleWithReason(issue, lifecycle)).toEqual({
+      eligible: false,
+      reason: "not_dispatchable",
+    });
   });
 
   it("explains active linked PR cards when the canonical Issue is inactive", () => {
@@ -355,7 +354,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -380,23 +378,16 @@ describe("explainIssueDispatch", () => {
     );
   });
 
-  it("explains unresolved blockers", () => {
-    const blocker = makeIssue({
-      id: "blocker-1",
-      identifier: "acme/repo#2",
-      state: "Todo",
-    });
+  it("explains adapter-derived blocker dispatchability", () => {
     const issue = makeIssue({
       identifier: "acme/repo#1",
-      blockedBy: [
-        { id: "blocker-1", identifier: blocker.identifier, state: null },
-      ],
+      dispatchable: false,
+      dispatchReason: "Blocked by unresolved GitHub issue: acme/repo#2.",
     });
     const report = explainIssueDispatch({
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue, blocker],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -408,7 +399,10 @@ describe("explainIssueDispatch", () => {
     expect(report.dispatchable).toBe(false);
     expect(report.checks).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "blockers", status: "block" }),
+        expect.objectContaining({
+          id: "tracker_dispatchability",
+          status: "block",
+        }),
       ])
     );
   });
@@ -420,7 +414,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [run],
@@ -461,7 +454,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [run],
@@ -509,7 +501,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       issueWorkspaces: [
@@ -541,7 +532,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -563,7 +553,6 @@ describe("explainIssueDispatch", () => {
       identifier: "other/repo#1",
       issue: null,
       projectRepository,
-      allIssues: [],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -757,6 +746,8 @@ describe("blocker eligibility", () => {
       identifier: "acme/platform#2",
       number: 2,
       state: "Todo",
+      dispatchable: false,
+      dispatchReason: "Blocked by unresolved GitHub issue: acme/platform#1.",
       blockedBy: [
         {
           id: "issue-1",
@@ -2338,8 +2329,7 @@ function createDispatchAdapter(
         .concat(
           candidates.filter(
             (issue) =>
-              issue.contentType === "PullRequest" &&
-              !linked.has(issue.id)
+              issue.contentType === "PullRequest" && !linked.has(issue.id)
           )
         );
     },

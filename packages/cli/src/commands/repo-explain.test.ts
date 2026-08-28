@@ -179,6 +179,55 @@ Follow the issue instructions.
     expect(stdout.output()).toContain("gh-symphony repo logs --issue");
   });
 
+  it("derives blocker eligibility from the selected workflow", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-explain-blocked-"));
+    const workflowDir = await mkdtemp(
+      join(tmpdir(), "repo-explain-blocked-workflow-")
+    );
+    const workflowPath = join(workflowDir, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: PVT_test
+  state_field: Status
+  active_states:
+    - Ready
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Ready
+agent:
+  max_concurrent_agents: 2
+codex:
+  command: codex app-server
+---
+Follow the issue instructions.
+`,
+      "utf8"
+    );
+    await seedRepoRuntime(configDir);
+    vi.spyOn(ghAuth, "getGhToken").mockReturnValue("gho_test");
+    vi.stubGlobal("fetch", vi.fn(mockBlockedProjectItemsFetch));
+
+    try {
+      await repoExplainCommand(
+        ["acme/widgets#42", "--workflow", workflowPath],
+        baseOptions(configDir)
+      );
+    } finally {
+      stdout.restore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(stdout.output()).toContain(
+      "Not dispatchable: Blocked by unresolved GitHub issue: acme/widgets#41."
+    );
+  });
+
   it("uses the persisted repo workflow path for the explanation report", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "repo-explain-persisted-"));
     const workflowDir = await mkdtemp(
@@ -310,6 +359,38 @@ async function mockProjectItemsFetch(
       },
     },
   });
+}
+
+async function mockBlockedProjectItemsFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const response = await mockProjectItemsFetch(input, init);
+  const payload = (await response.json()) as Record<string, unknown>;
+  const data = payload.data as {
+    node?: { items?: { nodes?: unknown[] }; repository?: unknown };
+  };
+  const item = data.node?.items?.nodes?.[0] as
+    | {
+        content?: { blockedBy?: { nodes?: unknown[] } };
+      }
+    | undefined;
+  if (item?.content) {
+    item.content.blockedBy = {
+      nodes: [
+        {
+          id: "I_41",
+          number: 41,
+          state: "OPEN",
+          repository: {
+            name: "widgets",
+            owner: { login: "acme" },
+          },
+        },
+      ],
+    };
+  }
+  return jsonResponse(payload);
 }
 
 function mockIssueProjectItem() {
