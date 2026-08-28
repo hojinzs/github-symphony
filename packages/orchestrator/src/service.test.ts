@@ -2648,7 +2648,7 @@ describe("OrchestratorService", () => {
     expect(eventsRaw).toContain("fix/2-foreign");
   });
 
-  it("recovers a dirty workspace after a crash even when session metadata is stale", async () => {
+  it("requeues a recovery retry when recovery context lookup fails", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-crashed-dirty-recovery-")
@@ -2826,30 +2826,37 @@ describe("OrchestratorService", () => {
       }),
     });
 
-    currentTime = new Date("2026-03-08T00:06:01.000Z");
-    const restarted = await service.runOnce();
-    const runs = await store.loadAllRuns();
-    const recoveryRun = runs.find((run) => run.runId !== "run-crashed");
-    const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
-
-    expect(restarted.summary.recovered).toBe(1);
-    expect(recoveryRun).toMatchObject({
-      status: "running",
-      retryKind: "recovery",
-      recovery: expect.objectContaining({
-        kind: "incomplete-turn-dirty-workspace",
-        dirtyFiles: ["partial.txt"],
-      }),
-    });
-    expect(spawnEnv?.SYMPHONY_RECOVERY_KIND).toBe(
-      "incomplete-turn-dirty-workspace"
+    vi.spyOn(service as never, "resolveRetryRunRecoveryContext").mockRejectedValueOnce(
+      new Error("git status unavailable")
     );
-    expect(spawnEnv?.SYMPHONY_RECOVERY_DIRTY_FILES).toContain("partial.txt");
-    expect(
-      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
-        encoding: "utf8",
-      })
-    ).toContain("?? partial.txt");
+    currentTime = new Date("2026-03-08T00:06:01.000Z");
+    const restartFailure = await service.runOnce();
+    const retryAfterRecoveryFailure = await store.loadRun(
+      "run-crashed",
+      "tenant-1"
+    );
+    const issueRecordsAfterRecoveryFailure =
+      await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(restartFailure.summary.recovered).toBe(0);
+    expect(retryAfterRecoveryFailure).toMatchObject({
+      status: "failed",
+      lastError: expect.stringContaining(
+        "Run restart failed: Error: git status unavailable"
+      ),
+    });
+    expect(issueRecordsAfterRecoveryFailure[0]).toMatchObject({
+      state: "retry_queued",
+      currentRunId: null,
+      failureRetryCount: 1,
+      retryEntry: {
+        attempt: 3,
+        error: expect.stringContaining(
+          "Run restart failed: Error: git status unavailable"
+        ),
+      },
+    });
+
   });
 
   it("clears legacy issue-budget and cross-session resume env before spawning a worker", async () => {

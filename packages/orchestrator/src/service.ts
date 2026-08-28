@@ -4546,16 +4546,15 @@ export class OrchestratorService {
       retryKind: null,
       lastError: "Superseded by recovered run.",
     };
-    await this.store.saveRun(supersededRecord);
-
-    const issue =
-      refreshedIssue ??
-      resolveTrackerAdapter(tenant.tracker).reviveIssue(tenant, run);
-    const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
     let nextIssueRecords = issueRecords;
     let preparedRun: OrchestratorRunRecord | null = null;
     let restarted: OrchestratorRunRecord;
     try {
+      await this.store.saveRun(supersededRecord);
+      const issue =
+        refreshedIssue ??
+        resolveTrackerAdapter(tenant.tracker).reviveIssue(tenant, run);
+      const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
         recovery,
