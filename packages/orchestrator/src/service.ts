@@ -2284,6 +2284,7 @@ export class OrchestratorService {
     return {
       ...trackerDependencies,
       workflowLifecycle: resolution.lifecycle,
+      workflowTracker: resolution.workflow.tracker,
     };
   }
 
@@ -2454,14 +2455,13 @@ export class OrchestratorService {
   private isIssueCandidateEligible(
     issue: TrackedIssue,
     lifecycle: WorkflowLifecycleConfig,
-    issues: readonly TrackedIssue[]
+    _issues: readonly TrackedIssue[]
   ): boolean {
     if (issue.isArchived === true) {
       return false;
     }
 
-    return isIssueCandidateEligibleWithReason(issue, lifecycle, issues)
-      .eligible;
+    return isIssueCandidateEligibleWithReason(issue, lifecycle).eligible;
   }
 
   private async publishLinkedPullRequestActiveAdvisories(

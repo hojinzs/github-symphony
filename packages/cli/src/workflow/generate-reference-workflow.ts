@@ -19,7 +19,7 @@ export type ReferenceWorkflowInput = {
   }>;
   projectId: string;
   priority: WorkflowPriorityConfig | null;
-  lifecycle?: WorkflowLifecycleConfig;
+  lifecycle?: WorkflowLifecycleConfig & { blockerCheckStates?: string[] };
   detectedEnvironment: Pick<
     DetectedEnvironment,
     | "packageManager"

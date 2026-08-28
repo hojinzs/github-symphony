@@ -4,6 +4,7 @@ import type {
   OrchestratorProjectConfig,
 } from "./status-surface.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
+import type { WorkflowTrackerConfig } from "../workflow/config.js";
 import type { WorkflowValidationError } from "../workflow/parser.js";
 
 export class TrackerRateLimitError extends Error {
@@ -176,6 +177,10 @@ export type OrchestratorTrackerDependencies = {
   issueCommentCache?: IssueCommentCache;
   assignedOnly?: boolean;
   workflowLifecycle?: WorkflowLifecycleConfig;
+  workflowTracker?: Pick<
+    WorkflowTrackerConfig,
+    "blockerCheckStates" | "terminalStates"
+  >;
 };
 
 export type TrackerStateRequest =

@@ -366,7 +366,6 @@ function parseWorkflowMarkdownInternal(
       stateFieldName,
       activeStates,
       terminalStates,
-      blockerCheckStates,
       planningStates,
     },
     format: "front-matter",

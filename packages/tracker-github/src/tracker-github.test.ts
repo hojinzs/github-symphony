@@ -94,7 +94,7 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.isArchived).toBe(true);
   });
 
-  it("normalizes blocker refs into the workflow lifecycle state domain", () => {
+  it("preserves GitHub source states on blocker refs", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
       {
@@ -156,12 +156,12 @@ describe("resolveTrackerAdapter", () => {
       {
         id: "issue-9",
         identifier: "other/shared#9",
-        state: "Done",
+        state: "CLOSED",
       },
       {
         id: "issue-10",
         identifier: "other/shared#10",
-        state: null,
+        state: "OPEN",
       },
     ]);
   });
@@ -1993,7 +1993,6 @@ describe("resolveTrackerAdapter", () => {
           stateFieldName: "Status",
           activeStates: ["Ready", "In progress", "Land"],
           terminalStates: ["Done", "Won't Do"],
-          blockerCheckStates: ["Ready"],
           planningStates: ["Ready"],
         },
         fetchImpl: async (_url, init) => {
@@ -2084,7 +2083,6 @@ describe("resolveTrackerAdapter", () => {
         stateFieldName: "Stage",
         activeStates: ["Ready", "In progress"],
         terminalStates: ["Done"],
-        blockerCheckStates: ["Ready"],
         planningStates: ["Ready"],
       },
       fetchImpl: async (_url, init) => {
@@ -2131,7 +2129,6 @@ describe("resolveTrackerAdapter", () => {
         stateFieldName: "Status",
         activeStates: ["Ready", "In progress"],
         terminalStates: [],
-        blockerCheckStates: ["Ready"],
         planningStates: ["Ready"],
       },
       fetchImpl: async (_url, init) => {
@@ -2179,7 +2176,6 @@ describe("resolveTrackerAdapter", () => {
           stateFieldName: "Status",
           activeStates: ["Ready", "In progress"],
           terminalStates: ["Done", "ready"],
-          blockerCheckStates: ["Ready"],
           planningStates: ["Ready"],
         },
         fetchImpl,
@@ -2206,7 +2202,6 @@ describe("resolveTrackerAdapter", () => {
           stateFieldName: "Status",
           activeStates: ["Ready", "In progress"],
           terminalStates: ["Done"],
-          blockerCheckStates: ["Ready"],
           planningStates: ["Ready"],
         },
         fetchImpl: async (_url, init) => {
@@ -2255,7 +2250,6 @@ describe("resolveTrackerAdapter", () => {
           stateFieldName: "Stage",
           activeStates: ["Ready", "In progress"],
           terminalStates: ["Done"],
-          blockerCheckStates: ["Ready"],
           planningStates: ["Ready"],
         },
         fetchImpl: async (_url, init) => {
@@ -4565,6 +4559,40 @@ describe("resolveTrackerAdapter", () => {
     expect(issues[0]?.state).toBe("Done");
   });
 
+  it("derives blocker dispatchability without rewriting GitHub source states", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123", blockerCheckStates: "Ready" },
+    });
+    const project = makeProjectConfig();
+    (project.tracker.settings as Record<string, unknown>).blockerCheckStates =
+      "Ready";
+    const issues = await adapter.listIssues(project, {
+      token: "dependencies-token",
+      fetchImpl: async () =>
+        makeJsonResponse(
+          makeProjectItemsPayload([
+            makeProjectItem({
+              itemId: "item-1",
+              issueId: "issue-1",
+              number: 1,
+              title: "Blocked issue",
+              assignees: [],
+              state: "Ready",
+              blockedBy: [{ id: "issue-2", number: 2, state: "OPEN" }],
+            }),
+          ])
+        ),
+    });
+
+    expect(issues[0]).toMatchObject({
+      dispatchable: false,
+      dispatchReason: "Blocked by unresolved GitHub issue: acme/platform#2.",
+      blockedBy: [{ state: "OPEN" }],
+    });
+  });
+
   it("reuses a shared project item cache across listIssues and listIssuesByStates", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -5010,7 +5038,7 @@ describe("resolveTrackerAdapter", () => {
         {
           id: "issue-9",
           identifier: "acme/dependencies#9",
-          state: null,
+          state: "OPEN",
         },
       ],
       createdAt: "2026-03-13T00:00:00.000Z",
@@ -5744,7 +5772,11 @@ describe("pickup label filtering", () => {
       "acme/platform#2",
       "acme/platform#3",
     ]);
-    expect(issues.map((issue) => issue.dispatchable)).toEqual([true, false, false]);
+    expect(issues.map((issue) => issue.dispatchable)).toEqual([
+      true,
+      false,
+      false,
+    ]);
     expect(issues[1]?.dispatchReason).toBe(
       'Issue has excluded pickup label "beta".'
     );
@@ -5833,6 +5865,7 @@ function makeProjectItem(input: {
   state?: string;
   stateFieldName?: string;
   labels?: string[];
+  blockedBy?: Array<{ id: string; number: number; state: string }>;
   priorityName?: string;
   priorityOptionId?: string;
   isArchived?: boolean;
@@ -5887,7 +5920,17 @@ function makeProjectItem(input: {
         url: `https://github.com/${repository.owner}/${repository.name}`,
         owner: { login: repository.owner },
       },
-      blockedBy: { nodes: [] },
+      blockedBy: {
+        nodes: (input.blockedBy ?? []).map((blocker) => ({
+          id: blocker.id,
+          number: blocker.number,
+          state: blocker.state,
+          repository: {
+            name: repository.name,
+            owner: { login: repository.owner },
+          },
+        })),
+      },
     },
   };
 }

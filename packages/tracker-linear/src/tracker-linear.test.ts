@@ -345,6 +345,53 @@ describe("linearTrackerAdapter", () => {
     }
   });
 
+  it("derives blocker dispatchability from Linear relations", async () => {
+    const issues = await linearTrackerAdapter.listIssues(
+      makeProject({
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: "Todo",
+          terminalStates: "Done",
+          blockerCheckStates: "Todo",
+        },
+      }),
+      {
+        token: "linear-token",
+        fetchImpl: vi.fn().mockResolvedValue(
+          jsonResponse({
+            data: {
+              issues: {
+                nodes: [
+                  linearIssueNode("ENG-1", [], {
+                    inverseRelations: {
+                      nodes: [
+                        {
+                          type: "blocks",
+                          issue: {
+                            id: "issue-2",
+                            identifier: "ENG-2",
+                            state: { name: "In Progress" },
+                          },
+                        },
+                      ],
+                    },
+                  }),
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          })
+        ),
+      }
+    );
+
+    expect(issues[0]).toMatchObject({
+      dispatchable: false,
+      dispatchReason: "Blocked by unresolved Linear issue: ENG-2.",
+      blockedBy: [{ state: "In Progress" }],
+    });
+  });
+
   it("uses runtime assignedOnly before legacy tracker settings", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({

@@ -342,9 +342,12 @@ async function listLinearIssues(
       }
     )
   ) as TrackedIssueList;
+  const blockerEligibleIssues = fetchedIssues.map((issue) =>
+    applyBlockerDispatchability(issue, config)
+  ) as TrackedIssueList;
   const issues = options.applyPickupLabels
-    ? (filterIssuesByPickupLabels(fetchedIssues, project) as TrackedIssueList)
-    : fetchedIssues;
+    ? (filterIssuesByPickupLabels(blockerEligibleIssues, project) as TrackedIssueList)
+    : blockerEligibleIssues;
   Object.defineProperty(issues, "rateLimits", {
     configurable: true,
     enumerable: false,
@@ -664,6 +667,12 @@ function resolveLinearTrackerConfig(
       MAX_LINEAR_PAGE_TIMEOUT_MS
     ),
     projectSlug,
+    blockerCheckStates:
+      dependencies.workflowTracker?.blockerCheckStates ??
+      readStringArray(project.tracker.settings?.blockerCheckStates),
+    terminalStates:
+      dependencies.workflowTracker?.terminalStates ??
+      readStringArray(project.tracker.settings?.terminalStates),
     token,
   };
 }
@@ -753,6 +762,44 @@ function readStringArray(value: unknown): string[] | undefined {
     return undefined;
   }
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function applyBlockerDispatchability(
+  issue: TrackedIssue,
+  config: {
+    blockerCheckStates: string[] | undefined;
+    terminalStates: string[] | undefined;
+  }
+): TrackedIssue {
+  if (
+    !issue.dispatchable ||
+    !matchesState(issue.state, config.blockerCheckStates ?? [])
+  ) {
+    return issue;
+  }
+  const unresolved = issue.blockedBy.filter(
+    (blocker) =>
+      !blocker.state ||
+      !matchesState(blocker.state, config.terminalStates ?? [])
+  );
+  if (unresolved.length === 0) {
+    return issue;
+  }
+  const identifiers = unresolved
+    .map((blocker) => blocker.identifier ?? blocker.id ?? "unknown")
+    .join(", ");
+  return {
+    ...issue,
+    dispatchable: false,
+    dispatchReason: `Blocked by unresolved Linear issue${unresolved.length === 1 ? "" : "s"}: ${identifiers}.`,
+  };
+}
+
+function matchesState(state: string, candidates: readonly string[]): boolean {
+  const normalized = state.trim().toLowerCase();
+  return candidates.some(
+    (candidate) => candidate.trim().toLowerCase() === normalized
+  );
 }
 
 function emitDispatchableDerivedEvent(input: {

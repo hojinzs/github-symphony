@@ -61,7 +61,7 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.lifecycle.stateFieldName).toBe("Stage");
     expect(parsed.lifecycle.activeStates).toEqual(["Queued", "Doing"]);
     expect(parsed.lifecycle.terminalStates).toEqual(["Done"]);
-    expect(parsed.lifecycle.blockerCheckStates).toEqual(["Queued"]);
+    expect(parsed.tracker.blockerCheckStates).toEqual(["Queued"]);
     expect(parsed.lifecycle.planningStates).toEqual(["Queued"]);
   });
 
@@ -78,7 +78,7 @@ describe("generateWorkflowMarkdown", () => {
 
     expect(markdown).toContain("blocker_check_states: []");
     expect(markdown).toContain("planning_states: []");
-    expect(parsed.lifecycle.blockerCheckStates).toEqual([]);
+    expect(parsed.tracker.blockerCheckStates).toEqual([]);
     expect(parsed.lifecycle.planningStates).toEqual([]);
   });
 

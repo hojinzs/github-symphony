@@ -44,6 +44,7 @@ export type GitHubTrackerConfig = {
   timeoutMs?: number;
   priority?: WorkflowPriorityConfig | null;
   priorityFieldName?: string;
+  blockerCheckStates?: string[];
   /** @internal Collects per-operation GraphQL cost within one tracker call. */
   rateLimitCollector?: GitHubRateLimitCollector;
 };
@@ -447,7 +448,7 @@ export function normalizeProjectItem(
           {
             id: node.id,
             identifier: `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
-            state: normalizeBlockerState(node.state, lifecycle),
+            state: normalizeBlockerState(node.state),
           },
         ]
       : []
@@ -642,6 +643,7 @@ export async function fetchProjectIssues(
       const issue = applyDispatchabilityRules(normalized, item, {
         currentUserLogin,
         repositoryFilter: config.repositoryFilter,
+        blockerCheckStates: config.blockerCheckStates ?? [],
       });
       if (!issue.dispatchable) {
         const reason = getDispatchabilityReasonCategory(issue.dispatchReason);
@@ -1925,16 +1927,47 @@ function applyDispatchabilityRules(
   options: {
     currentUserLogin: string | null;
     repositoryFilter: { owner: string; name: string } | null | undefined;
+    blockerCheckStates: readonly string[];
   }
 ): GitHubTrackedIssue {
   const reason =
     getAssignedOnlyDispatchReason(item, options.currentUserLogin) ??
     getRepositoryDispatchReason(issue, options.repositoryFilter) ??
-    getPullRequestHeadDispatchReason(issue);
+    getPullRequestHeadDispatchReason(issue) ??
+    getBlockerDispatchReason(issue, options.blockerCheckStates);
 
   return reason
     ? { ...issue, dispatchable: false, dispatchReason: reason }
     : issue;
+}
+
+function getBlockerDispatchReason(
+  issue: GitHubTrackedIssue,
+  blockerCheckStates: readonly string[]
+): string | null {
+  if (
+    !matchesState(issue.state, blockerCheckStates) ||
+    issue.blockedBy.length === 0
+  ) {
+    return null;
+  }
+  const unresolved = issue.blockedBy.filter(
+    (blocker) => blocker.state?.trim().toLowerCase() !== "closed"
+  );
+  if (unresolved.length === 0) {
+    return null;
+  }
+  const identifiers = unresolved
+    .map((blocker) => blocker.identifier ?? blocker.id ?? "unknown")
+    .join(", ");
+  return `Blocked by unresolved GitHub issue${unresolved.length === 1 ? "" : "s"}: ${identifiers}.`;
+}
+
+function matchesState(state: string, candidates: readonly string[]): boolean {
+  const normalized = state.trim().toLowerCase();
+  return candidates.some(
+    (candidate) => candidate.trim().toLowerCase() === normalized
+  );
 }
 
 function getAssignedOnlyDispatchReason(
@@ -2004,6 +2037,9 @@ function getDispatchabilityReasonCategory(
   }
   if (reason?.startsWith("Repository ")) {
     return "repository";
+  }
+  if (reason?.startsWith("Blocked by unresolved GitHub issue")) {
+    return "blocker";
   }
   return "forkPullRequest";
 }
@@ -2660,23 +2696,7 @@ function deriveCloneUrl(repositoryUrl: string): string {
   return `${repositoryUrl}.git`;
 }
 
-function normalizeBlockerState(
-  state: string | null,
-  lifecycle: WorkflowLifecycleConfig
-): string | null {
-  if (!state) {
-    return null;
-  }
-
-  const normalized = state.trim().toLowerCase();
-  if (normalized === "closed") {
-    return lifecycle.terminalStates[0] ?? state;
-  }
-
-  if (normalized === "open") {
-    return null;
-  }
-
+function normalizeBlockerState(state: string | null): string | null {
   return state;
 }
 

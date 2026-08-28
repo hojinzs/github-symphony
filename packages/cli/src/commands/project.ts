@@ -340,8 +340,12 @@ function trackerSettings(
       ? { projectSlug: workflow.tracker.projectSlug }
       : {}),
     ...(workflow.tracker.kind === "linear"
-      ? { activeStates: workflow.tracker.activeStates.join("\n") }
+      ? {
+          activeStates: workflow.tracker.activeStates.join("\n"),
+          terminalStates: workflow.tracker.terminalStates.join("\n"),
+        }
       : {}),
+    blockerCheckStates: workflow.tracker.blockerCheckStates.join("\n"),
     ...(workflow.tracker.pickupLabels.include.length > 0 ||
     workflow.tracker.pickupLabels.exclude.length > 0
       ? { pickupLabels: workflow.tracker.pickupLabels }

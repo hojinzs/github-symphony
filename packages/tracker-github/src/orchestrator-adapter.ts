@@ -395,6 +395,9 @@ function resolveGitHubTrackerConfig(
       project.tracker,
       "priorityFieldName"
     ),
+    blockerCheckStates:
+      dependencies.workflowTracker?.blockerCheckStates ??
+      readStringArrayTrackerSetting(project.tracker, "blockerCheckStates"),
     timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
     lifecycle: dependencies.workflowLifecycle,
   };
@@ -475,6 +478,7 @@ function buildProjectItemsCacheKey(
     assignedOnly: config.assignedOnly ?? false,
     priority: config.priority ?? null,
     priorityFieldName: config.priorityFieldName ?? null,
+    blockerCheckStates: config.blockerCheckStates ?? [],
     projectId: config.projectId,
     workflowLifecycle: config.lifecycle ?? null,
     terminalStateFilterEnabled: isTerminalStateFilterEnabled(config),
@@ -581,6 +585,22 @@ function readOptionalStringTrackerSetting(
 ): string | undefined {
   const value = tracker.settings?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readStringArrayTrackerSetting(
+  tracker: OrchestratorTrackerConfig,
+  key: string
+): string[] {
+  const value = tracker.settings?.[key];
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n|,/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 function parseIssueNumber(identifier: string): number {

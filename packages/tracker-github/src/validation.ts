@@ -8,7 +8,7 @@ type RepositoryAlias = {
 
 type StateValidationError = {
   state: string;
-  category: "active" | "terminal" | "blocker_check";
+  category: "active" | "terminal";
   message: string;
 };
 
@@ -46,12 +46,11 @@ export function validateWorkflowFieldMapping(options: {
   );
 
   const stateCategories: Array<{
-    category: "active" | "terminal" | "blocker_check";
+    category: "active" | "terminal";
     states: readonly string[];
   }> = [
     { category: "active", states: options.lifecycle.activeStates },
     { category: "terminal", states: options.lifecycle.terminalStates },
-    { category: "blocker_check", states: options.lifecycle.blockerCheckStates },
   ];
 
   const errors: StateValidationError[] = [];

@@ -47,8 +47,10 @@ describe("Symphony core conformance", () => {
       hookPath: "hooks/after_create.sh",
       lifecycle: {
         ...DEFAULT_WORKFLOW_LIFECYCLE,
-        blockerCheckStates: ["Todo"],
         planningStates: [],
+      },
+      tracker: {
+        blockerCheckStates: ["Todo"],
       },
     });
   });
