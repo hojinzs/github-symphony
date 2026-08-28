@@ -1862,10 +1862,11 @@ describe("OrchestratorService", () => {
       pid: 4101,
       unref: vi.fn(),
     });
+    const currentTime = new Date("2026-03-08T00:00:00.000Z");
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: spawnImpl as never,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      now: () => currentTime,
     });
 
     const first = await service.runOnce();
@@ -14697,10 +14698,11 @@ Test hook failure.
       "utf8"
     );
     const spawnImpl = vi.fn().mockReturnValue({ pid: 4312, unref: vi.fn() });
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: spawnImpl as never,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      now: () => currentTime,
     });
 
     await service.runOnce();
@@ -14708,7 +14710,30 @@ Test hook failure.
     expect(spawnImpl).not.toHaveBeenCalled();
     await expect(
       store.loadProjectIssueOrchestrations(projectConfig.projectId)
-    ).resolves.toEqual([expect.objectContaining({ state: "retry_queued" })]);
+    ).resolves.toEqual([
+      expect.objectContaining({
+        state: "retry_queued",
+        retryEntry: expect.objectContaining({
+          error: expect.stringContaining("after_create hook failure"),
+        }),
+      }),
+    ]);
+    currentTime = new Date("2026-03-08T00:01:00.000Z");
+    await service.runOnce();
+
+    // The failed setup directory was removed, so retrying runs after_create
+    // again and never bypasses it to spawn a worker.
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        state: "retry_queued",
+        retryEntry: expect.objectContaining({
+          error: expect.stringContaining("after_create hook failure"),
+        }),
+      }),
+    ]);
   });
 
   it("resolves standalone project .env $VAR values with host precedence", async () => {

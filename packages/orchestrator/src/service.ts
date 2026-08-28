@@ -19,6 +19,7 @@ import {
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
   executeWorkspaceHook,
+  resolveHookCommand,
   isStateTerminal,
   isMatchingIssueRun,
   matchesWorkflowState,
@@ -2832,11 +2833,36 @@ export class OrchestratorService {
     );
     await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
 
-    if (
-      !existingWorkspaceAtConfiguredRoot ||
-      workspaceQuarantined ||
-      createdNow
-    ) {
+    const shouldSaveWorkspaceRecord =
+      !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;
+
+    // Run after_create only when this process actually created the directory.
+    // If it fails, remove the partial workspace so a retry creates it again
+    // rather than starting in an uninitialized directory.
+    if (createdNow) {
+      const afterCreateResult = await this.runHook(
+        "after_create",
+        tenant,
+        repositoryDirectory,
+        issue.repository,
+        {
+          projectId: tenant.projectId,
+          workspaceKey,
+          issueSubjectId,
+          issueIdentifier: issue.identifier,
+          workspacePath: issueWorkspacePath,
+          repositoryPath: repositoryDirectory,
+          eventRunId: runId,
+          state: issue.state,
+        }
+      );
+      if (!isSuccessfulHookResult(afterCreateResult)) {
+        await rm(issueWorkspacePath, { recursive: true, force: true });
+        throw new Error(formatFatalHookError(afterCreateResult));
+      }
+    }
+
+    if (shouldSaveWorkspaceRecord) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
         projectId: tenant.projectId,
@@ -2851,27 +2877,6 @@ export class OrchestratorService {
         lastError: null,
       };
       await this.store.saveIssueWorkspace(workspaceRecord);
-    }
-
-    // Run after_create only when this process actually created the directory.
-    if (createdNow) {
-      const afterCreateResult = await this.runHook(
-        "after_create",
-        tenant,
-        repositoryDirectory,
-        issue.repository,
-        {
-          projectId: tenant.projectId,
-          workspaceKey,
-          issueSubjectId,
-          issueIdentifier: issue.identifier,
-          workspacePath: issueWorkspacePath,
-          repositoryPath: repositoryDirectory,
-        }
-      );
-      if (!isSuccessfulHookResult(afterCreateResult)) {
-        throw new Error(formatFatalHookError(afterCreateResult));
-      }
     }
 
     const workflow = workflowForPopulate;
@@ -4473,14 +4478,12 @@ export class OrchestratorService {
       workspacePath: string;
       repositoryPath: string;
       runId?: string;
+      eventRunId?: string;
       state?: string;
     },
     resolution?: ProjectWorkflowResolution
   ): Promise<HookResult> {
     let result: HookResult;
-    this.writeStderr(
-      `[orchestrator] starting ${kind} hook for ${context.issueIdentifier}`
-    );
     try {
       const workflowResolution =
         resolution ?? (await this.loadProjectWorkflow(tenant, repository));
@@ -4499,6 +4502,11 @@ export class OrchestratorService {
           tenant,
           buildHookEnv(context)
         );
+        if (resolveHookCommand(workflowResolution.workflow.hooks, kind)) {
+          this.writeStderr(
+            `[orchestrator] starting ${kind} hook for ${context.issueIdentifier}`
+          );
+        }
         result = await executeWorkspaceHook({
           kind,
           hooks: workflowResolution.workflow.hooks,
@@ -4526,9 +4534,10 @@ export class OrchestratorService {
       this.writeStderr(
         `[orchestrator] ${kind} hook failed for ${context.issueIdentifier}: ${errorMessage}`
       );
-      if (context.runId) {
+      const eventRunId = context.eventRunId ?? context.runId;
+      if (eventRunId) {
         try {
-          await this.store.appendRunEvent(context.runId, {
+          await this.store.appendRunEvent(eventRunId, {
             at: this.now().toISOString(),
             event: "hook-failed",
             projectId: tenant.projectId,

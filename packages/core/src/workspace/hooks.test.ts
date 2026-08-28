@@ -111,7 +111,7 @@ describe("executeWorkspaceHook", () => {
     tempDirs.push(repositoryPath);
     await writeFile(
       join(repositoryPath, "large-error.sh"),
-      "#!/usr/bin/env bash\nhead -c 8192 /dev/zero | tr '\\0' x >&2\nexit 1\n",
+      "#!/usr/bin/env bash\nyes '가나다라' | head -c 8192 >&2\nexit 1\n",
       "utf8"
     );
     await chmod(join(repositoryPath, "large-error.sh"), 0o755);
@@ -131,7 +131,10 @@ describe("executeWorkspaceHook", () => {
     });
 
     expect(result.outcome).toBe("failure");
-    expect(result.error?.length).toBeLessThanOrEqual(MAX_HOOK_OUTPUT_BYTES);
+    expect(Buffer.byteLength(result.error ?? "", "utf8")).toBeLessThanOrEqual(
+      MAX_HOOK_OUTPUT_BYTES
+    );
+    expect(result.error).not.toContain("�");
   });
 
   it("supports repository-relative hook paths via bash execution", async () => {

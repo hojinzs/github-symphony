@@ -65,11 +65,14 @@ export async function executeHook(
 
     // Drain both pipes so a verbose hook cannot block on the OS pipe buffer.
     // Retain only the bounded diagnostic suffix used by the orchestrator.
-    let stderr = "";
-    const appendOutput = (current: string, chunk: Buffer): string => {
-      const combined = current + chunk.toString("utf8");
+    let stderr: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    const appendOutput = (
+      current: Buffer<ArrayBufferLike>,
+      chunk: Buffer<ArrayBufferLike>
+    ): Buffer<ArrayBufferLike> => {
+      const combined = Buffer.concat([current, chunk]);
       return combined.length > MAX_HOOK_OUTPUT_BYTES
-        ? combined.slice(-MAX_HOOK_OUTPUT_BYTES)
+        ? combined.subarray(-MAX_HOOK_OUTPUT_BYTES)
         : combined;
     };
     child.stdout?.on("data", () => {
@@ -99,7 +102,37 @@ export async function executeHook(
         clearTimeout(timer);
       }
       const durationMs = Date.now() - start;
-      const errorOutput = stderr.trim();
+      // A bounded suffix can begin midway through a UTF-8 sequence. Drop its
+      // continuation bytes before decoding so diagnostics stay valid text.
+      while (stderr.length > 0 && (stderr[0]! & 0b1100_0000) === 0b1000_0000) {
+        stderr = stderr.subarray(1);
+      }
+      // A hook may be terminated immediately after a partial code point.
+      // Remove that suffix instead of emitting a replacement character.
+      let trailingContinuationBytes = 0;
+      for (
+        let index = stderr.length - 1;
+        index >= 0 && (stderr[index]! & 0b1100_0000) === 0b1000_0000;
+        index -= 1
+      ) {
+        trailingContinuationBytes += 1;
+      }
+      if (trailingContinuationBytes > 0) {
+        const leadingIndex = stderr.length - trailingContinuationBytes - 1;
+        const leadingByte = stderr[leadingIndex];
+        const expectedContinuationBytes =
+          leadingByte !== undefined && (leadingByte & 0b1111_1000) === 0b1111_0000
+            ? 3
+            : leadingByte !== undefined && (leadingByte & 0b1111_0000) === 0b1110_0000
+              ? 2
+              : leadingByte !== undefined && (leadingByte & 0b1110_0000) === 0b1100_0000
+                ? 1
+                : 0;
+        if (trailingContinuationBytes < expectedContinuationBytes) {
+          stderr = stderr.subarray(0, leadingIndex);
+        }
+      }
+      const errorOutput = stderr.toString("utf8").trim();
 
       if (timedOut) {
         resolveResult({
