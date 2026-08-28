@@ -954,7 +954,7 @@ describe("worktree-cache issue workspaces", () => {
     ).toBe(unpushedCommit);
   });
 
-  it("collects a pushed branch created from the configured template", async () => {
+  it("collects a pushed branch created from a configured template", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
     const repository = await createRepositoryFixture(tempRoot);
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
@@ -974,7 +974,6 @@ describe("worktree-cache issue workspaces", () => {
       repositoryDirectory,
       projectSlug: "project-one",
       issueIdentifier: "acme/platform#14",
-      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
     });
 
     const bareDirectory = globalBareRepositoryDirectory({ repository });
@@ -1267,6 +1266,8 @@ async function createRepositoryFixture(tempRoot: string) {
   execSync(`git clone "${originPath}" "${workingPath}"`);
   execSync(`git -C "${workingPath}" config user.name "Test User"`);
   execSync(`git -C "${workingPath}" config user.email "test@example.com"`);
+  execSync(`git -C "${originPath}" config user.name "Test User"`);
+  execSync(`git -C "${originPath}" config user.email "test@example.com"`);
 
   await writeFile(
     join(workingPath, "WORKFLOW.md"),
