@@ -1,5 +1,38 @@
 # @gh-symphony/cli
 
+## 0.12.0
+
+### Minor Changes
+
+- [#690](https://github.com/hojinzs/github-symphony/pull/690) [`de8c001`](https://github.com/hojinzs/github-symphony/commit/de8c00120cfdba2a9c68bf67f225b8ae1a92c9e4) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Gate orchestration dispatch on tracker-provided issue eligibility and show ineligibility reasons in explain output ([#686](https://github.com/hojinzs/github-symphony/issues/686)).
+
+- [#697](https://github.com/hojinzs/github-symphony/pull/697) [`931b13e`](https://github.com/hojinzs/github-symphony/commit/931b13ee130c894c046b8b6948c253e047fac649) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Expose GitHub Project dispatch eligibility for unassigned, out-of-scope, label-ineligible, and fork pull request items with explainable reasons ([#687](https://github.com/hojinzs/github-symphony/issues/687)). The GitHub eligibility event is now `tracker-dispatchability-derived`, retaining assignment/scope context and a reason breakdown; fork PR Project items are reported as non-dispatchable instead of degrading project status.
+
+- [#699](https://github.com/hojinzs/github-symphony/pull/699) [`32f17d1`](https://github.com/hojinzs/github-symphony/commit/32f17d100820c54fcadfa115d257053f80dfa1f8) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Return unassigned Linear candidates with locally derived dispatch eligibility and allow file fixtures to model non-dispatchable issues. ([#688](https://github.com/hojinzs/github-symphony/issues/688))
+
+- [#691](https://github.com/hojinzs/github-symphony/pull/691) [`c2686df`](https://github.com/hojinzs/github-symphony/commit/c2686df05f7f84aa5e75cd2b4c75fdb33672f69e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject invalid WORKFLOW.md front matter before runtime execution with typed
+  diagnostics for workflow validation errors ([#667](https://github.com/hojinzs/github-symphony/issues/667)).
+
+### Patch Changes
+
+- [#640](https://github.com/hojinzs/github-symphony/pull/640) [`7a8441d`](https://github.com/hojinzs/github-symphony/commit/7a8441d544b0f2decc009d078bf3e9c80010949e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Clean retained workspaces after their GitHub Project items enter terminal states without requiring an orchestrator restart ([#627](https://github.com/hojinzs/github-symphony/issues/627)).
+
+- [#680](https://github.com/hojinzs/github-symphony/pull/680) [`d4540e3`](https://github.com/hojinzs/github-symphony/commit/d4540e37bfbe10a418a4e13b22a84796a480aee0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#657](https://github.com/hojinzs/github-symphony/issues/657) by failing Codex worker turns immediately when the app-server exits, bounding protocol lines, and sending the rendered prompt once.
+
+- [#685](https://github.com/hojinzs/github-symphony/pull/685) [`0b349eb`](https://github.com/hojinzs/github-symphony/commit/0b349ebfef517b23d2f75c2c4765bf29f819cc0a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Isolate failed orchestrator retry restarts so a poison-pill workspace failure is retried with backoff without aborting reconciliation for other runs ([#656](https://github.com/hojinzs/github-symphony/issues/656)).
+
+- [#694](https://github.com/hojinzs/github-symphony/pull/694) [`187a6db`](https://github.com/hojinzs/github-symphony/commit/187a6db652bde57264587cd2c402249d3e579008) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Return complete normalized GitHub Project issue snapshots after ID refreshes, including routing fields and assignees ([#662](https://github.com/hojinzs/github-symphony/issues/662)).
+
+- [#643](https://github.com/hojinzs/github-symphony/pull/643) [`bb95b0b`](https://github.com/hojinzs/github-symphony/commit/bb95b0b6e3d212855492b840218bd14bea70c2eb) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#639](https://github.com/hojinzs/github-symphony/issues/639) by preserving live foreign workers during reconciliation while allowing dead-owner and legacy runs to recover safely.
+
+- [#644](https://github.com/hojinzs/github-symphony/pull/644) [`944a095`](https://github.com/hojinzs/github-symphony/commit/944a0956238640abf4f9f1b8fd96d448941b81e5) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Expose the applied `WORKFLOW.md` revision in status and dispatch events, and
+  document next-tick reload behavior and the intentional filesystem-watch
+  divergence for [#626](https://github.com/hojinzs/github-symphony/issues/626).
+
+- [#682](https://github.com/hojinzs/github-symphony/pull/682) [`7fc36dc`](https://github.com/hojinzs/github-symphony/commit/7fc36dce8bd86d9e820bd5997204d4e52319c8c6) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Render the persisted retry attempt in workflow prompts and reset continuation attempts to 1 ([#654](https://github.com/hojinzs/github-symphony/issues/654)).
+
+- [#693](https://github.com/hojinzs/github-symphony/pull/693) [`17f158e`](https://github.com/hojinzs/github-symphony/commit/17f158e245dce84b26f38fc3e71221a2a1b6dbe2) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Isolate Docker E2E Compose projects per worktree to allow concurrent test runs without container, network, volume, or image collisions. ([#692](https://github.com/hojinzs/github-symphony/issues/692))
+
 ## 0.11.1
 
 ### Patch Changes
