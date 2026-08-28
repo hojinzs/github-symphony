@@ -58,6 +58,27 @@ export function collectMcpSecretEnvironmentNames(options: {
   return [...sourceNames].sort();
 }
 
+/** Removes declared tracker credentials from already-resolved MCP server envs. */
+export function stripMcpServerSecretEnvironmentValues(
+  servers: Record<string, McpServerDefinition>,
+  secretEnvironmentNames: readonly string[]
+): Record<string, McpServerDefinition> {
+  const secretNames = new Set(secretEnvironmentNames);
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => [
+      name,
+      server.env
+        ? {
+            ...server,
+            env: Object.fromEntries(
+              Object.entries(server.env).filter(([key]) => !secretNames.has(key))
+            ),
+          }
+        : server,
+    ])
+  );
+}
+
 /** Combines trusted MCP declarations without allowing a sidecar to replace builtins. */
 export function composeMcpServers(
   options: McpCompositionOptions

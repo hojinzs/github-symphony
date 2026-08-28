@@ -6,6 +6,7 @@ import {
   collectMcpSecretEnvironmentNames,
   composeMcpServers,
   McpConfigError,
+  stripMcpServerSecretEnvironmentValues,
 } from "./mcp-compose.js";
 
 const roots: string[] = [];
@@ -33,6 +34,28 @@ afterEach(async () =>
 );
 
 describe("composeMcpServers", () => {
+  it("removes resolved tracker secret values from composed server environments", () => {
+    expect(
+      stripMcpServerSecretEnvironmentValues(
+        {
+          github: {
+            command: "node",
+            env: {
+              GITHUB_GRAPHQL_TOKEN: "resolved-indirect-secret",
+              GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+            },
+          },
+        },
+        ["GITHUB_GRAPHQL_TOKEN", "MY_ORG_PAT"]
+      )
+    ).toEqual({
+      github: {
+        command: "node",
+        env: { GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql" },
+      },
+    });
+  });
+
   it("preserves $VAR source names for declared secrets", async () => {
     const { project, repo } = await fixture();
     await writeFile(

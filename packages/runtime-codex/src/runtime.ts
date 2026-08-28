@@ -10,6 +10,7 @@ import {
   writeAgentCredentialCache,
   composeMcpServers,
   collectMcpSecretEnvironmentNames,
+  stripMcpServerSecretEnvironmentValues,
   type AgentRuntimeAdapter,
   type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
@@ -71,6 +72,7 @@ export type CodexRuntimeConfig = {
   projectDirectory?: string;
   trustRepoConfig?: boolean;
   trackerSecretEnvironmentNames?: readonly string[];
+  trackerKind?: string;
 };
 
 export type CodexRuntimePlan = {
@@ -588,7 +590,22 @@ export function buildCodexRuntimePlan(
   if (!config.enableLinearGraphqlTool) {
     delete servers.linear_graphql;
   }
-  const tools = Object.entries(servers).map(
+  const secretEnvironmentNames = [
+    ...(config.trackerSecretEnvironmentNames ?? []),
+    ...collectMcpSecretEnvironmentNames({
+      repositoryDir: config.workingDirectory,
+      projectDir: config.projectDirectory,
+      trustRepoConfig: config.trustRepoConfig,
+      secretEnvironmentNames: config.trackerSecretEnvironmentNames ?? [],
+    }),
+  ];
+  const brokeredGitHubTracker =
+    usesGitHubTokenBroker && config.trackerKind !== "linear";
+  const tools = Object.entries(
+    brokeredGitHubTracker
+      ? stripMcpServerSecretEnvironmentValues(servers, secretEnvironmentNames)
+      : servers
+  ).map(
     ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
   );
   const gitCredentialHelper = createGitCredentialHelperEnvironment({
@@ -661,16 +678,7 @@ export function buildCodexRuntimePlan(
   // A broker can serve GitHub tools and Git without exposing raw tracker
   // credentials to the coding-agent process. Brokerless deployments retain
   // them temporarily for Phase 1a compatibility (#700 removes this path).
-  if (usesGitHubTokenBroker) {
-    const secretEnvironmentNames = [
-      ...(config.trackerSecretEnvironmentNames ?? []),
-      ...collectMcpSecretEnvironmentNames({
-        repositoryDir: config.workingDirectory,
-        projectDir: config.projectDirectory,
-        trustRepoConfig: config.trustRepoConfig,
-        secretEnvironmentNames: config.trackerSecretEnvironmentNames ?? [],
-      }),
-    ];
+  if (brokeredGitHubTracker) {
     for (const name of secretEnvironmentNames) {
       delete plan.env[name];
     }

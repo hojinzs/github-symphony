@@ -31,6 +31,7 @@ export function resolveLocalRuntimeLaunchConfig(
     projectDirectory: env.SYMPHONY_PROJECT_DIR,
     trustRepoConfig: env.SYMPHONY_TRUST_REPO_CONFIG === "true",
     trackerSecretEnvironmentNames: readTrackerSecretEnvironmentNames(env),
+    trackerKind: env.SYMPHONY_TRACKER_KIND,
     githubToken: env.GITHUB_GRAPHQL_TOKEN,
     githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
     githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,

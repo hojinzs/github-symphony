@@ -13,7 +13,7 @@ import type {
   AgentRuntimeEventSubscription,
   WorkflowDefinition,
 } from "@gh-symphony/core";
-import { extractEnvForClaude } from "@gh-symphony/core";
+import { collectMcpSecretEnvironmentNames, extractEnvForClaude } from "@gh-symphony/core";
 import {
   createClaudePrintRuntimeAdapter,
   type ClaudeRuntimeDependencies,
@@ -223,12 +223,53 @@ export function createWorkerNonCodexRuntimeAdapter(
           workingDirectory: context.workingDirectory,
           command: runtime.command,
           args: runtime.args,
-          env: context.env,
+          env: stripTrackerSecretsForBrokeredGitHubChild(
+            context.env,
+            context.workingDirectory
+          ),
           authEnvKey: runtime.auth.env ?? undefined,
           onSpawned: context.onSpawned,
         },
         context.customDependencies
       );
+  }
+}
+
+export function stripTrackerSecretsForBrokeredGitHubChild(
+  env: NodeJS.ProcessEnv,
+  workingDirectory: string
+): NodeJS.ProcessEnv {
+  if (
+    env.SYMPHONY_TRACKER_KIND === "linear" ||
+    !env.GITHUB_TOKEN_BROKER_URL ||
+    !env.GITHUB_TOKEN_BROKER_SECRET
+  ) {
+    return env;
+  }
+  const declaredNames = readTrackerSecretEnvironmentNames(env);
+  const childEnv = { ...env };
+  for (const name of [
+    ...declaredNames,
+    ...collectMcpSecretEnvironmentNames({
+      repositoryDir: workingDirectory,
+      projectDir: env.SYMPHONY_PROJECT_DIR,
+      trustRepoConfig: env.SYMPHONY_TRUST_REPO_CONFIG === "true",
+      secretEnvironmentNames: declaredNames,
+    }),
+  ]) {
+    delete childEnv[name];
+  }
+  return childEnv;
+}
+
+function readTrackerSecretEnvironmentNames(env: NodeJS.ProcessEnv): string[] {
+  try {
+    const names = JSON.parse(env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]");
+    return Array.isArray(names)
+      ? names.filter((name): name is string => typeof name === "string")
+      : [];
+  } catch {
+    return [];
   }
 }
 

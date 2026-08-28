@@ -12,9 +12,27 @@ import {
 import {
   CustomCommandWorkerRuntimeAdapter,
   createWorkerNonCodexRuntimeAdapter,
+  stripTrackerSecretsForBrokeredGitHubChild,
 } from "./non-codex-runtime.js";
 
 describe("CustomCommandWorkerRuntimeAdapter", () => {
+  it("removes brokered GitHub tracker secrets before custom runtime spawn", () => {
+    expect(
+      stripTrackerSecretsForBrokeredGitHubChild(
+        {
+          SYMPHONY_TRACKER_KIND: "github",
+          GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+          GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "GITHUB_GRAPHQL_TOKEN",
+          ]),
+          GITHUB_GRAPHQL_TOKEN: "raw-secret",
+        },
+        "/repo"
+      ).GITHUB_GRAPHQL_TOKEN
+    ).toBeUndefined();
+  });
+
   it("spawns a custom command without the Codex JSON-RPC protocol", async () => {
     const fake = createFakeChild();
     const spawnImpl = vi.fn(() => fake.child);

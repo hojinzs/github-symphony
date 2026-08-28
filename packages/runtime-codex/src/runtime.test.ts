@@ -222,6 +222,40 @@ describe("buildCodexRuntimePlan", () => {
     }
   });
 
+  it("removes indirect tracker credentials from brokered tool definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-mcp-tracker-secret-"));
+    const workspace = join(root, "workspace");
+    const project = join(root, "project");
+    await Promise.all([mkdir(workspace), mkdir(project)]);
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          org_github: {
+            command: "node",
+            env: { GITHUB_GRAPHQL_TOKEN: "$MY_ORG_PAT" },
+          },
+        },
+      })
+    );
+    process.env.MY_ORG_PAT = "indirect-github-secret";
+    try {
+      const plan = buildCodexRuntimePlan({
+        projectId: "workspace-123",
+        workingDirectory: workspace,
+        projectDirectory: project,
+        githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
+        githubTokenBrokerSecret: "broker-secret",
+        trackerSecretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
+      });
+      expect(JSON.stringify(plan.tools)).not.toContain("indirect-github-secret");
+      expect(plan.env.MY_ORG_PAT).toBeUndefined();
+    } finally {
+      delete process.env.MY_ORG_PAT;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("forwards run-scoped orchestrator context to the agent environment", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
@@ -329,6 +363,18 @@ describe("buildCodexRuntimePlan", () => {
       LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
       LINEAR_API_KEY: "lin_api_key",
     });
+
+    const brokeredLinearPlan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      trackerKind: "linear",
+      enableLinearGraphqlTool: true,
+      linearApiKey: "lin_api_key",
+      githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
+      githubTokenBrokerSecret: "broker-secret",
+      trackerSecretEnvironmentNames: ["LINEAR_API_KEY"],
+    });
+    expect(brokeredLinearPlan.env.LINEAR_API_KEY).toBe("lin_api_key");
   });
 });
 

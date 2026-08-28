@@ -2,6 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   AgentSessionInvalidatedEvent,
   AgentRuntimeAdapter,
@@ -15,6 +16,7 @@ import {
   collectMcpSecretEnvironmentNames,
   extractEnvForClaude,
 } from "@gh-symphony/core";
+import { validateGitHubTokenBrokerUrl } from "@gh-symphony/tool-github-graphql";
 import {
   buildClaudePrintArgv,
   type ClaudePrintArgvOptions,
@@ -582,6 +584,7 @@ function buildClaudeSpawnEnv(options: {
       options.workingDirectory,
       options.configEnv
     );
+    Object.assign(env, createBrokeredGitCredentialHelperEnvironment(env));
     return env;
   }
 
@@ -600,6 +603,7 @@ function buildClaudeSpawnEnv(options: {
     options.workingDirectory,
     options.configEnv
   );
+  Object.assign(env, createBrokeredGitCredentialHelperEnvironment(env));
 
   return env;
 }
@@ -609,7 +613,11 @@ function stripTrackerSecretsWhenBrokered(
   workingDirectory: string,
   configEnv?: NodeJS.ProcessEnv
 ): void {
-  if (!env.GITHUB_TOKEN_BROKER_URL || !env.GITHUB_TOKEN_BROKER_SECRET) {
+  if (
+    env.SYMPHONY_TRACKER_KIND === "linear" ||
+    !env.GITHUB_TOKEN_BROKER_URL ||
+    !env.GITHUB_TOKEN_BROKER_SECRET
+  ) {
     return;
   }
   const declaredNames = readTrackerSecretEnvironmentNames(env);
@@ -736,8 +744,39 @@ function buildClaudeMcpTokenEnvironment(options: {
     SYMPHONY_TRACKER_KIND: source.SYMPHONY_TRACKER_KIND,
     SYMPHONY_PROJECT_DIR: source.SYMPHONY_PROJECT_DIR,
     SYMPHONY_TRUST_REPO_CONFIG: source.SYMPHONY_TRUST_REPO_CONFIG,
+    SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES:
+      source.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES,
     WORKSPACE_RUNTIME_DIR:
       options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
+  };
+}
+
+function createBrokeredGitCredentialHelperEnvironment(
+  env: NodeJS.ProcessEnv
+): Record<string, string> {
+  if (
+    env.SYMPHONY_TRACKER_KIND === "linear" ||
+    !env.GITHUB_TOKEN_BROKER_URL ||
+    !env.GITHUB_TOKEN_BROKER_SECRET
+  ) {
+    return {};
+  }
+  return {
+    GITHUB_GIT_HOST: "github.com",
+    GITHUB_GIT_USERNAME: "x-access-token",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "credential.helper",
+    GIT_CONFIG_VALUE_0: `!node ${fileURLToPath(
+      new URL("./git-credential-helper.js", import.meta.url)
+    )}`,
+    GITHUB_TOKEN_BROKER_URL: validateGitHubTokenBrokerUrl(
+      env.GITHUB_TOKEN_BROKER_URL
+    ),
+    GITHUB_TOKEN_BROKER_SECRET: env.GITHUB_TOKEN_BROKER_SECRET,
+    ...(env.GITHUB_TOKEN_CACHE_PATH
+      ? { GITHUB_TOKEN_CACHE_PATH: env.GITHUB_TOKEN_CACHE_PATH }
+      : {}),
   };
 }
 

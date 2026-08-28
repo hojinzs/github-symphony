@@ -323,6 +323,8 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
 
     expect(calls[0]?.GITHUB_TOKEN).toBeUndefined();
+    expect(calls[0]?.GIT_CONFIG_KEY_0).toBe("credential.helper");
+    expect(calls[0]?.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
   });
 
   it("uses configured args and strict mcp isolation for spawned argv", async () => {

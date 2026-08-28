@@ -663,7 +663,12 @@ async function startAssignedRun() {
 function shouldWarnAboutBrokerlessTrackerCredential(
   env: NodeJS.ProcessEnv
 ): boolean {
-  if (env.GITHUB_TOKEN_BROKER_URL && env.GITHUB_TOKEN_BROKER_SECRET) {
+  const trackerIsLinear = env.SYMPHONY_TRACKER_KIND === "linear";
+  if (
+    !trackerIsLinear &&
+    env.GITHUB_TOKEN_BROKER_URL &&
+    env.GITHUB_TOKEN_BROKER_SECRET
+  ) {
     return false;
   }
   try {

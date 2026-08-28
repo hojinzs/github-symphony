@@ -54,7 +54,8 @@ names are retained as metadata while configuration is resolved. When a GitHub
 token broker is configured, local and remote launchers remove every declared
 GitHub name from coding-agent child environments; the Codex and Claude runtime
 paths must not add them back. Generated Claude `mcp.json` must contain no
-literal tracker or broker credential in this mode.
+literal raw tracker credential in this mode; the GitHub broker secret remains
+available to the child until Phase 1b.
 
 This phase is deliberately a security-boundary prerequisite, not completion of
 host-side execution. A legacy MCP subprocess started by the coding agent has no
