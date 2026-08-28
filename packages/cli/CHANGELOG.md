@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.13.1
+
+### Patch Changes
+
+- [#712](https://github.com/hojinzs/github-symphony/pull/712) [`9ec9223`](https://github.com/hojinzs/github-symphony/commit/9ec92233d72826553173bda4d404903a36586adb) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Classify abnormal worker exits after failed turns as failure retries with backoff and preserved diagnostics, fixing [#704](https://github.com/hojinzs/github-symphony/issues/704).
+
+- [#706](https://github.com/hojinzs/github-symphony/pull/706) [`6915605`](https://github.com/hojinzs/github-symphony/commit/69156050366dc955c85904bf7b414762ad4e6cd1) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Validate configured repository and project workflows before startup, preserve reconciliation when a tracker adapter becomes unsupported, and honor `repo init --workflow-file` at runtime ([#670](https://github.com/hojinzs/github-symphony/issues/670)).
+
 ## 0.13.0
 
 ### Minor Changes
