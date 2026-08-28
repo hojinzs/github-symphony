@@ -1252,7 +1252,9 @@ function readGitBranch(repositoryDirectory: string): string {
 
 function configureGitIdentity(repositoryDirectory: string): void {
   execSync(`git -C "${repositoryDirectory}" config user.name "Test User"`);
-  execSync(`git -C "${repositoryDirectory}" config user.email "test@example.com"`);
+  execSync(
+    `git -C "${repositoryDirectory}" config user.email "test@example.com"`
+  );
 }
 
 describe("sanitizeRepositoryCloneUrl", () => {
