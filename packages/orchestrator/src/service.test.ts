@@ -14554,6 +14554,163 @@ Prefer focused changes.
     ).resolves.toBe("from-project-env\n");
   });
 
+  it("fails a before_run hook without spawning the worker and queues a retry", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-before-run-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+  blocker_check_states: [Todo]
+hooks:
+  before_run: hooks/fail-before-run.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+---
+Test hook failure.
+`,
+      }
+    );
+    await mkdir(join(repository.path, "hooks"), { recursive: true });
+    await writeFile(
+      join(repository.path, "hooks", "fail-before-run.sh"),
+      "#!/usr/bin/env bash\nprintf 'before run failed' >&2\nexit 1\n",
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "fail-before-run.sh"), 0o755);
+    execSync(`git -C ${shell(repository.path)} add hooks/fail-before-run.sh`, {
+      stdio: "ignore",
+    });
+    execSync(
+      `git -C ${shell(repository.path)} commit -m failing-before-run-hook`,
+      {
+        stdio: "ignore",
+      }
+    );
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4311, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        state: "retry_queued",
+        retryEntry: expect.objectContaining({
+          error: expect.stringContaining("before_run hook failure"),
+        }),
+      }),
+    ]);
+  });
+
+  it("fails workspace creation when after_create fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-after-create-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+  blocker_check_states: [Todo]
+hooks:
+  after_create: hooks/fail-after-create.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+codex:
+  command: codex app-server
+---
+Test hook failure.
+`,
+      }
+    );
+    await mkdir(join(repository.path, "hooks"), { recursive: true });
+    await writeFile(
+      join(repository.path, "hooks", "fail-after-create.sh"),
+      "#!/usr/bin/env bash\nprintf 'after create failed' >&2\nexit 1\n",
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "fail-after-create.sh"), 0o755);
+    execSync(
+      `git -C ${shell(repository.path)} add hooks/fail-after-create.sh`,
+      {
+        stdio: "ignore",
+      }
+    );
+    execSync(
+      `git -C ${shell(repository.path)} commit -m failing-after-create-hook`,
+      {
+        stdio: "ignore",
+      }
+    );
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4312, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([expect.objectContaining({ state: "retry_queued" })]);
+  });
+
   it("resolves standalone project .env $VAR values with host precedence", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalProjectId = process.env.PROJECT_ENV_WORKFLOW_ID;
