@@ -27,6 +27,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 
   defaultLifecycle() {
+    // GitHub owns this Project vocabulary; the core fallback is transitional.
     return {
       stateFieldName: "Status",
       activeStates: ["Todo", "In Progress"],
@@ -306,6 +307,8 @@ const GITHUB_PROVIDER_STRING_KEYS = [
   "priority_field",
 ] as const;
 
+const GITHUB_PROVIDER_OBJECT_KEYS = ["priority", "pickup_labels"] as const;
+
 const GITHUB_PROVIDER_LIST_KEYS = [
   "active_states",
   "terminal_states",
@@ -359,6 +362,21 @@ export function validateGitHubProviderConfig(
           "workflow_validation_error",
           `tracker.provider.${key}`,
           `GitHub provider key "${key}" must be a list of non-empty strings when provided.`
+        )
+      );
+    }
+  }
+  for (const key of GITHUB_PROVIDER_OBJECT_KEYS) {
+    const value = provider[key];
+    if (
+      value !== undefined &&
+      (value === null || Array.isArray(value) || typeof value !== "object")
+    ) {
+      errors.push(
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          `tracker.provider.${key}`,
+          `GitHub provider key "${key}" must be an object when provided.`
         )
       );
     }

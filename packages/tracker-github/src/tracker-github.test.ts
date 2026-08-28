@@ -86,11 +86,15 @@ describe("resolveTrackerAdapter", () => {
       validateGitHubProviderConfig({
         endpoint: "not-a-url",
         planning_states: "Ready",
+        priority: [],
+        pickup_labels: "agent-ready",
         custom_key: { preserved: true },
       }).map((error) => error.path)
     ).toEqual([
       "tracker.provider.endpoint",
       "tracker.provider.planning_states",
+      "tracker.provider.priority",
+      "tracker.provider.pickup_labels",
     ]);
   });
 
