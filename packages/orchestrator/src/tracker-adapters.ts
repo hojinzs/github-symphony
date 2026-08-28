@@ -24,3 +24,18 @@ export function resolveTrackerAdapter(
   if (local) return local;
   return resolveGitHubAdapter(tracker);
 }
+
+/** Resolves adapter-owned workflow parser hooks without requiring a binding. */
+export function resolveWorkflowConfigTrackerAdapter(
+  kind: string
+): OrchestratorTrackerAdapter | undefined {
+  const local = localAdapters.get(kind);
+  if (local) return local;
+  if (kind === "github-project") {
+    return resolveGitHubAdapter({
+      adapter: kind,
+      bindingId: "workflow-validation",
+    });
+  }
+  return undefined;
+}

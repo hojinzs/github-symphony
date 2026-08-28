@@ -52,6 +52,53 @@ export function buildPriorityConfigDiagnostics(
   return diagnostics;
 }
 
+/** Migration guidance for flat tracker keys promoted by the core parser. */
+export function buildProviderDeprecationDiagnostics(
+  workflow: ParsedWorkflow
+): PriorityDiagnostic[] {
+  if (
+    workflow.tracker.kind !== "github-project" ||
+    workflow.tracker.deprecatedKeys.length === 0
+  ) {
+    return [];
+  }
+
+  const githubKeys = [
+    "project_id",
+    "endpoint",
+    "state_field",
+    "priority",
+    "priority_field",
+    "pickup_labels",
+    "blocker_check_states",
+    "planning_states",
+  ];
+  const migrated = githubKeys.filter((key) =>
+    workflow.tracker.deprecatedKeys.includes(key)
+  );
+  if (migrated.length === 0) return [];
+
+  const provider = Object.fromEntries(
+    migrated.map((key) => [key, workflow.tracker.provider[key]])
+  );
+  return [
+    {
+      title: "Deprecated GitHub tracker keys",
+      summary: `Flat tracker key(s) ${migrated.join(", ")} are deprecated and remain supported for compatibility.`,
+      remediation: `Move them under tracker.provider (flat aliases will be removed in the next major release):\n\n${renderProviderBlock(provider)}`,
+      details: { deprecatedKeys: migrated, providerBlock: renderProviderBlock(provider) },
+    },
+  ];
+}
+
+function renderProviderBlock(provider: Record<string, unknown>): string {
+  const lines = ["tracker:", "  provider:"];
+  for (const [key, value] of Object.entries(provider)) {
+    lines.push(`    ${key}: ${JSON.stringify(value)}`);
+  }
+  return ["```yaml", ...lines, "```"].join("\n");
+}
+
 export function buildPriorityDriftDiagnostics(input: {
   workflow: ParsedWorkflow;
   projectDetail: ProjectDetail;

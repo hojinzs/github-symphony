@@ -32,6 +32,7 @@ export {
   findGithubProjectIssue,
   getSupportedTrackerKinds,
   resolveTrackerAdapter,
+  resolveWorkflowConfigTrackerAdapter,
 } from "./tracker-adapters.js";
 export {
   acquireProjectLock,

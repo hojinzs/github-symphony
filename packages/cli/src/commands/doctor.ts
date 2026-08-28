@@ -18,7 +18,10 @@ import {
   resolveRuntimeCommandBinary,
   type ClaudePreflightCheck,
 } from "@gh-symphony/runtime-claude";
-import { getSupportedTrackerKinds } from "@gh-symphony/orchestrator";
+import {
+  getSupportedTrackerKinds,
+  resolveWorkflowConfigTrackerAdapter,
+} from "@gh-symphony/orchestrator";
 import {
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
@@ -50,6 +53,7 @@ import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
 import {
+  buildProviderDeprecationDiagnostics,
   buildPriorityConfigDiagnostics,
   buildPriorityDriftDiagnostics,
 } from "../priority-diagnostics.js";
@@ -83,6 +87,7 @@ type DoctorCheckId =
   | "runtime_root"
   | "workspace_root"
   | "workflow_file"
+  | "provider_deprecation"
   | "runtime_command"
   | "project_repository_link"
   | "smoke_issue"
@@ -702,6 +707,7 @@ async function checkWorkflow(
   try {
     const parsed = deps.parseWorkflowMarkdown(markdown, environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
+      resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
     });
     return {
       status: "pass",
@@ -2149,6 +2155,18 @@ export async function runDoctorDiagnostics(
   }
 
   checks.push(
+    ...(workflow.status === "pass"
+      ? buildProviderDeprecationDiagnostics(workflow.workflow).map(
+          (diagnostic) =>
+            warnCheck(
+              "provider_deprecation",
+              diagnostic.title,
+              diagnostic.summary,
+              diagnostic.remediation,
+              diagnostic.details
+            )
+        )
+      : []),
     ...(await buildPriorityMappingChecks({
       auth,
       selection: resolvedProjectConfig,

@@ -214,6 +214,44 @@ gate: configure a Liquid conditional in the prompt when planning runs must not
 implement. Existing prompts that do not reference the variable keep their
 current behavior.
 
+### GitHub Project provider profile
+
+For `tracker.kind: github-project`, configure GitHub-specific settings in
+`tracker.provider`. The adapter owns `project_id`, `endpoint`, `state_field`,
+`priority`, `pickup_labels`, `blocker_check_states`, and `planning_states`.
+Unknown provider keys are preserved so provider extensions remain forward
+compatible. `project_id`, `endpoint`, and `state_field` are non-empty strings
+when supplied; `endpoint` must be an HTTP(S) URL; state lists contain only
+non-empty strings.
+
+```yaml
+tracker:
+  kind: github-project
+  provider:
+    project_id: PVT_kwDOxxxxxx
+    endpoint: https://api.github.com/graphql
+    state_field: Status
+    active_states: [Todo, In Progress]
+    terminal_states: [Done]
+    blocker_check_states: [Todo]
+    planning_states: []
+    pickup_labels:
+      include: [agent-ready]
+      exclude: [blocked]
+    priority:
+      source: disabled
+```
+
+The documented GitHub Project lifecycle profile is `Status`, active states
+`Todo` and `In Progress`, terminal state `Done`, blocker-check state `Todo`,
+and no planning states. These defaults apply only when the corresponding list
+or field is omitted. Flat `tracker.project_id`, `tracker.endpoint`,
+`tracker.state_field`, `tracker.priority`, `tracker.pickup_labels`,
+`tracker.blocker_check_states`, and `tracker.planning_states` aliases remain
+supported for compatibility, but `gh-symphony workflow validate` and
+`gh-symphony repo doctor` warn and print a copyable `tracker.provider` block.
+They are scheduled for removal in the next major release.
+
 ## Skill Layering
 
 Before each worker attempt the orchestrator injects agent skills into the

@@ -16,6 +16,7 @@ import {
   findGithubProjectIssue,
   githubProjectTrackerAdapter,
   resolveTrackerAdapter,
+  validateGitHubProviderConfig,
 } from "./orchestrator-adapter.js";
 import {
   validateWorkflowFieldMapping,
@@ -73,6 +74,26 @@ describe("GitHub canonical subject adapter hook", () => {
 });
 
 describe("resolveTrackerAdapter", () => {
+  it("validates documented GitHub provider keys and supplies its lifecycle profile", () => {
+    expect(githubProjectTrackerAdapter.defaultLifecycle?.()).toEqual({
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+      blockerCheckStates: ["Todo"],
+      planningStates: [],
+    });
+    expect(
+      validateGitHubProviderConfig({
+        endpoint: "not-a-url",
+        planning_states: "Ready",
+        custom_key: { preserved: true },
+      }).map((error) => error.path)
+    ).toEqual([
+      "tracker.provider.endpoint",
+      "tracker.provider.planning_states",
+    ]);
+  });
+
   it("normalizes archived project items to an explicit non-terminal state", () => {
     const projectItem = makeProjectItem({
       itemId: "item-archived",
