@@ -21,7 +21,7 @@ import {
 export type PromptIssueVariables = {
   id: string;
   identifier: string;
-  number: number;
+  number: number | undefined;
   title: string;
   description: string | null;
   priority: number | null;
@@ -81,14 +81,14 @@ export function buildPromptVariables(
     executionPhase?: WorkflowExecutionPhase | null;
   }
 ): PromptVariables {
-  const contentType = issue.metadata.contentType ?? "Issue";
-  const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
-    ? issue.metadata.linkedPullRequests.map(normalizePullRequestContext)
-    : [];
+  const contentType = issue.contentType ?? "Issue";
+  const linkedPullRequests = (issue.linkedPullRequests ?? []).map(
+    normalizePullRequestContext
+  );
   const primaryPullRequest =
     contentType === "PullRequest"
       ? normalizePullRequestContext(
-          issue.metadata.pullRequest ??
+          issue.pullRequest ??
             linkedPullRequests[0] ??
             buildPullRequestContextFromIssue(issue)
         )
@@ -104,7 +104,7 @@ export function buildPromptVariables(
     issue: {
       id: issue.id,
       identifier: issue.identifier,
-      number: issue.number ?? 0,
+      number: issue.number,
       title: issue.title,
       description: issue.description,
       priority: issue.priority,
@@ -170,7 +170,7 @@ function buildPullRequestContextFromIssue(
 ): TrackedPullRequestContext {
   return {
     id: issue.id,
-      number: issue.number ?? 0,
+    number: issue.number,
     identifier: issue.identifier,
     url: issue.url,
     state: null,

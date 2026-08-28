@@ -52,7 +52,7 @@ export type TrackedIssueContentType = "Issue" | "PullRequest";
 
 export type TrackedPullRequestContext = {
   id: string;
-  number: number;
+  number?: number;
   identifier: string;
   url: string | null;
   /**
@@ -128,6 +128,12 @@ export type TrackedIssue = {
   };
   /** Opaque, non-secret provider identity data; only the adapter may inspect it. */
   nativeRef?: Record<string, JsonValue> | null;
+  /** Provider-independent subject classification supplied by the adapter. */
+  contentType?: TrackedIssueContentType;
+  /** Adapter-resolved linked pull-request context for policy and prompts. */
+  linkedPullRequests?: TrackedPullRequestContext[];
+  /** Adapter-resolved pull-request context when the tracked item is a PR. */
+  pullRequest?: TrackedPullRequestContext;
   /** Provider-independent lifecycle fact for Project/archive-like records. */
   isArchived?: boolean;
   metadata: TrackedIssueMetadata;

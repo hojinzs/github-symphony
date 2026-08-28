@@ -1226,7 +1226,7 @@ export class OrchestratorService {
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
         canonicalIssues.map((issue) => [issue.identifier, issue])
       );
-      const missingLinearActiveIssueIds = [
+      const missingActiveIssueIds = [
         ...new Set(
           currentActiveRuns
             .filter(
@@ -1235,25 +1235,24 @@ export class OrchestratorService {
             .map((run) => run.issueId)
         ),
       ];
-      const supplementalLinearIssues =
-        missingLinearActiveIssueIds.length > 0
+      const supplementalIssues =
+        missingActiveIssueIds.length > 0
           ? await trackerAdapter.fetchIssueStatesByIds(
               tenant,
-              missingLinearActiveIssueIds,
+              missingActiveIssueIds,
               trackerDependencies
             )
           : [];
-      const supplementalLinearIssueIdentifiers = new Set<string>();
-      for (const issue of supplementalLinearIssues) {
+      const supplementalIssueIdentifiers = new Set<string>();
+      for (const issue of supplementalIssues) {
         if (!trackedIssuesByIdentifier.has(issue.identifier)) {
           trackedIssuesByIdentifier.set(issue.identifier, issue);
-          supplementalLinearIssueIdentifiers.add(issue.identifier);
+          supplementalIssueIdentifiers.add(issue.identifier);
         }
       }
-      const supplementalLinearRateLimits = getTrackedIssueListRateLimits(
-        supplementalLinearIssues
-      );
-      let supplementalLinearRateLimitsRecorded = false;
+      const supplementalRateLimits =
+        getTrackedIssueListRateLimits(supplementalIssues);
+      let supplementalRateLimitsRecorded = false;
       const trackedIssueSubjectIds = new Set(
         [...trackedIssuesByIdentifier.values()].map((issue) => issue.id)
       );
@@ -1293,17 +1292,15 @@ export class OrchestratorService {
         const currentIssue = trackedIssuesByIdentifier.get(run.issueIdentifier);
         if (
           currentIssue &&
-          supplementalLinearIssueIdentifiers.has(run.issueIdentifier)
+          supplementalIssueIdentifiers.has(run.issueIdentifier)
         ) {
           const eventRateLimits =
-            supplementalLinearRateLimits &&
-            !supplementalLinearRateLimitsRecorded
-              ? supplementalLinearRateLimits
-              : supplementalLinearRateLimits
+            supplementalRateLimits && !supplementalRateLimitsRecorded
+              ? supplementalRateLimits
+              : supplementalRateLimits
                 ? null
                 : (currentIssue.rateLimits ?? null);
-          supplementalLinearRateLimitsRecorded ||=
-            supplementalLinearRateLimits !== null;
+          supplementalRateLimitsRecorded ||= supplementalRateLimits !== null;
           await this.store.appendRunEvent(run.runId, {
             at: now.toISOString(),
             event: "tracker.fetchByIds",
@@ -1381,7 +1378,7 @@ export class OrchestratorService {
           trackerDependencies
         );
       const pollListRateLimits =
-        getTrackedIssueListRateLimits(issues) ?? supplementalLinearRateLimits;
+        getTrackedIssueListRateLimits(issues) ?? supplementalRateLimits;
       rateLimits = resolveProjectRateLimits(
         syncedActiveRuns,
         trackedIssuesByIdentifier.values(),

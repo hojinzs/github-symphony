@@ -136,10 +136,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
                 ...(issue.nativeRef ?? {}),
                 linkedPullRequests: resolved,
               } as TrackedIssue["nativeRef"],
-              metadata: {
-                ...issue.metadata,
-                linkedPullRequests: resolved,
-              },
+              linkedPullRequests: resolved,
             }
           : issue
       );

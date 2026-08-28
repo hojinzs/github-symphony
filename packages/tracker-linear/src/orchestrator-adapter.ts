@@ -486,6 +486,7 @@ export function normalizeLinearIssue(
     tracker: {
       adapter: "linear",
       bindingId: project.tracker.bindingId,
+      itemId: id,
     },
     nativeRef: { itemId: id, projectSlug },
     metadata: {},

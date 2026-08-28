@@ -502,6 +502,8 @@ export function normalizeProjectItem(
       linkedPullRequestsTruncated,
       projectFieldValues: fieldValues,
     } as TrackedIssue["nativeRef"],
+    contentType: "Issue",
+    linkedPullRequests,
     isArchived,
     metadata: withIssueMetadata(
       fieldValues,
@@ -562,6 +564,9 @@ function normalizePullRequestProjectItem(
       linkedPullRequests: [],
       projectFieldValues: fieldValues,
     } as TrackedIssue["nativeRef"],
+    contentType: "PullRequest",
+    linkedPullRequests: [],
+    pullRequest,
     isArchived: item.isArchived === true,
     metadata: withGitHubMetadata(fieldValues, {
       contentType: "PullRequest",
@@ -1985,7 +1990,7 @@ function getRepositoryDispatchReason(
 function getPullRequestHeadDispatchReason(
   issue: GitHubTrackedIssue
 ): string | null {
-  const pullRequest = issue.metadata.pullRequest;
+  const pullRequest = issue.pullRequest;
   if (!pullRequest) {
     return null;
   }
@@ -1993,15 +1998,21 @@ function getPullRequestHeadDispatchReason(
   const headRepository = pullRequest.headRepository;
   const sameRepository =
     headRepository != null &&
-    headRepository.owner.toLowerCase() === issue.repository.owner.toLowerCase() &&
+    headRepository.owner.toLowerCase() ===
+      issue.repository.owner.toLowerCase() &&
     headRepository.name.toLowerCase() === issue.repository.name.toLowerCase();
   return sameRepository
     ? null
     : `Fork pull requests are unsupported for automatic checkout/push (${headRepository ? `${headRepository.owner}/${headRepository.name}` : "unknown fork"} -> ${issue.repository.owner}/${issue.repository.name}).`;
 }
 
-function getDispatchabilityReasonCategory(reason: string | null | undefined): string {
-  if (reason?.startsWith("Issue is not assigned") || reason?.startsWith("Pull request items")) {
+function getDispatchabilityReasonCategory(
+  reason: string | null | undefined
+): string {
+  if (
+    reason?.startsWith("Issue is not assigned") ||
+    reason?.startsWith("Pull request items")
+  ) {
     return "assignment";
   }
   if (reason?.startsWith("Repository ")) {

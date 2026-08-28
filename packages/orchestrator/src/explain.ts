@@ -378,9 +378,7 @@ export function findActiveLinkedPullRequest(
     return null;
   }
 
-  const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
-    ? issue.metadata.linkedPullRequests
-    : [];
+  const linkedPullRequests = issue.linkedPullRequests ?? [];
   for (const pullRequest of linkedPullRequests) {
     const projectState =
       typeof pullRequest.projectState === "string"
