@@ -11,29 +11,45 @@ export function filterIssuesByPickupLabels<T extends TrackedIssue>(
   issues: T[],
   project: Pick<OrchestratorProjectConfig, "tracker">
 ): T[] {
+  return issues.filter(
+    (issue) => resolvePickupLabelDispatchReason(issue, project) === null
+  );
+}
+
+/**
+ * Resolves the workflow-policy reason an issue cannot be picked up. Tracker
+ * adapters may retain such issues for status/explain surfaces without
+ * duplicating pickup-label semantics.
+ */
+export function resolvePickupLabelDispatchReason<T extends TrackedIssue>(
+  issue: T,
+  project: Pick<OrchestratorProjectConfig, "tracker">
+): string | null {
   const pickupLabels = project.tracker.settings?.pickupLabels;
   if (
     !pickupLabels ||
     typeof pickupLabels !== "object" ||
     Array.isArray(pickupLabels)
   ) {
-    return issues;
+    return null;
   }
 
   const config = pickupLabels as Record<string, unknown>;
   const include = readLabelList(config.include);
   const exclude = new Set(readLabelList(config.exclude));
   if (include.length === 0 && exclude.size === 0) {
-    return issues;
+    return null;
   }
 
-  return issues.filter((issue) => {
-    const labels = new Set(issue.labels);
-    return (
-      ![...exclude].some((label) => labels.has(label)) &&
-      (include.length === 0 || include.some((label) => labels.has(label)))
-    );
-  });
+  const labels = new Set(issue.labels);
+  const excludedLabel = [...exclude].find((label) => labels.has(label));
+  if (excludedLabel) {
+    return `Issue has excluded pickup label "${excludedLabel}".`;
+  }
+
+  return include.length === 0 || include.some((label) => labels.has(label))
+    ? null
+    : `Issue is missing a required pickup label (${include.join(", ")}).`;
 }
 
 function readLabelList(value: unknown): string[] {

@@ -362,6 +362,8 @@ function resolvePullRequestBranchCheckoutTarget(
     const source = headRepository
       ? `${headRepository.owner}/${headRepository.name}`
       : "unknown fork";
+    // PR-content items are excluded earlier by tracker dispatchability; this
+    // remains for issues linked to a fork PR.
     throw new NonRetryableDispatchError(
       `Cannot checkout pull request branch for ${pullRequest.identifier}: fork pull requests are unsupported for automatic checkout/push (${source} -> ${issue.repository.owner}/${issue.repository.name}).`
     );
@@ -1441,8 +1443,11 @@ export class OrchestratorService {
         lifecyclesByIssueIdentifier,
       } = await this.resolveActionableCandidates(
         tenant,
+        // Retained provider-ineligible records are kept for explain/status but
+        // must not load or cache workflow policy for another repository.
         canonicalIssues.filter(
           (issue) =>
+            issue.dispatchable &&
             !terminalCandidateReconciliation.suppressedIdentifiers.has(
               issue.identifier
             )

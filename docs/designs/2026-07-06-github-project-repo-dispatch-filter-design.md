@@ -94,7 +94,11 @@ if (config.repositoryFilter) {
 
 ### Component 4 — Observability (`packages/tracker-github/src/adapter.ts`)
 
-Mirror the `emitAssignedOnlyFilterEvent` pattern with an `emitRepositoryFilterEvent` that emits the repo-exclusion count (event: `tracker-repository-filtered`, payload with `projectId`, `repository` (wanted), `excludedCount`).
+Emit `tracker-dispatchability-derived` when assignment or repository eligibility
+rules are active. Its payload retains `projectId`, the active
+`currentUserLogin` and/or repository scope, `includedCount`, and a
+`nonDispatchableByReason` breakdown so operators can triage retained records
+without relying on the removed filter-only events.
 
 ## Backward Compatibility / Change Grade ⚠️
 

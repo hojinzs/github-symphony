@@ -581,7 +581,7 @@ export async function fetchProjectIssues(
   const currentUserLogin = config.assignedOnly
     ? await fetchCurrentUserLogin(config, fetchImpl)
     : null;
-  let nonDispatchableCount = 0;
+  const nonDispatchableByReason: Record<string, number> = {};
   let latestRateLimits: GitHubRateLimitPayload | null = null;
   const skippedItems: NonNullable<TrackedIssueList["skippedItems"]> = [];
 
@@ -635,7 +635,9 @@ export async function fetchProjectIssues(
         repositoryFilter: config.repositoryFilter,
       });
       if (!issue.dispatchable) {
-        nonDispatchableCount += 1;
+        const reason = getDispatchabilityReasonCategory(issue.dispatchReason);
+        nonDispatchableByReason[reason] =
+          (nonDispatchableByReason[reason] ?? 0) + 1;
       }
       return [issue];
     });
@@ -656,8 +658,10 @@ export async function fetchProjectIssues(
 
   emitDispatchabilityDerivationEvent({
     projectId: config.projectId,
+    currentUserLogin,
+    repository: config.repositoryFilter ?? null,
     includedCount: issues.length,
-    nonDispatchableCount,
+    nonDispatchableByReason,
   });
 
   latestRateLimits = finalizeGraphQLRateLimitCycle(
@@ -1935,7 +1939,7 @@ function getAssignedOnlyDispatchReason(
   }
 
   if (item.content.__typename !== "Issue") {
-    return `Pull request is not assigned to ${currentUserLogin}.`;
+    return "Pull request items are not dispatched under assigned-only mode.";
   }
 
   const isAssigned = (item.content.assignees?.nodes ?? []).some(
@@ -1953,12 +1957,9 @@ function getRepositoryDispatchReason(
   }
 
   const isInScope =
-    issue.repository.owner.localeCompare(repositoryFilter.owner, undefined, {
-      sensitivity: "accent",
-    }) === 0 &&
-    issue.repository.name.localeCompare(repositoryFilter.name, undefined, {
-      sensitivity: "accent",
-    }) === 0;
+    issue.repository.owner.toLowerCase() ===
+      repositoryFilter.owner.toLowerCase() &&
+    issue.repository.name.toLowerCase() === repositoryFilter.name.toLowerCase();
   return isInScope
     ? null
     : `Repository ${issue.repository.owner}/${issue.repository.name} is outside configured repository scope ${repositoryFilter.owner}/${repositoryFilter.name}.`;
@@ -1982,17 +1983,41 @@ function getPullRequestHeadDispatchReason(
     : `Fork pull requests are unsupported for automatic checkout/push (${headRepository ? `${headRepository.owner}/${headRepository.name}` : "unknown fork"} -> ${issue.repository.owner}/${issue.repository.name}).`;
 }
 
+function getDispatchabilityReasonCategory(reason: string | null | undefined): string {
+  if (reason?.startsWith("Issue is not assigned") || reason?.startsWith("Pull request items")) {
+    return "assignment";
+  }
+  if (reason?.startsWith("Repository ")) {
+    return "repository";
+  }
+  return "forkPullRequest";
+}
+
 function emitDispatchabilityDerivationEvent(input: {
   projectId: string;
+  currentUserLogin: string | null;
+  repository: { owner: string; name: string } | null;
   includedCount: number;
-  nonDispatchableCount: number;
+  nonDispatchableByReason: Record<string, number>;
 }): void {
+  if (!input.currentUserLogin && !input.repository) {
+    return;
+  }
+
   console.info(
     JSON.stringify({
       event: "tracker-dispatchability-derived",
       projectId: input.projectId,
+      ...(input.currentUserLogin
+        ? { currentUserLogin: input.currentUserLogin }
+        : {}),
+      ...(input.repository ? { repository: input.repository } : {}),
       includedCount: input.includedCount,
-      nonDispatchableCount: input.nonDispatchableCount,
+      nonDispatchableCount: Object.values(input.nonDispatchableByReason).reduce(
+        (count, value) => count + value,
+        0
+      ),
+      nonDispatchableByReason: input.nonDispatchableByReason,
     })
   );
 }
