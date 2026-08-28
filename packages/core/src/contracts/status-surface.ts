@@ -244,6 +244,8 @@ export type OrchestratorRunRecord = {
   status: OrchestratorRunStatus;
   attempt: number;
   processId: number | null;
+  /** Exit code recorded when the worker process closes. Zero is a clean exit. */
+  workerExitCode?: number | null;
   /** Stable process start-time identity used to reject PID reuse. */
   processIdentity?: string | null;
   /** Project-lock owner identity of the orchestrator instance that spawned this run. */

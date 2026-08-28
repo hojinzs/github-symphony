@@ -10350,7 +10350,7 @@ Prefer focused changes.
     expect(updatedRun?.updatedAt).toBe("2026-03-08T00:06:00.000Z");
   });
 
-  it("applies queued codex_update metadata after the run transitions to retrying", async () => {
+  it("queues a failed worker exit with backoff and retained diagnostics", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-retrying-channel-update-")
@@ -10389,6 +10389,7 @@ Prefer focused changes.
         status: "running",
         attempt: 1,
         processId: 4601,
+        workerExitCode: 1,
         port: null,
         workingDirectory: join(tempRoot, "active-run"),
         issueWorkspaceKey: null,
@@ -10399,8 +10400,9 @@ Prefer focused changes.
         updatedAt: "2026-03-08T00:00:00.000Z",
         startedAt: "2026-03-08T00:00:00.000Z",
         completedAt: null,
-        lastError: null,
+        lastError: "port_exit: codex app-server exited with 3",
         nextRetryAt: null,
+        runPhase: "failed",
       });
 
       const listIssues = vi.fn().mockImplementation(async () => {
@@ -10429,7 +10431,7 @@ Prefer focused changes.
             },
             executionPhase: "implementation",
             runPhase: "failed",
-            lastError: "turn failed",
+            lastError: "port_exit: codex app-server exited with 3",
           })
         );
         return [
@@ -10482,6 +10484,8 @@ Prefer focused changes.
       await vi.waitFor(async () => {
         const updatedRun = await store.loadRun("run-1");
         expect(updatedRun?.status).toBe("retrying");
+        expect(updatedRun?.retryKind).toBe("failure");
+        expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:06:02.000Z");
         expect(updatedRun?.updatedAt).toBe("2026-03-08T00:06:00.000Z");
         expect(updatedRun?.runtimeSession?.sessionId).toBe(
           "thread-1-turn-final"
@@ -10491,13 +10495,28 @@ Prefer focused changes.
         );
         expect(updatedRun?.threadId).toBe("thread-1");
         expect(updatedRun?.cumulativeTurnCount).toBe(2);
-        expect(updatedRun?.lastTurnSummary).toBe("turn failed");
+        expect(updatedRun?.lastTurnSummary).toBe(
+          "port_exit: codex app-server exited with 3"
+        );
         expect(updatedRun?.runtimeSession?.updatedAt).toBe(
           "2026-03-08T00:06:00.000Z"
         );
         expect(updatedRun?.executionPhase).toBe("implementation");
         expect(updatedRun?.runPhase).toBe("failed");
-        expect(updatedRun?.lastError).toBe("turn failed");
+        expect(updatedRun?.lastError).toBe(
+          "port_exit: codex app-server exited with 3"
+        );
+        const issueRecords = await store.loadProjectIssueOrchestrations(
+          "tenant-1"
+        );
+        expect(issueRecords[0]).toMatchObject({
+          failureRetryCount: 1,
+          retryEntry: {
+            attempt: 2,
+            dueAt: "2026-03-08T00:06:02.000Z",
+            error: "port_exit: codex app-server exited with 3",
+          },
+        });
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

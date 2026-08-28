@@ -3074,6 +3074,15 @@ export class OrchestratorService {
       this.logVerbose(
         `[worker-exited] ${runId} (code=${code ?? "null"}, signal=${signal ?? "null"})`
       );
+      void this.runSerialized(() => this.recordWorkerExit(runId, code)).catch(
+        (error: unknown) => {
+          const message =
+            error instanceof Error ? error.message : String(error ?? "unknown");
+          this.writeStderr(
+            `[orchestrator] failed to record worker exit for ${runId}: ${message}`
+          );
+        }
+      );
     };
     const finalizeWorkerStderr = (
       code: number | null,
@@ -3508,9 +3517,15 @@ export class OrchestratorService {
       }
     }
 
-    // Determine retry kind: continuation (issue still actionable) vs failure
+    // A worker that reports a failed turn exited abnormally, even when the
+    // tracker still considers its issue actionable. That must use failure
+    // backoff rather than the short continuation retry delay.
     const retryKind =
-      convergenceDetected || currentTrackerProgress?.state === "unknown"
+      (runWithTokens.workerExitCode != null &&
+        runWithTokens.workerExitCode !== 0) ||
+      runWithTokens.runPhase === "failed" ||
+      convergenceDetected ||
+      currentTrackerProgress?.state === "unknown"
         ? "failure"
         : await this.classifyRetryKind(tenant, run, trackerDependencies);
     const persistedRetryKind = recovery ? "recovery" : retryKind;
@@ -3627,7 +3642,7 @@ export class OrchestratorService {
           ? null
           : currentTrackerProgress?.state === "unknown"
             ? currentTrackerProgress.error
-            : "Worker process exited unexpectedly.",
+            : (runWithTokens.lastError ?? "Worker process exited unexpectedly."),
       recovery,
     };
     await this.store.saveRun(retryRecord);
@@ -4345,6 +4360,21 @@ export class OrchestratorService {
       runPhase: latestRun.runPhase ?? null,
       rateLimits: latestRun.rateLimits ?? null,
     };
+  }
+
+  private async recordWorkerExit(
+    runId: string,
+    workerExitCode: number | null
+  ): Promise<void> {
+    const run = await this.store.loadRun(runId, this.projectConfig.projectId);
+    if (!run) {
+      return;
+    }
+    await this.store.saveRun({
+      ...run,
+      workerExitCode,
+      updatedAt: this.now().toISOString(),
+    });
   }
 
   private async readPersistedWorkerTokenUsage(
