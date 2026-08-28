@@ -1,6 +1,9 @@
 export type CliErrorCode =
   | "invalid_arguments"
   | "missing_workflow_file"
+  | "workflow_parse_error"
+  | "workflow_front_matter_not_a_map"
+  | "workflow_validation_error"
   | "repository_initialization_failed"
   | "missing_repository_runtime_config"
   | "status_snapshot_unavailable"
@@ -13,6 +16,7 @@ export type CliErrorCode =
 export function writeCliError(input: {
   code: CliErrorCode;
   message: string;
+  path?: string;
   json?: boolean;
   exitCode?: number;
   usage?: string;
@@ -24,6 +28,7 @@ export function writeCliError(input: {
         {
           error: {
             code: input.code,
+            ...(input.path ? { path: input.path } : {}),
             message: input.message,
           },
         },

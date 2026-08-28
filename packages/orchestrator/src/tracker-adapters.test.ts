@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveTrackerAdapter } from "./tracker-adapters.js";
+import {
+  getSupportedTrackerKinds,
+  resolveTrackerAdapter,
+} from "./tracker-adapters.js";
 
 describe("resolveTrackerAdapter", () => {
   it("registers the Linear adapter", () => {
@@ -13,4 +16,10 @@ describe("resolveTrackerAdapter", () => {
 
     expect(adapter.buildWorkerEnvironment).toBeTypeOf("function");
   });
+});
+
+it("exports adapter-owned tracker kinds for workflow validation", () => {
+  expect(getSupportedTrackerKinds()).toEqual(
+    expect.arrayContaining(["github-project", "file", "linear"])
+  );
 });

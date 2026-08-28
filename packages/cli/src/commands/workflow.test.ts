@@ -73,6 +73,29 @@ afterEach(() => {
 });
 
 describe("workflow command handler", () => {
+  it("prints typed front-matter errors from workflow validate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-error-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+
+    await writeFile(workflowPath, "---\n- tracker\n---\nPrompt", "utf8");
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      error: { code: "workflow_front_matter_not_a_map" },
+    });
+  });
+
   it("validates a workflow file with strict prompt and continuation rendering", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-validate-"));
     const workflowPath = join(root, "WORKFLOW.md");

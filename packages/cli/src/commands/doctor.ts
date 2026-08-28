@@ -4,6 +4,7 @@ import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
   parseWorkflowMarkdown,
+  WorkflowValidationError,
   redactObservabilitySecrets,
   redactObservabilityText,
   type ParsedWorkflow,
@@ -16,6 +17,7 @@ import {
   resolveRuntimeCommandBinary,
   type ClaudePreflightCheck,
 } from "@gh-symphony/runtime-claude";
+import { getSupportedTrackerKinds } from "@gh-symphony/orchestrator";
 import {
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
@@ -695,7 +697,9 @@ async function checkWorkflow(
   }
 
   try {
-    const parsed = deps.parseWorkflowMarkdown(markdown, process.env);
+    const parsed = deps.parseWorkflowMarkdown(markdown, process.env, {
+      supportedTrackerKinds: getSupportedTrackerKinds(),
+    });
     return {
       status: "pass",
       command: parsed.agentCommand,
@@ -712,9 +716,11 @@ async function checkWorkflow(
       remediation:
         "Fix the WORKFLOW.md front matter or re-run 'gh-symphony workflow init' to regenerate it.",
       error:
-        error instanceof Error
-          ? error.message
-          : "Unknown workflow parse error.",
+        error instanceof WorkflowValidationError
+          ? `${error.code} (${error.path}): ${error.message}`
+          : error instanceof Error
+            ? error.message
+            : "Unknown workflow parse error.",
     };
   }
 }

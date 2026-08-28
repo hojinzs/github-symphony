@@ -644,7 +644,7 @@ Handle {{issue.identifier}}.
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(
-      "Workflow front matter requires environment variable LINEAR_API_KEY"
+      'Workflow front matter field "tracker.api_key" requires environment variable LINEAR_API_KEY'
     );
   });
 

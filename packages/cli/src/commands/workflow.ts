@@ -4,11 +4,15 @@ import {
   buildPromptVariables,
   type OrchestratorProjectConfig,
   parseWorkflowMarkdown,
+  WorkflowValidationError,
   renderPrompt,
   resolveWorkflowExecutionPhase,
   type TrackedIssue,
 } from "@gh-symphony/core";
-import { resolveTrackerAdapter } from "@gh-symphony/orchestrator";
+import {
+  getSupportedTrackerKinds,
+  resolveTrackerAdapter,
+} from "@gh-symphony/orchestrator";
 import { fetchGithubProjectIssueByRepositoryAndNumber } from "@gh-symphony/tracker-github";
 import { type CliProjectConfig } from "../config.js";
 import {
@@ -23,6 +27,7 @@ import {
   validateGitHubToken,
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
+import { writeCliError } from "../cli-error.js";
 import {
   buildPriorityConfigDiagnostics,
   type PriorityDiagnostic,
@@ -803,7 +808,9 @@ function validateWorkflow(
   workflowPath: string,
   markdown: string
 ): WorkflowValidationReport {
-  const workflow = parseWorkflowMarkdown(markdown);
+  const workflow = parseWorkflowMarkdown(markdown, process.env, {
+    supportedTrackerKinds: getSupportedTrackerKinds(),
+  });
   const samplePhase = resolveWorkflowExecutionPhase({
     issueState: SAMPLE_ISSUE.state,
     planningStates: workflow.lifecycle.planningStates,
@@ -949,7 +956,9 @@ async function runPreview(
     );
   }
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
-  const workflow = parseWorkflowMarkdown(markdown);
+  const workflow = parseWorkflowMarkdown(markdown, process.env, {
+    supportedTrackerKinds: getSupportedTrackerKinds(),
+  });
   if (
     flags.issue &&
     workflow.tracker.kind !== "github-project" &&
@@ -1035,6 +1044,15 @@ const handler = async (
         return;
     }
   } catch (error) {
+    if (error instanceof WorkflowValidationError) {
+      writeCliError({
+        code: error.code,
+        path: error.path,
+        message: `${error.path}: ${error.message}`,
+        json: options.json,
+      });
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`Workflow command failed: ${message}\n`);
     process.exitCode = 1;

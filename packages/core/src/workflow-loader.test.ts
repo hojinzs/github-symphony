@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkflowConfigStore } from "./workflow/loader.js";
-import { parseWorkflowMarkdown } from "./workflow/parser.js";
+import {
+  parseWorkflowMarkdown,
+  WorkflowValidationError,
+} from "./workflow/parser.js";
 import { isStateActive } from "./workflow/lifecycle.js";
 import {
   resolveWorkflowRuntimeCommand,
@@ -59,6 +62,173 @@ Prefer focused changes.
 `;
 
 describe("parseWorkflowMarkdown", () => {
+  it.each([
+    [
+      "invalid YAML",
+      "---\ntracker:\n   kind: github-project\n---\nPrompt",
+      "workflow_parse_error",
+      "front_matter",
+    ],
+    [
+      "non-map front matter",
+      "---\n- tracker\n---\nPrompt",
+      "workflow_front_matter_not_a_map",
+      "front_matter",
+    ],
+    [
+      "scalar front matter",
+      "---\nhello\n---\nPrompt",
+      "workflow_front_matter_not_a_map",
+      "front_matter",
+    ],
+    [
+      "unsupported tracker",
+      "---\ntracker:\n  kind: jira\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "tracker.kind",
+    ],
+    [
+      "string integer",
+      "---\ntracker:\n  kind: github-project\nagent:\n  max_turns: '2'\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "agent.max_turns",
+    ],
+    [
+      "non-positive hook timeout",
+      "---\ntracker:\n  kind: github-project\nhooks:\n  timeout_ms: 0\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "hooks.timeout_ms",
+    ],
+    [
+      "non-positive turn limit",
+      "---\ntracker:\n  kind: github-project\nagent:\n  max_turns: -1\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "agent.max_turns",
+    ],
+    [
+      "non-positive global concurrency",
+      "---\ntracker:\n  kind: github-project\nagent:\n  max_concurrent_agents: 0\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "agent.max_concurrent_agents",
+    ],
+    [
+      "empty codex command",
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: '   '\n---\nPrompt",
+      "workflow_validation_error",
+      "codex.command",
+    ],
+  ])("returns a typed error for %s", (_name, markdown, code, path) => {
+    try {
+      parseWorkflowMarkdown(markdown);
+      throw new Error("Expected parsing to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(WorkflowValidationError);
+      expect(error).toMatchObject({ code, path });
+    }
+  });
+
+  it("applies defaults and preserves per-state concurrency maps", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: 2
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.hooks.timeoutMs).toBeGreaterThan(0);
+    expect(workflow.agent.maxTurns).toBeGreaterThan(0);
+    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Ready: 2 });
+  });
+
+  it("accepts tracker kinds injected by the adapter boundary", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: custom-tracker
+codex:
+  command: codex
+---
+Prompt`,
+      process.env,
+      { supportedTrackerKinds: ["custom-tracker"] }
+    );
+
+    expect(workflow.tracker.kind).toBe("custom-tracker");
+  });
+
+  it("rejects non-positive per-state concurrency overrides", () => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: -1
+codex:
+  command: codex
+---
+Prompt`);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "workflow_validation_error",
+      path: "agent.max_concurrent_agents_by_state.Ready",
+    });
+  });
+
+  it.each([
+    ["a string", "'2'"],
+    ["a decimal", "1.5"],
+  ])("preserves map-entry paths when concurrency is %s", (_name, value) => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: ${value}
+codex:
+  command: codex
+---
+Prompt`);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "workflow_validation_error",
+      path: "agent.max_concurrent_agents_by_state.Ready",
+    });
+  });
+
+  it("preserves paths for unresolved environment-backed fields", () => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: github-project
+codex:
+  command: ${"${UNSET_CODEX_COMMAND}"}
+---
+Prompt`,
+        {}
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "workflow_validation_error",
+      path: "codex.command",
+    });
+  });
+
   it("parses spec-shaped yaml front matter and prompt body", () => {
     const workflow = parseWorkflowMarkdown(SAMPLE_WORKFLOW);
 

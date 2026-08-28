@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
   createInvalidWorkflowResolution,
   createDefaultWorkflowResolution,
+  formatWorkflowValidationError,
   WorkflowConfigStore,
   type RepositoryRef,
   type WorkflowResolution,
@@ -24,8 +25,11 @@ import {
   withGlobalBareRepositoryCache,
 } from "./repository-cache.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
+import { getSupportedTrackerKinds } from "./tracker-adapters.js";
 
-const workflowConfigStore = new WorkflowConfigStore();
+const workflowConfigStore = new WorkflowConfigStore({
+  supportedTrackerKinds: getSupportedTrackerKinds(),
+});
 const LOCK_RETRY_MS = 100;
 const LOCK_STALE_MS = 30 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 2 * 60 * 1000;
@@ -501,7 +505,7 @@ export async function loadWorkflowFile(
 
     return createInvalidWorkflowResolution(
       workflowPath,
-      error instanceof Error ? error.message : "workflow_parse_error"
+      formatWorkflowValidationError(error)
     );
   }
 }

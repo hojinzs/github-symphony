@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { access, readFile, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { DEFAULT_WORKFLOW_DEFINITION, type ParsedWorkflow } from "./config.js";
-import { parseWorkflowMarkdown } from "./parser.js";
+import {
+  parseWorkflowMarkdown,
+  WorkflowValidationError,
+  type ParseWorkflowOptions,
+} from "./parser.js";
 import type { WorkflowResolution } from "../contracts/status-surface.js";
 
 type WorkflowCacheEntry = {
@@ -15,6 +19,8 @@ type WorkflowCacheEntry = {
 
 export class WorkflowConfigStore {
   private readonly cache = new Map<string, WorkflowCacheEntry>();
+
+  constructor(private readonly parseOptions: ParseWorkflowOptions = {}) {}
 
   async load(
     workflowPath: string,
@@ -54,7 +60,7 @@ export class WorkflowConfigStore {
     }
 
     try {
-      const workflow = parseWorkflowMarkdown(markdown, env);
+      const workflow = parseWorkflowMarkdown(markdown, env, this.parseOptions);
       const revision = createWorkflowRevision(workflow);
       const loadedAt = new Date().toISOString();
       this.cache.set(workflowPath, {
@@ -78,15 +84,21 @@ export class WorkflowConfigStore {
           loadedAt: cached.loadedAt,
           isValid: false,
           usedLastKnownGood: true,
-          validationError:
-            error instanceof Error
-              ? error.message
-              : "Invalid workflow definition.",
+          validationError: formatWorkflowValidationError(error),
         });
       }
       throw error;
     }
   }
+}
+
+export function formatWorkflowValidationError(error: unknown): string {
+  if (error instanceof WorkflowValidationError) {
+    return `${error.code} (${error.path}): ${error.message}`;
+  }
+  return error instanceof Error
+    ? error.message
+    : "Invalid workflow definition.";
 }
 
 export function createDefaultWorkflowResolution(): WorkflowResolution {

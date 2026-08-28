@@ -1252,6 +1252,9 @@ describe("runDoctorDiagnostics", () => {
     ).toMatchObject({
       status: "fail",
       summary: "WORKFLOW.md could not be parsed.",
+      details: expect.objectContaining({
+        error: expect.stringContaining("workflow_parse_error"),
+      }),
     });
     expect(
       report.checks.find((check) => check.id === "runtime_command")
