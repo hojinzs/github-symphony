@@ -2,6 +2,10 @@
 
 - **Date**: 2026-08-01
 - **Status**: Accepted
+- **Implementation note (2026-08-28)**: The statement that reconciliation is
+  unaffected is superseded by issue #627's S1 follow-up. GitHub running-item
+  reconciliation must use an ID refresh so a terminal item excluded by the
+  candidate query still receives cleanup.
 - **Related Issues**: #475
 - **Related PRs**: #500, #515 (runtime implementation and contract correction)
 - **Supersedes**:

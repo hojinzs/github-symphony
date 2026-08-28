@@ -2,6 +2,9 @@
 
 - **Date**: 2026-04-15
 - **Status**: Proposed
+- **Maintenance note (2026-08-28)**: Historical source line references below
+  are point-in-time and may be stale. Claude `result` usage fields are not
+  currently consumed as an authoritative usage accounting source.
 - **Revisions**:
   - 2026-04-15 r1 — initial draft
   - 2026-04-15 r2 — added 3 permission presets + legacy reverse mapping

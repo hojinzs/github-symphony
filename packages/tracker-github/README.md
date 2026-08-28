@@ -18,3 +18,6 @@ GitHub Project polling, issue normalization, and tracker-facing configuration va
   `blockedBy` issues produce `dispatchable: false` and a `dispatchReason`.
   `blockedBy` remains best-effort provider metadata; closed blockers do not
   prevent dispatch.
+- The adapter additionally owns GitHub-only lifecycle extensions: a synthetic
+  `Archived` state. This is a repository-specific integration choice, not a
+  normalized Symphony core state.

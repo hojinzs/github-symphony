@@ -41,13 +41,13 @@ Architecture documentation scoped to a single package lives in that package's
 
 ## reports/
 
-| Document                                                                                                         | Status                                              |
-| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| [2026-05-04-single-repo-orchestrator-feasibility.md](reports/2026-05-04-single-repo-orchestrator-feasibility.md) | Concluded — promoted to an ADR                      |
-| [2026-06-25-spec-gap-analysis.md](reports/2026-06-25-spec-gap-analysis.md)                                       | Retired — living-map upkeep stopped, final snapshot |
-| [2026-07-06-risk-audit-report.md](reports/2026-07-06-risk-audit-report.md)                                       | Awaiting review (issues not filed)                  |
-| [2026-07-19-github-api-rate-limit-audit.md](reports/2026-07-19-github-api-rate-limit-audit.md)                   | Partially implemented (R1.5 shipped)                |
-| [2026-08-28-upstream-spec-drift-research.md](reports/2026-08-28-upstream-spec-drift-research.md)                 | Research complete — awaiting triage into issues     |
+| Document                                                                                                         | Status                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [2026-05-04-single-repo-orchestrator-feasibility.md](reports/2026-05-04-single-repo-orchestrator-feasibility.md) | Concluded — promoted to an ADR                                                         |
+| [2026-06-25-spec-gap-analysis.md](reports/2026-06-25-spec-gap-analysis.md)                                       | Retired — living-map upkeep stopped, final snapshot                                    |
+| [2026-07-06-risk-audit-report.md](reports/2026-07-06-risk-audit-report.md)                                       | Awaiting review (issues not filed)                                                     |
+| [2026-07-19-github-api-rate-limit-audit.md](reports/2026-07-19-github-api-rate-limit-audit.md)                   | Partially implemented (R1.5 shipped)                                                   |
+| [2026-08-28-upstream-spec-drift-research.md](reports/2026-08-28-upstream-spec-drift-research.md)                 | Documentation follow-up: [#675](https://github.com/hojinzs/github-symphony/issues/675) |
 
 ## adr/
 
