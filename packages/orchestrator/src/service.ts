@@ -4806,6 +4806,10 @@ export class OrchestratorService {
         (record.state !== "retry_queued" || record.currentRunId !== null) &&
         !isDueRetryReservation(record, now)
     ).length;
+    // Due reservations are intentionally excluded above, so retry fire normally
+    // reaches this as false. Keep the self-claim guard for any future caller
+    // that checks a non-due retry; otherwise that caller would double-count its
+    // own reservation and could incorrectly requeue it.
     const retryAlreadyClaimsSlot = issueRecords.some(
       (record) =>
         record.currentRunId === run.runId &&
