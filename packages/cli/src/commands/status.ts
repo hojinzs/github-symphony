@@ -2,6 +2,7 @@ import type { GlobalOptions } from "../index.js";
 import {
   DEFAULT_POLL_INTERVAL_MS,
   WorkflowConfigStore,
+  deriveLegacyWorkspaceKey,
   type ProjectStatusSnapshot,
 } from "@gh-symphony/core";
 import { readFile } from "node:fs/promises";
@@ -198,10 +199,36 @@ function renderLegacyStatus(
       lines.push(
         `    ${runIdDisplay}  ${run.issueIdentifier}  ${stateStr}  ${statusStr}`
       );
+      if (
+        run.issueWorkspaceKey ===
+          deriveLegacyWorkspaceKey(run.issueIdentifier) &&
+        run.issueWorkspaceKey !== run.issueIdentifier
+      ) {
+        lines.push(`      Workspace key: legacy (${run.issueWorkspaceKey})`);
+      }
     }
     lines.push("");
   } else {
     lines.push("  No active runs.");
+    lines.push("");
+  }
+
+  const idleLegacyWorkspaces = (snapshot.issueWorkspaces ?? []).filter(
+    (workspace) =>
+      workspace.status === "active" &&
+      workspace.workspaceKey === deriveLegacyWorkspaceKey(workspace.issueIdentifier) &&
+      workspace.workspaceKey !== workspace.issueIdentifier &&
+      !snapshot.activeRuns.some(
+        (run) => run.issueWorkspaceKey === workspace.workspaceKey
+      )
+  );
+  if (idleLegacyWorkspaces.length > 0) {
+    lines.push("  Legacy Workspaces:");
+    for (const workspace of idleLegacyWorkspaces) {
+      lines.push(
+        `    ${workspace.issueIdentifier}  Workspace key: legacy (${workspace.workspaceKey})`
+      );
+    }
     lines.push("");
   }
 

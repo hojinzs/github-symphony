@@ -103,6 +103,7 @@ async function createConfigFixture(
           {
             runId: "run-1",
             issueIdentifier: "acme/repo#1",
+            issueWorkspaceKey: "acme_repo_1",
             issueState: "In Progress",
             status: "running",
             retryKind: null,
@@ -190,6 +191,57 @@ afterEach(() => {
 });
 
 describe("status command", () => {
+  it("labels a suffixless legacy workspace key", async () => {
+    const configDir = await createConfigFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("Workspace key: legacy (acme_repo_1)");
+  });
+
+  it("labels an idle suffixless legacy workspace key", async () => {
+    const configDir = await createConfigFixture();
+    const statusPath = join(configDir, "status.json");
+    const snapshot = JSON.parse(await readFile(statusPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    snapshot.activeRuns = [];
+    snapshot.issueWorkspaces = [
+      {
+        issueIdentifier: "acme/repo#1",
+        workspaceKey: "acme_repo_1",
+        status: "active",
+      },
+    ];
+    await writeFile(statusPath, JSON.stringify(snapshot), "utf8");
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("Legacy Workspaces:");
+    expect(stdout.output()).toContain("Workspace key: legacy (acme_repo_1)");
+  });
+
   it("renders a stopped banner and restart hint when the PID file is missing", async () => {
     const configDir = await createConfigFixture();
     const stdout = captureWrites(process.stdout);

@@ -27,7 +27,7 @@ describe("deriveWorkspaceKey", () => {
     const key2 = deriveWorkspaceKey("acme/platform#42");
 
     expect(key1).toBe(key2);
-    expect(key1).toBe("acme_platform_42");
+    expect(key1).toBe("acme_platform_42-cbb20472b0ece3db");
   });
 
   it("produces different keys for different identifiers", () => {
@@ -39,12 +39,21 @@ describe("deriveWorkspaceKey", () => {
     expect(keyA).not.toBe(keyC);
   });
 
+  it("adds distinct stable suffixes when identifiers sanitize to the same text", () => {
+    const spaced = deriveWorkspaceKey("a b");
+    const slashed = deriveWorkspaceKey("a/b");
+
+    expect(spaced).toMatch(/^a_b-[0-9a-f]{16}$/);
+    expect(slashed).toMatch(/^a_b-[0-9a-f]{16}$/);
+    expect(spaced).not.toBe(slashed);
+  });
+
   it("distinguishes hyphens from underscores under spec 4.2 substitution", () => {
     const keyA = deriveWorkspaceKey("acme/foo-bar#1");
     const keyB = deriveWorkspaceKey("acme/foo_bar#1");
 
-    expect(keyA).toBe("acme_foo-bar_1");
-    expect(keyB).toBe("acme_foo_bar_1");
+    expect(keyA).toBe("acme_foo-bar_1-03142ecc0f7281d6");
+    expect(keyB).toMatch(/^acme_foo_bar_1-[0-9a-f]{16}$/);
     expect(keyA).not.toBe(keyB);
   });
 
@@ -54,21 +63,25 @@ describe("deriveWorkspaceKey", () => {
     expect(key).toBe("My.Issue-1");
   });
 
-  it("falls back to 'issue' when sanitization strips everything", () => {
-    const key = deriveWorkspaceKey("!!!");
-
-    expect(key).toBe("issue");
+  it("keeps an unchanged identifier as its existing key", () => {
+    expect(deriveWorkspaceKey("My.Issue-1")).toBe("My.Issue-1");
   });
 
-  it("falls back to 'issue' for dot-only sanitized keys", () => {
-    expect(deriveWorkspaceKey(".")).toBe("issue");
-    expect(deriveWorkspaceKey("..")).toBe("issue");
-    expect(deriveWorkspaceKey("...")).toBe("issue");
+  it("suffixes the 'issue' fallback when sanitization strips everything", () => {
+    const key = deriveWorkspaceKey("!!!");
+
+    expect(key).toBe("issue-e84c538e7fe25073");
+  });
+
+  it("suffixes the 'issue' fallback for dot-only sanitized keys", () => {
+    expect(deriveWorkspaceKey(".")).toMatch(/^issue-[0-9a-f]{16}$/);
+    expect(deriveWorkspaceKey("..")).toMatch(/^issue-[0-9a-f]{16}$/);
+    expect(deriveWorkspaceKey("...")).toMatch(/^issue-[0-9a-f]{16}$/);
   });
 
   it("keeps the legacy deriveIssueWorkspaceKey alias on identifier input", () => {
     expect(deriveIssueWorkspaceKey("acme/platform#42")).toBe(
-      "acme_platform_42"
+      "acme_platform_42-cbb20472b0ece3db"
     );
   });
 });

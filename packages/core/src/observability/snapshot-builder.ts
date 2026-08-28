@@ -92,6 +92,7 @@ export function buildProjectSnapshot(
     activeRuns: activeRuns.map((run) => ({
       runId: run.runId,
       issueIdentifier: run.issueIdentifier,
+      issueWorkspaceKey: run.issueWorkspaceKey ?? null,
       issueState: run.issueState,
       status: run.status,
       retryKind: run.retryKind,
@@ -109,6 +110,11 @@ export function buildProjectSnapshot(
         run.tokenUsage,
         cumulativeTokenUsageByIssue.get(run.issueId)
       ),
+    })),
+    issueWorkspaces: (issueWorkspaces ?? []).map((workspace) => ({
+      issueIdentifier: workspace.issueIdentifier,
+      workspaceKey: workspace.workspaceKey,
+      status: workspace.status,
     })),
     retryQueue: activeRuns
       .filter((run) => run.status === "retrying" && run.retryKind)

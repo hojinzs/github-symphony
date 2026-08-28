@@ -327,7 +327,7 @@ not set them manually.
 | `SYMPHONY_ISSUE_TITLE`            | issue title                               | Worker                                        | Internal/injected | Used for turn titles and context.                                                       |
 | `SYMPHONY_ISSUE_STATE`            | tracker state                             | Worker, hooks                                 | Internal/injected | Current tracker state at dispatch time.                                                 |
 | `SYMPHONY_ISSUE_SUBJECT_ID`       | tracker subject ID                        | Worker, hooks                                 | Internal/injected | Subject ID used for tracker-specific mutations.                                         |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY`    | workspace key                             | Worker, hooks                                 | Internal/injected | Stable workspace key for the issue.                                                     |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY`    | workspace key                             | Worker, hooks                                 | Internal/injected | Stable workspace key; sanitized identifiers add a 16-hex SHA-256 suffix.               |
 | `SYMPHONY_WORKFLOW_PATH`          | workflow file path                        | Worker                                        | Internal/injected | Path to the resolved workflow policy file.                                              |
 | `TARGET_REPOSITORY_CLONE_URL`     | target repo clone URL                     | Worker                                        | Internal/injected | Clone URL for the issue repository.                                                     |
 | `TARGET_REPOSITORY_OWNER`         | target repo owner                         | Worker                                        | Internal/injected | Repository owner.                                                                       |
@@ -343,6 +343,16 @@ For `transition-request`, the worker may also send an agent-authored `comment_bo
 This intentionally differs from the upstream spec's typical agent-tool ownership of tracker writes. The extension is limited to GitHub tracker integration and quota coordination; lifecycle policy remains in `WORKFLOW.md`, and Symphony core does not contain GitHub-specific mutation semantics.
 
 The comment publication is an explicit §11.5 divergence and implements the upstream §18.2 recommended extension. The orchestrator owns transport, serialization, retry, and readback sequencing; `WORKFLOW.md` owns the comment body policy, while `packages/tracker-github` owns GitHub GraphQL mutation semantics.
+
+### Workspace-key migration
+
+New issue workspaces preserve readable sanitized identifiers and append a stable
+64-bit SHA-256 suffix whenever sanitization changes the identifier, for example
+`acme/platform#42` becomes `acme_platform_42-cbb20472b0ece3db`. Existing
+suffixless workspace directories are checked after the new key and are reused
+in place; Symphony does not rename directories. `gh-symphony repo status` and
+`repo explain` display `workspace key: legacy` when a suffixless directory is
+being reused.
 
 The `In review` → `Land` move is a human-owned project-board transition that happens before the Land worker is dispatched. The worker must not synthesize a no-op `Land` → `Land` request or publish a duplicate comment for that external trigger; the orchestrator-owned publication guarantee applies to transitions requested through `/gh-project`.
 

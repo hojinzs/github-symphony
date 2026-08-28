@@ -18,6 +18,7 @@ import {
   buildProjectSnapshot,
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
+  deriveLegacyWorkspaceKey,
   executeWorkspaceHook,
   resolveHookCommand,
   isStateTerminal,
@@ -1537,11 +1538,20 @@ export class OrchestratorService {
           },
           issue.identifier
         );
+        const existingWorkspace = await this.loadWorkspaceForIssue(
+          tenant.projectId,
+          issue.tracker.adapter,
+          issue.id,
+          issue.identifier
+        );
+        const selectedWorkspaceKey =
+          existingWorkspace?.workspaceKey ??
+          existingIssueRecord?.workspaceKey ??
+          preferredWorkspaceKey;
         const recoveryContext = await this.resolveIncompleteTurnRecoveryContext(
           tenant,
           issue,
-          latestRunsByIssueId.get(issue.id) ?? null,
-          preferredWorkspaceKey
+          latestRunsByIssueId.get(issue.id) ?? null
         );
         const expiredConvergenceRun = expiredConvergenceLocks.get(issue.id);
         if (expiredConvergenceRun) {
@@ -1570,7 +1580,7 @@ export class OrchestratorService {
         issueRecords = upsertIssueOrchestration(issueRecords, {
           issueId: issue.id,
           identifier: issue.identifier,
-          workspaceKey: preferredWorkspaceKey,
+          workspaceKey: selectedWorkspaceKey,
           state:
             existingIssueRecord?.state === "retry_queued"
               ? "retry_queued"
@@ -1664,7 +1674,7 @@ export class OrchestratorService {
           issueRecords = upsertIssueOrchestration(issueRecords, {
             issueId: issue.id,
             identifier: issue.identifier,
-            workspaceKey: preferredWorkspaceKey,
+            workspaceKey: selectedWorkspaceKey,
             state: retrySuppressed ? "released" : "retry_queued",
             failureRetryCount,
             currentRunId: null,
@@ -2690,21 +2700,12 @@ export class OrchestratorService {
       identity,
       issue.identifier
     );
-    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(
-      identity,
-      tenant.projectId
+    const existingWorkspaceRecord = await this.loadWorkspaceForIssue(
+      tenant.projectId,
+      identity.adapter,
+      identity.issueSubjectId,
+      issue.identifier
     );
-    const existingWorkspaceRecord =
-      (await this.store.loadIssueWorkspace(
-        tenant.projectId,
-        preferredWorkspaceKey
-      )) ??
-      (legacyWorkspaceKey === preferredWorkspaceKey
-        ? null
-        : await this.store.loadIssueWorkspace(
-            tenant.projectId,
-            legacyWorkspaceKey
-          ));
     const workspaceKey =
       existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
@@ -4247,6 +4248,57 @@ export class OrchestratorService {
     return issue ? { issue, issues } : null;
   }
 
+  private async loadWorkspaceForIssue(
+    projectId: string,
+    adapter: IssueSubjectIdentity["adapter"],
+    issueSubjectId: string,
+    issueIdentifier: string
+  ): Promise<IssueWorkspaceRecord | null> {
+    const identity: IssueSubjectIdentity = { adapter, issueSubjectId };
+    const workspaceKeys = [
+      deriveIssueWorkspaceKey(identity, issueIdentifier),
+      deriveLegacyWorkspaceKey(issueIdentifier),
+      deriveLegacyIssueWorkspaceKey(identity, projectId),
+    ].filter((key, index, keys) => keys.indexOf(key) === index);
+
+    for (const workspaceKey of workspaceKeys) {
+      const record = await this.store.loadIssueWorkspace(
+        projectId,
+        workspaceKey
+      );
+      if (
+        record &&
+        record.adapter === adapter &&
+        record.issueSubjectId === issueSubjectId
+      ) {
+        return record;
+      }
+    }
+    return null;
+  }
+
+  private async resolveRunWorkspaceKey(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord
+  ): Promise<string> {
+    if (run.issueWorkspaceKey) {
+      return run.issueWorkspaceKey;
+    }
+    const workspace = await this.loadWorkspaceForIssue(
+      tenant.projectId,
+      tenant.tracker.adapter,
+      run.issueSubjectId,
+      run.issueIdentifier
+    );
+    return (
+      workspace?.workspaceKey ??
+      deriveIssueWorkspaceKey(
+        { adapter: tenant.tracker.adapter, issueSubjectId: run.issueSubjectId },
+        run.issueIdentifier
+      )
+    );
+  }
+
   private async classifyIncompleteTurnDirtyWorkspace(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
@@ -4256,15 +4308,7 @@ export class OrchestratorService {
       return null;
     }
 
-    const workspaceKey =
-      run.issueWorkspaceKey ??
-      deriveIssueWorkspaceKey(
-        {
-          adapter: tenant.tracker.adapter,
-          issueSubjectId: run.issueSubjectId,
-        },
-        run.issueIdentifier
-      );
+    const workspaceKey = await this.resolveRunWorkspaceKey(tenant, run);
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
       this.resolveIssueWorkspaceRoot(tenant),
       workspaceKey
@@ -4296,8 +4340,7 @@ export class OrchestratorService {
   private async resolveIncompleteTurnRecoveryContext(
     tenant: OrchestratorProjectConfig,
     issue: TrackedIssue,
-    latestRun: OrchestratorRunRecord | null,
-    preferredWorkspaceKey: string
+    latestRun: OrchestratorRunRecord | null
   ): Promise<IncompleteTurnRecoveryContext | null> {
     const recovery = latestRun?.recovery;
     if (
@@ -4309,7 +4352,7 @@ export class OrchestratorService {
       return null;
     }
 
-    const workspaceKey = latestRun.issueWorkspaceKey ?? preferredWorkspaceKey;
+    const workspaceKey = await this.resolveRunWorkspaceKey(tenant, latestRun);
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
       issueWorkspacePath: resolveIssueWorkspaceDirectory(
         this.resolveIssueWorkspaceRoot(tenant),
@@ -4340,15 +4383,7 @@ export class OrchestratorService {
       return null;
     }
 
-    const workspaceKey =
-      run.issueWorkspaceKey ??
-      deriveIssueWorkspaceKey(
-        {
-          adapter: tenant.tracker.adapter,
-          issueSubjectId: run.issueSubjectId,
-        },
-        run.issueIdentifier
-      );
+    const workspaceKey = await this.resolveRunWorkspaceKey(tenant, run);
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
       issueWorkspacePath: resolveIssueWorkspaceDirectory(
         this.resolveIssueWorkspaceRoot(tenant),
@@ -5414,34 +5449,25 @@ export class OrchestratorService {
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
-    const preferredWorkspaceKey = deriveIssueWorkspaceKey(
-      identity,
-      issue.identifier
-    );
-    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(
-      identity,
-      tenant.projectId
-    );
     const orchestrationRecord = (
       await this.store.loadProjectIssueOrchestrations(tenant.projectId)
     ).find((record) => record.issueId === issue.id);
+    const orchestrationWorkspace = orchestrationRecord
+      ? await this.store.loadIssueWorkspace(
+          tenant.projectId,
+          orchestrationRecord.workspaceKey
+        )
+      : null;
     const workspaceRecord =
-      (orchestrationRecord
-        ? await this.store.loadIssueWorkspace(
+      orchestrationWorkspace?.adapter === identity.adapter &&
+      orchestrationWorkspace.issueSubjectId === identity.issueSubjectId
+        ? orchestrationWorkspace
+        : await this.loadWorkspaceForIssue(
             tenant.projectId,
-            orchestrationRecord.workspaceKey
-          )
-        : null) ??
-      (await this.store.loadIssueWorkspace(
-        tenant.projectId,
-        preferredWorkspaceKey
-      )) ??
-      (legacyWorkspaceKey === preferredWorkspaceKey
-        ? null
-        : await this.store.loadIssueWorkspace(
-            tenant.projectId,
-            legacyWorkspaceKey
-          ));
+            identity.adapter,
+            identity.issueSubjectId,
+            issue.identifier
+          );
 
     if (!workspaceRecord || workspaceRecord.status === "removed") {
       return;

@@ -17,6 +17,22 @@ import { isPathWithinRoot } from "./path-safety.js";
  * records created before the transition.
  */
 export function deriveWorkspaceKey(identifier: string): string {
+  const sanitized = deriveLegacyWorkspaceKey(identifier);
+
+  if (sanitized === identifier) {
+    return sanitized;
+  }
+
+  return `${sanitized}-${createHash("sha256").update(identifier).digest("hex").slice(0, 16)}`;
+}
+
+/**
+ * Derive the suffixless workspace key used before collision-resistant keys.
+ *
+ * This remains a lookup-only compatibility helper; new workspace creation
+ * always uses {@link deriveWorkspaceKey}.
+ */
+export function deriveLegacyWorkspaceKey(identifier: string): string {
   const sanitized = identifier
     .replace(/[^A-Za-z0-9._-]+/g, "_")
     .replace(/^_+|_+$/g, "");
@@ -24,7 +40,6 @@ export function deriveWorkspaceKey(identifier: string): string {
   if (!sanitized || /^[.]+$/.test(sanitized)) {
     return "issue";
   }
-
   return sanitized;
 }
 

@@ -380,6 +380,7 @@ export type ProjectStatusSnapshot = {
   activeRuns: Array<{
     runId: string;
     issueIdentifier: string;
+    issueWorkspaceKey: string | null;
     issueState: string;
     status: OrchestratorRunStatus;
     retryKind: RetryKind | null;
@@ -399,6 +400,11 @@ export type ProjectStatusSnapshot = {
       cumulativeOutputTokens?: number;
       cumulativeTotalTokens?: number;
     };
+  }>;
+  issueWorkspaces?: Array<{
+    issueIdentifier: string;
+    workspaceKey: string;
+    status: "active" | "cleanup_pending" | "removed";
   }>;
   runtimeSession?: RuntimeSessionRow | null;
   recovery?: IncompleteTurnRecoveryInfo | null;
