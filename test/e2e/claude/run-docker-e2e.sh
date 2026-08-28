@@ -10,17 +10,17 @@ claude_compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME}-claude" -
 
 http_api_token="${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}"
 
-mkdir -p evidence
-echo "[]" > e2e/fixtures/issues.json
-
 cleanup() {
   "${e2e_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-  "${claude_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  remove_e2e_compose_image
+  "${claude_compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
   echo "[]" > e2e/fixtures/issues.json
 }
-trap cleanup EXIT
-
 assert_e2e_project_is_available docker-compose.e2e.yml
+assert_e2e_project_is_available test/e2e/claude/docker-compose.yml "${COMPOSE_PROJECT_NAME}-claude"
+mkdir -p evidence
+echo "[]" > e2e/fixtures/issues.json
+trap cleanup EXIT
 "${e2e_compose[@]}" up -d --build
 (
   "${e2e_compose[@]}" exec -T symphony-e2e curl --fail --retry-all-errors --retry 20 --retry-delay 2 http://localhost:4680/healthz

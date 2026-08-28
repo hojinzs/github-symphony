@@ -23,9 +23,11 @@ test "$SYMPHONY_E2E_PORT" -ge 20000 && test "$SYMPHONY_E2E_PORT" -le 29999
 test "$(e2e_compose_port /tmp/worktree-a)" = "$(e2e_compose_port /tmp/worktree-a)"
 test "$(e2e_compose_port /tmp/worktree-a)" != "$(e2e_compose_port /tmp/worktree-b)"
 
-SYMPHONY_E2E_IMAGE=shared-e2e:debug configure_e2e_compose_project /tmp/worktree-a
+export SYMPHONY_E2E_IMAGE=shared-e2e:debug
+configure_e2e_compose_project /tmp/worktree-a
 test "$SYMPHONY_E2E_IMAGE" = shared-e2e:debug
 test "$E2E_IMAGE_IS_DERIVED" = false
+unset SYMPHONY_E2E_IMAGE
 
 stub_dir=$(mktemp -d)
 trap 'rm -rf "$stub_dir"' EXIT
