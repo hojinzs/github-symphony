@@ -30,6 +30,7 @@ import {
   type CliProjectConfig,
 } from "./config.js";
 import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
+import { standaloneProjectId } from "./standalone-project.js";
 
 export type RepoInitFlags = {
   repoDir: string;
@@ -83,6 +84,7 @@ export function parseRepoRuntimeFlags(args: readonly string[]): RepoInitFlags {
 export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   configDir: string;
   projectId: string;
+  registryProjectId?: string;
   workflowPath: string;
   repository: RepositoryRef;
 }> {
@@ -184,11 +186,15 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   });
 
   const configDir = flags.configDir ? resolve(flags.configDir) : runtimeRoot;
+  const registryProjectId = `repo-${standaloneProjectId(repoDir)}`;
   if (configDir !== runtimeRoot) {
-    await saveProjectConfig(configDir, INTERNAL_PROJECT_ID, projectConfig);
+    await saveProjectConfig(configDir, registryProjectId, {
+      ...projectConfig,
+      projectId: registryProjectId,
+    });
     await updateGlobalConfig(configDir, (config) => ({
-      activeProject: INTERNAL_PROJECT_ID,
-      projects: Array.from(new Set([...config.projects, INTERNAL_PROJECT_ID])),
+      activeProject: registryProjectId,
+      projects: Array.from(new Set([...config.projects, registryProjectId])),
     }));
   }
 
@@ -206,6 +212,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   return {
     configDir: runtimeRoot,
     projectId: INTERNAL_PROJECT_ID,
+    ...(configDir !== runtimeRoot ? { registryProjectId } : {}),
     workflowPath,
     repository,
   };

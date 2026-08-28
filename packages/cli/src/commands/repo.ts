@@ -129,6 +129,11 @@ async function repoInit(args: string[], options: GlobalOptions): Promise<void> {
       [
         `Repository initialized: ${formatRepoSpec(result.repository)}`,
         `Runtime: ${result.configDir}`,
+        ...(result.registryProjectId
+          ? [
+              `Config registry: ${options.configDir} (active project: ${result.registryProjectId})`,
+            ]
+          : []),
         `Workflow: ${result.workflowPath}`,
       ].join("\n") + "\n"
     );

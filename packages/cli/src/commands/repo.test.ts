@@ -16,6 +16,8 @@ import {
   loadProjectConfig,
   saveGlobalConfig,
 } from "../config.js";
+import { inspectManagedProjectSelection } from "../project-selection.js";
+import { standaloneProjectId } from "../standalone-project.js";
 
 async function loadRepoCommand() {
   vi.resetModules();
@@ -137,14 +139,70 @@ describe("repo init runtime migration", () => {
       configDirOverride: true,
     });
 
+    const projectId = `repo-${standaloneProjectId(repoDir)}`;
     await expect(loadGlobalConfig(configDir)).resolves.toEqual({
-      activeProject: "repository",
-      projects: ["standalone", "repository"],
+      activeProject: projectId,
+      projects: ["standalone", projectId],
     });
     await expect(
-      loadProjectConfig(configDir, "repository")
+      loadProjectConfig(configDir, projectId)
     ).resolves.toMatchObject({
+      projectId,
       repository: { owner: "acme", name: "platform" },
+    });
+    await expect(
+      inspectManagedProjectSelection({ configDir, cwd: repoDir })
+    ).resolves.toMatchObject({
+      kind: "resolved",
+      projectId,
+      projectConfig: {
+        repository: { owner: "acme", name: "platform" },
+      },
+    });
+  });
+
+  it("keeps repository records distinct in a shared explicit config directory", async () => {
+    const repoA = await createGitRepo("platform-a");
+    const repoB = await createGitRepo("platform-b");
+    const configDir = await mkdtemp(join(tmpdir(), "repo-init-shared-config-"));
+    const { initRepoRuntime } = await loadRepoRuntimeModule();
+    await Promise.all(
+      [repoA, repoB].map((repoDir) =>
+        writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8")
+      )
+    );
+
+    await initRepoRuntime({ repoDir: repoA, configDir });
+    await initRepoRuntime({ repoDir: repoB, configDir });
+
+    await expect(
+      inspectManagedProjectSelection({ configDir, cwd: repoA })
+    ).resolves.toMatchObject({
+      kind: "resolved",
+      projectId: `repo-${standaloneProjectId(repoA)}`,
+      projectConfig: {
+        repository: { owner: "acme", name: "platform-a" },
+      },
+    });
+    await expect(
+      loadProjectConfig(configDir, `repo-${standaloneProjectId(repoA)}`)
+    ).resolves.toMatchObject({
+      repository: { owner: "acme", name: "platform-a" },
+    });
+    await expect(
+      inspectManagedProjectSelection({ configDir, cwd: repoB })
+    ).resolves.toMatchObject({
+      kind: "resolved",
+      projectId: `repo-${standaloneProjectId(repoB)}`,
+      projectConfig: {
+        repository: { owner: "acme", name: "platform-b" },
+      },
+    });
+    await expect(loadGlobalConfig(configDir)).resolves.toMatchObject({
+      projects: [
+        `repo-${standaloneProjectId(repoA)}`,
+        `repo-${standaloneProjectId(repoB)}`,
+      ],
     });
   });
 

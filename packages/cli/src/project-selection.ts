@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import {
   loadGlobalConfig,
   loadProjectConfig,
@@ -69,6 +69,37 @@ async function loadStandaloneProjectFromCwd(
   return null;
 }
 
+async function loadRepositoryProjectFromCwd(
+  configDir: string,
+  cwd: string,
+  projectIds: readonly string[]
+): Promise<{ projectId: string; projectConfig: CliProjectConfig } | null> {
+  const resolvedCwd = resolve(cwd);
+  let bestMatch: { projectId: string; projectConfig: CliProjectConfig } | null =
+    null;
+  for (const projectId of projectIds) {
+    const projectConfig = await loadProjectConfig(configDir, projectId);
+    const repositoryDir = projectConfig?.repositoryDir
+      ? resolve(projectConfig.repositoryDir)
+      : undefined;
+    if (!repositoryDir) {
+      continue;
+    }
+    const pathToCwd = relative(repositoryDir, resolvedCwd);
+    const containsCwd =
+      pathToCwd === "" ||
+      (!pathToCwd.startsWith("..") && !isAbsolute(pathToCwd));
+    if (
+      containsCwd &&
+      (!bestMatch ||
+        repositoryDir.length > resolve(bestMatch.projectConfig.repositoryDir!).length)
+    ) {
+      bestMatch = { projectId, projectConfig };
+    }
+  }
+  return bestMatch;
+}
+
 export async function inspectManagedProjectSelection(
   input: ResolveProjectSelectionInput
 ): Promise<ManagedProjectResolution> {
@@ -116,6 +147,15 @@ export async function inspectManagedProjectSelection(
       message:
         "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
     };
+  }
+
+  const cwdRepository = await loadRepositoryProjectFromCwd(
+    input.configDir,
+    input.cwd ?? process.cwd(),
+    projectIds
+  );
+  if (cwdRepository) {
+    return { kind: "resolved", ...cwdRepository };
   }
 
   if (global.activeProject) {
@@ -174,6 +214,15 @@ export async function resolveManagedProjectConfig(
 
   if (projectIds.length === 0) {
     return null;
+  }
+
+  const cwdRepository = await loadRepositoryProjectFromCwd(
+    input.configDir,
+    input.cwd ?? process.cwd(),
+    projectIds
+  );
+  if (cwdRepository) {
+    return cwdRepository.projectConfig;
   }
 
   if (projectIds.length === 1) {

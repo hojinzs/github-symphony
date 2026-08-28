@@ -117,6 +117,51 @@ describe("resolveManagedProjectConfig", () => {
     expect(selectMock).not.toHaveBeenCalled();
   });
 
+  it("prefers the repository record matching cwd over another active repository", async () => {
+    const repositoryA = await mkdtemp(join(tmpdir(), "repository-a-"));
+    const repositoryB = await mkdtemp(join(tmpdir(), "repository-b-"));
+    const projectA = {
+      ...createProject("repository-a"),
+      repositoryDir: repositoryA,
+    };
+    const projectB = {
+      ...createProject("repository-b"),
+      repositoryDir: repositoryB,
+    };
+    const configDir = await createConfigFixture(
+      [projectA, projectB],
+      projectB.projectId
+    );
+
+    await expect(
+      resolveManagedProjectConfig({ configDir, cwd: repositoryA })
+    ).resolves.toMatchObject({ projectId: projectA.projectId });
+  });
+
+  it("prefers the deepest repository record containing cwd", async () => {
+    const repositoryDir = await mkdtemp(join(tmpdir(), "repository-root-"));
+    const nestedRepositoryDir = join(repositoryDir, "packages", "cli");
+    const projectA = {
+      ...createProject("repository-root"),
+      repositoryDir,
+    };
+    const projectB = {
+      ...createProject("repository-nested"),
+      repositoryDir: nestedRepositoryDir,
+    };
+    const configDir = await createConfigFixture(
+      [projectA, projectB],
+      projectA.projectId
+    );
+
+    await expect(
+      resolveManagedProjectConfig({
+        configDir,
+        cwd: join(nestedRepositoryDir, "src"),
+      })
+    ).resolves.toMatchObject({ projectId: projectB.projectId });
+  });
+
   it("requires interactive selection when multiple projects have no active project", async () => {
     const configDir = await createConfigFixture([
       createProject("tenant-a"),
@@ -219,20 +264,6 @@ describe("inspectManagedProjectSelection", () => {
     expect(result).toMatchObject({
       kind: "resolved",
       projectId: projectAId,
-    });
-  });
-
-  it("resolves the repository config written to a fresh config directory", async () => {
-    const configDir = await createConfigFixture(
-      [createProject("repository")],
-      "repository"
-    );
-
-    const result = await inspectManagedProjectSelection({ configDir });
-
-    expect(result).toMatchObject({
-      kind: "resolved",
-      projectId: "repository",
     });
   });
 

@@ -70,9 +70,11 @@ blocked by the current issue and are not blockers of it.
 `GH_SYMPHONY_CONFIG_DIR` (or `--config <dir>`) selects the shared CLI registry
 used by repository lifecycle commands. `gh-symphony repo init` always writes the
 repo-embedded runtime under `<repo>/.runtime/orchestrator`; when a config
-directory is explicitly selected, it also writes the repository project record
-and active-project registry under that directory. This keeps a subsequent
+directory is explicitly selected, it also writes a repository-path-scoped project
+record and makes that record active under the directory. This keeps a subsequent
 `gh-symphony repo start` in the same environment consistent with initialization.
+Records for other repositories in the same shared directory are preserved; each
+subsequent `repo init` makes its own repository the active project.
 Without an explicit config directory, repository lifecycle commands use the
 repo-embedded runtime directly. The environment variable does not relocate the
 repository's orchestrator state.
