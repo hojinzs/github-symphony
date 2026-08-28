@@ -60,7 +60,12 @@ export async function composeClaudeMcpConfig(
   ) {
     mcpServers = stripMcpServerSecretEnvironmentValues(
       mcpServers,
+      readTrackerSecretEnvironmentNames(symphonyTokenEnv),
       readTrackerSecretEnvironmentNames(symphonyTokenEnv)
+        .map(
+          (name) => symphonyTokenEnv[name as keyof ClaudeMcpTokenEnvironment]
+        )
+        .filter((value): value is string => value !== undefined)
     );
   }
   const repositoryConfig = trustRepoConfig
@@ -90,7 +95,9 @@ function readTrackerSecretEnvironmentNames(
   env: ClaudeMcpTokenEnvironment
 ): string[] {
   try {
-    const names = JSON.parse(env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]");
+    const names = JSON.parse(
+      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
+    );
     return Array.isArray(names)
       ? names.filter((name): name is string => typeof name === "string")
       : [];

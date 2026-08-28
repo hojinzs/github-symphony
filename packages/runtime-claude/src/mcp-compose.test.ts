@@ -465,4 +465,36 @@ describe("composeClaudeMcpConfig", () => {
       },
     });
   });
+
+  it("removes a declared secret value from a custom MCP env key when brokered", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const runtimeRoot = await createTempWorkspace();
+    await writeFile(
+      join(workspaceRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          custom_github: {
+            command: "node",
+            env: { CUSTOM_TOKEN: "$GITHUB_GRAPHQL_TOKEN" },
+          },
+        },
+      })
+    );
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+      GITHUB_GRAPHQL_TOKEN: "raw-github-token",
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+      SYMPHONY_TRACKER_KIND: "github",
+      SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+        "GITHUB_GRAPHQL_TOKEN",
+      ]),
+      SYMPHONY_TRUST_REPO_CONFIG: "true",
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+    });
+
+    expect(JSON.stringify(await readJson(result.finalPath))).not.toContain(
+      "raw-github-token"
+    );
+  });
 });

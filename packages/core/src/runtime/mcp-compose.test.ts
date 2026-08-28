@@ -56,6 +56,29 @@ describe("composeMcpServers", () => {
     });
   });
 
+  it("removes a declared secret value even when a custom key references it", () => {
+    expect(
+      stripMcpServerSecretEnvironmentValues(
+        {
+          github: {
+            command: "node",
+            env: {
+              CUSTOM_TOKEN: "resolved-secret",
+              GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+            },
+          },
+        },
+        ["GITHUB_GRAPHQL_TOKEN"],
+        ["resolved-secret"]
+      )
+    ).toEqual({
+      github: {
+        command: "node",
+        env: { GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql" },
+      },
+    });
+  });
+
   it("preserves $VAR source names for declared secrets", async () => {
     const { project, repo } = await fixture();
     await writeFile(

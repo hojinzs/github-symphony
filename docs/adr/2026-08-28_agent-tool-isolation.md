@@ -43,14 +43,16 @@ children when a GitHub token broker is configured, and prevents Claude
 credentials remain for the existing `github_graphql` tool and Git workflow.
 Without a broker, raw GitHub and Linear credentials remain a documented
 temporary Phase 1a divergence so existing agent Git and MCP workflows do not
-lose capability; the worker warns operators about this path. Phase 1b (#700)
-removes that condition alongside #673's host-owned transport release.
+lose capability; the worker warns operators about this path. Custom runtimes
+also retain their GitHub credentials even with a broker because they do not yet
+have the shared broker-backed Git helper; Phase 1b (#700) removes both
+conditions alongside #673's host-owned transport release.
 
 ### Phase 1 — remove tracker secrets from the child boundary (#672)
 
 Every tracker adapter declares `secretEnvironmentNames()`. The declaration
-covers raw tracker credentials and supported MCP `$VAR` indirection source
-names are retained as metadata while configuration is resolved. When a GitHub
+covers raw tracker credentials, and the source names of supported MCP `$VAR`
+indirections are retained as secret metadata while configuration is resolved. When a GitHub
 token broker is configured, local and remote launchers remove every declared
 GitHub name from coding-agent child environments; the Codex and Claude runtime
 paths must not add them back. Generated Claude `mcp.json` must contain no

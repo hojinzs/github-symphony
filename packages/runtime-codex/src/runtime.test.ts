@@ -233,7 +233,10 @@ describe("buildCodexRuntimePlan", () => {
         mcpServers: {
           org_github: {
             command: "node",
-            env: { GITHUB_GRAPHQL_TOKEN: "$MY_ORG_PAT" },
+            env: {
+              GITHUB_GRAPHQL_TOKEN: "$MY_ORG_PAT",
+              CUSTOM_TOKEN: "$GITHUB_GRAPHQL_TOKEN",
+            },
           },
         },
       })
@@ -244,11 +247,16 @@ describe("buildCodexRuntimePlan", () => {
         projectId: "workspace-123",
         workingDirectory: workspace,
         projectDirectory: project,
+        githubToken: "raw-github-token",
+        extraEnv: { GITHUB_GRAPHQL_TOKEN: "raw-github-token" },
         githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
         githubTokenBrokerSecret: "broker-secret",
         trackerSecretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
       });
-      expect(JSON.stringify(plan.tools)).not.toContain("indirect-github-secret");
+      expect(JSON.stringify(plan.tools)).not.toContain(
+        "indirect-github-secret"
+      );
+      expect(JSON.stringify(plan.tools)).not.toContain("raw-github-token");
       expect(plan.env.MY_ORG_PAT).toBeUndefined();
     } finally {
       delete process.env.MY_ORG_PAT;

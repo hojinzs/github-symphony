@@ -603,7 +603,16 @@ export function buildCodexRuntimePlan(
     usesGitHubTokenBroker && config.trackerKind !== "linear";
   const tools = Object.entries(
     brokeredGitHubTracker
-      ? stripMcpServerSecretEnvironmentValues(servers, secretEnvironmentNames)
+      ? stripMcpServerSecretEnvironmentValues(
+          servers,
+          secretEnvironmentNames,
+          [
+            ...secretEnvironmentNames.map(
+              (name) => config.extraEnv?.[name] ?? process.env[name]
+            ),
+            config.githubToken,
+          ].filter((value): value is string => value !== undefined)
+        )
       : servers
   ).map(
     ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)

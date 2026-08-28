@@ -12,27 +12,9 @@ import {
 import {
   CustomCommandWorkerRuntimeAdapter,
   createWorkerNonCodexRuntimeAdapter,
-  stripTrackerSecretsForBrokeredGitHubChild,
 } from "./non-codex-runtime.js";
 
 describe("CustomCommandWorkerRuntimeAdapter", () => {
-  it("removes brokered GitHub tracker secrets before custom runtime spawn", () => {
-    expect(
-      stripTrackerSecretsForBrokeredGitHubChild(
-        {
-          SYMPHONY_TRACKER_KIND: "github",
-          GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
-          GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
-          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
-            "GITHUB_GRAPHQL_TOKEN",
-          ]),
-          GITHUB_GRAPHQL_TOKEN: "raw-secret",
-        },
-        "/repo"
-      ).GITHUB_GRAPHQL_TOKEN
-    ).toBeUndefined();
-  });
-
   it("spawns a custom command without the Codex JSON-RPC protocol", async () => {
     const fake = createFakeChild();
     const spawnImpl = vi.fn(() => fake.child);
@@ -150,6 +132,30 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
     );
 
     expect(adapter).toBeInstanceOf(CustomCommandWorkerRuntimeAdapter);
+  });
+
+  it("retains custom runtime credentials until the Phase 1b Git transport", () => {
+    const adapter = createWorkerNonCodexRuntimeAdapter(
+      workflowWithRuntime("custom", "agent", ["--flag"]),
+      {
+        workingDirectory: "/repo",
+        env: {
+          SYMPHONY_TRACKER_KIND: "github",
+          GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+          GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "GITHUB_GRAPHQL_TOKEN",
+          ]),
+          GITHUB_GRAPHQL_TOKEN: "raw-secret",
+        },
+      }
+    );
+
+    const config = (
+      adapter as unknown as { config: { env: NodeJS.ProcessEnv } }
+    ).config;
+    expect(config.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-secret");
+    expect(config.env.GIT_CONFIG_KEY_0).toBeUndefined();
   });
 });
 
