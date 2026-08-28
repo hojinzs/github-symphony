@@ -230,7 +230,8 @@ function trackerItemId(
   adapter: OrchestratorTrackerAdapter,
   issue: TrackedIssue
 ): string | null {
-  return adapter.getTrackerItemId?.(issue) ?? issue.tracker.itemId ?? null;
+  const { itemId: legacyItemId } = issue.tracker;
+  return adapter.getTrackerItemId?.(issue) ?? legacyItemId ?? null;
 }
 
 class RestartRunFailure extends Error {

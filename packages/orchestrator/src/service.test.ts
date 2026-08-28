@@ -5686,11 +5686,7 @@ Prefer focused changes.
     expect(result.summary.recovered).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
     expect(listIssues).toHaveBeenCalled();
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.any(Object)
-    );
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
@@ -5817,11 +5813,7 @@ Prefer focused changes.
     expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(listIssues).toHaveBeenCalled();
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.any(Object)
-    );
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
@@ -5860,7 +5852,7 @@ Prefer focused changes.
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
-      issueState: "Archived",
+      issueState: "In Progress",
       repository,
       status: "retrying",
       attempt: 2,

@@ -27,6 +27,7 @@ import * as trackerAdapters from "./tracker-adapters.js";
 function makeIssue(
   overrides: Partial<TrackedIssue> & { identifier: string }
 ): TrackedIssue {
+  const metadata = overrides.metadata ?? {};
   return {
     id: overrides.identifier,
     identifier: overrides.identifier,
@@ -53,8 +54,12 @@ function makeIssue(
       bindingId: "proj-1",
       itemId: "item-1",
     },
-    metadata: {},
+    metadata,
     ...overrides,
+    contentType: overrides.contentType ?? metadata.contentType,
+    linkedPullRequests:
+      overrides.linkedPullRequests ?? metadata.linkedPullRequests,
+    pullRequest: overrides.pullRequest ?? metadata.pullRequest,
   };
 }
 
@@ -2304,16 +2309,16 @@ function createDispatchAdapter(
     resolveCanonicalIssues: (candidates) => {
       const pullRequests = new Map(
         candidates
-          .filter((issue) => issue.metadata.contentType === "PullRequest")
+          .filter((issue) => issue.contentType === "PullRequest")
           .map((issue) => [issue.id, issue])
       );
       const linked = new Set<string>();
       return candidates
         .flatMap((issue) => {
-          if (issue.metadata.contentType === "PullRequest") {
+          if (issue.contentType === "PullRequest") {
             return [];
           }
-          const references = issue.metadata.linkedPullRequests ?? [];
+          const references = issue.linkedPullRequests ?? [];
           for (const reference of references) linked.add(reference.id);
           const resolved = references.map((reference) => {
             const projectItem = pullRequests.get(reference.id);
@@ -2325,7 +2330,7 @@ function createDispatchAdapter(
             references.some((reference) => pullRequests.has(reference.id))
               ? {
                   ...issue,
-                  metadata: { ...issue.metadata, linkedPullRequests: resolved },
+                  linkedPullRequests: resolved,
                 }
               : issue,
           ];
@@ -2333,21 +2338,21 @@ function createDispatchAdapter(
         .concat(
           candidates.filter(
             (issue) =>
-              issue.metadata.contentType === "PullRequest" &&
+              issue.contentType === "PullRequest" &&
               !linked.has(issue.id)
           )
         );
     },
     matchesIssueIdentifier: (issue, identifier) =>
       issue.identifier === identifier ||
-      issue.metadata.linkedPullRequests?.some(
+      issue.linkedPullRequests?.some(
         (pullRequest) => pullRequest.identifier === identifier
       ) === true,
     findActiveLinkedPullRequest: (issue, lifecycle) => {
       const states = new Set(
         lifecycle.activeStates.map((state) => state.toLowerCase())
       );
-      const pullRequest = issue.metadata.linkedPullRequests?.find(
+      const pullRequest = issue.linkedPullRequests?.find(
         (candidate) =>
           typeof candidate.projectState === "string" &&
           states.has(candidate.projectState.toLowerCase())
