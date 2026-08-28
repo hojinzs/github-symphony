@@ -81,7 +81,7 @@ describe("fileTrackerAdapter", () => {
       expect(issues[0].state).toBe("Ready");
     });
 
-    it("returns configured pickup-label issues for orchestration-side filtering", async () => {
+    it("filters issues using configured pickup labels", async () => {
       const issuesPath = join(testDir, "issues.json");
       await writeFile(
         issuesPath,
@@ -98,7 +98,6 @@ describe("fileTrackerAdapter", () => {
 
       await expect(fileTrackerAdapter.listIssues(project)).resolves.toEqual([
         expect.objectContaining({ id: "issue-1" }),
-        expect.objectContaining({ id: "issue-2" }),
       ]);
     });
 
@@ -249,7 +248,7 @@ describe("fileTrackerAdapter", () => {
 
       await expect(
         fileTrackerAdapter.listIssues(project)
-      ).resolves.toHaveLength(2);
+      ).resolves.toHaveLength(1);
       await expect(
         fileTrackerAdapter.listIssuesByStates(project, ["Ready"])
       ).resolves.toHaveLength(2);

@@ -8,6 +8,7 @@ import {
   type TrackedIssue,
   type TrackedIssueList,
 } from "@gh-symphony/core";
+import { filterIssuesByPickupLabels } from "@gh-symphony/core";
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
 const DEFAULT_PAGE_SIZE = 50;
@@ -85,6 +86,7 @@ type LinearIssueNode = {
 
 type LinearIssuesResponse = {
   issues?: LinearConnection<LinearIssueNode> | null;
+  viewer?: { id?: string | null } | null;
 };
 
 type LinearIssueFilter = {
@@ -148,6 +150,9 @@ const LINEAR_ISSUES_BY_STATES_QUERY = /* GraphQL */ `
     ) {
       ${LINEAR_ISSUE_FIELDS}
     }
+    viewer {
+      id
+    }
   }
 `;
 
@@ -163,6 +168,9 @@ const LINEAR_ISSUES_BY_IDS_QUERY = /* GraphQL */ `
       filter: $filter
     ) {
       ${LINEAR_ISSUE_FIELDS}
+    }
+    viewer {
+      id
     }
   }
 `;
@@ -180,16 +188,32 @@ const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
     ) {
       ${LINEAR_ISSUE_FIELDS}
     }
+    viewer {
+      id
+    }
   }
 `;
 
 export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
-    return listLinearIssues(
+    const issues = await listLinearIssues(
       project,
       project.tracker.settings?.activeStates,
       dependencies
     );
+    const filtered = filterIssuesByPickupLabels(
+      issues,
+      project
+    ) as TrackedIssueList;
+    if (filtered !== issues) {
+      Object.defineProperty(filtered, "rateLimits", {
+        configurable: true,
+        enumerable: false,
+        value: issues.rateLimits,
+        writable: true,
+      });
+    }
+    return filtered;
   },
 
   async listIssuesByStates(project, states, dependencies = {}) {
@@ -289,7 +313,8 @@ async function listLinearIssues(
       config.projectSlug,
       node,
       config.assignedOnly,
-      result.rateLimits
+      result.rateLimits,
+      result.viewerId
     )
   ) as TrackedIssueList;
   Object.defineProperty(fetchedIssues, "rateLimits", {
@@ -323,10 +348,12 @@ async function fetchPaginatedLinearIssues(
   }
 ): Promise<{
   nodes: LinearIssueNode[];
+  viewerId: string | null;
   rateLimits: LinearRateLimitPayload | null;
 }> {
   const issues: LinearIssueNode[] = [];
   let latestRateLimits: LinearRateLimitPayload | null = null;
+  let viewerId: string | null = null;
   let after: string | null = null;
 
   for (let page = 0; page < input.maxPages; page += 1) {
@@ -344,6 +371,7 @@ async function fetchPaginatedLinearIssues(
       after,
     });
     latestRateLimits = response.rateLimits ?? latestRateLimits;
+    viewerId = response.data.viewer?.id ?? viewerId;
     const connection: LinearConnection<LinearIssueNode> | null | undefined =
       response.data.issues;
     issues.push(...(connection?.nodes ?? []));
@@ -357,6 +385,7 @@ async function fetchPaginatedLinearIssues(
 
   return {
     nodes: issues,
+    viewerId,
     rateLimits: latestRateLimits,
   };
 }
@@ -389,7 +418,8 @@ export function normalizeLinearIssue(
   projectSlug: string,
   issue: LinearIssueNode,
   assignedOnly = false,
-  rateLimits: Record<string, unknown> | null = null
+  rateLimits: Record<string, unknown> | null = null,
+  viewerId: string | null = null
 ): TrackedIssue {
   const id = requireString(issue.id, "Linear issue id");
   const identifier = sanitizeLinearIdentifier(
@@ -413,7 +443,7 @@ export function normalizeLinearIssue(
     labels: (issue.labels?.nodes ?? [])
       .map((label) => label.name)
       .filter((label): label is string => typeof label === "string"),
-    dispatchable: !assignedOnly || Boolean(issue.assignee?.id),
+    dispatchable: !assignedOnly || issue.assignee?.id === viewerId,
     assigneeId: issue.assignee?.id ?? null,
     blockedBy: (issue.inverseRelations?.nodes ?? [])
       .filter((relation) => relation.type === "blocks")
