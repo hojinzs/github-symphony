@@ -1,5 +1,26 @@
 # @gh-symphony/cli
 
+## 0.14.0
+
+### Minor Changes
+
+- [#695](https://github.com/hojinzs/github-symphony/pull/695) [`13094cc`](https://github.com/hojinzs/github-symphony/commit/13094ccafde1e659945b8e63e030e5c0bbc41d79) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add collision-resistant workspace keys with legacy workspace reuse for [#666](https://github.com/hojinzs/github-symphony/issues/666).
+
+- [#701](https://github.com/hojinzs/github-symphony/pull/701) [`2353c05`](https://github.com/hojinzs/github-symphony/commit/2353c0538b7dd0212ff1480886efa925f20c7860) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep raw GitHub tracker-token aliases out of Codex and Claude coding-agent
+  environments, and prevent Claude-generated MCP configuration from storing them.
+  This implements the Phase 1a boundary from [#672](https://github.com/hojinzs/github-symphony/issues/672) while retaining the existing
+  GitHub broker compatibility path.
+
+- [#711](https://github.com/hojinzs/github-symphony/pull/711) [`36d5c86`](https://github.com/hojinzs/github-symphony/commit/36d5c864da0e6f6358fde8677d7b798e68fa2c0d) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Normalize deprecated flat tracker settings into adapter-owned provider configuration while preserving compatibility lifecycle defaults until tracker adapters implement `defaultLifecycle()`. `active_states` and `terminal_states` must be YAML lists; comma-separated strings are rejected. Linear-specific provider validation now belongs to adapters and is not implemented in this release ([#707](https://github.com/hojinzs/github-symphony/issues/707)).
+
+### Patch Changes
+
+- [#698](https://github.com/hojinzs/github-symphony/pull/698) [`0b7fb0f`](https://github.com/hojinzs/github-symphony/commit/0b7fb0f8e83d70d663e01e2f3f830644f42cb7d4) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Conservatively collect detached worktree-cache agent branches only after their commits are reachable from an origin tracking ref, preserving unpushed work.
+
+- [#717](https://github.com/hojinzs/github-symphony/pull/717) [`bda568b`](https://github.com/hojinzs/github-symphony/commit/bda568b36eafb8720140295ed6a11891e5e56e99) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Make workspace creation and run hooks abort their corresponding attempt on failure, rerun attempt hooks on retries, and bound hook diagnostics. ([#655](https://github.com/hojinzs/github-symphony/issues/655))
+
+- [#719](https://github.com/hojinzs/github-symphony/pull/719) [`f9abd15`](https://github.com/hojinzs/github-symphony/commit/f9abd1506802b1687ddf85a78e5b54a133ecc2dc) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Make `repo init` register explicit configuration directories so `repo start` selects the initialized repository ([#715](https://github.com/hojinzs/github-symphony/issues/715)).
+
 ## 0.13.1
 
 ### Patch Changes
