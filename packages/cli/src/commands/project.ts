@@ -50,7 +50,9 @@ export async function deriveStandaloneProject(
       `No WORKFLOW.md in ${projectDir}. Run this command from a standalone project folder or pass --project-dir <path>.`
     );
   }
-  const workflow = parseWorkflowMarkdown(markdown);
+  const workflow = parseWorkflowMarkdown(markdown, process.env, {
+    compatibilityMode: "legacy",
+  });
   const repository = parseRepository(workflow.repository);
   const adapter = workflow.tracker.kind ?? "github-project";
   const bindingId =

@@ -92,7 +92,13 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   if (!(await pathExists(workflowPath))) {
     throw new MissingWorkflowFileError(workflowPath);
   }
-  const workflow = parseWorkflowMarkdown(await readFile(workflowPath, "utf8"));
+  const workflow = parseWorkflowMarkdown(
+    await readFile(workflowPath, "utf8"),
+    process.env,
+    {
+      compatibilityMode: "legacy",
+    }
+  );
   validateRepoInitWorkflow(workflow);
   const repository = resolveRepository(repoDir);
   const trackerAdapter = workflow.tracker.kind ?? "github-project";

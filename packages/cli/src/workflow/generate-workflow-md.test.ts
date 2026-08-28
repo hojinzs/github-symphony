@@ -46,7 +46,9 @@ describe("generateWorkflowMarkdown", () => {
 
   it("generates valid WORKFLOW.md that round-trips through parseWorkflowMarkdown", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
-    const parsed = parseWorkflowMarkdown(markdown, {});
+    const parsed = parseWorkflowMarkdown(markdown, {}, {
+      compatibilityMode: "legacy",
+    });
 
     expect(parsed.format).toBe("front-matter");
     expect(parsed.githubProjectId).toBe("PVT_abc123");
@@ -270,7 +272,9 @@ describe("generateWorkflowMarkdown", () => {
         },
       },
     });
-    const parsed = parseWorkflowMarkdown(markdown, {});
+    const parsed = parseWorkflowMarkdown(markdown, {}, {
+      compatibilityMode: "legacy",
+    });
 
     expect(markdown).toContain(JSON.stringify(injectedEndpoint));
     expect(markdown).toContain(JSON.stringify(injectedProjectSlug));

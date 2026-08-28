@@ -20,7 +20,10 @@ import {
   type WorkflowRuntimeKind,
   resolveWorkflowRuntimeCommand,
 } from "./config.js";
-import type { WorkflowLifecycleConfig } from "./lifecycle.js";
+import {
+  DEFAULT_WORKFLOW_LIFECYCLE,
+  type WorkflowLifecycleConfig,
+} from "./lifecycle.js";
 
 type WorkflowFrontMatterNode =
   | string
@@ -149,13 +152,17 @@ function parseWorkflowMarkdownInternal(
     throw providerErrors[0];
   }
   const defaultLifecycle = trackerAdapter?.defaultLifecycle?.();
+  const legacyLifecycle =
+    compatibilityMode === "legacy" ? DEFAULT_WORKFLOW_LIFECYCLE : undefined;
   const activeStates =
     readStringList(tracker, "active_states") ??
     defaultLifecycle?.activeStates ??
+    legacyLifecycle?.activeStates ??
     readRequiredLifecycleStates("active_states");
   const terminalStates =
     readStringList(tracker, "terminal_states") ??
     defaultLifecycle?.terminalStates ??
+    legacyLifecycle?.terminalStates ??
     readRequiredLifecycleStates("terminal_states");
   const blockerCheckStates =
     readStringList(tracker, "blocker_check_states") ??
@@ -167,6 +174,7 @@ function parseWorkflowMarkdownInternal(
   const stateFieldName =
     readOptionalString(tracker, "state_field", env, "tracker.state_field") ??
     defaultLifecycle?.stateFieldName ??
+    legacyLifecycle?.stateFieldName ??
     readRequiredLifecycleStateField();
 
   const maxConcurrentAgentsByState = readNumberMap(
