@@ -18,6 +18,8 @@ export type WorkflowTrackerConfig = {
   apiKey: string | null;
   projectSlug: string | null;
   pickupLabels: WorkflowPickupLabelsConfig;
+  /** Core lifecycle routing constraint from tracker.required_labels. */
+  requiredLabels: string[];
   activeStates: string[];
   terminalStates: string[];
   projectId: string | null;
@@ -179,6 +181,7 @@ export const DEFAULT_WORKFLOW_TRACKER: WorkflowTrackerConfig = {
     include: [],
     exclude: [],
   },
+  requiredLabels: [],
   activeStates: [],
   terminalStates: [],
   projectId: null,
@@ -230,6 +233,7 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
     activeStates: [],
     terminalStates: [],
     planningStates: [],
+    requiredLabels: [],
   },
   format: "default",
   githubProjectId: null,

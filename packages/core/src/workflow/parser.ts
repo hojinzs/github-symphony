@@ -197,6 +197,8 @@ function parseWorkflowMarkdownInternal(
     ) ??
     defaultLifecycle?.planningStates ??
     DEFAULT_WORKFLOW_TRACKER.planningStates;
+  const requiredLabels =
+    readRequiredLabelList(tracker) ?? DEFAULT_WORKFLOW_TRACKER.requiredLabels;
   const stateFieldName =
     readNormalizedOptionalString(
       tracker,
@@ -289,6 +291,7 @@ function parseWorkflowMarkdownInternal(
         provider,
         explicitProviderKeys
       ),
+      requiredLabels,
       activeStates,
       terminalStates,
       projectId: readNormalizedOptionalString(
@@ -373,6 +376,7 @@ function parseWorkflowMarkdownInternal(
       activeStates,
       terminalStates,
       planningStates,
+      requiredLabels,
     },
     format: "front-matter",
     githubProjectId: readNormalizedOptionalString(
@@ -594,6 +598,26 @@ function readPickupLabelsConfig(
     include: normalizeLabels(readStringList(input, "include") ?? []),
     exclude: normalizeLabels(readStringList(input, "exclude") ?? []),
   };
+}
+
+function readRequiredLabelList(
+  tracker: Record<string, WorkflowFrontMatterNode>
+): string[] | undefined {
+  const value = tracker.required_labels;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      "tracker.required_labels",
+      'Workflow front matter field "tracker.required_labels" must be an array of strings.'
+    );
+  }
+
+  // §5.3.1 requires blank configured labels to remain unsatisfied. The shared
+  // normalizeLabels helper drops blanks, so it is intentionally not used here.
+  return value.map((label) => label.trim().toLowerCase());
 }
 
 function readPriorityConfig(

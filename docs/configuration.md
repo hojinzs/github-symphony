@@ -75,7 +75,8 @@ strict parser as workflow loading. Failures include a stable error code; the
 | `hooks.timeout_ms`  | A positive integer when provided                                                                                           | `workflow_validation_error` at `hooks.timeout_ms`                             |
 | `agent.max_turns`   | A positive integer when provided                                                                                           | `workflow_validation_error` at `agent.max_turns`                              |
 | `codex.command`     | A non-empty string when provided                                                                                           | `workflow_validation_error` at `codex.command`                                |
-| `tracker.kind`      | One of `github-project`, `linear`, or `file`                                                                               | `workflow_validation_error` at `tracker.kind`                                 |
+| `tracker.kind`            | One of `github-project`, `linear`, or `file`                                                                         | `workflow_validation_error` at `tracker.kind`                           |
+| `tracker.required_labels` | An array of strings; comma-separated strings are rejected                                                            | `workflow_validation_error` at `tracker.required_labels`                |
 
 Omitted optional values retain their documented defaults. Per-state concurrency
 maps remain supported through `agent.max_concurrent_agents_by_state` and their
@@ -89,8 +90,10 @@ Core normalizes workflow pickup labels and tracker-provided labels before label
 matching: it trims surrounding whitespace, lowercases values, drops blanks, and
 deduplicates while keeping the first occurrence. Thus `" Agent "`, `"agent"`,
 and `"AGENT"` are the same label. The same `normalizeLabels` helper is the
-shared implementation for current pickup-label handling and future
-`tracker.required_labels` configuration support.
+shared implementation for pickup-label handling. `tracker.required_labels`
+uses a deliberately separate blank-preserving normalization path: it trims and
+lowercases values, but a configured blank remains and therefore matches no
+issue, as required by Symphony specification §5.3.1.
 
 `parseTrackerTimestamp` accepts RFC 3339 timestamps, including lowercase `t` /
 `z` designators and leap seconds, and returns a canonical ISO 8601 UTC string;

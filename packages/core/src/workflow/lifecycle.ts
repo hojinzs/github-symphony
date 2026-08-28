@@ -3,6 +3,8 @@ export type WorkflowLifecycleConfig = {
   activeStates: string[];
   terminalStates: string[];
   planningStates: string[];
+  /** Normalized required tracker labels; omitted legacy configs are unrestricted. */
+  requiredLabels?: string[];
 };
 
 export const DEFAULT_WORKFLOW_LIFECYCLE: WorkflowLifecycleConfig = {
@@ -10,6 +12,7 @@ export const DEFAULT_WORKFLOW_LIFECYCLE: WorkflowLifecycleConfig = {
   activeStates: ["Todo", "In Progress"],
   terminalStates: ["Done"],
   planningStates: [],
+  requiredLabels: [],
 };
 
 export function isStateActive(
