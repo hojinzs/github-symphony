@@ -898,6 +898,7 @@ describe("worktree-cache issue workspaces", () => {
       })
     ).resolves.toBe(repositoryDirectory);
 
+    configureGitIdentity(repositoryDirectory);
     await writeFile(join(repositoryDirectory, "unpushed.txt"), "keep\n");
     execSync(`git -C "${repositoryDirectory}" add unpushed.txt`);
     execSync(`git -C "${repositoryDirectory}" commit -m "Keep unpushed work"`);
@@ -1004,6 +1005,7 @@ describe("worktree-cache issue workspaces", () => {
       issueIdentifier: "acme/platform#13",
     });
 
+    configureGitIdentity(firstDirectory);
     execSync(`git -C "${firstDirectory}" checkout -b feat/592-pushed`);
     await writeFile(join(firstDirectory, "pushed.txt"), "pushed\n");
     execSync(`git -C "${firstDirectory}" add pushed.txt`);
@@ -1248,6 +1250,11 @@ function readGitBranch(repositoryDirectory: string): string {
   }).trim();
 }
 
+function configureGitIdentity(repositoryDirectory: string): void {
+  execSync(`git -C "${repositoryDirectory}" config user.name "Test User"`);
+  execSync(`git -C "${repositoryDirectory}" config user.email "test@example.com"`);
+}
+
 describe("sanitizeRepositoryCloneUrl", () => {
   it("removes embedded credentials before Git can persist the remote", () => {
     expect(
@@ -1266,8 +1273,6 @@ async function createRepositoryFixture(tempRoot: string) {
   execSync(`git clone "${originPath}" "${workingPath}"`);
   execSync(`git -C "${workingPath}" config user.name "Test User"`);
   execSync(`git -C "${workingPath}" config user.email "test@example.com"`);
-  execSync(`git -C "${originPath}" config user.name "Test User"`);
-  execSync(`git -C "${originPath}" config user.email "test@example.com"`);
 
   await writeFile(
     join(workingPath, "WORKFLOW.md"),
