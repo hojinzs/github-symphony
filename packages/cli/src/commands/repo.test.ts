@@ -16,7 +16,10 @@ import {
   loadProjectConfig,
   saveGlobalConfig,
 } from "../config.js";
-import { inspectManagedProjectSelection } from "../project-selection.js";
+import {
+  inspectManagedProjectSelection,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 import { standaloneProjectId } from "../standalone-project.js";
 
 async function loadRepoCommand() {
@@ -158,6 +161,12 @@ describe("repo init runtime migration", () => {
       projectConfig: {
         repository: { owner: "acme", name: "platform" },
       },
+    });
+    await expect(
+      resolveManagedProjectConfig({ configDir, cwd: repoDir })
+    ).resolves.toMatchObject({
+      projectId,
+      repository: { owner: "acme", name: "platform" },
     });
   });
 
