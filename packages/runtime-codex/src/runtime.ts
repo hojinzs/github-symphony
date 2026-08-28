@@ -679,17 +679,22 @@ export function buildCodexRuntimePlan(
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
   };
 
-  // Dynamic tools execute in the worker host, so credentials are never part
-  // of the Codex child environment. Git credential-helper compatibility is
-  // deliberately retained until #700 moves authenticated Git transport too.
+  // Dynamic-tool credentials execute in the worker host. The brokerless
+  // Git credential helper still needs the GitHub token until #700 moves
+  // authenticated Git transport host-side.
   for (const name of new Set([
-    ...secretEnvironmentNames,
-    "GITHUB_GRAPHQL_TOKEN",
+    ...secretEnvironmentNames.filter(
+      (name) => name !== "GITHUB_GRAPHQL_TOKEN"
+    ),
     "LINEAR_API_KEY",
     "LINEAR_AUTHORIZATION",
     "LINEAR_GRAPHQL_URL",
   ])) {
     delete plan.env[name];
+  }
+
+  if (usesGitHubTokenBroker) {
+    delete plan.env.GITHUB_GRAPHQL_TOKEN;
   }
 
   return plan;

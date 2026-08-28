@@ -7145,7 +7145,9 @@ Prefer focused changes.
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(workerEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
     expect(workerEnv?.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#1");
-    expect(workerEnv?.SYMPHONY_ISSUE_NATIVE_REF).toBe("null");
+    expect(JSON.parse(workerEnv?.SYMPHONY_ISSUE_NATIVE_REF ?? "null")).toEqual(
+      expect.objectContaining({ itemId: "item-1" })
+    );
   });
 
   it("injects the normalized planning phase into the dispatched worker prompt", async () => {

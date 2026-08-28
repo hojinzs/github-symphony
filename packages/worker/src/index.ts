@@ -1559,11 +1559,27 @@ async function runCodexClientProtocol(
     sendMessage({ jsonrpc: "2.0", method: "initialized", params: {} });
 
     // Step 3: snapshot host-owned provider tool specs at session startup.
+    // Keep user-configured MCP sidecars available through their established
+    // app-server configuration channel; only provider tools move host-side.
+    const dynamicToolNames = new Set(
+      plan.dynamicTools.map((tool) => tool.name)
+    );
+    const mcpServers = Object.fromEntries(
+      plan.tools
+        .filter((tool) => !dynamicToolNames.has(tool.name))
+        .map((tool) => [
+          tool.name,
+          { command: tool.command, args: tool.args, env: tool.env },
+        ])
+    );
     const baseThreadParams = {
       cwd: plan.cwd,
       approvalPolicy,
       sandbox: threadSandbox,
       dynamicTools: plan.dynamicTools,
+      ...(Object.keys(mcpServers).length > 0
+        ? { config: { mcp_servers: mcpServers } }
+        : {}),
     };
 
     process.stderr.write(

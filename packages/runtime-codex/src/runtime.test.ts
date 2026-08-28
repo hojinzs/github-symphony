@@ -150,7 +150,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBe("runtime-secret");
   });
 
-  it("keeps raw GitHub credentials out of the Codex child environment", () => {
+  it("keeps direct Git credentials available to the compatibility helper", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
@@ -158,7 +158,7 @@ describe("buildCodexRuntimePlan", () => {
       trackerSecretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
     });
 
-    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
     expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
   });
 
