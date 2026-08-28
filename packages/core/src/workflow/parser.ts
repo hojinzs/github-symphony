@@ -222,37 +222,41 @@ function parseWorkflowMarkdownInternal(
       deprecatedKeys,
       endpoint:
         readOptionalString(tracker, "endpoint", env, "tracker.endpoint") ??
+        readProviderOptionalString(provider, "endpoint", env) ??
         (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
-      apiKey: readOptionalString(tracker, "api_key", env, "tracker.api_key"),
-      projectSlug: readOptionalString(
-        tracker,
-        "project_slug",
-        env,
-        "tracker.project_slug"
-      ),
+      apiKey:
+        readOptionalString(tracker, "api_key", env, "tracker.api_key") ??
+        readProviderOptionalString(provider, "api_key", env),
+      projectSlug:
+        readOptionalString(
+          tracker,
+          "project_slug",
+          env,
+          "tracker.project_slug"
+        ) ?? readProviderOptionalString(provider, "project_slug", env),
       pickupLabels: readPickupLabelsConfig(tracker),
       activeStates,
       terminalStates,
-      projectId: readOptionalString(
-        tracker,
-        "project_id",
-        env,
-        "tracker.project_id"
-      ),
+      projectId:
+        readOptionalString(tracker, "project_id", env, "tracker.project_id") ??
+        readProviderOptionalString(provider, "project_id", env),
       stateFieldName:
         readOptionalString(
           tracker,
           "state_field",
           env,
           "tracker.state_field"
-        ) ?? stateFieldName,
+        ) ??
+        readProviderOptionalString(provider, "state_field", env) ??
+        stateFieldName,
       priority: readPriorityConfig(tracker, env),
-      priorityFieldName: readOptionalString(
-        tracker,
-        "priority_field",
-        env,
-        "tracker.priority_field"
-      ),
+      priorityFieldName:
+        readOptionalString(
+          tracker,
+          "priority_field",
+          env,
+          "tracker.priority_field"
+        ) ?? readProviderOptionalString(provider, "priority_field", env),
       blockerCheckStates,
       planningStates,
     },
@@ -369,6 +373,25 @@ function promoteDeprecatedTrackerKeys(
     }
   }
   return deprecatedKeys;
+}
+
+function readProviderOptionalString(
+  provider: Record<string, unknown>,
+  key: string,
+  env: NodeJS.ProcessEnv
+): string | null {
+  const value = provider[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      `tracker.provider.${key}`,
+      `Workflow front matter field "tracker.provider.${key}" must be a string.`
+    );
+  }
+  return resolveEnvironmentValue(value, env, `tracker.provider.${key}`);
 }
 
 function readRequiredLifecycleStates(key: string): never {

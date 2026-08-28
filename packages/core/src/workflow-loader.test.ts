@@ -298,6 +298,32 @@ Prompt`,
     expect(workflow.tracker.apiKey).toBe("token");
   });
 
+  it("projects provider aliases onto compatibility fields", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    api_key: $TRACKER_TOKEN
+    endpoint: https://provider.example.test/graphql
+  state_field: Status
+  active_states: [Ready]
+  terminal_states: [Done]
+codex:
+  command: codex
+---
+Prompt`,
+      { TRACKER_TOKEN: "token" } as NodeJS.ProcessEnv
+    );
+
+    expect(workflow.tracker).toMatchObject({
+      projectId: "project-123",
+      apiKey: "token",
+      endpoint: "https://provider.example.test/graphql",
+    });
+  });
+
   it("requires lifecycle configuration without an adapter default", () => {
     expect(() =>
       parseWorkflowMarkdownStrict(`---
