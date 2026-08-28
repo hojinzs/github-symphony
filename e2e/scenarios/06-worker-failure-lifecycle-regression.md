@@ -31,7 +31,7 @@ watch -n 2 curl -s "${ORCH_URL:-http://localhost:8080}/api/v1/status"
 ## Expected
 
 - After the worker failure, the orchestrator detects the run failure.
-- A continuation or failure retry is recorded in the retry queue.
+- The non-zero worker exit is recorded as a `failure` retry with retained diagnostics and exponential backoff.
 - After cleanup, the state returns to `idle`.
 
 ## Cleanup

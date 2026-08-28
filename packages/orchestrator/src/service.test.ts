@@ -9177,6 +9177,121 @@ Prefer focused changes.
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
   });
 
+  it("classifies a pending signal-terminated worker as a failure without a failed turn update", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Todo");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      runPhase: "implementation",
+      workerExitCode: null,
+      lastError: "worker terminated by SIGKILL",
+    });
+    (
+      service as unknown as {
+        workerExitResults: Map<
+          string,
+          { code: number | null; signal: NodeJS.Signals | null }
+        >;
+      }
+    ).workerExitResults.set("run-1", { code: null, signal: "SIGKILL" });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      nextRetryAt: "2026-03-08T00:00:07.000Z",
+      lastError: "worker terminated by SIGKILL",
+    });
+    expect(
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    ).toMatchObject([{ failureRetryCount: 1 }]);
+  });
+
+  it("keeps a user-input-required exit on the continuation retry path", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Todo");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      runPhase: "failed",
+      workerExitCode: 1,
+      lastError: "turn_input_required: agent requires user input",
+      runtimeSession: {
+        ...run!.runtimeSession!,
+        exitClassification: "user-input-required",
+      },
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "continuation",
+      nextRetryAt: "2026-03-08T00:00:01.000Z",
+    });
+    expect(
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    ).toMatchObject([{ failureRetryCount: 0 }]);
+  });
+
+  it("classifies a persisted non-zero worker exit as a failure without a failed turn phase", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Todo");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      runPhase: "implementation",
+      workerExitCode: 1,
+      lastError: "port_exit: codex app-server exited with 3",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      nextRetryAt: "2026-03-08T00:00:07.000Z",
+      lastError: "port_exit: codex app-server exited with 3",
+    });
+    expect(
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    ).toMatchObject([{ failureRetryCount: 1 }]);
+  });
+
+  it("does not attach a late worker exit result to a settled run", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Todo");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      status: "retrying",
+      updatedAt: "2026-03-08T00:00:03.000Z",
+    });
+
+    await (
+      service as unknown as {
+        recordWorkerExit(
+          runId: string,
+          code: number | null,
+          signal: NodeJS.Signals | null
+        ): Promise<void>;
+      }
+    ).recordWorkerExit("run-1", 1, null);
+
+    const updatedRun = await store.loadRun("run-1");
+    expect(updatedRun).toMatchObject({
+      status: "retrying",
+      updatedAt: "2026-03-08T00:00:03.000Z",
+    });
+    expect(updatedRun?.workerExitCode).toBeUndefined();
+  });
+
   it("classifies a non-actionable tracker state and succeeds the completed worker run", async () => {
     const { store, service } =
       await createSuccessfulFinalizationFixture("Done");
@@ -9246,12 +9361,10 @@ Prefer focused changes.
     expect(
       (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
     ).toMatchObject({ state: "retry_queued", failureRetryCount: 1 });
-    const events = (
-      await readFile(
-        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
-        "utf8"
-      )
-    )
+    const events = (await readFile(
+      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+      "utf8"
+    ))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -10350,7 +10463,7 @@ Prefer focused changes.
     expect(updatedRun?.updatedAt).toBe("2026-03-08T00:06:00.000Z");
   });
 
-  it("queues a failed worker exit with backoff and retained diagnostics", async () => {
+  it("applies queued codex_update metadata after the run transitions to retrying", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-retrying-channel-update-")
@@ -10389,7 +10502,7 @@ Prefer focused changes.
         status: "running",
         attempt: 1,
         processId: 4601,
-        workerExitCode: 1,
+        workerExitCode: null,
         port: null,
         workingDirectory: join(tempRoot, "active-run"),
         issueWorkspaceKey: null,
