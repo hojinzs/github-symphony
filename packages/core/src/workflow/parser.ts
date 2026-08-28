@@ -33,12 +33,22 @@ type WorkflowFrontMatterNode =
 export type ParseWorkflowOptions = {
   compatibilityMode?: "strict" | "legacy";
   supportedTrackerKinds?: readonly string[];
-  trackerAdapter?: {
-    validateProviderConfig?: (
-      provider: Record<string, unknown>
-    ) => WorkflowValidationError[];
-    defaultLifecycle?: () => WorkflowLifecycleConfig;
-  };
+  /**
+   * Compatibility injection for callers that already know the adapter.
+   * Prefer resolveTrackerAdapter in production, where tracker.kind selects it.
+   */
+  trackerAdapter?: WorkflowConfigTrackerAdapter;
+  /** Resolves the adapter-owned workflow hooks for the parsed tracker kind. */
+  resolveTrackerAdapter?: (
+    kind: string
+  ) => WorkflowConfigTrackerAdapter | undefined;
+};
+
+export type WorkflowConfigTrackerAdapter = {
+  validateProviderConfig?: (
+    provider: Record<string, unknown>
+  ) => WorkflowValidationError[];
+  defaultLifecycle?: () => WorkflowLifecycleConfig;
 };
 
 export type WorkflowValidationErrorCode =
@@ -130,15 +140,15 @@ function parseWorkflowMarkdownInternal(
       `Unsupported workflow tracker.kind "${trackerKind}". Supported values: ${supportedTrackerKinds.join(", ")}.`
     );
   }
+  const trackerAdapter =
+    options.resolveTrackerAdapter?.(trackerKind) ?? options.trackerAdapter;
   const provider = readProviderConfig(tracker);
   const deprecatedKeys = promoteDeprecatedTrackerKeys(tracker, provider);
-  const providerErrors = options.trackerAdapter?.validateProviderConfig?.(
-    provider
-  );
+  const providerErrors = trackerAdapter?.validateProviderConfig?.(provider);
   if (providerErrors && providerErrors.length > 0) {
     throw providerErrors[0];
   }
-  const defaultLifecycle = options.trackerAdapter?.defaultLifecycle?.();
+  const defaultLifecycle = trackerAdapter?.defaultLifecycle?.();
   const activeStates =
     readStringList(tracker, "active_states") ??
     defaultLifecycle?.activeStates ??
@@ -301,8 +311,7 @@ function parseWorkflowMarkdownInternal(
     codex: codexConfig,
     lifecycle: {
       stateFieldName:
-        readOptionalString(tracker, "state_field", env) ??
-        stateFieldName,
+        readOptionalString(tracker, "state_field", env) ?? stateFieldName,
       activeStates,
       terminalStates,
       blockerCheckStates,

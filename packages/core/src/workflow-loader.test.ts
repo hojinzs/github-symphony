@@ -217,8 +217,52 @@ Prompt`,
     );
   });
 
+  it("resolves provider validation and lifecycle defaults from tracker.kind", () => {
+    const selectedAdapter = {
+      validateProviderConfig: vi.fn(() => []),
+      defaultLifecycle: () => ({
+        stateFieldName: "Workflow",
+        activeStates: ["Queued"],
+        terminalStates: ["Closed"],
+        blockerCheckStates: ["Queued"],
+        planningStates: [],
+      }),
+    };
+    const resolveTrackerAdapter = vi.fn((kind: string) =>
+      kind === "custom-tracker" ? selectedAdapter : undefined
+    );
+
+    const workflow = parseWorkflowMarkdownStrict(
+      `---
+tracker:
+  kind: custom-tracker
+  provider:
+    tenant: acme
+codex:
+  command: codex
+---
+Prompt`,
+      process.env,
+      {
+        supportedTrackerKinds: ["custom-tracker"],
+        resolveTrackerAdapter,
+      }
+    );
+
+    expect(resolveTrackerAdapter).toHaveBeenCalledWith("custom-tracker");
+    expect(selectedAdapter.validateProviderConfig).toHaveBeenCalledWith({
+      tenant: "acme",
+    });
+    expect(workflow.lifecycle).toMatchObject({
+      stateFieldName: "Workflow",
+      activeStates: ["Queued"],
+      terminalStates: ["Closed"],
+    });
+  });
+
   it("promotes deprecated flat tracker keys into provider without replacing explicit provider values", () => {
-    const workflow = parseWorkflowMarkdown(`---
+    const workflow = parseWorkflowMarkdown(
+      `---
 tracker:
   kind: github-project
   provider:
@@ -235,7 +279,9 @@ tracker:
 codex:
   command: codex
 ---
-Prompt`, { TRACKER_TOKEN: "token" } as NodeJS.ProcessEnv);
+Prompt`,
+      { TRACKER_TOKEN: "token" } as NodeJS.ProcessEnv
+    );
 
     expect(workflow.tracker.provider).toMatchObject({
       api_key: "$TRACKER_TOKEN",
@@ -267,7 +313,9 @@ Prompt`)
   it.each([
     ["active_states", "Ready, In progress", ["Done"]],
     ["terminal_states", ["Ready"], "Done, Cancelled"],
-  ])("rejects comma-separated %s values", (key, activeStates, terminalStates) => {
+  ])(
+    "rejects comma-separated %s values",
+    (key, activeStates, terminalStates) => {
       expect(() =>
         parseWorkflowMarkdown(`---
 tracker:
@@ -280,7 +328,8 @@ codex:
 ---
 Prompt`)
       ).toThrow(`"${key}"`);
-  });
+    }
+  );
 
   it("rejects non-positive per-state concurrency overrides", () => {
     let thrown: unknown;
