@@ -120,10 +120,7 @@ describe("normalizeGithubProjectItem", () => {
         contentType: "Issue",
       },
       isArchived: false,
-      metadata: {
-        Status: "Todo",
-        "Repository Context": "repo context"
-      },
+      metadata: {},
       rateLimits: null
     });
   });
