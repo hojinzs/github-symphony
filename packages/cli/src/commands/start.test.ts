@@ -296,10 +296,7 @@ describe("shutdownForegroundOrchestrator", () => {
   });
 });
 
-// These tests deliberately change process.env and install process-wide signal
-// handlers. Keep them serial so an inherited GH_SYMPHONY_HTTP_TOKEN cannot
-// race a test's fixed HTTP API token.
-describe.sequential("start command foreground locking", () => {
+describe("start command foreground locking", () => {
   it("fails before constructing the daemon for an unsupported tracker kind", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
