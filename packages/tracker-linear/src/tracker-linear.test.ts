@@ -280,16 +280,21 @@ describe("linearTrackerAdapter", () => {
     });
   });
 
-  it("adds an assignee isMe filter when runtime assignedOnly is enabled", async () => {
+  it("returns only viewer-assigned issues as dispatchable when runtime assignedOnly is enabled", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const fetchImpl = vi.fn().mockResolvedValue(
         jsonResponse({
           data: {
             issues: {
-              nodes: [],
+              nodes: [
+                linearIssueNode("ENG-1", [], { assignee: { id: "user-1" } }),
+                linearIssueNode("ENG-2", []),
+                linearIssueNode("ENG-3", [], { assignee: { id: "user-2" } }),
+              ],
               pageInfo: { hasNextPage: false, endCursor: null },
             },
+            viewer: { id: "user-1" },
           },
         })
       );
@@ -308,8 +313,33 @@ describe("linearTrackerAdapter", () => {
       expect(request.variables.filter).toMatchObject({
         project: { slugId: { eq: "symphony-0c79b11b75ea" } },
         state: { name: { in: ["Todo", "In Progress"] } },
-        assignee: { isMe: { eq: true } },
       });
+      expect(request.variables.filter).not.toHaveProperty("assignee");
+      expect(String(fetchImpl.mock.calls[0]?.[1]?.body)).toContain("viewer");
+      const issues = await linearTrackerAdapter.listIssues(makeProject(), {
+        assignedOnly: true,
+        fetchImpl: vi.fn().mockResolvedValue(
+          jsonResponse({
+            data: {
+              issues: {
+                nodes: [
+                  linearIssueNode("ENG-1", [], { assignee: { id: "user-1" } }),
+                  linearIssueNode("ENG-2", []),
+                  linearIssueNode("ENG-3", [], { assignee: { id: "user-2" } }),
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+              viewer: { id: "user-1" },
+            },
+          })
+        ),
+        token: "linear-token",
+      });
+      expect(issues).toMatchObject([
+        { identifier: "ENG-1", assigneeId: "user-1", dispatchable: true },
+        { identifier: "ENG-2", assigneeId: null, dispatchable: false },
+        { identifier: "ENG-3", assigneeId: "user-2", dispatchable: false },
+      ]);
     } finally {
       infoSpy.mockRestore();
     }
@@ -359,6 +389,7 @@ describe("linearTrackerAdapter", () => {
               nodes: [],
               pageInfo: { hasNextPage: false, endCursor: null },
             },
+            viewer: { id: "user-1" },
           },
         })
       );
@@ -386,10 +417,10 @@ describe("linearTrackerAdapter", () => {
       expect(request.variables.filter).toMatchObject({
         project: { slugId: { eq: "symphony-0c79b11b75ea" } },
         state: { name: { in: ["Todo"] } },
-        assignee: { isMe: { eq: true } },
       });
+      expect(request.variables.filter).not.toHaveProperty("assignee");
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+        expect.stringContaining('"event":"tracker-dispatchable-derived"')
       );
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("Deprecated tracker.settings.assignedOnly")
@@ -403,7 +434,33 @@ describe("linearTrackerAdapter", () => {
     }
   });
 
-  it("emits assignedOnly observability when the Linear filter is active", async () => {
+  it("fails closed when assignedOnly cannot resolve the Linear viewer", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [
+              linearIssueNode("ENG-1", [], { assignee: { id: null } }),
+              linearIssueNode("ENG-2", [], { assignee: { id: "user-1" } }),
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.listIssues(makeProject(), {
+        assignedOnly: true,
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.toThrow(
+      "Linear assignedOnly is enabled but the authenticated viewer id could not be resolved"
+    );
+  });
+
+  it("emits dispatchability derivation observability", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const fetchImpl = vi.fn().mockResolvedValue(
@@ -423,6 +480,7 @@ describe("linearTrackerAdapter", () => {
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
             },
+            viewer: { id: "user-1" },
           },
         })
       );
@@ -435,13 +493,19 @@ describe("linearTrackerAdapter", () => {
 
       expect(issues).toHaveLength(1);
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+        expect.stringContaining('"event":"tracker-dispatchable-derived"')
       );
       expect(infoSpy).toHaveBeenCalledWith(
         expect.stringContaining('"tracker":"linear"')
       );
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"includedCount":1')
+        expect.stringContaining('"assignmentScope":"viewer"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"dispatchableCount":0')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"nonDispatchableCount":1')
       );
     } finally {
       infoSpy.mockRestore();
@@ -487,15 +551,7 @@ describe("linearTrackerAdapter", () => {
         "ENG-1",
         "ENG-2",
       ]);
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-pickup-label-filtered"')
-      );
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"includedCount":2')
-      );
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"excludedCount":2')
-      );
+      expect(infoSpy).not.toHaveBeenCalled();
     } finally {
       infoSpy.mockRestore();
     }
@@ -536,9 +592,7 @@ describe("linearTrackerAdapter", () => {
       );
 
       expect(issues.map((issue) => issue.identifier)).toEqual(["ENG-1"]);
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"exclude":["no-agent","needs-spec"]')
-      );
+      expect(infoSpy).not.toHaveBeenCalled();
     } finally {
       infoSpy.mockRestore();
     }
@@ -586,9 +640,7 @@ describe("linearTrackerAdapter", () => {
         "ENG-1",
         "ENG-2",
       ]);
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"excludedCount":4')
-      );
+      expect(infoSpy).not.toHaveBeenCalled();
     } finally {
       infoSpy.mockRestore();
     }
@@ -638,7 +690,7 @@ describe("linearTrackerAdapter", () => {
     }
   });
 
-  it("composes assignedOnly GraphQL filtering with pickup label filtering", async () => {
+  it("composes locally derived assignedOnly eligibility with pickup label filtering", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const fetchImpl = vi.fn().mockResolvedValue(
@@ -646,11 +698,16 @@ describe("linearTrackerAdapter", () => {
           data: {
             issues: {
               nodes: [
-                linearIssueNode("ENG-1", ["agent"]),
-                linearIssueNode("ENG-2", ["no-agent"]),
+                linearIssueNode("ENG-1", ["agent"], {
+                  assignee: { id: "user-1" },
+                }),
+                linearIssueNode("ENG-2", ["no-agent"], {
+                  assignee: { id: "user-2" },
+                }),
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
             },
+            viewer: { id: "user-1" },
           },
         })
       );
@@ -681,14 +738,15 @@ describe("linearTrackerAdapter", () => {
       expect(request.variables.filter).toMatchObject({
         project: { slugId: { eq: "symphony-0c79b11b75ea" } },
         state: { name: { in: ["Todo"] } },
-        assignee: { isMe: { eq: true } },
       });
+      expect(request.variables.filter).not.toHaveProperty("assignee");
       expect(issues.map((issue) => issue.identifier)).toEqual(["ENG-1"]);
+      expect(issues[0]).toMatchObject({
+        dispatchable: true,
+        assigneeId: "user-1",
+      });
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
-      );
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"event":"tracker-pickup-label-filtered"')
+        expect.stringContaining('"event":"tracker-dispatchable-derived"')
       );
     } finally {
       infoSpy.mockRestore();
@@ -967,15 +1025,20 @@ describe("linearTrackerAdapter", () => {
     expect(env).not.toHaveProperty("LINEAR_TEAM_ID");
   });
 
-  it("preserves the Linear native assignee id when normalizing an issue", () => {
-    expect(
-      normalizeLinearIssue(makeProject(), "project-slug", {
+  it("derives assignedOnly eligibility through the normalizer options object", () => {
+    const issue = normalizeLinearIssue(
+      makeProject(),
+      "project-slug",
+      {
         id: "issue-1",
         identifier: "eng-123",
         state: { name: "Todo" },
         assignee: { id: "user-1" },
-      }).assigneeId
-    ).toBe("user-1");
+      },
+      { assignedOnly: true, viewerId: "user-1" }
+    );
+
+    expect(issue).toMatchObject({ assigneeId: "user-1", dispatchable: true });
   });
 
   it("forwards normalized Linear credentials to the worker", () => {

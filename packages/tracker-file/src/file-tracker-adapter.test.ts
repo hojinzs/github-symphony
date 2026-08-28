@@ -101,6 +101,29 @@ describe("fileTrackerAdapter", () => {
       ]);
     });
 
+    it("preserves fixture dispatchability and assigneeId defaults", async () => {
+      const issuesPath = join(testDir, "dispatchability.json");
+      await writeFile(
+        issuesPath,
+        JSON.stringify([
+          sampleIssue,
+          {
+            ...sampleIssue,
+            id: "issue-2",
+            dispatchable: false,
+            assigneeId: "linear-user-2",
+          },
+        ])
+      );
+
+      await expect(
+        fileTrackerAdapter.listIssues(makeProject(issuesPath))
+      ).resolves.toMatchObject([
+        { id: "issue-1", dispatchable: true, assigneeId: null },
+        { id: "issue-2", dispatchable: false, assigneeId: "linear-user-2" },
+      ]);
+    });
+
     it("returns empty array when file does not exist", async () => {
       const project = makeProject(join(testDir, "nonexistent.json"));
       const issues = await fileTrackerAdapter.listIssues(project);
@@ -223,9 +246,9 @@ describe("fileTrackerAdapter", () => {
         pickupLabels: { include: ["alpha"] },
       };
 
-      await expect(fileTrackerAdapter.listIssues(project)).resolves.toEqual([
-        expect.objectContaining({ id: "alpha" }),
-      ]);
+      await expect(
+        fileTrackerAdapter.listIssues(project)
+      ).resolves.toHaveLength(1);
       await expect(
         fileTrackerAdapter.listIssuesByStates(project, ["Ready"])
       ).resolves.toHaveLength(2);

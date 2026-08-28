@@ -1,0 +1,30 @@
+[
+  {
+    "id": "issue-non-dispatchable-1",
+    "identifier": "test-owner/test-repo#1",
+    "number": 1,
+    "title": "Non-dispatchable fixture issue",
+    "description": "This issue remains observable but must not be dispatched.",
+    "priority": null,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "dispatchable": false,
+    "assigneeId": null,
+    "blockedBy": [],
+    "createdAt": "2026-03-17T00:00:00Z",
+    "updatedAt": "2026-03-17T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-non-dispatchable-1"
+    },
+    "metadata": {}
+  }
+]
