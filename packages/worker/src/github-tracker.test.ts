@@ -82,7 +82,7 @@ describe("normalizeGithubProjectItem", () => {
       }
     });
 
-    expect(issue).toEqual({
+    expect(issue).toMatchObject({
       id: "issue-1",
       identifier: "acme/platform#42",
       number: 42,
@@ -115,6 +115,11 @@ describe("normalizeGithubProjectItem", () => {
         bindingId: "project-123",
         itemId: "item-1"
       },
+      nativeRef: {
+        itemId: "item-1",
+        contentType: "Issue",
+      },
+      isArchived: false,
       metadata: {
         Status: "Todo",
         "Repository Context": "repo context"
