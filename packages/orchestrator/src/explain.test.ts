@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONVERGENCE_LOCK_TTL_MS,
+  explainIssueDispatch,
   getConvergenceLockStatus,
   hasConvergenceLockedRunForIssue,
   resolveConvergenceLockTtlMs,
 } from "./explain.js";
-import type { OrchestratorRunRecord } from "@gh-symphony/core";
+import {
+  DEFAULT_WORKFLOW_LIFECYCLE,
+  type OrchestratorRunRecord,
+  type TrackedIssue,
+} from "@gh-symphony/core";
 
 function convergenceRun(completedAt: string): OrchestratorRunRecord {
   return {
@@ -99,5 +104,68 @@ describe("convergence lock policy", () => {
     expect(
       resolveConvergenceLockTtlMs({ SYMPHONY_CONVERGENCE_LOCK_TTL_MS: "60000" })
     ).toBe(60_000);
+  });
+});
+
+describe("dispatch limit explanation", () => {
+  it("blocks a mixed-case state when its normalized per-state limit is full", () => {
+    const issue: TrackedIssue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Candidate",
+      description: null,
+      priority: null,
+      state: "Todo",
+      branchName: null,
+      url: null,
+      labels: [],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: null,
+      updatedAt: null,
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-1",
+        itemId: "item-1",
+      },
+      metadata: {},
+    };
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository: { owner: "acme", name: "platform" },
+      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+      issueRecords: [],
+      runs: [
+        {
+          ...convergenceRun("2026-08-05T00:00:00.000Z"),
+          runId: "run-todo",
+          issueId: "issue-2",
+          issueSubjectId: "issue-2",
+          issueIdentifier: "acme/platform#2",
+          issueState: " TODO ",
+          status: "running",
+        },
+      ],
+      activeRunCount: 1,
+      maxConcurrentAgents: 2,
+      maxConcurrentAgentsByState: { todo: 1 },
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "dispatch_limits",
+        status: "block",
+        details: expect.objectContaining({ activeInState: 1, stateLimit: 1 }),
+      })
+    );
   });
 });

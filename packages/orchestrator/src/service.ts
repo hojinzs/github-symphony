@@ -24,6 +24,7 @@ import {
   isStateTerminal,
   isMatchingIssueRun,
   matchesWorkflowState,
+  normalizeWorkflowState,
   isOrchestratorChannelEvent,
   mapIssueOrchestrationStateToStatus,
   parseTrackerTimestamp,
@@ -1481,7 +1482,7 @@ export class OrchestratorService {
       // Count active runs by state for per-state concurrency limits
       const activeByState = new Map<string, number>();
       for (const run of syncedActiveRuns) {
-        const state = run.issueState;
+        const state = normalizeWorkflowState(run.issueState);
         const count = activeByState.get(state) ?? 0;
         activeByState.set(state, count + 1);
       }
@@ -1524,9 +1525,10 @@ export class OrchestratorService {
           continue;
         }
         // Per-state concurrency check: skip if state limit reached
-        const stateLimit = maxConcurrentByState[issue.state];
+        const normalizedState = normalizeWorkflowState(issue.state);
+        const stateLimit = maxConcurrentByState[normalizedState];
         if (stateLimit !== undefined) {
-          const activeInState = activeByState.get(issue.state) ?? 0;
+          const activeInState = activeByState.get(normalizedState) ?? 0;
           if (activeInState >= stateLimit) {
             continue;
           }
@@ -1745,8 +1747,8 @@ export class OrchestratorService {
         dispatched += 1;
         slotsRemaining -= 1;
         activeByState.set(
-          issue.state,
-          (activeByState.get(issue.state) ?? 0) + 1
+          normalizedState,
+          (activeByState.get(normalizedState) ?? 0) + 1
         );
       }
 
@@ -2570,19 +2572,18 @@ export class OrchestratorService {
     );
     const environment = this.resolveProjectEnvironment(tenant);
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
-    const resolution =
-      tenant.workflowSource?.path
-        ? await loadWorkflowFile(
-            tenant.workflowSource.path,
-            environment,
-            trackerAdapter
-          )
-        : await loadRepositoryWorkflow(
-            this.resolveWorkflowRepositoryDirectory(repository),
-            repository,
-            environment,
-            trackerAdapter
-          );
+    const resolution = tenant.workflowSource?.path
+      ? await loadWorkflowFile(
+          tenant.workflowSource.path,
+          environment,
+          trackerAdapter
+        )
+      : await loadRepositoryWorkflow(
+          this.resolveWorkflowRepositoryDirectory(repository),
+          repository,
+          environment,
+          trackerAdapter
+        );
     return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
   }
 
@@ -5115,7 +5116,9 @@ export class OrchestratorService {
 
     const stateLimits = resolution.workflow.agent.maxConcurrentAgentsByState;
     for (const [state, limit] of Object.entries(stateLimits)) {
-      result[state] = typeof limit === "number" ? limit : Number(limit);
+      if (typeof limit === "number" && Number.isInteger(limit) && limit > 0) {
+        result[normalizeWorkflowState(state)] = limit;
+      }
     }
 
     return result;

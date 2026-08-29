@@ -571,6 +571,35 @@ describe("explainIssueDispatch", () => {
     );
   });
 
+  it("explains normalized per-state concurrency limits", () => {
+    const issue = makeIssue({ id: "issue-1", identifier: "acme/repo#1" });
+    const activeRun = makeRun({
+      runId: "run-1",
+      issueId: "issue-2",
+      issueState: " todo ",
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      lifecycle,
+      issueRecords: [],
+      runs: [activeRun],
+      activeRunCount: 1,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: { todo: 1 },
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "dispatch_limits",
+        status: "block",
+        details: expect.objectContaining({ activeInState: 1, stateLimit: 1 }),
+      })
+    );
+  });
+
   it("prioritizes repository linkage in the not-found summary", () => {
     const report = explainIssueDispatch({
       identifier: "other/repo#1",
@@ -625,6 +654,45 @@ describe("per-state concurrency limits", () => {
     await store.saveProjectConfig(projectConfig);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5101, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponse(repository, ["Todo", "Todo", "Todo"])
+        ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies a trimmed, case-insensitive state limit to dispatch", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-dispatch-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxConcurrentByState: {
+          '" todo "': 1,
+        },
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5103, unref: vi.fn() });
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()

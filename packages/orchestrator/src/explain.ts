@@ -1,6 +1,7 @@
 import {
   isStateActive,
   isStateTerminal,
+  normalizeWorkflowState,
   deriveLegacyWorkspaceKey,
   isRecoveryWorkspaceActionable,
   type IssueWorkspaceRecord,
@@ -550,11 +551,13 @@ function explainDispatchLimits(
     };
   }
 
-  const stateLimit = maxConcurrentAgentsByState[issue.state];
+  const normalizedState = normalizeWorkflowState(issue.state);
+  const stateLimit = maxConcurrentAgentsByState[normalizedState];
   if (stateLimit !== undefined) {
     const activeInState = runs.filter(
       (run) =>
-        run.issueState === issue.state && isActiveRunRecordStatus(run.status)
+        normalizeWorkflowState(run.issueState) === normalizedState &&
+        isActiveRunRecordStatus(run.status)
     ).length;
     if (activeInState >= stateLimit) {
       return {
