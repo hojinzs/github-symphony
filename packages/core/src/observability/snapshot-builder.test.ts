@@ -956,6 +956,38 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.codexTotals!.secondsRunning).toBe(240);
   });
 
+  it("does not double count a lifecycle that crosses the runtime upgrade", () => {
+    const legacySession = mockRun({
+      runId: "run-001",
+      status: "failed",
+      createdAt: "2024-01-01T00:00:00Z",
+      startedAt: "2024-01-01T00:00:00Z",
+      completedAt: "2024-01-01T00:02:00Z",
+      updatedAt: "2024-01-01T00:02:00Z",
+    });
+    const activeRetry = mockRun({
+      runId: "run-002",
+      status: "running",
+      createdAt: "2024-01-01T00:07:00Z",
+      startedAt: "2024-01-01T00:07:00Z",
+      completedAt: null,
+      updatedAt: "2024-01-01T00:09:00Z",
+      cumulativeRuntimeMs: 120_000,
+      runtimeLifecycleId: "2024-01-01T00:00:00Z",
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [activeRetry],
+      allRuns: [legacySession, activeRetry],
+      summary: { dispatched: 2, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:09:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.codexTotals!.secondsRunning).toBe(240);
+  });
+
   it("handles retrying run with null retryKind by defaulting to 'failure'", () => {
     const run = mockRun({
       status: "retrying",

@@ -1611,7 +1611,7 @@ export class OrchestratorService {
                 : undefined,
             runtimeLifecycleId:
               recoveryContext || existingIssueRecord?.retryEntry
-                ? (previousRun?.runtimeLifecycleId ?? previousRun?.runId)
+                ? (previousRun?.runtimeLifecycleId ?? previousRun?.createdAt)
                 : undefined,
             recovery: recoveryContext,
             onPrepared: async (candidate) => {
@@ -4758,7 +4758,7 @@ export class OrchestratorService {
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
         cumulativeRuntimeMs: resolveCumulativeRuntimeMs(run),
-        runtimeLifecycleId: run.runtimeLifecycleId ?? run.runId,
+        runtimeLifecycleId: run.runtimeLifecycleId ?? run.createdAt,
         recovery,
         onPrepared: async (candidate) => {
           preparedRun = candidate;
