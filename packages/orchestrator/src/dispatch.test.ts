@@ -571,6 +571,35 @@ describe("explainIssueDispatch", () => {
     );
   });
 
+  it("explains normalized per-state concurrency limits", () => {
+    const issue = makeIssue({ id: "issue-1", identifier: "acme/repo#1" });
+    const activeRun = makeRun({
+      runId: "run-1",
+      issueId: "issue-2",
+      issueState: " todo ",
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      lifecycle,
+      issueRecords: [],
+      runs: [activeRun],
+      activeRunCount: 1,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: { todo: 1 },
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "dispatch_limits",
+        status: "block",
+        details: expect.objectContaining({ activeInState: 1, stateLimit: 1 }),
+      })
+    );
+  });
+
   it("prioritizes repository linkage in the not-found summary", () => {
     const report = explainIssueDispatch({
       identifier: "other/repo#1",

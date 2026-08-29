@@ -565,6 +565,7 @@ tracker:
 agent:
   max_concurrent_agents_by_state:
     Ready: -1
+    Waiting: 0
     Review: '2'
     Done: 1.5
     " In Progress ": 2
