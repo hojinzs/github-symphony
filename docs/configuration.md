@@ -31,12 +31,24 @@ Human-readable `gh-symphony repo status`, `gh-symphony project status`, and
 their `--watch` dashboards show the applied revision; `--json` exposes the
 same metadata for automation.
 
-Tracker connection settings are persisted in runtime `config.json`; changing
-them does not reconfigure an already-running daemon. This is an intentional
-repository-local live-reload divergence. In standalone project mode, stop and
-start the daemon to apply tracker endpoint, credential, or binding changes. In
-repo-embedded mode, those settings are fixed when `gh-symphony repo init`
-creates the runtime, so run `repo init` again before restarting `repo start`.
+### Tracker provider changes are initialization-bound
+
+Tracker configuration is deliberately not part of live reload. `repo init`
+resolves the selected adapter and writes its binding and settings into the
+runtime configuration (`config.json` and its project record). This includes the
+adapter kind, GitHub Project ID or Linear project slug, endpoint, resolved
+provider path, pickup labels, priority mapping, and tracker state settings.
+Editing the corresponding `tracker.provider` values in `WORKFLOW.md` does not
+reconfigure an already-running daemon or rewrite that runtime configuration.
+
+This is an intentional repository-local live-reload boundary: a valid
+`WORKFLOW.md` edit is still detected at the next reconciliation tick, but
+tracker-provider changes take effect only after the runtime is rebuilt. For a
+repo-embedded project, run `gh-symphony repo init` and then restart
+`gh-symphony repo start`. For a standalone project, stop and restart
+`gh-symphony project start`; its project record is derived again on start.
+Existing workers retain the tracker binding and effective policy they started
+with in every case.
 
 ## Runtime, Retry, and Hook Divergences
 
@@ -123,7 +135,7 @@ is pending adapter work in #660-B.
 
 ## Workflow Lifecycle Policy
 
-`tracker.blocker_check_states` selects the workflow states where the GitHub and
+`tracker.provider.blocker_check_states` selects the workflow states where the GitHub and
 Linear adapters derive `dispatchable: false` from unresolved `blocked_by`
 dependencies. The orchestrator consumes that normalized result and does not
 interpret provider blocker semantics. When the field is omitted, the default is
@@ -133,10 +145,10 @@ should be disabled. This opt-out is an intentional repository-level divergence
 from the vendored Symphony specification's unconditional blocker rule.
 
 GitHub source-closed blockers and blockers whose Project workflow state is in
-`tracker.terminal_states` are resolved. Linear uses its workflow-state relation
+`tracker.provider.terminal_states` are resolved. Linear uses its workflow-state relation
 data directly. In both adapters, `blocked_by` remains best-effort metadata and
 `dispatchReason` identifies an unresolved dependency. Omitting
-`planning_states` keeps planning disabled; blocker defaults do not enable the
+`tracker.provider.planning_states` keeps planning disabled; blocker defaults do not enable the
 planning/human-review execution phase. Linear `blocked_by` metadata is derived
 from inverse relations of type `blocks`; source-side relations describe issues
 blocked by the current issue and are not blockers of it.
@@ -284,8 +296,8 @@ provider block. `active_states` and `terminal_states` must be YAML lists (not
 comma-separated strings) and must be configured explicitly unless the selected
 adapter supplies lifecycle defaults.
 
-`tracker.active_states` controls dispatch eligibility, while
-`tracker.planning_states` classifies states for prompt policy and status
+`tracker.provider.active_states` controls dispatch eligibility, while
+`tracker.provider.planning_states` classifies states for prompt policy and status
 surfaces. Classification is independent of dispatch eligibility: a matching
 planning state resolves to `planning` even when it is absent from
 `active_states`. Both lists use trimmed, case-insensitive state matching.
@@ -335,7 +347,8 @@ or field is omitted. Flat `tracker.project_id`, `tracker.endpoint`,
 `tracker.blocker_check_states`, and `tracker.planning_states` aliases remain
 supported for compatibility, but `gh-symphony workflow validate` and
 `gh-symphony repo doctor` warn and print a copyable `tracker.provider` block.
-They are scheduled for removal in the next major release.
+They are scheduled for removal in the next major release; see
+[ADR 2026-08-29](adr/2026-08-29_tracker-provider-alias-deprecation.md).
 
 ## Skill Layering
 
@@ -381,7 +394,7 @@ container environments.
 | Variable                 | Default                                                                                                          | Read by                                                                                 | Audience                                            | Notes                                                                                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GITHUB_GRAPHQL_TOKEN`   | unset                                                                                                            | CLI, orchestrator, GitHub tracker, Codex runtime, Claude runtime, Git credential helper | User-facing                                         | Token-only GitHub auth source. Requires `repo`, `read:org`, and `project` scopes. Takes priority over `gh` CLI auth where both are supported.          |
-| `GITHUB_GRAPHQL_API_URL` | unset; GitHub tooling falls back to the public GitHub GraphQL endpoint unless tracker config injects an endpoint | CLI doctor, Codex runtime, Claude runtime                                               | User-facing, GHES                                   | Process-level GraphQL endpoint override. For GHES, prefer `tracker.endpoint` in `WORKFLOW.md`; if both are set, keep them identical.                   |
+| `GITHUB_GRAPHQL_API_URL` | unset; GitHub tooling falls back to the public GitHub GraphQL endpoint unless tracker config injects an endpoint | CLI doctor, Codex runtime, Claude runtime                                               | User-facing, GHES                                   | Process-level GraphQL endpoint override. For GHES, prefer `tracker.provider.endpoint` in `WORKFLOW.md`; if both are set, keep them identical.          |
 | `GITHUB_PROJECT_ID`      | unset; injected from project config for workers                                                                  | Codex runtime, Claude runtime                                                           | Internal unless running a runtime launcher manually | Passed to GitHub GraphQL tooling so agent tools can target the active Project.                                                                         |
 | `LINEAR_API_KEY`         | unset                                                                                                            | CLI, Codex runtime, Claude runtime                                                      | User-facing for Linear tracker projects             | Required for Linear repo startup. The built-in Linear MCP server receives it in its declared environment and uses it as the raw `Authorization` value. |
 | `LINEAR_AUTHORIZATION`   | unset                                                                                                            | Codex runtime, Claude runtime                                                           | Advanced                                            | Optional raw Linear authorization value for the built-in Linear MCP server; it takes priority over `LINEAR_API_KEY`.                                   |

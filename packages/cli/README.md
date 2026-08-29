@@ -132,11 +132,11 @@ resets it; it is not a total turn-duration cap.
 
 Lifecycle generation enables blocker checks for the first configured active
 state (`Todo` with built-in defaults) while leaving planning states disabled.
-An explicit `tracker.blocker_check_states: []` disables blocker gating; this is
+An explicit `tracker.provider.blocker_check_states: []` disables blocker gating; this is
 an intentional repository-level opt-out from the vendored Symphony spec's
 unconditional blocker rule.
 
-`tracker.planning_states` classifies a matching state's `execution_phase` as
+`tracker.provider.planning_states` classifies a matching state's `execution_phase` as
 `planning`; other matching active states use `implementation`. Classification
 is independent of dispatch eligibility and does not make a state active. State
 names are trimmed and compared case-insensitively. The classification is
@@ -150,23 +150,24 @@ Before dispatch, GitHub candidates are checked against the source issue and link
 
 ### Explicit Priority Mapping
 
-GitHub Project V2 does not have a native issue priority. For GitHub Project workflows, dispatch priority is controlled only by the explicit `tracker.priority` policy in `WORKFLOW.md`; there is no fallback from Project fields to labels and no guessed label naming convention. Unmapped values resolve to `priority = null`, so dispatch falls back to created time and identifier.
+GitHub Project V2 does not have a native issue priority. For GitHub Project workflows, dispatch priority is controlled only by the explicit `tracker.provider.priority` policy in `WORKFLOW.md`; there is no fallback from Project fields to labels and no guessed label naming convention. Unmapped values resolve to `priority = null`, so dispatch falls back to created time and identifier.
 
 Project field source:
 
 ```yaml
 tracker:
   kind: github-project
-  project_id: PVT_kwDOxxxxxx
-  state_field: Status
-  priority:
-    source: project-field
-    field: Priority
-    values:
-      Urgent: 0
-      High: 1
-      Medium: 2
-      Low: 3
+  provider:
+    project_id: PVT_kwDOxxxxxx
+    state_field: Status
+    priority:
+      source: project-field
+      field: Priority
+      values:
+        Urgent: 0
+        High: 1
+        Medium: 2
+        Low: 3
 ```
 
 Label source:
@@ -174,15 +175,16 @@ Label source:
 ```yaml
 tracker:
   kind: github-project
-  project_id: PVT_kwDOxxxxxx
-  state_field: Status
-  priority:
-    source: labels
-    labels:
-      P0: 0
-      P1: 1
-      P2: 2
-      P3: 3
+  provider:
+    project_id: PVT_kwDOxxxxxx
+    state_field: Status
+    priority:
+      source: labels
+      labels:
+        P0: 0
+        P1: 1
+        P2: 2
+        P3: 3
 ```
 
 Disabled:
@@ -190,11 +192,17 @@ Disabled:
 ```yaml
 tracker:
   kind: github-project
-  priority:
-    source: disabled
+  provider:
+    priority:
+      source: disabled
 ```
 
-Legacy `tracker.priority_field: Priority` still works, but it is deprecated because it derives numeric priority from the live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. Migrate by copying the field name into `tracker.priority.field` and writing each option display name under `values` with the intended number. If both keys are present, `tracker.priority` wins and `gh-symphony doctor` reports a warning.
+Legacy `tracker.priority_field: Priority` still works, but it is deprecated because it derives numeric priority from the live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. Migrate by copying the field name into `tracker.provider.priority.field` and writing each option display name under `values` with the intended number. If both keys are present, `tracker.provider.priority` wins and `gh-symphony doctor` reports a warning.
+
+All flat `tracker.*` provider settings are deprecated, non-breaking aliases.
+Use `tracker.provider` for new workflows; `gh-symphony doctor` prints the
+normalized provider block for migration. The aliases are removed in the next
+major release (#679).
 
 Run `gh-symphony workflow validate` for local schema errors and `gh-symphony doctor` for live drift warnings such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`. Strict front-matter failures use stable workflow error codes; `workflow validate --json` also emits the failing `error.path`.
 
