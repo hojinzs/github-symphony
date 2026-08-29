@@ -23,7 +23,7 @@ import {
   getProcessIdentity,
   releaseProjectLock,
   resolveOrchestratorLogLevel,
-  resolveWorkflowTrackerAdapter,
+  resolveWorkflowConfigTrackerAdapter,
   type OrchestratorLogLevel,
   type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
@@ -220,7 +220,7 @@ async function resolveConfiguredLinearToken(
       process.env,
       {
         supportedTrackerKinds: getSupportedTrackerKinds(),
-        resolveTrackerAdapter: resolveWorkflowTrackerAdapter,
+        resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
       }
     );
     return workflow.tracker.apiKey;
@@ -247,7 +247,7 @@ async function preflightWorkflowStart(
     );
     parseWorkflowMarkdown(await readFile(configuredPath, "utf8"), environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
-      resolveTrackerAdapter: resolveWorkflowTrackerAdapter,
+      resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
     });
     return true;
   } catch (error) {

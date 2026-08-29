@@ -37,13 +37,13 @@ tracker:
   provider:
     path: \$GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
     project_id: standalone-e2e
-  active_states:
-    - Ready
     pickup_labels:
       include:
         - $label
       exclude:
         - $(test "$label" = alpha && printf beta || printf alpha)
+  active_states:
+    - Ready
 agent:
   max_concurrent_agents: 1
   max_turns: 1

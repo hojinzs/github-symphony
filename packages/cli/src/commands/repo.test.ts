@@ -893,11 +893,7 @@ Handle {{issue.identifier}}.
     const stdout = captureWrites(process.stdout);
     const repoCommand = await loadRepoCommand();
     const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
-    await writeFile(
-      join(repoDir, "WORKFLOW.md"),
-      FILE_WORKFLOW,
-      "utf8"
-    );
+    await writeFile(join(repoDir, "WORKFLOW.md"), FILE_WORKFLOW, "utf8");
     process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH =
       "/e2e/fixtures/issues.json";
 
@@ -965,7 +961,39 @@ Handle {{issue.identifier}}.
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(
-      "path is required by the file tracker adapter."
+      'File tracker requires "tracker.provider.path" or GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH.'
     );
+  });
+
+  it("uses the legacy file fixture environment fallback when provider.path is absent", async () => {
+    const repoDir = await createGitRepo();
+    const repoCommand = await loadRepoCommand();
+    const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      FILE_WORKFLOW.replace(
+        "    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH\n    project_id: e2e-test\n",
+        ""
+      ),
+      "utf8"
+    );
+    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH =
+      "/tmp/legacy-issues.json";
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+      await expect(readRepoProjectConfig(repoDir)).resolves.toMatchObject({
+        tracker: { settings: { issuesPath: "/tmp/legacy-issues.json" } },
+      });
+    } finally {
+      if (originalIssuesPath === undefined) {
+        delete process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+      } else {
+        process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH = originalIssuesPath;
+      }
+    }
   });
 });

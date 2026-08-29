@@ -44,6 +44,17 @@ tracker:
   provider:
     path: $ISSUES_PATH
     project_id: e2e-test
+    state_field: Status
+    active_states:
+      - Ready
+      - In Progress
+    terminal_states:
+      - Done
+      - Cancelled
+    blocker_check_states:
+      - Ready
+    planning_states:
+      - " ready "
 polling:
   interval_ms: 5000
 agent:

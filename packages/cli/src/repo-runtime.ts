@@ -19,14 +19,13 @@ import {
 } from "node:path";
 import {
   parseWorkflowMarkdown,
-  resolveEnvironmentValue,
   type OrchestratorProjectConfig,
   type OrchestratorTrackerSettingValue,
   type RepositoryRef,
 } from "@gh-symphony/core";
 import {
   getSupportedTrackerKinds,
-  resolveWorkflowTrackerAdapter,
+  resolveWorkflowConfigTrackerAdapter,
 } from "@gh-symphony/orchestrator";
 import {
   saveGlobalConfig,
@@ -36,6 +35,7 @@ import {
 } from "./config.js";
 import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
 import { standaloneProjectId } from "./standalone-project.js";
+import { resolveFileTrackerIssuesPath } from "./file-tracker-path.js";
 
 export type RepoInitFlags = {
   repoDir: string;
@@ -106,7 +106,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     process.env,
     {
       supportedTrackerKinds: getSupportedTrackerKinds(),
-      resolveTrackerAdapter: resolveWorkflowTrackerAdapter,
+      resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
     }
   );
   validateRepoInitWorkflow(workflow);
@@ -141,13 +141,9 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     trackerSettings.priorityFieldName = workflow.tracker.priorityFieldName;
   }
   if (trackerAdapter === "file") {
-    const issuesPath = resolveFileProviderPath(workflow.tracker.provider.path);
-    if (!issuesPath) {
-      throw new Error(
-        'File tracker repo init requires WORKFLOW.md field "tracker.provider.path" to point to the issues fixture.'
-      );
-    }
-    trackerSettings.issuesPath = issuesPath;
+    trackerSettings.issuesPath = resolveFileTrackerIssuesPath(
+      workflow.tracker.provider.path
+    );
   }
   const workspaceDir = workflow.workspace.root
     ? resolve(repoDir, workflow.workspace.root)
@@ -228,13 +224,6 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     workflowPath,
     repository,
   };
-}
-
-function resolveFileProviderPath(value: unknown): string | null {
-  if (typeof value !== "string" || !value.trim()) {
-    return process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH ?? null;
-  }
-  return resolveEnvironmentValue(value, process.env, "tracker.provider.path");
 }
 
 function validateRepoInitWorkflow(

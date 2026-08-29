@@ -42,6 +42,17 @@ repository:
 ---
 Implement the issue.`;
 
+const fileWorkflowWithoutProviderPath = `---
+tracker:
+  kind: file
+  project_id: e2e-test
+codex:
+  command: codex app-server
+repository:
+  slug: acme/platform
+---
+Implement the issue.`;
+
 describe("deriveStandaloneProject", () => {
   it("derives an external workflow project from its folder", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
@@ -84,6 +95,33 @@ describe("deriveStandaloneProject", () => {
       name: "platform",
       cloneUrl: "/srv/mirrors/platform.git",
     });
+  });
+
+  it("uses the legacy file fixture environment fallback for standalone projects", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    await writeFile(
+      join(projectDir, "WORKFLOW.md"),
+      fileWorkflowWithoutProviderPath,
+      "utf8"
+    );
+    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH =
+      "/tmp/legacy-issues.json";
+
+    try {
+      await expect(
+        deriveStandaloneProject(projectDir, { configDir })
+      ).resolves.toMatchObject({
+        tracker: { settings: { issuesPath: "/tmp/legacy-issues.json" } },
+      });
+    } finally {
+      if (originalIssuesPath === undefined) {
+        delete process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+      } else {
+        process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH = originalIssuesPath;
+      }
+    }
   });
 
   it("re-derives the stored config when the workflow changes", async () => {

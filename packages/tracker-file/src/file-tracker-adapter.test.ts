@@ -84,10 +84,14 @@ describe("fileTrackerAdapter", () => {
     });
   });
 
-  it("requires a provider path", () => {
-    expect(fileTrackerAdapter.validateProviderConfig?.({})).toMatchObject([
-      { path: "tracker.provider.path" },
-    ]);
+  it("permits an absent provider path for the CLI compatibility fallback", () => {
+    expect(fileTrackerAdapter.validateProviderConfig?.({})).toEqual([]);
+  });
+
+  it("rejects an invalid configured provider path", () => {
+    expect(
+      fileTrackerAdapter.validateProviderConfig?.({ path: "" })
+    ).toMatchObject([{ path: "tracker.provider.path" }]);
   });
 
   describe("listIssues", () => {
