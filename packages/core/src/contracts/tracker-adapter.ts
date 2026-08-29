@@ -58,6 +58,11 @@ export type AgentToolExecutionContext = {
     identifier: string;
     nativeRef: TrackedIssue["nativeRef"];
   };
+  /**
+   * Resolved host configuration for this invocation. This is never included
+   * in the tool schema, child process environment, or tool result.
+   */
+  environment?: Record<string, string | undefined>;
 };
 
 export type TrackerBindingSummary = {

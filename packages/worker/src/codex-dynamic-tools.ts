@@ -14,10 +14,10 @@ export type CodexDynamicToolCallResponse = {
 };
 
 type HostToolDependencies = {
-  adapter?: Pick<
+  adapters?: readonly Pick<
     OrchestratorTrackerAdapter,
     "agentToolSpecs" | "executeAgentTool"
-  >;
+  >[];
 };
 
 export function createTrackerToolContext(
@@ -29,6 +29,7 @@ export function createTrackerToolContext(
       identifier: env.SYMPHONY_ISSUE_IDENTIFIER ?? "",
       nativeRef: parseNativeRef(env.SYMPHONY_ISSUE_NATIVE_REF),
     },
+    environment: env,
   };
 }
 
@@ -38,19 +39,25 @@ export async function executeCodexDynamicToolCall(
   context: TrackerToolContext,
   env: NodeJS.ProcessEnv,
   dependencies: HostToolDependencies = {},
-  allowedToolNames: readonly string[] = resolveTrackerToolAdapter(env)
-    .agentToolSpecs?.()
-    .map((tool) => tool.name) ?? []
+  allowedToolNames?: readonly string[]
 ): Promise<CodexDynamicToolCallResponse> {
   if (!isRecord(argumentsValue)) {
     return failure("invalid_arguments", "Tool arguments must be an object.");
   }
-  if (!allowedToolNames.includes(toolName)) {
+  const adapters = dependencies.adapters ?? resolveTrackerToolAdapters(env);
+  const adapter = adapters.find((candidate) =>
+    candidate.agentToolSpecs?.().some((tool) => tool.name === toolName)
+  );
+  const allowed =
+    allowedToolNames ??
+    adapters.flatMap(
+      (candidate) => candidate.agentToolSpecs?.().map((tool) => tool.name) ?? []
+    );
+  if (!allowed.includes(toolName) || !adapter) {
     return failure("unknown_tool", `Tool "${toolName}" is not supported.`);
   }
 
   try {
-    const adapter = dependencies.adapter ?? resolveTrackerToolAdapter(env);
     if (!adapter.executeAgentTool) {
       return failure("unknown_tool", `Tool "${toolName}" is not supported.`);
     }
@@ -68,12 +75,12 @@ export async function executeCodexDynamicToolCall(
   }
 }
 
-function resolveTrackerToolAdapter(
+function resolveTrackerToolAdapters(
   env: NodeJS.ProcessEnv
-): OrchestratorTrackerAdapter {
+): readonly OrchestratorTrackerAdapter[] {
   return env.SYMPHONY_TRACKER_KIND === "linear"
-    ? linearTrackerAdapter
-    : githubProjectTrackerAdapter;
+    ? [githubProjectTrackerAdapter, linearTrackerAdapter]
+    : [githubProjectTrackerAdapter];
 }
 
 function parseNativeRef(
@@ -85,9 +92,7 @@ function parseNativeRef(
 
   try {
     const parsed = JSON.parse(value) as unknown;
-    return isRecord(parsed)
-      ? (parsed as Record<string, JsonValue>)
-      : null;
+    return isRecord(parsed) ? (parsed as Record<string, JsonValue>) : null;
   } catch {
     return null;
   }

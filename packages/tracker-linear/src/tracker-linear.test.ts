@@ -77,10 +77,11 @@ function linearIssueNode(
 
 describe("linearTrackerAdapter", () => {
   it("advertises and executes its host-side tool with normalized issue context", async () => {
-    vi.stubEnv("LINEAR_API_KEY", "linear-token");
-    const fetchImpl = vi.fn().mockResolvedValue(
-      jsonResponse({ data: { issueUpdate: { success: true } } })
-    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ data: { issueUpdate: { success: true } } })
+      );
     vi.stubGlobal("fetch", fetchImpl);
     const context = {
       issue: {
@@ -88,6 +89,7 @@ describe("linearTrackerAdapter", () => {
         identifier: "ENG-123",
         nativeRef: { itemId: "issue-1" },
       },
+      environment: { LINEAR_API_KEY: "linear-token" },
     };
 
     expect(linearTrackerAdapter.agentToolSpecs?.()).toEqual([
@@ -102,7 +104,9 @@ describe("linearTrackerAdapter", () => {
     ).resolves.toEqual({ data: { issueUpdate: { success: true } } });
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://api.linear.app/graphql",
-      expect.objectContaining({ headers: expect.objectContaining({ authorization: "linear-token" }) })
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "linear-token" }),
+      })
     );
   });
 

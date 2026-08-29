@@ -86,11 +86,11 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     return executeGitHubGraphQL(
       args as GitHubGraphQLInvocation,
       {
-        token: process.env.GITHUB_GRAPHQL_TOKEN,
-        apiUrl: process.env.GITHUB_GRAPHQL_API_URL,
-        tokenBrokerUrl: process.env.GITHUB_TOKEN_BROKER_URL,
-        tokenBrokerSecret: process.env.GITHUB_TOKEN_BROKER_SECRET,
-        tokenCachePath: process.env.GITHUB_TOKEN_CACHE_PATH,
+        token: context.environment?.GITHUB_GRAPHQL_TOKEN,
+        apiUrl: context.environment?.GITHUB_GRAPHQL_API_URL,
+        tokenBrokerUrl: context.environment?.GITHUB_TOKEN_BROKER_URL,
+        tokenBrokerSecret: context.environment?.GITHUB_TOKEN_BROKER_SECRET,
+        tokenCachePath: context.environment?.GITHUB_TOKEN_CACHE_PATH,
       },
       fetch,
       context

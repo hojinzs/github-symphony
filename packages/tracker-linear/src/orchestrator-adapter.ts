@@ -273,9 +273,9 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     return executeLinearGraphQL(
       args as LinearGraphQLInvocation,
       {
-        apiKey: process.env.LINEAR_API_KEY,
-        apiUrl: process.env.LINEAR_GRAPHQL_URL,
-        authorizationHeader: process.env.LINEAR_AUTHORIZATION,
+        apiKey: context.environment?.LINEAR_API_KEY,
+        apiUrl: context.environment?.LINEAR_GRAPHQL_URL,
+        authorizationHeader: context.environment?.LINEAR_AUTHORIZATION,
       },
       fetch,
       context

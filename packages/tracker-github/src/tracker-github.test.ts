@@ -37,7 +37,6 @@ afterEach(() => {
 
 describe("GitHub canonical subject adapter hook", () => {
   it("advertises and executes its host-side tool with normalized issue context", async () => {
-    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "host-token");
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
         status: 200,
@@ -50,6 +49,7 @@ describe("GitHub canonical subject adapter hook", () => {
         identifier: "acme/platform#1",
         nativeRef: { itemId: "item-1" },
       },
+      environment: { GITHUB_GRAPHQL_TOKEN: "host-token" },
     };
 
     expect(githubProjectTrackerAdapter.agentToolSpecs?.()).toEqual([
@@ -65,7 +65,9 @@ describe("GitHub canonical subject adapter hook", () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://api.github.com/graphql",
       expect.objectContaining({
-        headers: expect.objectContaining({ authorization: "Bearer host-token" }),
+        headers: expect.objectContaining({
+          authorization: "Bearer host-token",
+        }),
       })
     );
   });
@@ -75,7 +77,13 @@ describe("GitHub canonical subject adapter hook", () => {
       githubProjectTrackerAdapter.executeAgentTool?.(
         "linear_graphql",
         {},
-        { issue: { id: "issue-1", identifier: "acme/platform#1", nativeRef: null } }
+        {
+          issue: {
+            id: "issue-1",
+            identifier: "acme/platform#1",
+            nativeRef: null,
+          },
+        }
       )
     ).rejects.toThrow("Unknown GitHub agent tool");
   });
