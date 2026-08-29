@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   DEFAULT_AFTER_CREATE_HOOK_COMMENT,
   DEFAULT_AFTER_CREATE_HOOK_PATH,
@@ -206,13 +207,41 @@ describe("generateReferenceWorkflow", () => {
   it("includes terminal states in tracker section", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("terminal_states:");
-    expect(output).toContain("    - Done");
+    expect(output).toContain("  terminal_states:\n    - Done");
   });
 
   it("defaults blocker_check_states to Todo without lifecycle input", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("blocker_check_states:\n      - Todo");
     expect(output).toContain("planning_states: []");
+  });
+
+  it("keeps the commented labels priority template valid when enabled", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      priority: null,
+    });
+    const enabled = output
+      .replace(
+        "    priority:\n      source: disabled",
+        "    # priority:\n    #   source: disabled"
+      )
+      .replace(
+        "    # Optional template: labels priority source.\n    # priority:",
+        "    # Optional template: labels priority source.\n    priority:"
+      )
+      .replace("    #   source: labels", "      source: labels")
+      .replace("    #   labels:", "      labels:")
+      .replace("    #     P0: 0", "        P0: 0")
+      .replace("    #     P1: 1", "        P1: 1");
+
+    const workflowMarkdown = enabled.slice(enabled.indexOf("---"));
+    expect(
+      parseWorkflowMarkdown(workflowMarkdown, {}).tracker.priority
+    ).toEqual({
+      source: "labels",
+      labels: { P0: 0, P1: 1 },
+    });
   });
 
   it("defaults blocker checks to the first custom active column", () => {

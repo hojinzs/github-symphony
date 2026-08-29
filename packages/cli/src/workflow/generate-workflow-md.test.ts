@@ -46,9 +46,13 @@ describe("generateWorkflowMarkdown", () => {
 
   it("generates valid WORKFLOW.md that round-trips through parseWorkflowMarkdown", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
-    const parsed = parseWorkflowMarkdown(markdown, {}, {
-      compatibilityMode: "legacy",
-    });
+    const parsed = parseWorkflowMarkdown(
+      markdown,
+      {},
+      {
+        compatibilityMode: "legacy",
+      }
+    );
 
     expect(parsed.format).toBe("front-matter");
     expect(parsed.githubProjectId).toBe("PVT_abc123");
@@ -233,6 +237,16 @@ describe("generateWorkflowMarkdown", () => {
     });
   });
 
+  it("keeps core lifecycle states outside the provider block", () => {
+    const markdown = generateWorkflowMarkdown(defaultInput);
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain("  active_states:");
+    expect(markdown).toContain("  terminal_states:");
+    expect(parsed.tracker.provider).not.toHaveProperty("active_states");
+    expect(parsed.tracker.provider).not.toHaveProperty("terminal_states");
+  });
+
   it("includes a Status Map section in the prompt body", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
@@ -275,9 +289,13 @@ describe("generateWorkflowMarkdown", () => {
         },
       },
     });
-    const parsed = parseWorkflowMarkdown(markdown, {}, {
-      compatibilityMode: "legacy",
-    });
+    const parsed = parseWorkflowMarkdown(
+      markdown,
+      {},
+      {
+        compatibilityMode: "legacy",
+      }
+    );
 
     expect(markdown).toContain(JSON.stringify(injectedEndpoint));
     expect(markdown).toContain(JSON.stringify(injectedProjectSlug));

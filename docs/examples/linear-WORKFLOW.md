@@ -1,28 +1,29 @@
 ---
 tracker:
   kind: linear
-  endpoint: https://api.linear.app/graphql
-  api_key: $LINEAR_API_KEY
-  project_slug: symphony-0c79b11b75ea
+  provider:
+    endpoint: https://api.linear.app/graphql
+    api_key: $LINEAR_API_KEY
+    project_slug: symphony-0c79b11b75ea
+    pickup_labels:
+      include:
+        - agent
+        - dev-ready
+      exclude:
+        - no-agent
+        - needs-spec
+    blocker_check_states:
+      - Todo
+    planning_states: []
   active_states:
     - Todo
     - In Progress
     - Rework
-  pickup_labels:
-    include:
-      - agent
-      - dev-ready
-    exclude:
-      - no-agent
-      - needs-spec
   terminal_states:
     - Done
     - Canceled
     - Cancelled
     - Duplicate
-  blocker_check_states:
-    - Todo
-  planning_states: []
 polling:
   interval_ms: 30000
 workspace:

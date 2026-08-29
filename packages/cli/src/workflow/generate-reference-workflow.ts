@@ -53,11 +53,6 @@ export function generateReferenceWorkflow(
 
   lines.push("tracker:");
   lines.push("  kind: github-project");
-  lines.push("  provider:");
-  lines.push(`    project_id: ${input.projectId}`);
-  lines.push("    state_field: Status");
-  lines.push(...buildReferencePriorityLines(input.priority, 4));
-  lines.push("");
 
   const activeColumns = input.statusColumns.filter((c) => c.role === "active");
   const waitColumns = input.statusColumns.filter((c) => c.role === "wait");
@@ -72,22 +67,27 @@ export function generateReferenceWorkflow(
   const planningStates = input.lifecycle?.planningStates ?? [];
 
   if (activeColumns.length > 0) {
-    lines.push("    active_states:");
+    lines.push("  active_states:");
     for (const col of activeColumns) {
-      lines.push(`      - ${col.name}`);
+      lines.push(`    - ${col.name}`);
     }
   } else {
-    lines.push("    active_states: [{active column names}]");
+    lines.push("  active_states: [{active column names}]");
   }
 
   if (terminalColumns.length > 0) {
-    lines.push("    terminal_states:");
+    lines.push("  terminal_states:");
     for (const col of terminalColumns) {
-      lines.push(`      - ${col.name}`);
+      lines.push(`    - ${col.name}`);
     }
   } else {
-    lines.push("    terminal_states: [{terminal column names}]");
+    lines.push("  terminal_states: [{terminal column names}]");
   }
+
+  lines.push("  provider:");
+  lines.push(`    project_id: ${input.projectId}`);
+  lines.push("    state_field: Status");
+  lines.push(...buildReferencePriorityLines(input.priority, 4));
 
   lines.push(
     ...buildReferenceStringList("blocker_check_states", blockerCheckStates, 4)
@@ -108,13 +108,13 @@ export function generateReferenceWorkflow(
   lines.push("#     endpoint: https://api.linear.app/graphql");
   lines.push("#     api_key: $LINEAR_API_KEY");
   lines.push("#     project_slug: symphony-0c79b11b75ea");
-  lines.push("#     active_states:");
-  lines.push("#       - Todo");
-  lines.push("#       - In Progress");
-  lines.push("#     terminal_states:");
-  lines.push("#       - Done");
-  lines.push("#       - Canceled");
-  lines.push("#       - Duplicate");
+  lines.push("#   active_states:");
+  lines.push("#     - Todo");
+  lines.push("#     - In Progress");
+  lines.push("#   terminal_states:");
+  lines.push("#     - Done");
+  lines.push("#     - Canceled");
+  lines.push("#     - Duplicate");
   lines.push(
     "# Linear uses repository-local polling; gh-symphony does not provide"
   );
@@ -409,19 +409,22 @@ export function generateReferenceWorkflow(
 function buildReferenceStringList(
   key: string,
   values: string[],
-  indent = 2
+  indent: number
 ): string[] {
   const padding = " ".repeat(indent);
   if (values.length === 0) {
     return [`${padding}${key}: []`];
   }
 
-  return [`${padding}${key}:`, ...values.map((value) => `${padding}  - ${value}`)];
+  return [
+    `${padding}${key}:`,
+    ...values.map((value) => `${padding}  - ${value}`),
+  ];
 }
 
 function buildReferencePriorityLines(
   priority: WorkflowPriorityConfig | null,
-  indent = 2
+  indent: number
 ): string[] {
   const padding = " ".repeat(indent);
   const nestedPadding = " ".repeat(indent + 2);
@@ -474,6 +477,7 @@ function buildReferencePriorityLines(
   lines.push(`${padding}# Optional template: labels priority source.`);
   lines.push(`${padding}# priority:`);
   lines.push(`${padding}#   source: labels`);
+  lines.push(`${padding}#   labels:`);
   lines.push(`${padding}#     P0: 0`);
   lines.push(`${padding}#     P1: 1`);
   return lines;

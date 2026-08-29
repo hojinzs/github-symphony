@@ -153,7 +153,7 @@ Prompt {{ issue.identifier }}
     }
 
     expect(stdout.output()).toContain("Warnings");
-    expect(stdout.output()).toContain("Deprecated GitHub tracker keys");
+    expect(stdout.output()).toContain("Deprecated tracker provider keys");
     expect(stdout.output()).toContain("tracker:\n  provider:");
     expect(stdout.output()).toContain('priority_field: "Priority"');
     expect(stdout.output()).toContain("Legacy priority mapping");

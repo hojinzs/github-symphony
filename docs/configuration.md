@@ -328,8 +328,6 @@ tracker:
     project_id: PVT_kwDOxxxxxx
     endpoint: https://api.github.com/graphql
     state_field: Status
-    active_states: [Todo, In Progress]
-    terminal_states: [Done]
     blocker_check_states: [Todo]
     planning_states: []
     pickup_labels:
@@ -337,6 +335,8 @@ tracker:
       exclude: [blocked]
     priority:
       source: disabled
+  active_states: [Todo, In Progress]
+  terminal_states: [Done]
 ```
 
 The documented GitHub Project lifecycle profile is `Status`, active states

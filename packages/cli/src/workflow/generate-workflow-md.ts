@@ -95,7 +95,6 @@ function buildTrackerFrontMatter(
   const provider: Record<string, YamlFrontMatterNode> = {};
   const tracker: Record<string, YamlFrontMatterNode> = {
     kind: input.tracker?.kind ?? "github-project",
-    provider,
   };
   if (input.tracker?.kind === "linear") {
     provider.endpoint =
@@ -112,12 +111,14 @@ function buildTrackerFrontMatter(
   }
 
   if (input.lifecycle.activeStates.length > 0) {
-    provider.active_states = input.lifecycle.activeStates;
+    tracker.active_states = input.lifecycle.activeStates;
   }
 
   if (input.lifecycle.terminalStates.length > 0) {
-    provider.terminal_states = input.lifecycle.terminalStates;
+    tracker.terminal_states = input.lifecycle.terminalStates;
   }
+
+  tracker.provider = provider;
 
   if (input.tracker?.kind === "linear") {
     const include = input.tracker.pickupLabels?.include ?? [];

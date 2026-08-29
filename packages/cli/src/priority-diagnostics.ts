@@ -56,14 +56,11 @@ export function buildPriorityConfigDiagnostics(
 export function buildProviderDeprecationDiagnostics(
   workflow: ParsedWorkflow
 ): PriorityDiagnostic[] {
-  if (
-    workflow.tracker.kind !== "github-project" ||
-    workflow.tracker.deprecatedKeys.length === 0
-  ) {
+  if (workflow.tracker.deprecatedKeys.length === 0) {
     return [];
   }
 
-  const githubKeys = [
+  const providerKeys = [
     "project_id",
     "project_slug",
     "api_key",
@@ -75,7 +72,7 @@ export function buildProviderDeprecationDiagnostics(
     "blocker_check_states",
     "planning_states",
   ];
-  const migrated = githubKeys.filter((key) =>
+  const migrated = providerKeys.filter((key) =>
     workflow.tracker.deprecatedKeys.includes(key)
   );
   if (migrated.length === 0) return [];
@@ -86,7 +83,7 @@ export function buildProviderDeprecationDiagnostics(
   const providerBlock = renderProviderBlock(provider);
   return [
     {
-      title: "Deprecated GitHub tracker keys",
+      title: "Deprecated tracker provider keys",
       summary: `Flat tracker key(s) ${migrated.join(", ")} are deprecated and remain supported for compatibility.`,
       remediation: `Move them under tracker.provider (flat aliases will be removed in the next major release):\n\n${providerBlock}`,
       details: { deprecatedKeys: migrated, providerBlock },
