@@ -41,12 +41,16 @@ init` again and restarting the daemon. A `WORKFLOW.md` edit never rewrites
 `config.json`.
 
 The workflow policy passed to the already-selected adapter is live-reloaded on
-every reconciliation tick. Changes to `tracker.provider` settings such as
-endpoint, project ID or slug, pickup labels, priority, blocker-check states,
-and planning states, plus core `tracker.active_states` and
-`tracker.terminal_states`, apply on the next tick. Existing workers keep the
-policy and tracker dependencies captured for their own run. This is the same
-tick-based reload boundary described above, not a watcher-driven update.
+every reconciliation tick: core `tracker.active_states`,
+`tracker.terminal_states`, `tracker.state_field`, and the provider-owned
+`blocker_check_states` and `planning_states` apply on the next tick. The
+remaining provider settings — `project_id` or `project_slug`, `endpoint`,
+`priority`, `priority_field_name`, and `pickup_labels` — are read from the
+project record that `repo init` wrote, so editing them in `WORKFLOW.md` has no
+effect until the runtime is initialized again and the daemon restarts. Existing
+workers keep the policy and tracker dependencies captured for their own run.
+This is the same tick-based reload boundary described above, not a
+watcher-driven update.
 
 ## Runtime, Retry, and Hook Divergences
 

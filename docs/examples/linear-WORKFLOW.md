@@ -55,13 +55,13 @@ runtime:
 
 ## Linear Tracker Policy
 
-`WORKFLOW.md` is the source of truth for Linear tracker setup. Use `tracker.kind: linear` with `tracker.project_slug`; do not use `tracker.project_id`, `projectId`, `project_id`, `teamId`, or `.gh-symphony/config.json` as Linear configuration inputs.
+`WORKFLOW.md` is the source of truth for Linear tracker setup. Use `tracker.kind: linear` with `tracker.provider.project_slug`; do not use `tracker.project_id`, `projectId`, `project_id`, `teamId`, or `.gh-symphony/config.json` as Linear configuration inputs.
 
 `LINEAR_API_KEY` must be available when running `gh-symphony repo init`, `gh-symphony repo start`, or `gh-symphony workflow preview ENG-123`. The orchestrator reads Linear by polling the configured project. Linear webhook setup is a non-goal and no webhook command is expected.
 
-`tracker.pickup_labels` only controls whether active-state issues are eligible for new worker pickup. Exclude labels win over include labels. If `include` is omitted or empty, active-state issues remain pickup-eligible unless excluded. Do not use label changes to stop already running workers; move the Linear issue state to control interruption, review, and completion.
+`tracker.provider.pickup_labels` only controls whether active-state issues are eligible for new worker pickup. Exclude labels win over include labels. If `include` is omitted or empty, active-state issues remain pickup-eligible unless excluded. Do not use label changes to stop already running workers; move the Linear issue state to control interruption, review, and completion.
 
-`tracker.blocker_check_states` defaults to the first active state (`Todo` in this example). In those states, non-terminal blockers prevent dispatch. Linear blockers are derived only from inverse relations of type `blocks`; an explicit `blocker_check_states: []` disables this gate as an intentional repository-level divergence from the vendored Symphony specification. Planning remains disabled unless `planning_states` is explicitly configured.
+`tracker.provider.blocker_check_states` defaults to the first active state (`Todo` in this example). In those states, non-terminal blockers prevent dispatch. Linear blockers are derived only from inverse relations of type `blocks`; an explicit `tracker.provider.blocker_check_states: []` disables this gate as an intentional repository-level divergence from the vendored Symphony specification. Planning remains disabled unless `tracker.provider.planning_states` is explicitly configured.
 
 ## Workpad Policy
 
