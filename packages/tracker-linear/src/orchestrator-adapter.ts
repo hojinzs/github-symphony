@@ -415,7 +415,7 @@ async function fetchPaginatedLinearIssues(
       });
     }
     after = connection?.pageInfo?.hasNextPage
-      ? connection.pageInfo.endCursor
+      ? (connection.pageInfo.endCursor ?? null)
       : null;
     if (!after) {
       break;
