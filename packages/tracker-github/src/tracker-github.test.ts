@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
+  parseWorkflowMarkdown,
   type IssueCommentCache,
   type IssueCommentCacheEntry,
   type ProjectItemsCache,
@@ -74,6 +75,25 @@ describe("GitHub canonical subject adapter hook", () => {
 });
 
 describe("resolveTrackerAdapter", () => {
+  it("resolves provider endpoint environment references before validation", () => {
+    expect(() =>
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: PVT_project_123
+    endpoint: $GHES_URL
+codex:
+  command: codex
+---
+Prompt`,
+        { GHES_URL: "https://github.example/api/graphql" },
+        { trackerAdapter: githubProjectTrackerAdapter }
+      )
+    ).not.toThrow();
+  });
+
   it("validates documented GitHub provider keys and supplies its lifecycle profile", () => {
     expect(githubProjectTrackerAdapter.defaultLifecycle?.()).toEqual({
       stateFieldName: "Status",

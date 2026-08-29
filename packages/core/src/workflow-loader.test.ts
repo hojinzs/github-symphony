@@ -213,11 +213,12 @@ Prompt`,
       state_field: "Workflow",
     });
     expect(validateProviderConfig).toHaveBeenCalledWith(
-      workflow.tracker.provider
+      workflow.tracker.provider,
+      { rawProvider: workflow.tracker.provider }
     );
   });
 
-  it("preserves provider environment references for adapter validation", () => {
+  it("resolves provider environment values before adapter validation", () => {
     const validateProviderConfig = vi.fn(() => []);
     parseWorkflowMarkdownStrict(
       `---
@@ -236,7 +237,10 @@ Prompt`,
       }
     );
 
-    expect(validateProviderConfig).toHaveBeenCalledWith({ endpoint: "$GHES_URL" });
+    expect(validateProviderConfig).toHaveBeenCalledWith(
+      { endpoint: "https://github.example/api/graphql" },
+      { rawProvider: { endpoint: "$GHES_URL" } }
+    );
   });
 
   it("resolves provider validation and lifecycle defaults from tracker.kind", () => {
@@ -272,9 +276,12 @@ Prompt`,
     );
 
     expect(resolveTrackerAdapter).toHaveBeenCalledWith("custom-tracker");
-    expect(selectedAdapter.validateProviderConfig).toHaveBeenCalledWith({
-      tenant: "acme",
-    });
+    expect(selectedAdapter.validateProviderConfig).toHaveBeenCalledWith(
+      {
+        tenant: "acme",
+      },
+      { rawProvider: { tenant: "acme" } }
+    );
     expect(workflow.lifecycle).toMatchObject({
       stateFieldName: "Workflow",
       activeStates: ["Queued"],

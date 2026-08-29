@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OrchestratorProjectConfig } from "@gh-symphony/core";
+import {
+  parseWorkflowMarkdown,
+  type OrchestratorProjectConfig,
+} from "@gh-symphony/core";
 import { linearTrackerAdapter, normalizeLinearIssue } from "./index.js";
 
 const repository = {
@@ -135,8 +138,33 @@ describe("linearTrackerAdapter", () => {
 
   it("permits ambient LINEAR_API_KEY authentication", () => {
     expect(
-      linearTrackerAdapter.validateProviderConfig?.({ project_slug: "platform" })
+      linearTrackerAdapter.validateProviderConfig?.({
+        project_slug: "platform",
+      })
     ).toEqual([]);
+  });
+
+  it("validates the raw API-key reference after provider resolution", () => {
+    expect(() =>
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: linear
+  provider:
+    project_slug: platform
+    endpoint: $LINEAR_ENDPOINT
+    api_key: $LINEAR_API_KEY
+codex:
+  command: codex
+---
+Prompt`,
+        {
+          LINEAR_ENDPOINT: "https://linear.test/graphql",
+          LINEAR_API_KEY: "lin_secret",
+        },
+        { trackerAdapter: linearTrackerAdapter }
+      )
+    ).not.toThrow();
   });
 
   it("queries Linear by project slug and state names with cursor pagination", async () => {

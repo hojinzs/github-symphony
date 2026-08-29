@@ -198,11 +198,11 @@ const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
 `;
 
 export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
-  validateProviderConfig(provider) {
+  validateProviderConfig(provider, context) {
     const errors: WorkflowValidationError[] = [];
     validateRequiredProviderString(provider, "project_slug", errors);
     validateOptionalProviderString(provider, "endpoint", errors);
-    validateLinearApiKey(provider, errors);
+    validateLinearApiKey(context?.rawProvider ?? provider, errors);
     validatePickupLabels(provider, errors);
 
     for (const key of ["project_id", "projectId", "teamId", "team_id"]) {

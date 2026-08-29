@@ -50,7 +50,8 @@ export type ParseWorkflowOptions = {
 
 export type WorkflowConfigTrackerAdapter = {
   validateProviderConfig?: (
-    provider: Record<string, unknown>
+    provider: Record<string, unknown>,
+    context?: { rawProvider: Record<string, unknown> }
   ) => WorkflowValidationError[];
   defaultLifecycle?: () => WorkflowLifecycleConfig;
 };
@@ -149,6 +150,12 @@ function parseWorkflowMarkdownInternal(
   const provider = readProviderConfig(tracker);
   const explicitProviderKeys = new Set(Object.keys(provider));
   const deprecatedKeys = promoteDeprecatedTrackerKeys(tracker, provider);
+  const resolvedProvider = resolveProviderEnvironmentValues(
+    provider,
+    env,
+    "tracker.provider",
+    explicitProviderKeys
+  );
   const defaultLifecycle = trackerAdapter?.defaultLifecycle?.();
   // Keep existing workflows usable while tracker adapters adopt defaultLifecycle.
   // This disables the required-lifecycle path until every supported adapter
@@ -203,7 +210,9 @@ function parseWorkflowMarkdownInternal(
     defaultLifecycle?.stateFieldName ??
     legacyLifecycle.stateFieldName;
   throwProviderValidationErrors(
-    trackerAdapter?.validateProviderConfig?.(provider) ?? []
+    trackerAdapter?.validateProviderConfig?.(resolvedProvider, {
+      rawProvider: provider,
+    }) ?? []
   );
 
   const maxConcurrentAgentsByState = readNumberMap(
@@ -398,6 +407,48 @@ function parseWorkflowMarkdownInternal(
   };
 
   return parsed;
+}
+
+/** Resolve provider values before adapter validation, as required by the spec. */
+function resolveProviderEnvironmentValues(
+  provider: Record<string, unknown>,
+  env: NodeJS.ProcessEnv,
+  path = "tracker.provider",
+  explicitProviderKeys?: ReadonlySet<string>
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(provider).map(([key, value]) => {
+      const valuePath = explicitProviderKeys?.has(key)
+        ? `${path}.${key}`
+        : path === "tracker.provider"
+          ? `tracker.${key}`
+          : `${path}.${key}`;
+      if (typeof value === "string") {
+        return [key, resolveEnvironmentValue(value, env, valuePath)];
+      }
+      if (Array.isArray(value)) {
+        return [
+          key,
+          value.map((entry, index) =>
+            typeof entry === "string"
+              ? resolveEnvironmentValue(entry, env, `${valuePath}[${index}]`)
+              : entry
+          ),
+        ];
+      }
+      if (value && typeof value === "object") {
+        return [
+          key,
+          resolveProviderEnvironmentValues(
+            value as Record<string, unknown>,
+            env,
+            valuePath
+          ),
+        ];
+      }
+      return [key, value];
+    })
+  );
 }
 
 const DEPRECATED_TRACKER_PROVIDER_KEYS = [
