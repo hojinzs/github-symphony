@@ -264,6 +264,10 @@ export type OrchestratorRunRecord = {
   threadId?: string | null;
   /** Total turns accumulated across worker sessions for the run. */
   cumulativeTurnCount?: number;
+  /** Runtime from completed worker sessions in the current run lifecycle. */
+  cumulativeRuntimeMs?: number;
+  /** Stable identity shared by all worker sessions for one logical run. */
+  runtimeLifecycleId?: string;
   /** Brief summary of the most recent completed/terminal turn. */
   lastTurnSummary?: string | null;
   createdAt: string;

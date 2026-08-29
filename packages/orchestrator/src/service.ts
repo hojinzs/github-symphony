@@ -1551,10 +1551,11 @@ export class OrchestratorService {
           existingWorkspace?.workspaceKey ??
           existingIssueRecord?.workspaceKey ??
           preferredWorkspaceKey;
+        const previousRun = latestRunsByIssueId.get(issue.id) ?? null;
         const recoveryContext = await this.resolveIncompleteTurnRecoveryContext(
           tenant,
           issue,
-          latestRunsByIssueId.get(issue.id) ?? null
+          previousRun
         );
         const expiredConvergenceRun = expiredConvergenceLocks.get(issue.id);
         if (expiredConvergenceRun) {
@@ -1604,6 +1605,14 @@ export class OrchestratorService {
         try {
           run = await this.startRun(tenant, issue, {
             attempt: existingIssueRecord?.retryEntry?.attempt ?? null,
+            cumulativeRuntimeMs:
+              recoveryContext || existingIssueRecord?.retryEntry
+                ? resolveCumulativeRuntimeMs(previousRun)
+                : undefined,
+            runtimeLifecycleId:
+              recoveryContext || existingIssueRecord?.retryEntry
+                ? (previousRun?.runtimeLifecycleId ?? previousRun?.createdAt)
+                : undefined,
             recovery: recoveryContext,
             onPrepared: async (candidate) => {
               preparedRun = candidate;
@@ -2676,6 +2685,8 @@ export class OrchestratorService {
        * retry attempt exposed to workflow prompt rendering.
        */
       attempt?: number | null;
+      cumulativeRuntimeMs?: number;
+      runtimeLifecycleId?: string;
       recovery?: IncompleteTurnRecoveryContext | null;
       onPrepared?: (run: OrchestratorRunRecord) => Promise<void>;
     } = {}
@@ -2958,6 +2969,8 @@ export class OrchestratorService {
       retryKind: recovery ? "recovery" : null,
       threadId: null,
       cumulativeTurnCount: 0,
+      cumulativeRuntimeMs: options.cumulativeRuntimeMs ?? 0,
+      runtimeLifecycleId: options.runtimeLifecycleId ?? runId,
       lastTurnSummary: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
@@ -3654,6 +3667,7 @@ export class OrchestratorService {
       ).toISOString();
     }
 
+    const retryCompletedAt = now.toISOString();
     const retryRecord: OrchestratorRunRecord = {
       ...runWithTokens,
       finalizationDeferralCount: 0,
@@ -3663,7 +3677,13 @@ export class OrchestratorService {
       attempt:
         persistedRetryKind === "continuation" ? 1 : runWithTokens.attempt + 1,
       processId: null,
-      updatedAt: now.toISOString(),
+      updatedAt: retryCompletedAt,
+      startedAt: null,
+      completedAt: retryCompletedAt,
+      cumulativeRuntimeMs: resolveCumulativeRuntimeMs({
+        ...runWithTokens,
+        completedAt: retryCompletedAt,
+      }),
       nextRetryAt,
       retryKind: persistedRetryKind,
       threadId:
@@ -4737,6 +4757,8 @@ export class OrchestratorService {
       const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
+        cumulativeRuntimeMs: resolveCumulativeRuntimeMs(run),
+        runtimeLifecycleId: run.runtimeLifecycleId ?? run.createdAt,
         recovery,
         onPrepared: async (candidate) => {
           preparedRun = candidate;
@@ -4777,7 +4799,6 @@ export class OrchestratorService {
       ...restarted,
       attempt: run.attempt,
       retryKind: run.retryKind ?? "recovery",
-      createdAt: run.createdAt,
       issueWorkspaceKey: run.issueWorkspaceKey,
       threadId: null,
       cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
@@ -5050,13 +5071,19 @@ export class OrchestratorService {
           error,
         ].join(" ")
       : error;
+    const sessionEndedAt = run.completedAt ?? now.toISOString();
     await this.store.saveRun({
       ...run,
       status: suppressed ? "suppressed" : "retrying",
       attempt,
       processId: null,
       updatedAt: now.toISOString(),
-      completedAt: suppressed ? now.toISOString() : null,
+      startedAt: null,
+      completedAt: sessionEndedAt,
+      cumulativeRuntimeMs: resolveCumulativeRuntimeMs({
+        ...run,
+        completedAt: sessionEndedAt,
+      }),
       nextRetryAt: dueAt,
       // Requeueing only postpones a due retry; it must not discard the
       // recovery context that snapshot consumers use to expose dirty-workspace
@@ -6079,6 +6106,25 @@ function resolvePersistedCumulativeTurnCount(
   run: OrchestratorRunRecord
 ): number {
   return run.cumulativeTurnCount ?? run.turnCount ?? 0;
+}
+
+function resolveCumulativeRuntimeMs(run: OrchestratorRunRecord | null): number {
+  if (!run) {
+    return 0;
+  }
+
+  const accumulatedRuntimeMs = run.cumulativeRuntimeMs ?? 0;
+  if (!run.startedAt) {
+    return accumulatedRuntimeMs;
+  }
+
+  const startedAtMs = parseTimestampMs(run.startedAt);
+  const endedAtMs = parseTimestampMs(run.completedAt ?? run.updatedAt);
+  if (startedAtMs === null || endedAtMs === null) {
+    return accumulatedRuntimeMs;
+  }
+
+  return accumulatedRuntimeMs + Math.max(0, endedAtMs - startedAtMs);
 }
 
 function shellQuote(value: string): string {

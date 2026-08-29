@@ -747,7 +747,7 @@ describe("OrchestratorService", () => {
       retryKind: "recovery",
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
-      startedAt: now.toISOString(),
+      startedAt: "2026-03-07T23:58:00.000Z",
       completedAt: null,
       lastError: "worker failed",
       nextRetryAt: now.toISOString(),
@@ -795,6 +795,9 @@ describe("OrchestratorService", () => {
     expect(await store.loadRun(run.runId)).toMatchObject({
       status: "retrying",
       retryKind: "recovery",
+      startedAt: null,
+      completedAt: now.toISOString(),
+      cumulativeRuntimeMs: 120_000,
     });
   });
 
@@ -2460,6 +2463,8 @@ describe("OrchestratorService", () => {
     expect(recoveryRun).toMatchObject({
       status: "running",
       retryKind: "recovery",
+      cumulativeRuntimeMs: 300_000,
+      runtimeLifecycleId: "2026-03-08T00:00:00.000Z",
       recovery: expect.objectContaining({
         kind: "incomplete-turn-dirty-workspace",
         dirtyFiles: expectedDirtyFiles,
@@ -3458,7 +3463,7 @@ describe("OrchestratorService", () => {
       expect(updatedRun?.status).toBe("retrying");
       expect(updatedRun?.retryKind).toBe("failure");
       expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:01:02.000Z");
-      expect(updatedRun?.completedAt).toBeNull();
+      expect(updatedRun?.completedAt).toBe("2026-03-08T00:01:00.000Z");
       expect(updatedRun?.lastError).toBe(
         "convergence_detected: workspace unchanged"
       );
