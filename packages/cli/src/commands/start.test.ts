@@ -63,6 +63,7 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   resolveProjectLockPath: (runtimeRoot: string, projectId: string) =>
     join(runtimeRoot, "projects", projectId, ".lock"),
   getSupportedTrackerKinds: () => ["github-project", "linear", "file"],
+  resolveWorkflowTrackerAdapter: () => undefined,
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {

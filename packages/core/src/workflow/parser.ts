@@ -1361,7 +1361,7 @@ function readNumberMap(
   return result;
 }
 
-function resolveEnvironmentValue(
+export function resolveEnvironmentValue(
   value: string,
   env: NodeJS.ProcessEnv,
   path: string

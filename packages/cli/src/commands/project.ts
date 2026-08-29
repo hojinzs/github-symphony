@@ -4,9 +4,14 @@ import * as p from "@clack/prompts";
 import {
   normalizeLabels,
   parseWorkflowMarkdown,
+  resolveEnvironmentValue,
   type OrchestratorTrackerSettingValue,
   type RepositoryRef,
 } from "@gh-symphony/core";
+import {
+  getSupportedTrackerKinds,
+  resolveWorkflowTrackerAdapter,
+} from "@gh-symphony/orchestrator";
 import type { GlobalOptions } from "../index.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
@@ -51,7 +56,10 @@ export async function deriveStandaloneProject(
       `No WORKFLOW.md in ${projectDir}. Run this command from a standalone project folder or pass --project-dir <path>.`
     );
   }
-  const workflow = parseWorkflowMarkdown(markdown, process.env);
+  const workflow = parseWorkflowMarkdown(markdown, process.env, {
+    supportedTrackerKinds: getSupportedTrackerKinds(),
+    resolveTrackerAdapter: resolveWorkflowTrackerAdapter,
+  });
   const repository = parseRepository(workflow.repository);
   const adapter = workflow.tracker.kind ?? "github-project";
   const bindingId =
@@ -352,12 +360,23 @@ function trackerSettings(
       ? { pickupLabels: workflow.tracker.pickupLabels }
       : {}),
     repository: `${repository.owner}/${repository.name}`,
-    ...(workflow.tracker.kind === "file" &&
-    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
-      ? // E2E-only escape hatch, mirroring the repo-embedded runtime.
-        { issuesPath: process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH }
+    ...(workflow.tracker.kind === "file"
+      ? {
+          issuesPath: resolveFileProviderPath(workflow.tracker.provider.path),
+        }
       : {}),
   };
+}
+
+function resolveFileProviderPath(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    const fallback = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    if (fallback?.trim()) return fallback;
+    throw new Error(
+      'File tracker requires "tracker.provider.path" or GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH.'
+    );
+  }
+  return resolveEnvironmentValue(value, process.env, "tracker.provider.path");
 }
 
 function parseRepository(value: Record<string, unknown> | null): RepositoryRef {

@@ -37,6 +37,8 @@ tracker:
   provider:
     path: \$GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
     project_id: standalone-e2e
+  active_states:
+    - Ready
     pickup_labels:
       include:
         - $label

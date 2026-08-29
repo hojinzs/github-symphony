@@ -19,10 +19,15 @@ import {
 } from "node:path";
 import {
   parseWorkflowMarkdown,
+  resolveEnvironmentValue,
   type OrchestratorProjectConfig,
   type OrchestratorTrackerSettingValue,
   type RepositoryRef,
 } from "@gh-symphony/core";
+import {
+  getSupportedTrackerKinds,
+  resolveWorkflowTrackerAdapter,
+} from "@gh-symphony/orchestrator";
 import {
   saveGlobalConfig,
   saveProjectConfig,
@@ -98,7 +103,11 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   }
   const workflow = parseWorkflowMarkdown(
     await readFile(workflowPath, "utf8"),
-    process.env
+    process.env,
+    {
+      supportedTrackerKinds: getSupportedTrackerKinds(),
+      resolveTrackerAdapter: resolveWorkflowTrackerAdapter,
+    }
   );
   validateRepoInitWorkflow(workflow);
   const repository = resolveRepository(repoDir);
@@ -133,7 +142,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   }
   if (trackerAdapter === "file") {
     const issuesPath = resolveFileProviderPath(workflow.tracker.provider.path);
-    if (typeof issuesPath !== "string" || !issuesPath.trim()) {
+    if (!issuesPath) {
       throw new Error(
         'File tracker repo init requires WORKFLOW.md field "tracker.provider.path" to point to the issues fixture.'
       );
@@ -223,13 +232,9 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
 
 function resolveFileProviderPath(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) {
-    return null;
+    return process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH ?? null;
   }
-  if (!value.startsWith("$")) {
-    return value;
-  }
-  const name = value.slice(1);
-  return /^[A-Z_][A-Z0-9_]*$/.test(name) ? process.env[name] ?? null : null;
+  return resolveEnvironmentValue(value, process.env, "tracker.provider.path");
 }
 
 function validateRepoInitWorkflow(

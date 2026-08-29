@@ -576,22 +576,23 @@ For Linear tracker repositories, `WORKFLOW.md` remains the source of truth:
 ```yaml
 tracker:
   kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: symphony-0c79b11b75ea
-  pickup_labels:
-    include:
-      - agent
-      - dev-ready
-    exclude:
-      - no-agent
-      - needs-spec
+  provider:
+    api_key: $LINEAR_API_KEY
+    project_slug: symphony-0c79b11b75ea
+    pickup_labels:
+      include:
+        - agent
+        - dev-ready
+      exclude:
+        - no-agent
+        - needs-spec
 ```
 
-`gh-symphony repo init` validates that `tracker.project_slug` is present and that the `tracker.api_key` reference resolves, for example through `LINEAR_API_KEY`. Linear config aliases such as `tracker.project_id`, `projectId`, `project_id`, and `teamId` are rejected. The legacy `.gh-symphony/config.json` file is not used as the Linear source of truth.
+`gh-symphony repo init` validates that `tracker.provider.project_slug` is present and that the optional `tracker.provider.api_key` reference resolves when supplied. Without it, Linear uses `LINEAR_API_KEY`. Deprecated flat keys remain compatible while `gh-symphony doctor` shows the normalized provider form. The legacy `.gh-symphony/config.json` file is not used as the Linear source of truth.
 
 `gh-symphony repo start --assigned-only` also applies to Linear trackers. It is an input to the Linear adapter's `dispatchable` derivation: the adapter keeps candidate issues observable, compares each returned `assignee.id` with the authenticated viewer, and marks nonmatching or unassigned issues non-dispatchable. With a personal API key this viewer is that person; with a service-account key it is the service account. Symphony does not fail fast because Linear does not expose enough token metadata in the issue query path to distinguish those cases reliably.
 
-Linear workflows may also configure `tracker.pickup_labels.include` and `tracker.pickup_labels.exclude` as pickup eligibility gates. Excluded labels always win; when include labels are configured, an issue needs at least one include label before a worker starts. Label comparison is case-insensitive and ignores surrounding whitespace, so labels that differ only by case or outer whitespace cannot be used as separate gates. Label changes are not an interruption control for already running workers. At the next worker exit, a non-dispatchable GitHub issue is finalized as non-actionable rather than continued; a Linear item filtered by labels follows its deferred-finalization path. Use lifecycle state and handoff policy to make the intended outcome explicit.
+Linear workflows may also configure `tracker.provider.pickup_labels.include` and `tracker.provider.pickup_labels.exclude` as pickup eligibility gates. Excluded labels always win; when include labels are configured, an issue needs at least one include label before a worker starts. Label comparison is case-insensitive and ignores surrounding whitespace, so labels that differ only by case or outer whitespace cannot be used as separate gates. Label changes are not an interruption control for already running workers; move the Linear issue state to drive lifecycle and handoff behavior.
 
 Linear orchestration is polling-only. There is intentionally no Linear webhook setup command; state transitions, workpad comments, and PR handoff policy belong in `WORKFLOW.md`. See `docs/examples/linear-WORKFLOW.md` for a complete example.
 

@@ -205,7 +205,7 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     validateLinearApiKey(provider, errors);
     validatePickupLabels(provider, errors);
 
-    for (const key of ["project_id", "projectId", "team", "teamId"]) {
+    for (const key of ["project_id", "projectId", "teamId", "team_id"]) {
       if (provider[key] !== undefined && provider[key] !== null) {
         errors.push(
           new WorkflowValidationError(
@@ -368,12 +368,16 @@ function validateLinearApiKey(
   errors: WorkflowValidationError[]
 ): void {
   const value = provider.api_key;
-  if (typeof value !== "string" || !/^\$[A-Z_][A-Z0-9_]*$/.test(value)) {
+  if (value === undefined || value === null) return;
+  if (
+    typeof value !== "string" ||
+    !/^(?:\$[A-Z0-9_]+|env:[A-Z0-9_]+|.*\$\{[A-Z0-9_]+\}.*)$/.test(value)
+  ) {
     errors.push(
       new WorkflowValidationError(
         "workflow_validation_error",
         "tracker.provider.api_key",
-        'api_key must reference an environment variable such as "$LINEAR_API_KEY".'
+        'api_key must reference an environment variable such as "$LINEAR_API_KEY", "env:LINEAR_API_KEY", or "${LINEAR_API_KEY}".'
       )
     );
   }
@@ -393,6 +397,24 @@ function validatePickupLabels(
         "pickup_labels must be an object with optional include and exclude string lists."
       )
     );
+    return;
+  }
+  const labels = value as Record<string, unknown>;
+  for (const key of ["include", "exclude"]) {
+    const labelsForKey = labels[key];
+    if (
+      labelsForKey !== undefined &&
+      (!Array.isArray(labelsForKey) ||
+        labelsForKey.some((label) => typeof label !== "string"))
+    ) {
+      errors.push(
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          `tracker.provider.pickup_labels.${key}`,
+          `${key} must be a list of strings when provided.`
+        )
+      );
+    }
   }
 }
 

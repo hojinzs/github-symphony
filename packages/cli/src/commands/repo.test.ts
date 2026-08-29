@@ -702,7 +702,7 @@ Handle {{issue.identifier}}.
     );
   });
 
-  it("defers missing Linear project_slug validation to the adapter", async () => {
+  it("rejects a missing Linear project_slug through adapter validation", async () => {
     const repoDir = await createGitRepo();
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
@@ -729,8 +729,10 @@ Handle {{issue.identifier}}.
       stderr.restore();
     }
 
-    expect(process.exitCode).toBeUndefined();
-    expect(stderr.output()).toBe("");
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      "project_slug is required by the Linear tracker adapter."
+    );
   });
 
   it("fails Linear repo init when LINEAR_API_KEY reference is unresolved", async () => {
@@ -956,7 +958,7 @@ Handle {{issue.identifier}}.
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(
-      'File tracker repo init requires WORKFLOW.md field "tracker.provider.path"'
+      "path is required by the file tracker adapter."
     );
   });
 });

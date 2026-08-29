@@ -68,10 +68,13 @@ describe("fileTrackerAdapter", () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
-  it("validates the provider path and documents file lifecycle defaults", () => {
+  it("accepts a configured provider path", () => {
     expect(
       fileTrackerAdapter.validateProviderConfig?.({ path: "/tmp/issues.json" })
     ).toEqual([]);
+  });
+
+  it("documents file lifecycle defaults", () => {
     expect(fileTrackerAdapter.defaultLifecycle?.()).toEqual({
       stateFieldName: "Status",
       activeStates: ["Ready", "In Progress"],
@@ -79,6 +82,9 @@ describe("fileTrackerAdapter", () => {
       blockerCheckStates: ["Ready"],
       planningStates: [],
     });
+  });
+
+  it("requires a provider path", () => {
     expect(fileTrackerAdapter.validateProviderConfig?.({})).toMatchObject([
       { path: "tracker.provider.path" },
     ]);
