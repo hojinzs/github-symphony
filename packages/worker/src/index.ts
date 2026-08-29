@@ -745,7 +745,7 @@ async function runNonCodexRuntimeAdapterLifecycle(
     }
   });
 
-  const turnTelemetry: ActiveTurnTelemetry = {
+  let turnTelemetry: ActiveTurnTelemetry = {
     startedAt: new Date().toISOString(),
     threadId: null,
     turnId: `${runId}-turn-1`,
@@ -758,38 +758,81 @@ async function runNonCodexRuntimeAdapterLifecycle(
     await (adapter as AgentRuntimeAdapter<{ runId: string }>).prepare({
       runId,
     });
-    const lease = await acquireTurnLease(env, 1);
-    if (lease.status !== "acquired") {
-      const event =
-        lease.status === "denied"
-          ? "worker_lease_lost"
-          : "orchestrator_unavailable";
-      failWorkerTurnGate(event, lease.reason);
-      throw new Error(`${event}: ${lease.reason}`);
-    }
-    process.stderr.write(
-      `[worker] acquired turn lease 1/1 (expires=${lease.expiresAt})\n`
+    const { maxTurns, exhaustedBeforeStart } = resolveMaxTurns(
+      env.SYMPHONY_MAX_TURNS
     );
-    runtimeState.status = "running";
-    runtimeState.runPhase = "streaming_turn";
-    runtimeState.sessionInfo = {
-      threadId: turnTelemetry.threadId,
-      turnId: turnTelemetry.turnId,
-      turnCount: turnTelemetry.turnCount,
-      sessionId: turnTelemetry.sessionId,
-      exitClassification: null,
-    };
-    runtimeState.sessionId = turnTelemetry.sessionId;
-    emitTurnStartedEvent(turnTelemetry);
+    const continuationGuidance = env.SYMPHONY_CONTINUATION_GUIDANCE ?? null;
+    let maxTurnsReached = exhaustedBeforeStart;
 
-    const result = await spawnNonCodexRuntimeTurn(
-      adapter,
-      runtimeKind,
-      renderedPrompt,
-      env
-    );
-    if (isNonCodexTurnFailure(result)) {
-      terminalFailure = describeNonCodexTurnFailure(result);
+    for (let turn = 0; turn < maxTurns; turn += 1) {
+      const turnCount = turn + 1;
+      if (turn > 0) {
+        const trackerState = await refreshTrackerState(
+          env,
+          workflow.lifecycle.activeStates
+        );
+        process.stderr.write(
+          `[worker] tracker state refresh: ${trackerState}\n`
+        );
+        if (trackerState === "non-actionable") break;
+        if (trackerState === "unknown") {
+          throw new Error(
+            "orchestrator_unavailable: tracker state refresh failed"
+          );
+        }
+      }
+
+      const lease = await acquireTurnLease(env, turnCount);
+      if (lease.status !== "acquired") {
+        const event =
+          lease.status === "denied"
+            ? "worker_lease_lost"
+            : "orchestrator_unavailable";
+        failWorkerTurnGate(event, lease.reason);
+        throw new Error(`${event}: ${lease.reason}`);
+      }
+      process.stderr.write(
+        `[worker] acquired turn lease ${turnCount}/${maxTurns} (expires=${lease.expiresAt})\n`
+      );
+      turnTelemetry = {
+        startedAt: new Date().toISOString(),
+        threadId: null,
+        turnId: `${runId}-turn-${turnCount}`,
+        turnCount,
+        sessionId: runId,
+        tokenUsageBaseline: cloneTokenUsageSnapshot(),
+      };
+      runtimeState.status = "running";
+      runtimeState.runPhase = "streaming_turn";
+      runtimeState.sessionInfo = {
+        threadId: turnTelemetry.threadId,
+        turnId: turnTelemetry.turnId,
+        turnCount,
+        sessionId: turnTelemetry.sessionId,
+        exitClassification: null,
+      };
+      runtimeState.sessionId = turnTelemetry.sessionId;
+      emitTurnStartedEvent(turnTelemetry);
+      const turnInput = buildCodexTurnInput({
+        isFirstTurn: turn === 0,
+        renderedPrompt,
+        issueIdentifier: env.SYMPHONY_ISSUE_IDENTIFIER ?? "",
+        issueTitle: env.SYMPHONY_ISSUE_TITLE,
+        continuationGuidance,
+        cumulativeTurnCount: turn,
+      });
+      const result = await spawnNonCodexRuntimeTurn(
+        adapter,
+        runtimeKind,
+        turnInput,
+        env
+      );
+      if (isNonCodexTurnFailure(result)) {
+        terminalFailure = describeNonCodexTurnFailure(result);
+        break;
+      }
+      emitTurnCompletedEvent(turnTelemetry);
+      if (turnCount === maxTurns) maxTurnsReached = true;
     }
 
     runtimeState.status = terminalFailure ? "failed" : "completed";
@@ -804,13 +847,11 @@ async function runNonCodexRuntimeAdapterLifecycle(
         terminalFailure?.startsWith("turn_input_required:") === true,
       budgetExceeded: false,
       convergenceDetected: false,
-      maxTurnsReached: false,
+      maxTurnsReached,
     });
 
     if (terminalFailure) {
       emitTurnFailedEvent(turnTelemetry, terminalFailure);
-    } else {
-      emitTurnCompletedEvent(turnTelemetry);
     }
   } catch (error) {
     const message =

@@ -136,6 +136,9 @@ Worker prompt.
           SYMPHONY_ISSUE_ID: "issue-worker-claude",
           SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
           SYMPHONY_ISSUE_STATE: "In progress",
+          SYMPHONY_MAX_TURNS: "2",
+          SYMPHONY_CONTINUATION_GUIDANCE:
+            "Continue with the same Claude session.",
           SYMPHONY_ORCHESTRATOR_URL: leaseServer.url,
           SYMPHONY_ORCHESTRATOR_TOKEN: "stub-orchestrator-token",
         },
@@ -153,6 +156,12 @@ Worker prompt.
     const invocations = await readStubInvocations(logDir);
     // Claude preflight invokes the stub once before the adapter-launched child.
     expect(invocations.length).toBeGreaterThanOrEqual(2);
+    const workerInvocations = invocations.slice(-2);
+    expect(workerInvocations[1]?.argv).toContain("--resume");
+    expect(workerInvocations[1]?.argv).not.toContain("--fork-session");
+    expect(workerInvocations[1]?.stdin.join("\n")).toContain(
+      "Continue with the same Claude session."
+    );
     expect(invocations.at(-1)?.trackerCredentialEnvironment).toEqual({
       githubGraphqlToken: false,
       githubToken: false,
@@ -503,6 +512,13 @@ async function createTurnLeaseServer(): Promise<{
           acquired: true,
           expiresAt: "2026-04-26T01:00:00.000Z",
         })
+      );
+      return;
+    }
+    if (request.method === "POST" && request.url === "/api/v1/tracker-state") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({ ok: true, outcome: "confirmed", state: "In progress" })
       );
       return;
     }

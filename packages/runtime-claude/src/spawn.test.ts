@@ -7,6 +7,59 @@ import {
 } from "./spawn.js";
 
 describe("spawnClaudeTurn", () => {
+  it("fails when Claude produces no initial output before read_timeout_ms", async () => {
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      readTimeoutMs: 30,
+    });
+
+    expect(result).toMatchObject({
+      result: "process-error",
+      errorMessage: "response_timeout: Claude produced no output for 30ms",
+      classification: {
+        reason: "response_timeout: Claude produced no output for 30ms",
+      },
+    });
+  });
+
+  it("resets the turn silence timeout for every Claude output chunk", async () => {
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: [
+        "-e",
+        "let n=0; const t=setInterval(() => { console.log(JSON.stringify({type:'message_start'})); if (++n === 3) { clearInterval(t); process.exit(0); } }, 15)",
+      ],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      readTimeoutMs: 50,
+      turnTimeoutMs: 80,
+    });
+
+    expect(result.errorMessage).toBeUndefined();
+    expect(result.classification.reason).toBe("missing_result");
+  });
+
+  it("fails after a Claude output silence interval", async () => {
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: [
+        "-e",
+        "console.log(JSON.stringify({type:'message_start'})); setInterval(() => {}, 1000)",
+      ],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      readTimeoutMs: 50,
+      turnTimeoutMs: 30,
+    });
+
+    expect(result.errorMessage).toBe(
+      "turn_timeout: Claude produced no output for 30ms"
+    );
+  });
+
   it("writes stream-json input, parses ndjson output, and returns success", async () => {
     const stdin = new PassThrough();
     let writtenStdin = "";

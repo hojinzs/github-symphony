@@ -211,6 +211,8 @@ export function createWorkerNonCodexRuntimeAdapter(
             bare: runtime.isolation.bare,
             strictMcpConfig: runtime.isolation.strictMcpConfig,
           },
+          readTimeoutMs: runtime.timeouts.readTimeoutMs,
+          turnTimeoutMs: runtime.timeouts.turnTimeoutMs,
         },
         {
           ...context.claudeDependencies,

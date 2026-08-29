@@ -47,6 +47,8 @@ export type ClaudeRuntimeConfig = {
   authEnvKey?: string;
   inheritProcessEnv?: boolean;
   runtimeRoot?: string;
+  readTimeoutMs?: number;
+  turnTimeoutMs?: number;
 };
 
 export type ClaudeRuntimePrepareContext = {
@@ -384,6 +386,8 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
           inputEnv: input.env,
         }),
         stdinMessages: input.messages,
+        readTimeoutMs: this.config.readTimeoutMs,
+        turnTimeoutMs: this.config.turnTimeoutMs,
       },
       {
         ...this.dependencies,
