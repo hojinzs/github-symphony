@@ -7,20 +7,20 @@ import {
 } from "./spawn.js";
 
 describe("spawnClaudeTurn", () => {
-  it("fails when Claude produces no initial output before read_timeout_ms", async () => {
+  it("fails when Claude produces no initial output before the stall deadline", async () => {
     const result = await spawnClaudeTurn({
       command: process.execPath,
       args: ["-e", "setInterval(() => {}, 1000)"],
       cwd: process.cwd(),
       stdinMessages: [],
-      readTimeoutMs: 30,
+      initialOutputTimeoutMs: 100,
     });
 
     expect(result).toMatchObject({
       result: "process-error",
-      errorMessage: "response_timeout: Claude produced no output for 30ms",
+      errorMessage: "response_timeout: Claude produced no output for 100ms",
       classification: {
-        reason: "response_timeout: Claude produced no output for 30ms",
+        reason: "response_timeout: Claude produced no output for 100ms",
       },
     });
   });
@@ -34,7 +34,7 @@ describe("spawnClaudeTurn", () => {
       ],
       cwd: process.cwd(),
       stdinMessages: [],
-      readTimeoutMs: 50,
+      initialOutputTimeoutMs: 500,
       turnTimeoutMs: 80,
     });
 
@@ -51,13 +51,32 @@ describe("spawnClaudeTurn", () => {
       ],
       cwd: process.cwd(),
       stdinMessages: [],
-      readTimeoutMs: 50,
+      initialOutputTimeoutMs: 500,
       turnTimeoutMs: 30,
     });
 
     expect(result.errorMessage).toBe(
       "turn_timeout: Claude produced no output for 30ms"
     );
+  });
+
+  it("escalates a timed-out Claude child that ignores SIGTERM", async () => {
+    const startedAt = Date.now();
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+      ],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      initialOutputTimeoutMs: 100,
+    });
+
+    expect(result.errorMessage).toBe(
+      "response_timeout: Claude produced no output for 100ms"
+    );
+    expect(Date.now() - startedAt).toBeLessThan(2_500);
   });
 
   it("writes stream-json input, parses ndjson output, and returns success", async () => {

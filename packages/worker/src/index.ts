@@ -765,6 +765,7 @@ async function runNonCodexRuntimeAdapterLifecycle(
     let maxTurnsReached = exhaustedBeforeStart;
 
     for (let turn = 0; turn < maxTurns; turn += 1) {
+      terminalFailure = null;
       const turnCount = turn + 1;
       if (turn > 0) {
         const trackerState = await refreshTrackerState(
@@ -832,11 +833,16 @@ async function runNonCodexRuntimeAdapterLifecycle(
         break;
       }
       emitTurnCompletedEvent(turnTelemetry);
+      if (terminalFailure) break;
       if (turnCount === maxTurns) maxTurnsReached = true;
     }
 
     runtimeState.status = terminalFailure ? "failed" : "completed";
-    runtimeState.runPhase = terminalFailure ? "failed" : "succeeded";
+    runtimeState.runPhase = terminalFailure
+      ? isNonCodexTimeoutFailure(terminalFailure)
+        ? "timed_out"
+        : "failed"
+      : "succeeded";
     if (runtimeState.run) {
       runtimeState.run.lastError = terminalFailure;
     }
@@ -1008,6 +1014,13 @@ function describeNonCodexTurnFailure(result: WorkerNonCodexTurnResult): string {
   return (
     result.errorMessage ??
     `${result.command} exited with ${result.signal ?? result.exitCode ?? "unknown"}`
+  );
+}
+
+function isNonCodexTimeoutFailure(message: string): boolean {
+  return (
+    message.startsWith("response_timeout:") ||
+    message.startsWith("turn_timeout:")
   );
 }
 

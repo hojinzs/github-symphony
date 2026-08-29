@@ -49,6 +49,7 @@ export type ClaudeRuntimeConfig = {
   runtimeRoot?: string;
   readTimeoutMs?: number;
   turnTimeoutMs?: number;
+  stallTimeoutMs?: number;
 };
 
 export type ClaudeRuntimePrepareContext = {
@@ -386,7 +387,10 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
           inputEnv: input.env,
         }),
         stdinMessages: input.messages,
-        readTimeoutMs: this.config.readTimeoutMs,
+        // Claude startup includes CLI initialization, MCP connections, and
+        // first-token latency. The runtime stall budget is the compatible
+        // bound for that initial silence rather than Codex's RPC read budget.
+        initialOutputTimeoutMs: this.config.stallTimeoutMs,
         turnTimeoutMs: this.config.turnTimeoutMs,
       },
       {

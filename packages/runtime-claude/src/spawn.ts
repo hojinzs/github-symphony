@@ -30,7 +30,7 @@ export type ClaudeSpawnTurnInput = {
   env?: NodeJS.ProcessEnv;
   stdinMessages: ClaudeWireMessage | readonly ClaudeWireMessage[];
   /** Maximum wait for the first child output. */
-  readTimeoutMs?: number;
+  initialOutputTimeoutMs?: number;
   /** Maximum silence interval; every stdout or stderr chunk resets it. */
   turnTimeoutMs?: number;
 };
@@ -77,11 +77,14 @@ export async function spawnClaudeTurn(
   let sawOutput = false;
   let readTimer: NodeJS.Timeout | undefined;
   let silenceTimer: NodeJS.Timeout | undefined;
+  let terminationTimer: NodeJS.Timeout | undefined;
   const clearTimers = () => {
     if (readTimer) clearTimeout(readTimer);
     if (silenceTimer) clearTimeout(silenceTimer);
+    if (terminationTimer) clearTimeout(terminationTimer);
     readTimer = undefined;
     silenceTimer = undefined;
+    terminationTimer = undefined;
   };
   const terminateForTimeout = (message: string) => {
     if (timeoutMessage) return;
@@ -91,6 +94,13 @@ export async function spawnClaudeTurn(
     } catch {
       // The child may already have exited while the timer fired.
     }
+    terminationTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The child may have exited while the escalation timer fired.
+      }
+    }, 1_000);
   };
   const armSilenceTimer = () => {
     if (input.turnTimeoutMs && input.turnTimeoutMs > 0) {
@@ -112,14 +122,14 @@ export async function spawnClaudeTurn(
     }
     armSilenceTimer();
   };
-  if (input.readTimeoutMs && input.readTimeoutMs > 0) {
+  if (input.initialOutputTimeoutMs && input.initialOutputTimeoutMs > 0) {
     readTimer = setTimeout(() => {
       if (!sawOutput) {
         terminateForTimeout(
-          `response_timeout: Claude produced no output for ${input.readTimeoutMs}ms`
+          `response_timeout: Claude produced no output for ${input.initialOutputTimeoutMs}ms`
         );
       }
-    }, input.readTimeoutMs);
+    }, input.initialOutputTimeoutMs);
   }
   // The initial silence interval begins when the child is launched; each
   // output chunk resets it, while the read timer remains until first output.

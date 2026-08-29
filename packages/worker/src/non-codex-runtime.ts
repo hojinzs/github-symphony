@@ -213,6 +213,7 @@ export function createWorkerNonCodexRuntimeAdapter(
           },
           readTimeoutMs: runtime.timeouts.readTimeoutMs,
           turnTimeoutMs: runtime.timeouts.turnTimeoutMs,
+          stallTimeoutMs: runtime.timeouts.stallTimeoutMs,
         },
         {
           ...context.claudeDependencies,

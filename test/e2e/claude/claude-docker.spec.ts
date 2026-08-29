@@ -155,7 +155,9 @@ Worker prompt.
     expect(result.stderr).not.toContain("codex client protocol");
     const invocations = await readStubInvocations(logDir);
     // Claude preflight invokes the stub once before the adapter-launched child.
-    expect(invocations.length).toBeGreaterThanOrEqual(2);
+    // Claude preflight invokes the stub once; SYMPHONY_MAX_TURNS=2 must
+    // produce exactly two worker turns and no third continuation turn.
+    expect(invocations.length).toBe(3);
     const workerInvocations = invocations.slice(-2);
     expect(workerInvocations[1]?.argv).toContain("--resume");
     expect(workerInvocations[1]?.argv).not.toContain("--fork-session");
