@@ -9059,6 +9059,23 @@ Prefer focused changes.
       dueAt: "2026-03-08T00:00:07.000Z",
       error: "Worker process exited unexpectedly.",
     });
+    const events = (await readFile(
+      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+      "utf8"
+    ))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "run-retried",
+        runId: "run-1",
+        issueId: "issue-1",
+        attempt: 4,
+        dueAt: "2026-03-08T00:00:07.000Z",
+        error: "Worker process exited unexpectedly.",
+      })
+    );
   });
 
   async function createSuccessfulFinalizationFixture(

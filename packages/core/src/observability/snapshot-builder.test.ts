@@ -227,6 +227,11 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.retryQueue[0].issueUrl).toBe(
       "https://github.com/acme/platform/issues/42"
     );
+    expect(snapshot.retryQueue[0]).toMatchObject({
+      issueId: "issue-001",
+      attempt: 1,
+      error: null,
+    });
     expect(snapshot.retryQueue[0].retryKind).toBe("failure");
     expect(snapshot.retryQueue[1].runId).toBe("run-003");
     expect(snapshot.retryQueue[1].retryKind).toBe("recovery");

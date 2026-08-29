@@ -413,8 +413,11 @@ export type ProjectStatusSnapshot = {
   recovery?: IncompleteTurnRecoveryInfo | null;
   retryQueue: Array<{
     runId: string;
+    issueId: string;
     issueIdentifier: string;
     issueUrl?: string | null;
+    attempt: number;
+    error: string | null;
     retryKind: RetryKind;
     nextRetryAt: string | null;
   }>;

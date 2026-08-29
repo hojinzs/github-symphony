@@ -177,6 +177,23 @@ describe("event-formatter", () => {
     );
   });
 
+  it("formats scheduled retry events with their error summary", () => {
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-retried",
+        projectId: "project-1",
+        runId: "run-1",
+        issueIdentifier: "acme/repo#1",
+        issueId: "issue-1",
+        attempt: 2,
+        retryKind: "failure",
+        dueAt: "2026-03-16T00:02:00.000Z",
+        error: "worker exited with code 1",
+      })
+    ).toBe("Retry 2 scheduled (failure): worker exited with code 1");
+  });
+
   it("formats finalization deferrals with diagnostic context", () => {
     expect(
       formatEventMessage({

@@ -121,8 +121,11 @@ export function buildProjectSnapshot(
       .filter((run) => run.status === "retrying" && run.retryKind)
       .map((run) => ({
         runId: run.runId,
+        issueId: run.issueId,
         issueIdentifier: run.issueIdentifier,
         issueUrl: run.issueUrl ?? null,
+        attempt: run.attempt,
+        error: run.lastError,
         retryKind: run.retryKind ?? "failure",
         nextRetryAt: run.nextRetryAt,
       })),
