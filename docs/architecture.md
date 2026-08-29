@@ -54,18 +54,26 @@ touches a layer, check that its slice (and the linked documents) still holds.
   immediately counts as a running claim. Exhausted capacity is requeued for
   the polling interval without consuming failure budget or increasing retry
   backoff.
+- This reservation behavior is an intentional repository-local scheduler
+  divergence. After a confirmed transition out of an active state, the worker
+  also receives a fixed 30-second clean-exit grace before reconciliation acts.
 - Project workflow and polling policy load before tracker candidates are fetched. The scheduler then applies only the normalized `TrackedIssue.dispatchable` gate before loading issue-specific workflow or starting a worker. It does not encode provider assignment, repository-scope, label, or fork rules; each tracker adapter derives those rules and supplies an explainable `dispatchReason` with non-dispatchable candidates.
 - Initial prompt rendering receives the execution phase derived from the configured planning and active states.
 - Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. An unavailable final read persists a warning-level `run-finalization-deferred` event with a discriminated cause and defers classification for up to three consecutive reconciliation ticks; the third unknown read enters the existing failure-retry path so the run cannot remain pinned. The tick counter intentionally follows reconciliation opportunities rather than wall-clock time, so adaptive polling can stretch the elapsed grace window by up to the configured 10× poll multiplier while preserving a deterministic provider-read budget. A known active or non-actionable result resets the streak. This failure-retry treatment after a successful worker exit intentionally diverges from the upstream specification's normal-exit continuation retry: the repository prioritizes bounded finalization and eventual suppression when canonical state cannot be established, and retains the tracker cause in retry diagnostics instead of reporting a worker failure. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.
 - Before dispatch, active candidates carrying an adapter-provided terminal fact are converged to the workflow terminal state and suppressed from worker startup.
-- Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`
+- Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`.
+  Claims, retry entries, and run records survive daemon restart; upstream
+  Symphony §14.3 does not restore scheduler state. This is an intentional
+  repository-local persistence divergence.
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`), heartbeat locks, direct-clone degradation, safe inventory/eviction, worktree populate, and conservative agent-branch collection (only refs fully reachable from `origin/*` and not linked to a worktree): `repository-cache.ts`, `git.ts`; operator diagnostics and cleanup: `packages/cli/src/commands/cache.ts`
 - Issue workspace records remain in orchestrator state, while population, quarantine, terminal cleanup, and worktree removal operate on `<workspace.root>/<issue-key>` in repo-embedded and standalone modes.
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config. The file is defensively re-read on every reconciliation tick; no filesystem watcher is installed (an explicit upstream divergence documented in [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md)).
 
 ### 4. Execution — worker and agent subprocess
 
-- Single-issue execution, `/api/v1/state`, approval workflow, hooks: `packages/worker`
+- Single-issue execution, approval workflow, hooks: `packages/worker`. The
+  control-plane routes, including `/api/v1/state`, are served by
+  `packages/cli/src/commands/start.ts` through `packages/control-plane`.
 - Worker run metadata uses the same core lifecycle phase resolver as orchestrator prompt rendering.
 - Multi-turn convergence compares local workspace/HEAD progress and reads canonical tracker state through `/api/v1/tracker-state` before each turn after the first and again at the failure threshold. A confirmed state outside the workflow's active states completes the worker at the next boundary; active or unconfirmed reads fail closed. Comments, PR pushes, and active-to-active transitions do not reset the local non-productive-turn counter. Each read uses the tracker adapter and may consume a live provider request (up to 19 per default 20-turn session, plus the threshold read).
 - Runtime adapters: `packages/runtime-codex` (app-server protocol), `packages/runtime-claude` (print mode)
@@ -78,6 +86,9 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract. Its pickup labels instead filter the candidate list before dispatch, so label-ineligible Linear items are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records.
 - File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
+- GitHub adapter profile: `packages/tracker-github/README.md`. Its synthetic
+  `Archived` state is a GitHub-specific implementation choice, not normalized
+  Symphony core behavior.
 
 ### 6. Observability — events and status surfaces
 
@@ -118,3 +129,8 @@ core ─→ (none; no external dependencies either)
 The single publish unit is `@gh-symphony/cli`. Behavior-changing PRs add a
 changeset under `.changeset/`; merging the changeset-release bot PR publishes
 to npm.
+
+## Explicit non-goal
+
+Appendix A's SSH worker transport is not implemented and is out of scope for
+this repository at present; local worker execution is the supported model.

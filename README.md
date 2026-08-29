@@ -591,7 +591,7 @@ tracker:
 
 `gh-symphony repo start --assigned-only` also applies to Linear trackers. It is an input to the Linear adapter's `dispatchable` derivation: the adapter keeps candidate issues observable, compares each returned `assignee.id` with the authenticated viewer, and marks nonmatching or unassigned issues non-dispatchable. With a personal API key this viewer is that person; with a service-account key it is the service account. Symphony does not fail fast because Linear does not expose enough token metadata in the issue query path to distinguish those cases reliably.
 
-Linear workflows may also configure `tracker.pickup_labels.include` and `tracker.pickup_labels.exclude` as pickup eligibility gates. Excluded labels always win; when include labels are configured, an issue needs at least one include label before a worker starts. Label comparison is case-insensitive and ignores surrounding whitespace, so labels that differ only by case or outer whitespace cannot be used as separate gates. Label changes are not an interruption control for already running workers; move the Linear issue state to drive lifecycle and handoff behavior.
+Linear workflows may also configure `tracker.pickup_labels.include` and `tracker.pickup_labels.exclude` as pickup eligibility gates. Excluded labels always win; when include labels are configured, an issue needs at least one include label before a worker starts. Label comparison is case-insensitive and ignores surrounding whitespace, so labels that differ only by case or outer whitespace cannot be used as separate gates. Label changes are not an interruption control for already running workers. At the next worker exit, a non-dispatchable GitHub issue is finalized as non-actionable rather than continued; a Linear item filtered by labels follows its deferred-finalization path. Use lifecycle state and handoff policy to make the intended outcome explicit.
 
 Linear orchestration is polling-only. There is intentionally no Linear webhook setup command; state transitions, workpad comments, and PR handoff policy belong in `WORKFLOW.md`. See `docs/examples/linear-WORKFLOW.md` for a complete example.
 
@@ -886,25 +886,12 @@ All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatic
 | `SYMPHONY_RUN_ID`              | Current run ID (absent in `after_create`)        |
 | `SYMPHONY_ISSUE_STATE`         | Current tracker state (absent in `after_create`) |
 
-#### Example: Inline Hook
-
-Keep the mapping logic in versioned hook code while actual values stay in the runtime-only project `.env`:
-
-```yaml
-# WORKFLOW.md
-hooks:
-  after_create: |
-    echo "API_HOST=$STAGING_API_HOST" >> .env.development
-    echo "SECRET=$API_SECRET_KEY" >> .env.development
-  before_run: |
-    echo "BASE_URL=$PLAYWRIGHT_BASE_URL" > playwright.env
-```
-
-`$STAGING_API_HOST` and `$API_SECRET_KEY` are resolved from the project `.env` at runtime — nothing secret is committed to the repository.
-
 #### Example: External Script File
 
-For complex setup logic, point the hook to a shell script committed in the repository. Hook commands containing a `/` (without spaces) are automatically prefixed with `bash ./`, so a repository-relative path works as-is.
+Hooks are an opt-in, repository-local divergence from the upstream shell-command
+model. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` in the host environment, and point
+each hook at a committed executable script. Inline shell, `bash` prefixes, and
+shell operators are rejected; Symphony executes no implicit shell.
 
 ```yaml
 # WORKFLOW.md
@@ -998,6 +985,11 @@ or a host-side broker, returns only bounded issue-aware tool results to agents,
 uses loopback-only local services with scoped session capabilities, and gives
 the child an isolated home/configuration directory rather than a host `gh auth`
 store. Authenticated Git transport is performed by the host.
+
+This trust posture is an intentional repository-local divergence: Codex defaults
+to `approval_policy: never` with `danger-full-access`, Claude defaults to
+`bypassPermissions`, and untrusted user-input approval requests fail
+immediately rather than pausing for interactive confirmation.
 
 ## Community and security
 

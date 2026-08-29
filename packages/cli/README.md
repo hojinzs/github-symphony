@@ -221,13 +221,11 @@ PLAYWRIGHT_BASE_URL=http://localhost:3000
 EOF
 ```
 
-3. Reference those variables from `WORKFLOW.md` hooks or repository setup scripts:
+3. Reference those variables from a committed hook script or repository setup script:
 
-```yaml
-hooks:
-  after_create: 'echo "API_HOST=$STAGING_API_HOST" >> .env.development'
-  before_run: 'echo "BASE_URL=$PLAYWRIGHT_BASE_URL" > playwright.env'
-```
+`WORKFLOW.md` hooks are path-only and require
+`SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host environment. Inline
+shell commands are rejected; use an executable repository script instead.
 
 Env precedence during hook execution and worker spawn is:
 

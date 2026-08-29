@@ -31,6 +31,37 @@ Human-readable `gh-symphony repo status`, `gh-symphony project status`, and
 their `--watch` dashboards show the applied revision; `--json` exposes the
 same metadata for automation.
 
+Tracker connection settings are persisted in runtime `config.json`; changing
+them does not reconfigure an already-running daemon. This is an intentional
+repository-local live-reload divergence. In standalone project mode, stop and
+start the daemon to apply tracker endpoint, credential, or binding changes. In
+repo-embedded mode, those settings are fixed when `gh-symphony repo init`
+creates the runtime, so run `repo init` again before restarting `repo start`.
+
+## Runtime, Retry, and Hook Divergences
+
+`codex.command` is tokenized and must resolve to the `codex` executable. This
+repository does not invoke it through `bash -lc`; shell syntax, expansions, and
+arbitrary executables are rejected as an intentional command-execution
+divergence.
+
+`agent.max_failure_retries` is the failed-attempt budget, including the
+initial failed run: once the counter reaches this value, the issue is
+suppressed rather than scheduling another retry. `agent.retry_base_delay_ms`
+is the initial retry delay; later delays use exponential backoff bounded by
+`agent.max_retry_backoff_ms`.
+
+`codex.stall_timeout_ms` detects inactivity when positive. When it is zero or
+negative, that threshold is disabled, but the orchestrator still applies a hard
+30-minute elapsed-run fallback to prevent an indefinitely stuck worker. This is
+an intentional implementation-defined safety limit.
+
+Hooks are opt-in repository-local extensions, not shell snippets. Each hook
+value must be a path to an executable script; shell syntax and inline commands
+are rejected. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host
+environment to permit hook execution. The gate and path-only rule intentionally
+diverge from the upstream shell-command hook model.
+
 ## WORKFLOW.md Front-matter Validation
 
 `gh-symphony workflow validate` and `gh-symphony repo doctor` use the same
@@ -394,7 +425,7 @@ not set them manually.
 | `SYMPHONY_ISSUE_TITLE`            | issue title                               | Worker                                        | Internal/injected | Used for turn titles and context.                                                       |
 | `SYMPHONY_ISSUE_STATE`            | tracker state                             | Worker, hooks                                 | Internal/injected | Current tracker state at dispatch time.                                                 |
 | `SYMPHONY_ISSUE_SUBJECT_ID`       | tracker subject ID                        | Worker, hooks                                 | Internal/injected | Subject ID used for tracker-specific mutations.                                         |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY`    | workspace key                             | Worker, hooks                                 | Internal/injected | Stable workspace key; sanitized identifiers add a 16-hex SHA-256 suffix.               |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY`    | workspace key                             | Worker, hooks                                 | Internal/injected | Stable workspace key; sanitized identifiers add a 16-hex SHA-256 suffix.                |
 | `SYMPHONY_WORKFLOW_PATH`          | workflow file path                        | Worker                                        | Internal/injected | Path to the resolved workflow policy file.                                              |
 | `TARGET_REPOSITORY_CLONE_URL`     | target repo clone URL                     | Worker                                        | Internal/injected | Clone URL for the issue repository.                                                     |
 | `TARGET_REPOSITORY_OWNER`         | target repo owner                         | Worker                                        | Internal/injected | Repository owner.                                                                       |

@@ -7,6 +7,22 @@ It serves both the JSON API (delegated to `@gh-symphony/dashboard`) and an HTML 
 
 ## 1. Architecture
 
+### 1.0 Upstream spec mapping and repository-local API profile
+
+This control plane is a repository-local observability extension, not a
+verbatim upstream API. It uses bearer authentication, defaults to loopback
+port `4680`, and `--http` exposes JSON while `--web` also exposes the dashboard.
+Snapshots use camelCase fields. `POST /api/v1/refresh` acknowledges a refresh
+request with `{ ok: true }`, and worker-only POST routes are hosted by
+`packages/cli/src/commands/start.ts`. Per-issue dashboard routes use the
+structured `{ error: { code, message } }` envelope; authentication, refresh,
+state, and generic routing failures use `{ error: string }`. If the requested
+port is unavailable, startup auto-increments to an available port. Control
+plane snapshots use `idle`, `running`, and `degraded` health values. CLI status
+views additionally synthesize `stopped` when no daemon is running. These terms
+are implementation-defined and intentionally differ from upstream terminology
+where it has an equivalent.
+
 ### 1.1 Position in the Monorepo
 
 ```
