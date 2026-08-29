@@ -106,12 +106,14 @@ export type RunRetriedEvent = {
   at: string;
   event: "run-retried";
   projectId?: string;
+  runId: string;
   issueIdentifier: string;
   sessionId?: string;
   issueId?: string;
   attempt: number;
   retryKind: string;
-  nextRetryAt: string;
+  dueAt: string;
+  error: string | null;
 };
 
 export type RunFailedEvent = {

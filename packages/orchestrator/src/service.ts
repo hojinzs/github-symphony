@@ -3688,6 +3688,18 @@ export class OrchestratorService {
       recovery,
     };
     await this.store.saveRun(retryRecord);
+    await this.store.appendRunEvent(run.runId, {
+      at: now.toISOString(),
+      event: "run-retried",
+      projectId: run.projectId,
+      runId: run.runId,
+      issueIdentifier: run.issueIdentifier,
+      issueId: run.issueId,
+      attempt: retryRecord.attempt,
+      retryKind: persistedRetryKind,
+      dueAt: nextRetryAt,
+      error: retryRecord.lastError,
+    } as OrchestratorEvent);
     this.logVerbose(
       `[retry-scheduled] ${retryRecord.runId} kind=${persistedRetryKind} attempt=${retryRecord.attempt} nextAt=${nextRetryAt}`
     );

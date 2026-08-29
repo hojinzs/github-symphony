@@ -203,6 +203,7 @@ describe("buildProjectSnapshot", () => {
       status: "retrying",
       retryKind: "failure",
       nextRetryAt: "2024-01-01T00:15:00Z",
+      lastError: "worker failed",
     });
     const anotherRetrying = mockRun({
       runId: "run-003",
@@ -227,6 +228,11 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.retryQueue[0].issueUrl).toBe(
       "https://github.com/acme/platform/issues/42"
     );
+    expect(snapshot.retryQueue[0]).toMatchObject({
+      issueId: "issue-001",
+      attempt: 1,
+      error: "worker failed",
+    });
     expect(snapshot.retryQueue[0].retryKind).toBe("failure");
     expect(snapshot.retryQueue[1].runId).toBe("run-003");
     expect(snapshot.retryQueue[1].retryKind).toBe("recovery");
