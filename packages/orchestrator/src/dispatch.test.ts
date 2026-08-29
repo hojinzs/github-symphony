@@ -355,6 +355,39 @@ describe("explainIssueDispatch", () => {
     });
   });
 
+  it("explains missing required labels after normalization", () => {
+    const issue = makeIssue({
+      identifier: "acme/repo#1",
+      labels: [" Ready "],
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      lifecycle: { ...lifecycle, requiredLabels: ["ready", "agent"] },
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "workflow_routability",
+        status: "block",
+        message: 'not routable: Issue is missing required labels ("agent").',
+      })
+    );
+    expect(
+      isIssueCandidateEligibleWithReason(issue, {
+        ...lifecycle,
+        requiredLabels: ["ready", "agent"],
+      })
+    ).toEqual({ eligible: false, reason: "not_routable" });
+  });
+
   it("explains active linked PR cards when the canonical Issue is inactive", () => {
     const issue = makeIssue({
       identifier: "acme/repo#1",
@@ -1102,6 +1135,113 @@ describe("blocker eligibility", () => {
     const runs = await store.loadAllRuns();
     expect(runs).toHaveLength(1);
     expect(runs[0]?.issueTitle).toBe("Test");
+  });
+});
+
+describe("routability reconciliation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("stops an active run that loses a required label without cleaning its workspace", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-routability-reconciliation-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { requiredLabels: ["agent"] }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const issue = makeIssue({
+      id: "issue-routable-1",
+      identifier: "acme/platform#1",
+      state: "Todo",
+      labels: [],
+      repository,
+    });
+    const workspaceKey = deriveIssueWorkspaceKey(
+      { adapter: "github-project", issueSubjectId: issue.id },
+      issue.identifier
+    );
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "preserve.txt");
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "do not clean", "utf8");
+    await store.saveIssueWorkspace(
+      makeIssueWorkspace({
+        workspaceKey,
+        issueSubjectId: issue.id,
+        issueIdentifier: issue.identifier,
+        workspacePath,
+        repositoryPath,
+      })
+    );
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: issue.id,
+        identifier: issue.identifier,
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-routable-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun(
+      makeRun({
+        runId: "run-routable-1",
+        issueId: issue.id,
+        issueSubjectId: issue.id,
+        issueIdentifier: issue.identifier,
+        issueState: issue.state,
+        repository,
+        processId: 5411,
+        issueWorkspaceKey: workspaceKey,
+      })
+    );
+
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(repository, [issue])
+    );
+    const killImpl = vi.fn();
+    const result = await new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+      killImpl,
+      isProcessRunning: vi.fn().mockReturnValue(true),
+    }).runOnce();
+
+    expect(result.summary.suppressed).toBe(1);
+    expect(killImpl).toHaveBeenCalledWith(5411, "SIGTERM");
+    expect(await readFile(sentinelPath, "utf8")).toBe("do not clean");
+    expect(
+      await store.loadIssueWorkspace(projectConfig.projectId, workspaceKey)
+    ).toEqual(expect.objectContaining({ status: "active" }));
+    expect(
+      await store.loadRun("run-routable-1", projectConfig.projectId)
+    ).toEqual(
+      expect.objectContaining({
+        status: "suppressed",
+        runPhase: "canceled_by_reconciliation",
+        recovery: null,
+        lastError: expect.stringContaining("missing required labels"),
+      })
+    );
   });
 });
 
@@ -2212,6 +2352,7 @@ async function createRepositoryFixture(
   options: {
     activeStates?: string[];
     terminalStates?: string[];
+    requiredLabels?: string[];
     maxConcurrentByState?: Record<string, number>;
     codex?: {
       approvalPolicy?: string;
@@ -2252,6 +2393,8 @@ async function writeWorkflowFixture(
   repositoryRoot: string,
   options: {
     activeStates?: string[];
+    terminalStates?: string[];
+    requiredLabels?: string[];
     maxConcurrentByState?: Record<string, number>;
     codex?: {
       approvalPolicy?: string;
@@ -2268,6 +2411,11 @@ async function writeWorkflowFixture(
   const terminalStateLines = terminalStates
     .map((state) => `    - ${state}`)
     .join("\n");
+  const requiredLabelLines = options.requiredLabels
+    ? `  required_labels:\n${options.requiredLabels
+        .map((label) => `    - ${label}`)
+        .join("\n")}\n`
+    : "";
   const maxConcurrentByState = options.maxConcurrentByState
     ? `  max_concurrent_agents_by_state:\n${Object.entries(
         options.maxConcurrentByState
@@ -2307,6 +2455,7 @@ tracker:
 ${activeStateLines}
   terminal_states:
 ${terminalStateLines}
+${requiredLabelLines}  blocker_check_states:
   blocker_check_states:
     - Todo
 hooks:
