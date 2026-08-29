@@ -1905,10 +1905,12 @@ describe("OrchestratorService", () => {
       pid: 4101,
       unref: vi.fn(),
     });
+    const isProcessRunning = vi.fn().mockReturnValue(false);
     const currentTime = new Date("2026-03-08T00:00:00.000Z");
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: spawnImpl as never,
+      isProcessRunning,
       now: () => currentTime,
     });
 
@@ -1945,6 +1947,7 @@ describe("OrchestratorService", () => {
       )
     ).resolves.toContain(`"workspaceKey": "${workspaceKey}"`);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(isProcessRunning).toHaveBeenCalledWith(4101);
     expect((await store.loadAllRuns())[0]?.trackerItemId).toBe("item-1");
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
@@ -3720,6 +3723,7 @@ Retry inconclusive work.
     const stderr = {
       write: vi.fn().mockReturnValue(true),
     };
+    const isProcessRunning = vi.fn().mockReturnValue(false);
 
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
@@ -3728,6 +3732,7 @@ Retry inconclusive work.
           createTrackerResponseWithState(repository, "Todo")
         ) as never,
       spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      isProcessRunning,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
       stderr,
       logLevel: "verbose",
@@ -3755,6 +3760,7 @@ Retry inconclusive work.
       `[retry-scheduled] ${runId} kind=continuation attempt=1 nextAt=2026-03-08T00:00:01.000Z\n`
     );
     expect(output).toContain(`[run-completed] ${runId} status=retrying\n`);
+    expect(isProcessRunning).toHaveBeenCalledWith(4102);
   });
 
   it("invokes onTick with the reconciliation snapshot when run() completes a tick", async () => {
@@ -7296,6 +7302,7 @@ Prefer focused changes.
     await store.saveProjectConfig(projectConfig);
 
     const workers: EventEmitter[] = [];
+    const isProcessRunning = vi.fn().mockReturnValue(false);
     const spawnImpl = vi.fn().mockImplementation(() => {
       const worker = new EventEmitter() as EventEmitter & {
         pid: number;
@@ -7323,6 +7330,7 @@ Prefer focused changes.
         return createTrackerResponseWithState(repository, "Ready") as Response;
       }) as never,
       spawnImpl: spawnImpl as never,
+      isProcessRunning,
       now: () => now,
     });
 
@@ -7339,6 +7347,7 @@ Prefer focused changes.
     expect(retryWorkerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "retry_attempt=1"
     );
+    expect(isProcessRunning).toHaveBeenCalledWith(4310);
   });
 
   it("renders a queued failure retry attempt during ordinary dispatch", async () => {
@@ -15802,12 +15811,14 @@ Prefer focused changes.
       nextRetryAt: null,
     });
 
+    const isProcessRunning = vi.fn().mockReturnValue(false);
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4202,
         unref: vi.fn(),
       }) as never,
+      isProcessRunning,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
@@ -15824,6 +15835,7 @@ Prefer focused changes.
 
     expect(workspacePathFromHook).toBe(expectedWorkspacePath);
     expect(repositoryPathFromHook).toBe(repository.path);
+    expect(isProcessRunning).toHaveBeenCalledWith(999999);
   });
 });
 
