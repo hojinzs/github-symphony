@@ -1230,6 +1230,26 @@ Prompt`,
     });
   });
 
+  it("fails when a requested Linear issue has malformed required state data", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [linearIssueNode("ENG-123", [], { state: null })],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.fetchIssueStatesByIds(makeProject(), ["ENG-123"], {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.toThrow("Linear issue state name is required.");
+  });
+
   it("injects worker environment without requiring team id", () => {
     const env = linearTrackerAdapter.buildWorkerEnvironment(
       makeProject({ apiUrl: undefined }),
