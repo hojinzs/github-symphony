@@ -13,6 +13,10 @@ import {
   WorkflowValidationError,
 } from "@gh-symphony/core";
 import {
+  executeGitHubGraphQL,
+  type GitHubGraphQLInvocation,
+} from "@gh-symphony/tool-github-graphql";
+import {
   fetchGithubIssueStatesByIds,
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
@@ -44,6 +48,53 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       "GITHUB_TOKEN",
       "GITHUB_GRAPHQL_TOKEN",
     ];
+  },
+
+  agentToolSpecs() {
+    return [
+      {
+        name: "github_graphql",
+        description:
+          "Execute a GitHub GraphQL query or mutation for the active tracker issue.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "GraphQL query or mutation document.",
+            },
+            variables: {
+              type: "object",
+              description: "Variables for the GraphQL document.",
+            },
+            operationName: {
+              type: "string",
+              description: "Optional GraphQL operation name.",
+            },
+          },
+          required: ["query"],
+          additionalProperties: false,
+        },
+      },
+    ];
+  },
+
+  async executeAgentTool(name, args, context) {
+    if (name !== "github_graphql") {
+      throw new Error(`Unknown GitHub agent tool: ${name}`);
+    }
+    return executeGitHubGraphQL(
+      args as GitHubGraphQLInvocation,
+      {
+        token: process.env.GITHUB_GRAPHQL_TOKEN,
+        apiUrl: process.env.GITHUB_GRAPHQL_API_URL,
+        tokenBrokerUrl: process.env.GITHUB_TOKEN_BROKER_URL,
+        tokenBrokerSecret: process.env.GITHUB_TOKEN_BROKER_SECRET,
+        tokenCachePath: process.env.GITHUB_TOKEN_CACHE_PATH,
+      },
+      fetch,
+      context
+    );
   },
 
   async listIssues(project, dependencies = {}) {

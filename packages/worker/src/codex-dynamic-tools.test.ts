@@ -12,8 +12,8 @@ describe("Codex host dynamic tools", () => {
     GITHUB_GRAPHQL_TOKEN: "host-token",
   };
 
-  it("executes GitHub GraphQL in-process with the issue context", async () => {
-    const executeGitHubGraphQL = vi.fn().mockResolvedValue({ data: "ok" });
+  it("executes the adapter-owned host tool with the issue context", async () => {
+    const executeAgentTool = vi.fn().mockResolvedValue({ data: "ok" });
     const context = createTrackerToolContext(env);
 
     const response = await executeCodexDynamicToolCall(
@@ -21,13 +21,12 @@ describe("Codex host dynamic tools", () => {
       { query: "query { viewer { login } }" },
       context,
       env,
-      { executeGitHubGraphQL }
+      { adapter: { executeAgentTool } }
     );
 
-    expect(executeGitHubGraphQL).toHaveBeenCalledWith(
+    expect(executeAgentTool).toHaveBeenCalledWith(
+      "github_graphql",
       { query: "query { viewer { login } }" },
-      expect.objectContaining({ token: "host-token" }),
-      expect.any(Function),
       {
         issue: {
           id: "issue-730",

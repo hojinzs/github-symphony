@@ -30,6 +30,36 @@ export class NonRetryableTrackerAdapterError extends Error {
 
 export type TrackerAdapterKind = "github-project" | (string & {});
 
+/** JSON-schema subset advertised to an agent runtime for a host-side tool. */
+export type AgentToolInputSchema = {
+  type: "object";
+  properties: Record<string, unknown>;
+  required: string[];
+  additionalProperties: boolean;
+};
+
+/**
+ * Provider-owned description of a tool that an agent may call. Credentials,
+ * transport details, and provider configuration deliberately remain host-side.
+ */
+export type AgentToolSpec = {
+  name: string;
+  description: string;
+  inputSchema: AgentToolInputSchema;
+};
+
+/**
+ * Normalized issue identity supplied to host-side tool execution. Native
+ * references are opaque to orchestration, but available to the owning adapter.
+ */
+export type AgentToolExecutionContext = {
+  issue: {
+    id: string;
+    identifier: string;
+    nativeRef: TrackedIssue["nativeRef"];
+  };
+};
+
 export type TrackerBindingSummary = {
   adapter: TrackerAdapterKind;
   bindingId: string;
@@ -236,6 +266,14 @@ export type OrchestratorTrackerAdapter = {
   defaultLifecycle?: () => WorkflowLifecycleConfig;
   /** Names whose values authenticate this tracker and must not reach agents. */
   secretEnvironmentNames(): string[];
+  /** Advertises provider tools that the runtime may expose to the agent. */
+  agentToolSpecs?(): readonly AgentToolSpec[];
+  /** Executes one advertised provider tool on the host for the active issue. */
+  executeAgentTool?(
+    name: string,
+    args: Record<string, unknown>,
+    context: AgentToolExecutionContext
+  ): Promise<unknown>;
   listIssues(
     project: OrchestratorProjectConfig,
     dependencies?: OrchestratorTrackerDependencies
