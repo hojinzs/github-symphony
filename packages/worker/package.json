@@ -47,7 +47,6 @@
     "@gh-symphony/runtime-claude": "workspace:*",
     "@gh-symphony/runtime-codex": "workspace:*",
     "@gh-symphony/tool-github-graphql": "workspace:*",
-    "@gh-symphony/tool-linear-graphql": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",
     "@gh-symphony/tracker-linear": "workspace:*"
   }

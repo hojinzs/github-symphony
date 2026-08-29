@@ -205,12 +205,16 @@ The target architecture conforms to the upstream tool, secret-handling, and
 scope-narrowing requirements. `docs/symphony-spec.md` remains unchanged.
 
 Phase 2 is implemented through the adapter-owned `agentToolSpecs()` and
-`executeAgentTool(name, args, context)` contract. GitHub and Linear publish
-their tool schemas at session startup and execute the selected provider tool in
-the worker host with normalized issue context. The Docker host-tool and Claude
-HTTP-MCP black-box tests verify that the child receives tool results while the
-provider credential remains host-side; the per-provider contracts are recorded
-in [GitHub tracker tools](../trackers/github.md) and
+`executeAgentTool(name, args, context)` contract. Both Codex dynamic tools and
+the Claude HTTP MCP server source their schemas and execution from that
+contract. GitHub is advertised for repository/PR work in every tracker mode;
+Linear is added for Linear-tracked projects, and each call is routed to its
+owning adapter with the worker's resolved host environment. The Docker
+host-tool and Claude HTTP-MCP black-box tests verify query, comment, and
+Project-state mutation calls while the child receives only tool results and the
+provider credential remains host-side. Brokerless Codex credential inheritance
+remains the explicit temporary #700 compatibility divergence. The per-provider
+contracts are recorded in [GitHub tracker tools](../trackers/github.md) and
 [Linear tracker tools](../trackers/linear.md). This closes the host-transport
 portion of #673 without editing the upstream specification.
 

@@ -11,6 +11,7 @@ import type {
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
   AgentEvent,
+  AgentToolExecutionContext,
 } from "@gh-symphony/core";
 import {
   collectMcpSecretEnvironmentNames,
@@ -54,9 +55,7 @@ export type ClaudeRuntimeConfig = {
   readTimeoutMs?: number;
   turnTimeoutMs?: number;
   stallTimeoutMs?: number;
-  hostMcpContext?: {
-    issue: { id: string; identifier: string; nativeRef: unknown };
-  };
+  hostMcpContext?: AgentToolExecutionContext;
 };
 
 export type ClaudeRuntimePrepareContext = {
