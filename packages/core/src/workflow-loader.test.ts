@@ -217,7 +217,7 @@ Prompt`,
     );
   });
 
-  it("resolves provider environment values before adapter validation", () => {
+  it("preserves provider environment references for adapter validation", () => {
     const validateProviderConfig = vi.fn(() => []);
     parseWorkflowMarkdownStrict(
       `---
@@ -236,9 +236,7 @@ Prompt`,
       }
     );
 
-    expect(validateProviderConfig).toHaveBeenCalledWith({
-      endpoint: "https://github.example/api/graphql",
-    });
+    expect(validateProviderConfig).toHaveBeenCalledWith({ endpoint: "$GHES_URL" });
   });
 
   it("resolves provider validation and lifecycle defaults from tracker.kind", () => {

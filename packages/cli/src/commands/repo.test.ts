@@ -706,12 +706,13 @@ Handle {{issue.identifier}}.
     const repoDir = await createGitRepo();
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
+    const originalLinearApiKey = process.env.LINEAR_API_KEY;
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
       `---
 tracker:
   kind: linear
-  api_key: lin_test_token
+  api_key: $LINEAR_API_KEY
 codex:
   command: codex app-server
 ---
@@ -719,6 +720,7 @@ Handle {{issue.identifier}}.
 `,
       "utf8"
     );
+    process.env.LINEAR_API_KEY = "lin_test_token";
 
     try {
       await repoCommand(
@@ -726,6 +728,11 @@ Handle {{issue.identifier}}.
         baseOptions(join(repoDir, "unused"))
       );
     } finally {
+      if (originalLinearApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = originalLinearApiKey;
+      }
       stderr.restore();
     }
 
