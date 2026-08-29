@@ -19,6 +19,14 @@ type Invocation = {
   resumeId: string | null;
   forkSession: boolean;
   resultSessionId: string;
+  hostMcp: {
+    url: string;
+    responseStatus: number;
+    result?: {
+      content?: Array<{ type: string; text: string }>;
+    };
+    error?: { code: number; message: string };
+  } | null;
   trackerCredentialEnvironment: {
     githubGraphqlToken: boolean;
     githubToken: boolean;
@@ -105,6 +113,27 @@ Worker prompt.
 `,
       "utf8"
     );
+    const fetchMockPath = join(root, "host-mcp-fetch-mock.cjs");
+    await writeFile(
+      fetchMockPath,
+      `const fs = require("fs");
+const originalFetch = global.fetch;
+global.fetch = async (url, options) => {
+  if (String(url) !== "https://api.github.com/graphql") {
+    return originalFetch(url, options);
+  }
+  const authorization = options?.headers?.authorization;
+  fs.appendFileSync(process.env.CLAUDE_STUB_LOG_DIR + "/host-fetch.ndjson", JSON.stringify({
+    hostCredentialUsed: authorization === "Bearer stub-token",
+  }) + "\\n");
+  return new Response(JSON.stringify({ data: { viewer: { login: "host-mcp-stub" } } }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+};
+`,
+      "utf8"
+    );
 
     const leaseServer = await createTurnLeaseServer();
     let result: Awaited<ReturnType<typeof runWorkerProcess>>;
@@ -116,6 +145,8 @@ Worker prompt.
           PATH: `${resolve(repoRoot, "test/e2e/stubs")}:${process.env.PATH ?? ""}`,
           CLAUDE_STUB_LOG_DIR: logDir,
           CLAUDE_STUB_SCENARIO: "success",
+          CLAUDE_STUB_CALL_HOST_MCP: "true",
+          NODE_OPTIONS: `--require ${fetchMockPath}`,
           ANTHROPIC_API_KEY: "stub-anthropic-key",
           GITHUB_GRAPHQL_TOKEN: "stub-token",
           GITHUB_TOKEN: "stub-github-token",
@@ -170,6 +201,22 @@ Worker prompt.
       ghToken: false,
       githubTokenBrokerSecret: true,
     });
+    expect(invocations.at(-1)?.hostMcp).toMatchObject({
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/sse$/),
+      responseStatus: 200,
+      result: {
+        content: [
+          expect.objectContaining({
+            text: expect.stringContaining("host-mcp-stub"),
+          }),
+        ],
+      },
+    });
+    expect(await readFile(join(logDir, "host-fetch.ndjson"), "utf8")).toContain(
+      '"hostCredentialUsed":true'
+    );
+    expect(result.stderr).toContain("host MCP server started");
+    expect(result.stderr).toContain("host MCP server stopped");
   });
 
   it("keeps --resume within an intra-run continuation without --fork-session", async () => {

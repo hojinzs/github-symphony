@@ -34,6 +34,7 @@ printf '%s\n' "$invocation" > "$counter_file"
 
 session_id=""
 resume_id=""
+mcp_config_path=""
 fork_session=false
 args_json="["
 first_arg=true
@@ -77,6 +78,15 @@ while (($# > 0)); do
     --fork-session)
       fork_session=true
       ;;
+    --mcp-config)
+      if (($# < 2)); then
+        printf 'claude stub: --mcp-config requires a value\n' >&2
+        exit 64
+      fi
+      shift
+      mcp_config_path="$1"
+      append_arg "$mcp_config_path"
+      ;;
   esac
   shift || true
 done
@@ -107,6 +117,43 @@ const lines = raw ? raw.split(/\n/) : [];
 process.stdout.write(JSON.stringify(lines));
 ' "$stdin_file")"
 
+host_mcp_json="null"
+if [[ "${CLAUDE_STUB_CALL_HOST_MCP:-false}" == "true" && -n "$mcp_config_path" ]]; then
+  host_mcp_json="$(MCP_CONFIG_PATH="$mcp_config_path" node -e '
+const fs = require("fs");
+const config = JSON.parse(fs.readFileSync(process.env.MCP_CONFIG_PATH, "utf8"));
+const server = config.mcpServers && config.mcpServers.github_graphql;
+if (!server || typeof server.url !== "string" || !server.headers) {
+  throw new Error("host MCP configuration is missing github_graphql");
+}
+(async () => {
+  const response = await fetch(server.url.replace(/\/sse$/, "/messages"), {
+    method: "POST",
+    headers: { ...server.headers, "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "stub-host-tool-call",
+      method: "tools/call",
+      params: {
+        name: "github_graphql",
+        arguments: { query: "query { viewer { login } }" },
+      },
+    }),
+  });
+  const payload = await response.json();
+  process.stdout.write(JSON.stringify({
+    url: server.url,
+    responseStatus: response.status,
+    result: payload.result,
+    error: payload.error,
+  }));
+})().catch((error) => {
+  process.stderr.write(String(error));
+  process.exitCode = 1;
+});
+' )"
+fi
+
 INVOCATION="$invocation" \
 SCENARIO="$scenario" \
 ARGS_JSON="$args_json" \
@@ -115,6 +162,7 @@ SESSION_ID="$session_id" \
 RESUME_ID="$resume_id" \
 FORK_SESSION="$fork_session" \
 RESULT_SESSION_ID="$result_session_id" \
+HOST_MCP_JSON="$host_mcp_json" \
 INVOCATIONS_FILE="$invocations_file" \
 node -e '
 const fs = require("fs");
@@ -127,6 +175,7 @@ const record = {
   resumeId: process.env.RESUME_ID || null,
   forkSession: process.env.FORK_SESSION === "true",
   resultSessionId: process.env.RESULT_SESSION_ID,
+  hostMcp: JSON.parse(process.env.HOST_MCP_JSON || "null"),
   trackerCredentialEnvironment: {
     githubGraphqlToken: Boolean(process.env.GITHUB_GRAPHQL_TOKEN),
     githubToken: Boolean(process.env.GITHUB_TOKEN),

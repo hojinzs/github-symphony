@@ -35,7 +35,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
-- Layered MCP composition (`.mcp.json` sidecar): `packages/core/src/runtime/mcp-compose.ts` + each runtime adapter
+- Layered MCP composition (`.mcp.json` sidecar): `packages/core/src/runtime/mcp-compose.ts` + each runtime adapter. Claude's worker starts the selected provider tool as a loopback HTTP/SSE MCP service; its generated `mcp.json` contains the service URL and an ephemeral session capability, never adapter credentials.
 - CLI global/project config, discoverable repo/standalone runtime command options,
   folder-addressed standalone project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
