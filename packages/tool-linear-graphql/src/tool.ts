@@ -15,11 +15,22 @@ export type LinearGraphQLToolConfig = {
   authorizationHeader?: string;
 };
 
+/** Host-owned tracker identity supplied by a runtime transport. */
+export type TrackerToolExecutionContext = {
+  issue: {
+    id: string;
+    identifier: string;
+    nativeRef: unknown;
+  };
+};
+
 export async function executeLinearGraphQL(
   invocation: LinearGraphQLInvocation,
   config: LinearGraphQLToolConfig,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  context?: TrackerToolExecutionContext
 ): Promise<unknown> {
+  assertTrackerToolExecutionContext(context);
   validateLinearGraphQLInvocation(invocation);
   const authorization = resolveLinearAuthorizationHeader(config);
   const apiUrl = validateLinearGraphQLApiUrl(
@@ -49,6 +60,17 @@ export async function executeLinearGraphQL(
   }
 
   return payload;
+}
+
+function assertTrackerToolExecutionContext(
+  context: TrackerToolExecutionContext | undefined
+): void {
+  if (
+    context &&
+    (context.issue.id.trim() === "" || context.issue.identifier.trim() === "")
+  ) {
+    throw new Error("Tracker tool context must identify the current issue.");
+  }
 }
 
 export function validateLinearGraphQLInvocation(

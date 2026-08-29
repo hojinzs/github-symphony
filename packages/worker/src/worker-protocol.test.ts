@@ -25,6 +25,10 @@ import {
   normalizeCodexRuntimeEvents,
 } from "@gh-symphony/runtime-codex";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
+import {
+  createTrackerToolContext,
+  executeCodexDynamicToolCall,
+} from "./codex-dynamic-tools.js";
 
 const TEST_DYNAMIC_TOOLS = [
   {
@@ -39,6 +43,14 @@ const TEST_DYNAMIC_TOOLS = [
     },
   },
 ] as const;
+
+const TEST_TOOL_ENV = {
+  SYMPHONY_ISSUE_ID: "issue-730",
+  SYMPHONY_ISSUE_IDENTIFIER: "hojinzs/github-symphony#730",
+  SYMPHONY_ISSUE_NATIVE_REF: '{"itemId":"PVTI_730"}',
+  GITHUB_GRAPHQL_TOKEN: "host-token",
+  GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+};
 
 // ---------------------------------------------------------------------------
 // Protocol primitives — replicated exactly from packages/worker/src/index.ts
@@ -904,6 +916,30 @@ function createProtocolContext(options: {
           pending.resolve(msg.result);
         }
       }
+      return;
+    }
+
+    if (msg.method === "item/tool/call" && msg.id != null) {
+      runtimeState.lastEventAt = new Date().toISOString();
+      const params = msg.params as Record<string, unknown> | undefined;
+      const toolName = typeof params?.tool === "string" ? params.tool : "";
+      void executeCodexDynamicToolCall(
+        toolName,
+        params?.arguments,
+        createTrackerToolContext(TEST_TOOL_ENV),
+        TEST_TOOL_ENV,
+        {},
+        TEST_DYNAMIC_TOOLS.map((tool) => tool.name)
+      )
+        .then((result) => {
+          sendMessage({ jsonrpc: "2.0", id: msg.id, result });
+          runtimeState.lastEventAt = new Date().toISOString();
+        })
+        .catch((error: unknown) => {
+          logs.push(
+            `[worker] host dynamic tool response failed: ${error instanceof Error ? error.message : String(error)}`
+          );
+        });
       return;
     }
 
@@ -2665,6 +2701,82 @@ describe("token usage tracking", () => {
 });
 
 describe("lastEventAt timestamp tracking", () => {
+  it("responds to a host dynamic tool call and records tool activity", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
+        status: 200,
+      })
+    );
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      jsonrpc: "2.0",
+      id: "tool-call-1",
+      method: "item/tool/call",
+      params: {
+        tool: "github_graphql",
+        callId: "call-1",
+        arguments: { query: "query { viewer { login } }" },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(readSentMessages(ctx.fake.stdin)).toContainEqual({
+        jsonrpc: "2.0",
+        id: "tool-call-1",
+        result: {
+          success: true,
+          contentItems: [
+            {
+              type: "inputText",
+              text: expect.stringContaining('"login":"octo"'),
+            },
+          ],
+        },
+      });
+    });
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.github.com/graphql",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer host-token" }),
+      })
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("returns a structured response for an unknown host dynamic tool", async () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      jsonrpc: "2.0",
+      id: "tool-call-unknown",
+      method: "item/tool/call",
+      params: { tool: "not_advertised", callId: "call-unknown", arguments: {} },
+    });
+
+    await vi.waitFor(() => {
+      expect(readSentMessages(ctx.fake.stdin)).toContainEqual({
+        jsonrpc: "2.0",
+        id: "tool-call-unknown",
+        result: {
+          success: false,
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                error: {
+                  code: "unknown_tool",
+                  message: 'Tool "not_advertised" is not supported.',
+                },
+              }),
+            },
+          ],
+        },
+      });
+    });
+  });
+
   it("updates lastEventAt on completion events", () => {
     const ctx = createProtocolContext({});
     expect(ctx.runtimeState.lastEventAt).toBeNull();

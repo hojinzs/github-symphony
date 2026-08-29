@@ -1448,6 +1448,9 @@ async function runCodexClientProtocol(
     }
 
     if (msg.method === "item/tool/call" && msg.id != null) {
+      // Codex app-server specifies item/tool/call as a JSON-RPC request, so
+      // notifications have no response envelope to complete.
+      runtimeState.lastEventAt = new Date().toISOString();
       const params = msg.params as Record<string, unknown> | undefined;
       const toolName = typeof params?.tool === "string" ? params.tool : "";
       const callId = typeof params?.callId === "string" ? params.callId : "";
@@ -1463,6 +1466,10 @@ async function runCodexClientProtocol(
         plan.dynamicTools.map((tool) => tool.name)
       ).then((result) => {
         sendMessage({ jsonrpc: "2.0", id: msg.id, result });
+        runtimeState.lastEventAt = new Date().toISOString();
+      }).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[worker] host dynamic tool response failed: ${message}\n`);
       });
       return;
     }

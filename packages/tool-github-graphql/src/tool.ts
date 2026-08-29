@@ -42,11 +42,25 @@ export type GitHubGraphQLToolConfig = {
   rateLimitPolicy?: GitHubGraphQLRateLimitPolicy;
 };
 
+/**
+ * Host-owned tracker identity supplied by a runtime transport. The provider
+ * adapter keeps this context internal; it is never added to GraphQL payloads.
+ */
+export type TrackerToolExecutionContext = {
+  issue: {
+    id: string;
+    identifier: string;
+    nativeRef: unknown;
+  };
+};
+
 export async function executeGitHubGraphQL(
   invocation: GitHubGraphQLInvocation,
   config: GitHubGraphQLToolConfig,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  context?: TrackerToolExecutionContext
 ): Promise<unknown> {
+  assertTrackerToolExecutionContext(context);
   const token = await resolveGitHubGraphQLToken(config, {
     fetchImpl,
   });
@@ -125,6 +139,17 @@ export async function executeGitHubGraphQL(
   }
 
   return rateLimits ? { ...payload, rateLimits } : payload;
+}
+
+function assertTrackerToolExecutionContext(
+  context: TrackerToolExecutionContext | undefined
+): void {
+  if (
+    context &&
+    (context.issue.id.trim() === "" || context.issue.identifier.trim() === "")
+  ) {
+    throw new Error("Tracker tool context must identify the current issue.");
+  }
 }
 
 type GitHubGraphQLPayload = {

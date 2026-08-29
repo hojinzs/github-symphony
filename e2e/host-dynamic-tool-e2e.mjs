@@ -8,22 +8,29 @@ const env = {
   SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#730",
   SYMPHONY_ISSUE_NATIVE_REF: '{"itemId":"docker-item-730"}',
   GITHUB_GRAPHQL_TOKEN: "host-only-test-token",
+  GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
 };
 const context = createTrackerToolContext(env);
-const response = await executeCodexDynamicToolCall(
-  "github_graphql",
-  { query: "query { viewer { login } }" },
-  context,
-  env,
-  {
-    executeGitHubGraphQL: async (_invocation, _config, receivedContext) => {
-      if (JSON.stringify(receivedContext) !== JSON.stringify(context)) {
-        throw new Error("issue_context_not_forwarded");
-      }
-      return { data: { viewer: { login: "docker-host-tool" } } };
-    },
-  }
-);
+const originalFetch = globalThis.fetch;
+let request;
+globalThis.fetch = async (url, init) => {
+  request = { url: String(url), init };
+  return new Response(
+    JSON.stringify({ data: { viewer: { login: "docker-host-tool" } } }),
+    { status: 200 }
+  );
+};
+let response;
+try {
+  response = await executeCodexDynamicToolCall(
+    "github_graphql",
+    { query: "query { viewer { login } }" },
+    context,
+    env
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 if (
   response.success !== true ||
@@ -31,6 +38,14 @@ if (
     '{"data":{"viewer":{"login":"docker-host-tool"}}}'
 ) {
   throw new Error(`unexpected_host_tool_response:${JSON.stringify(response)}`);
+}
+
+if (
+  request?.url !== "https://api.github.com/graphql" ||
+  request?.init?.headers?.authorization !== "Bearer host-only-test-token" ||
+  !request?.init?.body?.includes("viewer")
+) {
+  throw new Error(`unexpected_host_provider_request:${JSON.stringify(request)}`);
 }
 
 console.log("host_dynamic_tool_e2e=pass");

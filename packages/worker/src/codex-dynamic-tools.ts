@@ -1,19 +1,16 @@
 import {
   executeGitHubGraphQL,
   type GitHubGraphQLInvocation,
+  type TrackerToolExecutionContext as GitHubTrackerToolExecutionContext,
 } from "@gh-symphony/tool-github-graphql";
 import {
   executeLinearGraphQL,
   type LinearGraphQLInvocation,
+  type TrackerToolExecutionContext as LinearTrackerToolExecutionContext,
 } from "@gh-symphony/tool-linear-graphql";
 
-export type TrackerToolContext = {
-  issue: {
-    id: string;
-    identifier: string;
-    nativeRef: unknown;
-  };
-};
+export type TrackerToolContext = GitHubTrackerToolExecutionContext &
+  LinearTrackerToolExecutionContext;
 
 export type CodexDynamicToolCallResponse = {
   success: boolean;
@@ -21,16 +18,8 @@ export type CodexDynamicToolCallResponse = {
 };
 
 type HostToolDependencies = {
-  executeGitHubGraphQL?: (
-    invocation: GitHubGraphQLInvocation,
-    config: Parameters<typeof executeGitHubGraphQL>[1],
-    context: TrackerToolContext
-  ) => Promise<unknown>;
-  executeLinearGraphQL?: (
-    invocation: LinearGraphQLInvocation,
-    config: Parameters<typeof executeLinearGraphQL>[1],
-    context: TrackerToolContext
-  ) => Promise<unknown>;
+  executeGitHubGraphQL?: typeof executeGitHubGraphQL;
+  executeLinearGraphQL?: typeof executeLinearGraphQL;
 };
 
 export function createTrackerToolContext(
@@ -56,44 +45,39 @@ export async function executeCodexDynamicToolCall(
   if (!isRecord(argumentsValue)) {
     return failure("invalid_arguments", "Tool arguments must be an object.");
   }
+  if (!allowedToolNames.includes(toolName)) {
+    return failure("unknown_tool", `Tool "${toolName}" is not supported.`);
+  }
 
   try {
     let result: unknown;
-    if (!allowedToolNames.includes(toolName)) {
-      return failure("unknown_tool", `Tool "${toolName}" is not supported.`);
-    }
     switch (toolName) {
-      case "github_graphql":
-        result = dependencies.executeGitHubGraphQL
-          ? await dependencies.executeGitHubGraphQL(
-              argumentsValue as GitHubGraphQLInvocation,
-              githubConfig(env),
-              context
-            )
-          : await executeGitHubGraphQL(
-              argumentsValue as GitHubGraphQLInvocation,
-              githubConfig(env)
-            );
+      case "github_graphql": {
+        const execute = dependencies.executeGitHubGraphQL ?? executeGitHubGraphQL;
+        result = await execute(
+          argumentsValue as GitHubGraphQLInvocation,
+          githubConfig(env),
+          fetch,
+          context
+        );
         break;
-      case "linear_graphql":
-        result = dependencies.executeLinearGraphQL
-          ? await dependencies.executeLinearGraphQL(
-              argumentsValue as LinearGraphQLInvocation,
-              linearConfig(env),
-              context
-            )
-          : await executeLinearGraphQL(
-              argumentsValue as LinearGraphQLInvocation,
-              linearConfig(env)
-            );
+      }
+      case "linear_graphql": {
+        const execute = dependencies.executeLinearGraphQL ?? executeLinearGraphQL;
+        result = await execute(
+          argumentsValue as LinearGraphQLInvocation,
+          linearConfig(env),
+          fetch,
+          context
+        );
         break;
+      }
       default:
+        // The allowlist is snapshotted at session startup. Retain a defensive
+        // response in case a future advertised name lacks an adapter handler.
         return failure("unknown_tool", `Tool "${toolName}" is not supported.`);
     }
 
-    // Keep the context at this host-only boundary. It is intentionally not
-    // serialized into the child-visible result.
-    void context;
     return success(result);
   } catch (error) {
     return failure(

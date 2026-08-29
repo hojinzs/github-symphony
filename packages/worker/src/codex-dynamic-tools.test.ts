@@ -27,6 +27,7 @@ describe("Codex host dynamic tools", () => {
     expect(executeGitHubGraphQL).toHaveBeenCalledWith(
       { query: "query { viewer { login } }" },
       expect.objectContaining({ token: "host-token" }),
+      expect.any(Function),
       {
         issue: {
           id: "issue-730",
