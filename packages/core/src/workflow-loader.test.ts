@@ -474,10 +474,18 @@ Prompt`,
     });
     expect(workflow.tracker.apiKey).toBe("abc$def");
     expect(workflow.tracker.stateFieldName).toBe("Cost $USD");
-    expect(validateProviderConfig).toHaveBeenCalledWith({
-      api_key: "abc$def",
-      state_field: "Cost $USD",
-    });
+    expect(validateProviderConfig).toHaveBeenCalledWith(
+      {
+        api_key: "abc$def",
+        state_field: "Cost $USD",
+      },
+      {
+        rawProvider: {
+          api_key: "env:TRACKER_TOKEN",
+          state_field: "Cost $USD",
+        },
+      }
+    );
   });
 
   it("uses provider values consistently when deprecated flat keys coexist", () => {

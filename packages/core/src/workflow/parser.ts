@@ -251,7 +251,6 @@ function parseWorkflowConfig(
   const approvalPolicy = readOptionalString(
     codex,
     "approval_policy",
-    env,
     "codex.approval_policy"
   );
   if (approvalPolicy !== null && approvalPolicy !== "never") {
@@ -266,8 +265,8 @@ function parseWorkflowConfig(
       readOptionalNonEmptyString(codex, "command", env, "codex.command") ??
       DEFAULT_AGENT_COMMAND,
     approvalPolicy,
-    threadSandbox: readOptionalString(codex, "thread_sandbox", env),
-    turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
+    threadSandbox: readOptionalString(codex, "thread_sandbox"),
+    turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy"),
     turnTimeoutMs:
       readOptionalIntegerLike(
         codex,
@@ -518,48 +517,6 @@ function promoteDeprecatedTrackerKeys(
     }
   }
   return deprecatedKeys;
-}
-
-/** Resolve tracker configuration before selected-adapter validation. */
-function resolveProviderEnvironmentValues(
-  provider: Record<string, unknown>,
-  env: NodeJS.ProcessEnv,
-  path = "tracker.provider",
-  explicitProviderKeys?: ReadonlySet<string>
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(provider).map(([key, value]) => {
-      const valuePath = explicitProviderKeys?.has(key)
-        ? `${path}.${key}`
-        : path === "tracker.provider"
-          ? `tracker.${key}`
-          : `${path}.${key}`;
-      if (typeof value === "string") {
-        return [key, resolveEnvironmentValue(value, env, valuePath)];
-      }
-      if (Array.isArray(value)) {
-        return [
-          key,
-          value.map((entry, index) =>
-            typeof entry === "string"
-              ? resolveEnvironmentValue(entry, env, `${valuePath}[${index}]`)
-              : entry
-          ),
-        ];
-      }
-      if (value && typeof value === "object") {
-        return [
-          key,
-          resolveProviderEnvironmentValues(
-            value as Record<string, unknown>,
-            env,
-            valuePath
-          ),
-        ];
-      }
-      return [key, value];
-    })
-  );
 }
 
 function readProviderOptionalString(
