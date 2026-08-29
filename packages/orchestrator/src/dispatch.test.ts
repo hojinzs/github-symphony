@@ -196,12 +196,24 @@ describe("sortCandidatesForDispatch", () => {
     ]);
   });
 
-  it("breaks ties by parsed createdAt instant, with null timestamps last", () => {
+  it("breaks ties by parsed RFC 3339 createdAt instant, with invalid timestamps last", () => {
     const sorted = sortCandidatesForDispatch([
       makeIssue({
         identifier: "acme/repo#null",
         priority: 1,
         createdAt: null,
+      }),
+      makeIssue({
+        identifier: "acme/repo#invalid",
+        priority: 1,
+        createdAt: "not-a-date",
+      }),
+      makeIssue({
+        identifier: "acme/repo#local",
+        priority: 1,
+        // Offset-free timestamps are not RFC 3339 instants and must not be
+        // interpreted using the host timezone. They join the null bucket.
+        createdAt: "2026-03-08T00:00:00",
       }),
       makeIssue({
         identifier: "acme/repo#later",
@@ -220,6 +232,8 @@ describe("sortCandidatesForDispatch", () => {
     expect(sorted.map((issue) => issue.identifier)).toEqual([
       "acme/repo#older",
       "acme/repo#later",
+      "acme/repo#invalid",
+      "acme/repo#local",
       "acme/repo#null",
     ]);
   });

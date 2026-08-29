@@ -26,6 +26,7 @@ import {
   matchesWorkflowState,
   isOrchestratorChannelEvent,
   mapIssueOrchestrationStateToStatus,
+  parseTrackerTimestamp,
   readEnvFile,
   renderPrompt,
   resolveWorkflowExecutionPhase,
@@ -6161,30 +6162,36 @@ export function createStore(
 export function sortCandidatesForDispatch(
   candidates: TrackedIssue[]
 ): TrackedIssue[] {
-  return [...candidates].sort((a, b) => {
-    // 1. Priority ascending (null last). See
-    // docs/adr/2026-08-28_priority-mapping-documented-different-mapping.md
-    // (#725).
-    if (a.priority !== b.priority) {
-      if (a.priority === null) return 1;
-      if (b.priority === null) return -1;
-      return a.priority - b.priority;
-    }
-    // 2. createdAt oldest first (null or invalid timestamps last). Compare
-    // parsed instants rather than ISO strings so timezone offsets are ordered
-    // chronologically.
-    const aCreatedAt = a.createdAt === null ? null : Date.parse(a.createdAt);
-    const bCreatedAt = b.createdAt === null ? null : Date.parse(b.createdAt);
-    const aCreatedAtMillis = Number.isNaN(aCreatedAt) ? null : aCreatedAt;
-    const bCreatedAtMillis = Number.isNaN(bCreatedAt) ? null : bCreatedAt;
-    if (aCreatedAtMillis !== bCreatedAtMillis) {
-      if (aCreatedAtMillis === null) return 1;
-      if (bCreatedAtMillis === null) return -1;
-      return aCreatedAtMillis - bCreatedAtMillis;
-    }
-    // 3. identifier lexicographic
-    return a.identifier.localeCompare(b.identifier);
-  });
+  return candidates
+    .map((issue) => ({
+      issue,
+      createdAt: parseTrackerTimestamp(issue.createdAt),
+    }))
+    .sort((a, b) => {
+      const { issue: aIssue, createdAt: aCreatedAt } = a;
+      const { issue: bIssue, createdAt: bCreatedAt } = b;
+
+      // 1. Priority ascending (null last). See
+      // docs/adr/2026-08-28_priority-mapping-documented-different-mapping.md
+      // (#725).
+      if (aIssue.priority !== bIssue.priority) {
+        if (aIssue.priority === null) return 1;
+        if (bIssue.priority === null) return -1;
+        return aIssue.priority - bIssue.priority;
+      }
+      // 2. createdAt oldest first (null or invalid timestamps last). The core
+      // parser accepts RFC 3339 instants only and produces fixed-width UTC ISO
+      // keys, so comparing these precomputed keys is chronological and host
+      // timezone-independent.
+      if (aCreatedAt !== bCreatedAt) {
+        if (aCreatedAt === null) return 1;
+        if (bCreatedAt === null) return -1;
+        return aCreatedAt.localeCompare(bCreatedAt);
+      }
+      // 3. identifier lexicographic
+      return aIssue.identifier.localeCompare(bIssue.identifier);
+    })
+    .map(({ issue }) => issue);
 }
 
 function createProjectItemsCache(): ProjectItemsCache {
