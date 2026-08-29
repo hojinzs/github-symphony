@@ -1150,6 +1150,25 @@ Prompt`,
     );
   });
 
+  it("does not call Linear for empty state or ID lookups", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      linearTrackerAdapter.listIssuesByStates(makeProject(), [], {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).resolves.toEqual([]);
+    await expect(
+      linearTrackerAdapter.fetchIssueStatesByIds(makeProject(), [], {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).resolves.toEqual([]);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("fetchIssueStatesByIds filters by Linear ids", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
