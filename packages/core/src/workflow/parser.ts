@@ -764,6 +764,7 @@ function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
 
   return {
     ...DEFAULT_WORKFLOW_DEFINITION,
+    diagnostics: [],
     tracker: {
       ...DEFAULT_WORKFLOW_DEFINITION.tracker,
       activeStates: DEFAULT_WORKFLOW_LIFECYCLE.activeStates,
@@ -1460,11 +1461,13 @@ function readMaxConcurrentAgentsByState(
   }
 
   const result: Record<string, number> = {};
+  const sourcePaths: Record<string, string> = {};
   const diagnostics: WorkflowDiagnostic[] = [];
   for (const [entryKey, entryValue] of Object.entries(value)) {
-    const entryPath = `${path}.${entryKey}`;
+    const entryPath = formatWorkflowMapEntryPath(path, entryKey);
     if (typeof entryValue !== "number" || !Number.isInteger(entryValue)) {
       diagnostics.push({
+        code: "state_concurrency_entry_ignored",
         path: entryPath,
         reason: "must be a positive YAML integer",
         remediation:
@@ -1474,6 +1477,7 @@ function readMaxConcurrentAgentsByState(
     }
     if (entryValue <= 0) {
       diagnostics.push({
+        code: "state_concurrency_entry_ignored",
         path: entryPath,
         reason: "must be greater than zero",
         remediation:
@@ -1484,9 +1488,21 @@ function readMaxConcurrentAgentsByState(
 
     const normalizedKey = normalizeWorkflowState(entryKey);
     if (normalizedKey) {
+      const previousPath = sourcePaths[normalizedKey];
+      if (previousPath) {
+        diagnostics.push({
+          code: "state_concurrency_entry_ignored",
+          path: previousPath,
+          reason: `is overridden by ${entryPath} after state-name normalization`,
+          remediation:
+            "Remove one of the entries that normalize to the same state name.",
+        });
+      }
       result[normalizedKey] = entryValue;
+      sourcePaths[normalizedKey] = entryPath;
     } else {
       diagnostics.push({
+        code: "state_concurrency_entry_ignored",
         path: entryPath,
         reason: "state name is blank after normalization",
         remediation: "Use a non-blank state name, or remove the entry.",
@@ -1494,6 +1510,12 @@ function readMaxConcurrentAgentsByState(
     }
   }
   return { limits: result, diagnostics };
+}
+
+function formatWorkflowMapEntryPath(path: string, entryKey: string): string {
+  return entryKey.trim().length === 0
+    ? `${path}[${JSON.stringify(entryKey)}]`
+    : `${path}.${entryKey}`;
 }
 
 export function resolveEnvironmentValue(

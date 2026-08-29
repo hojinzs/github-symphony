@@ -16,12 +16,17 @@ export type PriorityDiagnostic = {
 export function buildStateConcurrencyDiagnostics(
   workflow: ParsedWorkflow
 ): PriorityDiagnostic[] {
-  return workflow.diagnostics.map((diagnostic: WorkflowDiagnostic) => ({
-    title: "Ignored per-state concurrency entry",
-    summary: `${diagnostic.path} is ignored because it ${diagnostic.reason}.`,
-    remediation: diagnostic.remediation,
-    details: { path: diagnostic.path, reason: diagnostic.reason },
-  }));
+  return workflow.diagnostics
+    .filter(
+      (diagnostic: WorkflowDiagnostic) =>
+        diagnostic.code === "state_concurrency_entry_ignored"
+    )
+    .map((diagnostic) => ({
+      title: "Ignored per-state concurrency entry",
+      summary: `${diagnostic.path} is ignored: ${diagnostic.reason}.`,
+      remediation: diagnostic.remediation,
+      details: { path: diagnostic.path, reason: diagnostic.reason },
+    }));
 }
 
 type RepositoryLabelSnapshot = {

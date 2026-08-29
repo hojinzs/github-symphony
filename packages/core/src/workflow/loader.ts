@@ -122,7 +122,10 @@ export function createInvalidWorkflowResolution(
 }
 
 export function calculateWorkflowVersionHash(workflow: ParsedWorkflow): string {
-  return createHash("sha256").update(JSON.stringify(workflow)).digest("hex");
+  const { diagnostics: _diagnostics, ...workflowConfig } = workflow;
+  return createHash("sha256")
+    .update(JSON.stringify(workflowConfig))
+    .digest("hex");
 }
 
 function toWorkflowResolution(

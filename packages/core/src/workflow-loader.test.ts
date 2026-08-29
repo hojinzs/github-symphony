@@ -12,6 +12,7 @@ import {
   resolveWorkflowRuntimeCommand,
   resolveWorkflowRuntimeTimeouts,
 } from "./workflow/config.js";
+import { calculateWorkflowVersionHash } from "./workflow/loader.js";
 
 const tempDirs: string[] = [];
 
@@ -755,6 +756,59 @@ Prompt`);
         reason: "must be a positive YAML integer",
       }),
     ]);
+  });
+
+  it("warns about blank and colliding per-state concurrency entries", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: 1
+    " READY ": 2
+    "  ": 3
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ ready: 2 });
+    expect(workflow.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "state_concurrency_entry_ignored",
+        path: "agent.max_concurrent_agents_by_state.Ready",
+        reason: expect.stringContaining("READY"),
+      }),
+      expect.objectContaining({
+        code: "state_concurrency_entry_ignored",
+        path: 'agent.max_concurrent_agents_by_state["  "]',
+        reason: "state name is blank after normalization",
+      }),
+    ]);
+  });
+
+  it("excludes derived diagnostics from the workflow version hash", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(
+      calculateWorkflowVersionHash({
+        ...workflow,
+        diagnostics: [
+          {
+            code: "state_concurrency_entry_ignored",
+            path: "agent.max_concurrent_agents_by_state.Ready",
+            reason: "must be greater than zero",
+            remediation: "Use a whole number greater than zero.",
+          },
+        ],
+      })
+    ).toBe(calculateWorkflowVersionHash(workflow));
   });
 
   it("preserves the path for an unresolved environment-backed workspace root", () => {

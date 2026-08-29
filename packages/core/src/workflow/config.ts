@@ -79,6 +79,7 @@ export type WorkflowAgentConfig = {
 
 /** A non-fatal workflow configuration finding surfaced by validation tools. */
 export type WorkflowDiagnostic = {
+  code: "state_concurrency_entry_ignored";
   path: string;
   reason: string;
   remediation: string;
