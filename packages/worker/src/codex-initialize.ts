@@ -7,3 +7,9 @@ export function buildCodexInitializeParams(dynamicTools: readonly unknown[]): {
     capabilities: dynamicTools.length > 0 ? { experimentalApi: true } : {},
   };
 }
+
+export function buildCodexDynamicToolsParams(
+  dynamicTools: readonly unknown[]
+): { dynamicTools?: readonly unknown[] } {
+  return dynamicTools.length > 0 ? { dynamicTools } : {};
+}

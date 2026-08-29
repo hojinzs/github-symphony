@@ -78,7 +78,10 @@ import {
   createTrackerToolContext,
   executeCodexDynamicToolCall,
 } from "./codex-dynamic-tools.js";
-import { buildCodexInitializeParams } from "./codex-initialize.js";
+import {
+  buildCodexDynamicToolsParams,
+  buildCodexInitializeParams,
+} from "./codex-initialize.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
@@ -1645,7 +1648,7 @@ async function runCodexClientProtocol(
       cwd: plan.cwd,
       approvalPolicy,
       sandbox: threadSandbox,
-      dynamicTools: plan.dynamicTools,
+      ...buildCodexDynamicToolsParams(plan.dynamicTools),
       ...(Object.keys(mcpServers).length > 0
         ? { config: { mcp_servers: mcpServers } }
         : {}),
