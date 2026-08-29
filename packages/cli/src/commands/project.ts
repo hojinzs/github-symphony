@@ -61,8 +61,13 @@ export async function deriveStandaloneProject(
     resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
     workflowPath,
   });
+  if (!workflow.tracker.kind) {
+    throw new Error(
+      'Workflow dispatch requires front matter field "tracker.kind".'
+    );
+  }
   const repository = parseRepository(workflow.repository);
-  const adapter = workflow.tracker.kind ?? "github-project";
+  const adapter = workflow.tracker.kind;
   const bindingId =
     workflow.tracker.projectId ?? workflow.tracker.projectSlug ?? "";
   if (!bindingId) {

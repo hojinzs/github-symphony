@@ -14930,7 +14930,7 @@ Test workspace hook retries.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
-  it("keeps standalone project identifiers literal when they contain $VAR", async () => {
+  it("resolves standalone project identifiers when they contain $VAR", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalProjectId = process.env.PROJECT_ENV_WORKFLOW_ID;
     process.env.PROJECT_ENV_WORKFLOW_ID = "host-project-id";
@@ -14998,9 +14998,7 @@ Prefer focused changes.
         }
       ).loadProjectWorkflowUncached(projectConfig, repository);
 
-      expect(resolution.workflow.tracker.projectId).toBe(
-        "$PROJECT_ENV_WORKFLOW_ID"
-      );
+      expect(resolution.workflow.tracker.projectId).toBe("host-project-id");
 
       delete process.env.PROJECT_ENV_WORKFLOW_ID;
       const projectResolution = await (
@@ -15011,9 +15009,7 @@ Prefer focused changes.
           ): Promise<WorkflowResolution>;
         }
       ).loadProjectWorkflowUncached(projectConfig, repository);
-      expect(projectResolution.workflow.tracker.projectId).toBe(
-        "$PROJECT_ENV_WORKFLOW_ID"
-      );
+      expect(projectResolution.workflow.tracker.projectId).toBe("project-env-id");
     } finally {
       if (originalProjectId === undefined) {
         delete process.env.PROJECT_ENV_WORKFLOW_ID;

@@ -115,7 +115,7 @@ function parseWorkflowMarkdownInternal(
 ): ParsedWorkflow {
   const compatibilityMode = options.compatibilityMode ?? "strict";
   const frontMatterMatch = markdown.match(
-    /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
+    /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)([\s\S]*)$/
   );
 
   if (!frontMatterMatch) {
@@ -135,7 +135,7 @@ function parseWorkflowMarkdownInternal(
     return parseWorkflowConfig({}, markdown.trim(), env, options);
   }
 
-  const [, rawFrontMatter, rawPromptTemplate = ""] = frontMatterMatch;
+  const [, rawFrontMatter = "", rawPromptTemplate = ""] = frontMatterMatch;
   const frontMatter = parseFrontMatter(rawFrontMatter);
   return parseWorkflowConfig(
     frontMatter,
@@ -520,6 +520,48 @@ function promoteDeprecatedTrackerKeys(
   return deprecatedKeys;
 }
 
+/** Resolve tracker configuration before selected-adapter validation. */
+function resolveProviderEnvironmentValues(
+  provider: Record<string, unknown>,
+  env: NodeJS.ProcessEnv,
+  path = "tracker.provider",
+  explicitProviderKeys?: ReadonlySet<string>
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(provider).map(([key, value]) => {
+      const valuePath = explicitProviderKeys?.has(key)
+        ? `${path}.${key}`
+        : path === "tracker.provider"
+          ? `tracker.${key}`
+          : `${path}.${key}`;
+      if (typeof value === "string") {
+        return [key, resolveEnvironmentValue(value, env, valuePath)];
+      }
+      if (Array.isArray(value)) {
+        return [
+          key,
+          value.map((entry, index) =>
+            typeof entry === "string"
+              ? resolveEnvironmentValue(entry, env, `${valuePath}[${index}]`)
+              : entry
+          ),
+        ];
+      }
+      if (value && typeof value === "object") {
+        return [
+          key,
+          resolveProviderEnvironmentValues(
+            value as Record<string, unknown>,
+            env,
+            valuePath
+          ),
+        ];
+      }
+      return [key, value];
+    })
+  );
+}
+
 function readProviderOptionalString(
   provider: Record<string, unknown>,
   key: string
@@ -543,11 +585,12 @@ function readNormalizedOptionalString(
   provider: Record<string, unknown>,
   explicitProviderKeys: ReadonlySet<string>,
   key: string,
-  _env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv
 ): string | null {
-  return explicitProviderKeys.has(key)
+  const value = explicitProviderKeys.has(key)
     ? readProviderOptionalString(provider, key)
     : readOptionalString(tracker, key, `tracker.${key}`);
+  return value === null ? null : resolveEnvironmentValue(value, env, `tracker.${key}`);
 }
 
 function readNormalizedOptionalSecret(
@@ -1458,14 +1501,21 @@ export function resolveEnvironmentValue(
   env: NodeJS.ProcessEnv,
   path: string
 ): string {
-  const envTokenMatch = value.match(/^(?:env:)?([A-Za-z_][A-Za-z0-9_]*)$/);
-  if (value.startsWith("env:") && envTokenMatch) {
-    const resolved = env[envTokenMatch[1]];
+  if (value.startsWith("env:")) {
+    const name = value.slice("env:".length);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new WorkflowValidationError(
+        "workflow_validation_error",
+        path,
+        `Workflow front matter field "${path}" has invalid environment variable name ${name}.`
+      );
+    }
+    const resolved = env[name];
     if (!resolved) {
       throw new WorkflowValidationError(
         "workflow_validation_error",
         path,
-        `Workflow front matter field "${path}" requires environment variable ${envTokenMatch[1]}.`
+        `Workflow front matter field "${path}" requires environment variable ${name}.`
       );
     }
     return resolved;

@@ -82,11 +82,11 @@ Without front matter, the complete trimmed file is used as the workflow prompt
 and all configuration uses defaults; tracker selection is then checked by the
 dispatch preflight. `workspace.root` expands `~`, `$VAR`, `${VAR}`, and
 `env:VAR`, resolves relative paths from the selected `WORKFLOW.md` directory,
-and stores the normalized absolute path. Environment expansion is deliberately
-limited to workspace paths and documented secret values such as
-`tracker.api_key`; hook scripts, Codex commands, and other arbitrary strings
-remain unchanged. A missing or empty referenced secret returns a typed error at
-that specific field rather than rewriting unrelated configuration.
+and stores the normalized absolute path. Tracker configuration values (including
+provider values) resolve documented environment references before adapter
+validation; hook scripts and Codex/runtime command strings remain unchanged. A
+missing or empty referenced secret returns a typed error at that specific field
+rather than rewriting unrelated configuration.
 
 Omitted optional values retain their documented defaults. Per-state concurrency
 maps remain supported through `agent.max_concurrent_agents_by_state`. State keys

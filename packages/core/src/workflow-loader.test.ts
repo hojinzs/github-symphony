@@ -299,7 +299,7 @@ Prompt`,
     );
   });
 
-  it("keeps non-secret provider values literal for adapter validation", () => {
+  it("resolves provider values before adapter validation", () => {
     const validateProviderConfig = vi.fn(() => []);
     parseWorkflowMarkdownStrict(
       `---
@@ -322,6 +322,15 @@ Prompt`,
       { endpoint: "https://github.example/api/graphql" },
       { rawProvider: { endpoint: "$GHES_URL" } }
     );
+  });
+
+  it("accepts empty front matter as an empty configuration", () => {
+    const workflow = parseWorkflowMarkdown("---\r\n---\r\nPrompt only");
+
+    expect(workflow).toMatchObject({
+      promptTemplate: "Prompt only",
+      tracker: { kind: null },
+    });
   });
 
   it("resolves provider validation and lifecycle defaults from tracker.kind", () => {
@@ -396,7 +405,7 @@ Prompt`,
     );
 
     expect(workflow.tracker.provider).toMatchObject({
-      api_key: "$TRACKER_TOKEN",
+      api_key: "token",
       endpoint: "https://provider.example.test/graphql",
       project_slug: "platform",
       custom_setting: "retained",
