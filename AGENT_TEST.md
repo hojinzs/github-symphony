@@ -330,6 +330,9 @@ to verify the following.
 - Claude read timeout and output-silence turn timeout are unit-covered in `packages/runtime-claude/src/spawn.test.ts`
 - Inter-run recover includes `--resume <prevId> --fork-session`, stores a new session id, and preserves the `parentRunId` link
 - Resume session rejection records a `session_invalidated` event
+- The worker-owned loopback MCP server accepts one Claude-stub `tools/call`,
+  uses the host credential, and emits start/stop lifecycle logs while the
+  generated child configuration contains only its endpoint capability
 
 ### 6. Check logs
 

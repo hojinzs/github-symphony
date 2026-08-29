@@ -718,6 +718,7 @@ async function runNonCodexRuntimeAdapterLifecycle(
     env,
     runtimeRoot: env.WORKSPACE_RUNTIME_DIR,
     runtimeDirectory: env.WORKSPACE_RUNTIME_DIR,
+    hostMcpContext: createTrackerToolContext(env),
     onSpawned: (child) => {
       childProcess = child;
       if (runtimeState.run) {

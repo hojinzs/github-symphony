@@ -5,6 +5,7 @@ import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-grap
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
 import {
   composeMcpServers,
+  type McpServerDefinition,
   readMcpConfig,
   stripMcpServerSecretEnvironmentValues,
 } from "@gh-symphony/core";
@@ -24,6 +25,8 @@ export type ClaudeMcpTokenEnvironment = {
   SYMPHONY_PROJECT_DIR?: string;
   SYMPHONY_TRUST_REPO_CONFIG?: string;
   SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES?: string;
+  SYMPHONY_CLAUDE_MCP_URL?: string;
+  SYMPHONY_CLAUDE_MCP_SESSION_TOKEN?: string;
 };
 
 export type ClaudeMcpCompositionResult = {
@@ -145,14 +148,20 @@ async function chmodExistingSecretFile(path: string): Promise<void> {
 
 function createSymphonyMcpServers(
   env: ClaudeMcpTokenEnvironment
-): Record<
-  string,
-  { command: string; args: string[]; env: Record<string, string> }
-> {
-  const mergedServers: Record<
-    string,
-    { command: string; args: string[]; env: Record<string, string> }
-  > = {
+): Record<string, McpServerDefinition> {
+  if (env.SYMPHONY_CLAUDE_MCP_URL && env.SYMPHONY_CLAUDE_MCP_SESSION_TOKEN) {
+    return {
+      symphony: {
+        type: "http",
+        url: env.SYMPHONY_CLAUDE_MCP_URL,
+        headers: {
+          Authorization: `Bearer ${env.SYMPHONY_CLAUDE_MCP_SESSION_TOKEN}`,
+        },
+      },
+    };
+  }
+
+  const mergedServers: Record<string, McpServerDefinition> = {
     github_graphql: createGitHubGraphQLMcpServerEntry({
       githubToken: env.GITHUB_GRAPHQL_TOKEN,
       githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,

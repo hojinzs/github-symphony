@@ -26,6 +26,9 @@ export type WorkerNonCodexRuntimeContext = {
   env: NodeJS.ProcessEnv;
   runtimeRoot?: string;
   runtimeDirectory?: string;
+  hostMcpContext?: {
+    issue: { id: string; identifier: string; nativeRef: unknown };
+  };
   onSpawned?: (child: ChildProcess) => void;
   claudeDependencies?: ClaudeRuntimeDependencies;
   customDependencies?: {
@@ -203,6 +206,7 @@ export function createWorkerNonCodexRuntimeAdapter(
           workingDirectory: context.workingDirectory,
           runtimeRoot: context.runtimeRoot,
           runtimeDirectory: context.runtimeDirectory,
+          hostMcpContext: context.hostMcpContext,
           command: runtime.command,
           args: runtime.args,
           env: context.env,

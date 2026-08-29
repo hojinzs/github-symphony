@@ -29,6 +29,10 @@ import {
   type ClaudeMcpTokenEnvironment,
 } from "./mcp-compose.js";
 import {
+  startClaudeMcpHttpServer,
+  type ClaudeMcpHttpServer,
+} from "./mcp-http-server.js";
+import {
   spawnClaudeTurn,
   type ClaudeSpawnDependencies,
   type ClaudeSpawnTurnResult,
@@ -50,6 +54,9 @@ export type ClaudeRuntimeConfig = {
   readTimeoutMs?: number;
   turnTimeoutMs?: number;
   stallTimeoutMs?: number;
+  hostMcpContext?: {
+    issue: { id: string; identifier: string; nativeRef: unknown };
+  };
 };
 
 export type ClaudeRuntimePrepareContext = {
@@ -86,6 +93,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
 > {
   private activeChild: ChildProcess | null = null;
   private preparedMcpConfig: ClaudeMcpCompositionResult | null = null;
+  private hostMcpServer: ClaudeMcpHttpServer | null = null;
   private preparedSession: PreparedClaudeSession | null = null;
   private readonly eventHandlers = new Set<
     AgentRuntimeEventHandler<ClaudeRuntimeEvent>
@@ -108,6 +116,15 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
     await this.cleanupPreparedMcpConfig();
     this.pendingEvents.length = 0;
     this.preparedSession = await this.prepareSession(context);
+    if (this.config.hostMcpContext) {
+      this.hostMcpServer = await startClaudeMcpHttpServer({
+        env: this.config.env ?? {},
+        context: this.config.hostMcpContext,
+        onEvent: (event) => {
+          process.stderr.write(`[runtime-claude] host MCP server ${event}\n`);
+        },
+      });
+    }
     this.preparedMcpConfig = await composeClaudeMcpConfig(
       this.config.workingDirectory,
       this.config.isolation?.strictMcpConfig === true,
@@ -115,6 +132,8 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
         inheritProcessEnv: this.config.inheritProcessEnv === true,
         configEnv: this.config.env,
         runtimeDirectory: this.config.runtimeDirectory,
+        hostMcpUrl: this.hostMcpServer?.url,
+        hostMcpSessionToken: this.hostMcpServer?.sessionToken,
       })
     );
   }
@@ -528,6 +547,12 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
   private async cleanupPreparedMcpConfig(): Promise<void> {
     const cleanupPath = this.preparedMcpConfig?.cleanupPath;
     this.preparedMcpConfig = null;
+    const server = this.hostMcpServer;
+    this.hostMcpServer = null;
+
+    if (server) {
+      await server.close();
+    }
 
     if (!cleanupPath) {
       return;
@@ -727,6 +752,8 @@ function buildClaudeMcpTokenEnvironment(options: {
   inheritProcessEnv: boolean;
   configEnv?: NodeJS.ProcessEnv;
   runtimeDirectory?: string;
+  hostMcpUrl?: string;
+  hostMcpSessionToken?: string;
 }): ClaudeMcpTokenEnvironment {
   const source = options.inheritProcessEnv
     ? {
@@ -756,6 +783,8 @@ function buildClaudeMcpTokenEnvironment(options: {
       source.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES,
     WORKSPACE_RUNTIME_DIR:
       options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
+    SYMPHONY_CLAUDE_MCP_URL: options.hostMcpUrl,
+    SYMPHONY_CLAUDE_MCP_SESSION_TOKEN: options.hostMcpSessionToken,
   };
 }
 

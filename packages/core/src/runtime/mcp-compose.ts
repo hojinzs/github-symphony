@@ -8,6 +8,11 @@ export type McpServerDefinition = {
   args?: string[];
   env?: Record<string, string>;
   [key: string]: unknown;
+} | {
+  type: "sse" | "http";
+  url: string;
+  headers?: Record<string, string>;
+  [key: string]: unknown;
 };
 
 export type McpCompositionOptions = {
@@ -148,10 +153,24 @@ function resolveServer(
   env: Record<string, string | undefined>,
   path: string
 ): McpServerDefinition {
-  if (!isRecord(value) || typeof value.command !== "string") {
+  if (!isRecord(value)) {
     throw new McpConfigError(`Invalid MCP server "${name}" in ${path}`);
   }
   const server = { ...value } as McpServerDefinition;
+  if (
+    (server.type === "sse" || server.type === "http") &&
+    typeof server.url === "string"
+  ) {
+    if (server.headers !== undefined && !isRecord(server.headers)) {
+      throw new McpConfigError(
+        `MCP server "${name}" in ${path} must define headers as an object.`
+      );
+    }
+    return server;
+  }
+  if (typeof server.command !== "string") {
+    throw new McpConfigError(`Invalid MCP server "${name}" in ${path}`);
+  }
   if (
     server.args !== undefined &&
     (!Array.isArray(server.args) ||
