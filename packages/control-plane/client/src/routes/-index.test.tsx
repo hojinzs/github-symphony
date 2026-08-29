@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ActiveRunsTable,
   DataStatus,
   formatRelativeTime,
   mapRunStatusToBadgeVariant,
+  RetryQueueTable,
   resolveRetryError,
 } from "./index.js";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -136,5 +138,49 @@ describe("Project overview helpers", () => {
 
     expect(markup).toContain("Repository unavailable");
     expect(markup).toContain("Tracker binding-1");
+  });
+
+  it("renders tracker issue URLs for active and retrying rows", () => {
+    const markup = renderToStaticMarkup(
+      <Theme appearance="dark">
+        <ActiveRunsTable
+          projectState={
+            {
+              activeRuns: [
+                {
+                  runId: "run-1",
+                  issueIdentifier: "acme/platform#42",
+                  issueUrl: "https://github.com/acme/platform/issues/42",
+                  issueState: "In progress",
+                  status: "running",
+                  retryKind: null,
+                  port: null,
+                },
+              ],
+            } as never
+          }
+        />
+        <RetryQueueTable
+          projectState={
+            {
+              retryQueue: [
+                {
+                  runId: "run-2",
+                  issueIdentifier: "acme/platform#43",
+                  issueUrl: "https://github.com/acme/platform/issues/43",
+                  retryKind: "failure",
+                  nextRetryAt: null,
+                },
+              ],
+              issues: [],
+            } as never
+          }
+        />
+      </Theme>
+    );
+
+    expect(markup).toContain('href="https://github.com/acme/platform/issues/42"');
+    expect(markup).toContain('href="https://github.com/acme/platform/issues/43"');
+    expect(markup).toContain("acme/platform#42");
   });
 });

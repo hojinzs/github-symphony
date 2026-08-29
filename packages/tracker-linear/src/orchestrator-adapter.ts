@@ -268,7 +268,7 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       priority: null,
       state: run.issueState,
       branchName: null,
-      url: null,
+      url: run.issueUrl ?? null,
       labels: [],
       dispatchable: true,
       assigneeId: null,

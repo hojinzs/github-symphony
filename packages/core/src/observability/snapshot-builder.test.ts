@@ -46,6 +46,7 @@ function mockRun(
     issueId: "issue-001",
     issueSubjectId: "subject-001",
     issueIdentifier: "acme/platform#42",
+    issueUrl: "https://github.com/acme/platform/issues/42",
     issueState: "In Progress",
     repository: {
       owner: "acme",
@@ -154,6 +155,9 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns).toHaveLength(1);
     expect(snapshot.activeRuns[0].runId).toBe("run-001");
     expect(snapshot.activeRuns[0].issueIdentifier).toBe("acme/platform#42");
+    expect(snapshot.activeRuns[0].issueUrl).toBe(
+      "https://github.com/acme/platform/issues/42"
+    );
     expect(snapshot.activeRuns[0].executionPhase).toBe("planning");
     expect(snapshot.summary.activeRuns).toBe(1);
   });
@@ -220,6 +224,9 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns).toHaveLength(3);
     expect(snapshot.retryQueue).toHaveLength(2);
     expect(snapshot.retryQueue[0].runId).toBe("run-002");
+    expect(snapshot.retryQueue[0].issueUrl).toBe(
+      "https://github.com/acme/platform/issues/42"
+    );
     expect(snapshot.retryQueue[0].retryKind).toBe("failure");
     expect(snapshot.retryQueue[1].runId).toBe("run-003");
     expect(snapshot.retryQueue[1].retryKind).toBe("recovery");

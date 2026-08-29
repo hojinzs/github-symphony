@@ -92,6 +92,7 @@ export function buildProjectSnapshot(
     activeRuns: activeRuns.map((run) => ({
       runId: run.runId,
       issueIdentifier: run.issueIdentifier,
+      issueUrl: run.issueUrl ?? null,
       issueWorkspaceKey: run.issueWorkspaceKey ?? null,
       issueState: run.issueState,
       status: run.status,
@@ -121,6 +122,7 @@ export function buildProjectSnapshot(
       .map((run) => ({
         runId: run.runId,
         issueIdentifier: run.issueIdentifier,
+        issueUrl: run.issueUrl ?? null,
         retryKind: run.retryKind ?? "failure",
         nextRetryAt: run.nextRetryAt,
       })),
