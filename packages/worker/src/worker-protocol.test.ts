@@ -53,6 +53,7 @@ const TEST_TOOL_ENV = {
 };
 import { createTurnSilenceTimer } from "./turn-silence-timer.js";
 import { createUnhandledServerRequestError } from "./server-request.js";
+import { findCwdBoundaryViolation } from "./workspace-boundary.js";
 
 // ---------------------------------------------------------------------------
 // Protocol primitives — replicated exactly from packages/worker/src/index.ts
@@ -118,6 +119,7 @@ function createProtocolContext(options: {
   turnTimeoutMs?: number;
   maxTurns?: number;
   tokenUsageBaseline?: TokenUsageSnapshot;
+  workspaceCwd?: string;
   orchestratorChannelWriter?: {
     write: (chunk: string) => boolean;
     once: (event: "drain", listener: () => void) => unknown;
@@ -134,6 +136,7 @@ function createProtocolContext(options: {
       outputTokens: 0,
       totalTokens: 0,
     },
+    workspaceCwd = "/workspace/repo",
     orchestratorChannelWriter,
   } = options;
   const fake = createFakeChild();
@@ -955,13 +958,23 @@ function createProtocolContext(options: {
 
     // Track the timestamp of every server-initiated notification/event.
     runtimeState.lastEventAt = new Date().toISOString();
+    const boundaryViolation = findCwdBoundaryViolation(
+      msg.params,
+      workspaceCwd
+    );
+    if (boundaryViolation) {
+      const reason = `identity_violation: event cwd '${boundaryViolation}' escapes workspace '${workspaceCwd}'`;
+      emitOrchestratorChannelEvent("worker_identity_violation");
+      markTurnTerminalFailure("failed", reason);
+      killCalled = true;
+      return;
+    }
 
     const unsupportedRequest = createUnhandledServerRequestError(msg);
     if (unsupportedRequest) {
       sendMessage(unsupportedRequest);
       return;
     }
-
     const agentEvents = normalizeCodexRuntimeEvents(msg);
     let handledAgentEvent = false;
     for (const event of agentEvents) {
@@ -1942,6 +1955,28 @@ describe("turn silence timer", () => {
 });
 
 describe("server-initiated requests", () => {
+  it("fails closed when an unsupported request escapes the workspace boundary", () => {
+    const ctx = createProtocolContext({ workspaceCwd: "/workspace/repo" });
+
+    ctx.handleServerMessage({
+      jsonrpc: "2.0",
+      id: "approval-1",
+      method: "item/approval/request",
+      params: { cwd: "/etc" },
+    });
+
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "identity_violation: event cwd '/etc' escapes workspace '/workspace/repo'"
+    );
+    expect(ctx.killCalled).toBe(true);
+    expect(readSentMessages(ctx.fake.stdin)).toEqual([]);
+    expect(ctx.orchestratorEvents).toContainEqual(
+      expect.objectContaining({ event: "worker_identity_violation" })
+    );
+  });
+
   it("immediately rejects an approval request that cannot be handled", () => {
     expect(
       createUnhandledServerRequestError({

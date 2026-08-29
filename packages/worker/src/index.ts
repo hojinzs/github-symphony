@@ -1605,6 +1605,9 @@ async function runCodexClientProtocol(
   const frameCodexStdout = createCodexProtocolLineFramer({
     onMessage: handleServerMessage,
     onNonJson: (line) => {
+      // Non-JSON stdout is still app-server output, so it extends the active
+      // silence interval just like a parsed JSON-RPC message.
+      resetTurnTimeout?.();
       process.stderr.write(`[worker] codex stdout (non-JSON): ${line}\n`);
     },
     onFailure: failProtocol,
