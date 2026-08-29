@@ -13,7 +13,7 @@ This control plane is a repository-local observability extension, not a
 verbatim upstream API. It uses bearer authentication, defaults to loopback
 port `4680`, and `--http` exposes JSON while `--web` also exposes the dashboard.
 Snapshots use camelCase fields. `POST /api/v1/refresh` acknowledges a refresh
-request, and worker-only POST routes are hosted by
+request with `{ ok: true }`, and worker-only POST routes are hosted by
 `packages/cli/src/commands/start.ts`. Per-issue dashboard routes use the
 structured `{ error: { code, message } }` envelope; authentication, refresh,
 state, and generic routing failures use `{ error: string }`. If the requested

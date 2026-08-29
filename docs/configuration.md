@@ -31,10 +31,12 @@ Human-readable `gh-symphony repo status`, `gh-symphony project status`, and
 their `--watch` dashboards show the applied revision; `--json` exposes the
 same metadata for automation.
 
-Tracker connection settings are resolved when a daemon starts and persisted in
-runtime `config.json`; changing them does not reconfigure an already-running
-daemon. This is an intentional repository-local live-reload divergence: stop
-and start the daemon to apply tracker endpoint, credential, or binding changes.
+Tracker connection settings are persisted in runtime `config.json`; changing
+them does not reconfigure an already-running daemon. This is an intentional
+repository-local live-reload divergence. In standalone project mode, stop and
+start the daemon to apply tracker endpoint, credential, or binding changes. In
+repo-embedded mode, those settings are fixed when `gh-symphony repo init`
+creates the runtime, so run `repo init` again before restarting `repo start`.
 
 ## Runtime, Retry, and Hook Divergences
 

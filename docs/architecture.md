@@ -87,8 +87,8 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
 - GitHub adapter profile: `packages/tracker-github/README.md`. Its synthetic
-  `Archived` state and blocker-state rewriting are GitHub-specific
-  implementation choices, not normalized Symphony core behavior.
+  `Archived` state is a GitHub-specific implementation choice, not normalized
+  Symphony core behavior.
 
 ### 6. Observability — events and status surfaces
 
