@@ -98,6 +98,20 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - Runtime state files: `.runtime/orchestrator/` (`workspaces/<id>/`, `runs/<run-id>/`)
 - Instance registry: `${GH_SYMPHONY_INSTANCES_DIR:-${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances/}` (mode `0700`; one file per runtime/project). Daemon runtime overrides do not change this inherited host index.
 
+## §17 conformance test matrix
+
+The rows below are owned by the focused conformance suites rather than a
+single implementation package. They map the upstream test matrix to the
+authoritative tests for repository behavior.
+
+| Spec row                                               | Test mapping                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §17.2 workspace safety and hooks                       | `packages/orchestrator/src/service.test.ts` covers rejecting an existing regular file at the issue workspace path and running `after_create` only for a newly created workspace; `packages/core/src/workspace-safety.test.ts` covers path containment.                                                          |
+| §17.3 empty tracker lookup and malformed refresh       | `packages/tracker-{github,linear,file}/src/*test.ts` assert empty state/ID lookups make no provider call. GitHub and Linear suites assert that malformed requested records fail; GitHub alone covers omission of malformed polling-list items. Linear polling-list omission is a documented implementation gap. |
+| §17.4 reconciliation with no running issues            | `packages/orchestrator/src/service.test.ts` proves reconciliation does not invoke per-run reconciliation when there are no active runs.                                                                                                                                                                         |
+| §17.5 Codex protocol stream and dynamic-tool rejection | `packages/worker/src/codex-dynamic-tools.test.ts` covers structured rejection of unsupported dynamic tools. Stderr isolation from the protocol stream remains a documented implementation gap pending the S21 decision.                                                                                         |
+| §13.7 host, port, and bind lifecycle                   | `packages/cli/src/commands/start.test.ts` covers explicit ports and loopback versus `--bind-all` host selection. §17.7 positional workflow-path behavior remains a documented divergence.                                                                                                                       |
+
 ## Package dependency graph
 
 `packages/cli` is the published entrypoint that bundles the rest at build time

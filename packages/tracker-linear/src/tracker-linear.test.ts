@@ -1150,6 +1150,25 @@ Prompt`,
     );
   });
 
+  it("does not call Linear for empty state or ID lookups", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      linearTrackerAdapter.listIssuesByStates(makeProject(), [], {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).resolves.toEqual([]);
+    await expect(
+      linearTrackerAdapter.fetchIssueStatesByIds(makeProject(), [], {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).resolves.toEqual([]);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("fetchIssueStatesByIds filters by Linear ids", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -1209,6 +1228,26 @@ Prompt`,
       project: { slugId: { eq: "symphony-0c79b11b75ea" } },
       identifier: { in: ["ENG-123"] },
     });
+  });
+
+  it("fails when a requested Linear issue has malformed required state data", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [linearIssueNode("ENG-123", [], { state: null })],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.fetchIssueStatesByIds(makeProject(), ["ENG-123"], {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.toThrow("Linear issue state name is required.");
   });
 
   it("injects worker environment without requiring team id", () => {

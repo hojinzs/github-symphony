@@ -2380,6 +2380,30 @@ Prompt`,
     expect(issues.map((issue) => issue.state)).toEqual(["Done"]);
   });
 
+  it("does not call GitHub for empty state or ID lookups", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      adapter.listIssuesByStates(makeProjectConfig(), [], {
+        token: "dependencies-token",
+        fetchImpl,
+      })
+    ).resolves.toEqual([]);
+    await expect(
+      adapter.fetchIssueStatesByIds(makeProjectConfig(), [], {
+        token: "dependencies-token",
+        fetchImpl,
+      })
+    ).resolves.toEqual([]);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("keeps the custom lifecycle field when explicit state lookups disable server filtering", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",

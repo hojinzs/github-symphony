@@ -232,6 +232,17 @@ describe("fileTrackerAdapter", () => {
   });
 
   describe("listIssuesByStates", () => {
+    it("returns without reading the provider for empty state and ID lookups", async () => {
+      const project = makeProject(join(testDir, "missing-issues.json"));
+
+      await expect(
+        fileTrackerAdapter.listIssuesByStates(project, [])
+      ).resolves.toEqual([]);
+      await expect(
+        fileTrackerAdapter.fetchIssueStatesByIds(project, [])
+      ).resolves.toEqual([]);
+    });
+
     it("filters issues to the requested workflow states", async () => {
       const issuesPath = join(testDir, "issues.json");
       await writeFile(

@@ -386,6 +386,46 @@ describe("OrchestratorService", () => {
     expect(snapshot.summary.recovered).toBe(1);
   });
 
+  it("does not reconcile runs when the project has no active runs", async () => {
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig("/tmp/orchestrator", repository);
+    const store = {
+      loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([]),
+      loadAllRuns: vi.fn().mockResolvedValue([]),
+      saveProjectIssueOrchestrations: vi.fn().mockResolvedValue(undefined),
+      loadIssueWorkspaces: vi.fn().mockResolvedValue([]),
+      saveProjectStatus: vi.fn().mockResolvedValue(undefined),
+    } as unknown as OrchestratorFsStore;
+    const service = new OrchestratorService(store, projectConfig);
+    const reconcileRun = vi.fn();
+    vi.spyOn(
+      service as never,
+      "selectCurrentRunsForReconciliation"
+    ).mockResolvedValue([]);
+    vi.spyOn(service as never, "reconcileRun").mockImplementation(reconcileRun);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockImplementation(
+      () => {
+        throw new Error("Unsupported tracker adapter: retired-kind");
+      }
+    );
+
+    const snapshot = await (
+      service as unknown as {
+        reconcileProject(
+          tenant: OrchestratorProjectConfig
+        ): Promise<ProjectStatusSnapshot>;
+      }
+    ).reconcileProject(projectConfig);
+
+    expect(reconcileRun).not.toHaveBeenCalled();
+    expect(snapshot.summary.recovered).toBe(0);
+    expect(snapshot.lastError).toContain("Unsupported tracker adapter");
+  });
+
   it("continues dispatching after an earlier candidate fails to start", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -1921,6 +1961,48 @@ describe("OrchestratorService", () => {
         }),
       })
     );
+  });
+
+  it("fails safely when an issue workspace path is an existing regular file", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workspace-file-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      projectConfig.workspaceDir,
+      workspaceKey
+    );
+    await mkdir(projectConfig.workspaceDir, { recursive: true });
+    await writeFile(workspacePath, "preserve this file", "utf8");
+    const spawnImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(await readFile(workspacePath, "utf8")).toBe("preserve this file");
+    expect(
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).toEqual([
+      expect.objectContaining({
+        identifier: "acme/platform#1",
+        state: "retry_queued",
+      }),
+    ]);
   });
 
   it.each([
@@ -9064,10 +9146,12 @@ Prefer focused changes.
       dueAt: "2026-03-08T00:00:07.000Z",
       error: "Worker process exited unexpectedly.",
     });
-    const events = (await readFile(
-      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
-      "utf8"
-    ))
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
