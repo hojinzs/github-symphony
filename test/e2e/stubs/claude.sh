@@ -122,12 +122,15 @@ if [[ "${CLAUDE_STUB_CALL_HOST_MCP:-false}" == "true" && -n "$mcp_config_path" ]
   host_mcp_json="$(MCP_CONFIG_PATH="$mcp_config_path" node -e '
 const fs = require("fs");
 const config = JSON.parse(fs.readFileSync(process.env.MCP_CONFIG_PATH, "utf8"));
-const server = config.mcpServers && config.mcpServers.github_graphql;
+const server = config.mcpServers && config.mcpServers.symphony;
 if (!server || typeof server.url !== "string" || !server.headers) {
-  throw new Error("host MCP configuration is missing github_graphql");
+  throw new Error("host MCP configuration is missing symphony");
+}
+if (server.type !== "http") {
+  throw new Error("host MCP configuration must use Streamable HTTP");
 }
 (async () => {
-  const response = await fetch(server.url.replace(/\/sse$/, "/messages"), {
+  const response = await fetch(server.url, {
     method: "POST",
     headers: { ...server.headers, "content-type": "application/json" },
     body: JSON.stringify({

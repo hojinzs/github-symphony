@@ -202,7 +202,7 @@ global.fetch = async (url, options) => {
       githubTokenBrokerSecret: true,
     });
     expect(invocations.at(-1)?.hostMcp).toMatchObject({
-      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/sse$/),
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/),
       responseStatus: 200,
       result: {
         content: [

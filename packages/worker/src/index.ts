@@ -896,15 +896,6 @@ async function runNonCodexRuntimeAdapterLifecycle(
   }
 }
 
-function parseIssueNativeRef(value: string | undefined): unknown {
-  if (!value) return null;
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return null;
-  }
-}
-
 async function spawnNonCodexRuntimeTurn(
   adapter: WorkerNonCodexRuntimeAdapter,
   runtimeKind: "claude-print" | "custom",
