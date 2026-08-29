@@ -75,6 +75,34 @@ describe("composeClaudeMcpConfig", () => {
     });
   });
 
+  it("writes only the loopback URL and session capability for host-side MCP", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const runtimeRoot = join(workspaceRoot, "runtime");
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, true, {
+      GITHUB_GRAPHQL_TOKEN: "adapter-secret-must-not-reach-child",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret-must-not-reach-child",
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+      SYMPHONY_CLAUDE_MCP_URL: "http://127.0.0.1:43123/sse",
+      SYMPHONY_CLAUDE_MCP_SESSION_TOKEN: "worker-session-capability",
+    });
+
+    const config = await readJson(result.finalPath);
+    expect(config).toEqual({
+      mcpServers: {
+        github_graphql: {
+          type: "sse",
+          url: "http://127.0.0.1:43123/sse",
+          headers: {
+            Authorization: "Bearer worker-session-capability",
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(config)).not.toContain("adapter-secret-must-not-reach-child");
+    expect(JSON.stringify(config)).not.toContain("broker-secret-must-not-reach-child");
+  });
+
   it("stores runtime mcp config with owner-only permissions", async () => {
     const workspaceRoot = await createTempWorkspace();
     const runtimeRoot = join(workspaceRoot, "runtime");

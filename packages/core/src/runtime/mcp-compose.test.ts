@@ -34,6 +34,35 @@ afterEach(async () =>
 );
 
 describe("composeMcpServers", () => {
+  it("accepts HTTP/SSE MCP transport declarations", async () => {
+    const { repo } = await fixture();
+    await writeFile(
+      join(repo, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          host: {
+            type: "sse",
+            url: "http://127.0.0.1:4321/sse",
+            headers: { Authorization: "$MCP_SESSION_TOKEN" },
+          },
+        },
+      })
+    );
+
+    expect(
+      composeMcpServers({
+        repositoryDir: repo,
+        trustRepoConfig: true,
+        env: { MCP_SESSION_TOKEN: "capability" },
+      })
+    ).toEqual({
+      host: {
+        type: "sse",
+        url: "http://127.0.0.1:4321/sse",
+        headers: { Authorization: "$MCP_SESSION_TOKEN" },
+      },
+    });
+  });
   it("removes resolved tracker secret values from composed server environments", () => {
     expect(
       stripMcpServerSecretEnvironmentValues(
