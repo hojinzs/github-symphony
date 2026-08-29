@@ -2,6 +2,8 @@
 
 Linear tracker adapter for GitHub Symphony.
 
+Adapter profile note: labels are trimmed, lowercased, and deduplicated; timestamps are parsed to canonical ISO 8601 or `null`; Linear priority `0` (No priority) maps to `null`. Cursor integrity loss and max-page truncation fail with the `tracker_pagination` category and a structured integrity event.
+
 The MVP is read-side only: it polls Linear issues by `project.slugId` and
 workflow state names, normalizes them into `TrackedIssue`, and injects Linear
 context into worker environments.

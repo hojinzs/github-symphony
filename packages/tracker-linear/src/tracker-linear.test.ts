@@ -68,6 +68,25 @@ function linearIssueNode(
 }
 
 describe("linearTrackerAdapter", () => {
+  it("normalizes labels and timestamps and maps priority zero to null", () => {
+    const issue = normalizeLinearIssue(
+      makeProject(),
+      "project-slug",
+      linearIssueNode("ENG-1", [" Ready ", "READY", "", "Bug"], {
+        priority: 0,
+        createdAt: "not-a-timestamp",
+        updatedAt: "2026-05-01t01:02:03+09:00",
+      })
+    );
+
+    expect(issue).toMatchObject({
+      priority: null,
+      labels: ["ready", "bug"],
+      createdAt: null,
+      updatedAt: "2026-04-30T16:02:03.000Z",
+    });
+  });
+
   it("queries Linear by project slug and state names with cursor pagination", async () => {
     const fetchImpl = vi
       .fn()
@@ -185,7 +204,7 @@ describe("linearTrackerAdapter", () => {
     ]);
   });
 
-  it("limits pagination and supplies a per-page abort signal", async () => {
+  it("fails rather than truncating when pagination reaches maxPages", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
         data: {
@@ -197,21 +216,53 @@ describe("linearTrackerAdapter", () => {
       })
     );
 
-    const issues = await linearTrackerAdapter.listIssues(
-      makeProject({
-        settings: {
-          projectSlug: "symphony-0c79b11b75ea",
-          activeStates: "Todo",
-          maxPages: 1,
-          pageTimeoutMs: 1_000,
-        },
-      }),
-      { fetchImpl, token: "linear-token" }
-    );
+    await expect(
+      linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            maxPages: 1,
+            pageTimeoutMs: 1_000,
+          },
+        }),
+        { fetchImpl, token: "linear-token" }
+      )
+    ).rejects.toMatchObject({
+      message:
+        "tracker_pagination: maximum page limit (1) reached before pagination completed",
+      category: "tracker_pagination",
+    });
 
-    expect(issues).toHaveLength(1);
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("fails and emits a structured event when Linear pagination loses its cursor", async () => {
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [],
+            pageInfo: { hasNextPage: true, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.listIssues(makeProject(), {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.toMatchObject({ category: "tracker_pagination" });
+    expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toMatchObject({
+      event: "tracker-pagination-integrity-failure",
+      adapter: "linear",
+    });
   });
 
   it("keeps the per-page timeout active while reading the response body", async () => {
@@ -1107,7 +1158,10 @@ describe("linearTrackerAdapter", () => {
   });
 
   it("derives assignedOnly eligibility through the normalizer options object", () => {
-    const issue = normalizeLinearIssue(makeProject(), "project-slug", {
+    const issue = normalizeLinearIssue(
+      makeProject(),
+      "project-slug",
+      {
         id: "issue-1",
         identifier: "eng-123",
         state: { name: "Todo" },
