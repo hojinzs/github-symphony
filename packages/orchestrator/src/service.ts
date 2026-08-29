@@ -3019,6 +3019,7 @@ export class OrchestratorService {
           SYMPHONY_ISSUE_STATE: issue.state,
           SYMPHONY_ISSUE_ID: issue.id,
           SYMPHONY_ISSUE_IDENTIFIER: issue.identifier,
+          SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify(issue.nativeRef ?? null),
           SYMPHONY_ISSUE_TITLE: issue.title,
           SYMPHONY_ISSUE_SUBJECT_ID: issueSubjectId,
           SYMPHONY_ISSUE_WORKSPACE_KEY: workspaceKey,

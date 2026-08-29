@@ -32,6 +32,7 @@ COPY --from=build --chown=node:node /app/package.json /app/package.json
 
 # Copy compiled stub worker
 COPY --from=build --chown=node:node /app/e2e-compiled/stub-worker.js /app/e2e/stub-worker.js
+COPY --from=build --chown=node:node /app/e2e/host-dynamic-tool-e2e.mjs /app/e2e/host-dynamic-tool-e2e.mjs
 
 # Copy seed data
 COPY --chown=node:node e2e/seed /e2e/seed

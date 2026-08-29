@@ -69,7 +69,8 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - Worker run metadata uses the same core lifecycle phase resolver as orchestrator prompt rendering.
 - Multi-turn convergence compares local workspace/HEAD progress and reads canonical tracker state through `/api/v1/tracker-state` before each turn after the first and again at the failure threshold. A confirmed state outside the workflow's active states completes the worker at the next boundary; active or unconfirmed reads fail closed. Comments, PR pushes, and active-to-active transitions do not reset the local non-productive-turn counter. Each read uses the tracker adapter and may consume a live provider request (up to 19 per default 20-turn session, plus the threshold read).
 - Runtime adapters: `packages/runtime-codex` (app-server protocol), `packages/runtime-claude` (print mode)
-- Runtime-neutral MCP tools: `packages/tool-github-graphql`, `packages/tool-linear-graphql`
+- Codex provider-native tools are snapshotted at worker session start, advertised through `thread/start.dynamicTools`, and executed in-process by the worker after `item/tool/call`; tool credentials and opaque issue context remain on the host side.
+- Runtime-neutral GraphQL implementations: `packages/tool-github-graphql`, `packages/tool-linear-graphql`
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
@@ -98,7 +99,7 @@ to Git subprocesses.
 ```
 cli (bundles: orchestrator, worker, control-plane, dashboard, runtime-claude, tracker-github, core)
 orchestrator ──→ core, runtime-claude, runtime-codex, tracker-file, tracker-github, tracker-linear
-worker ────────→ core, extension-github-workflow, runtime-claude, runtime-codex, tool-github-graphql, tracker-github
+worker ────────→ core, extension-github-workflow, runtime-claude, runtime-codex, tool-github-graphql, tool-linear-graphql, tracker-github
 control-plane ─→ core, dashboard
 dashboard ─────→ core
 runtime-claude ─→ core, tool-github-graphql, tool-linear-graphql

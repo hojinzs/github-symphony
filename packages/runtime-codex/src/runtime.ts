@@ -45,6 +45,29 @@ export type RuntimeToolDefinition = {
   };
 };
 
+/**
+ * The subset of a provider-native tool definition that is safe to advertise
+ * to the Codex app-server. Credentials and process-launch details deliberately
+ * stay on the host side of the runtime boundary.
+ */
+export type CodexDynamicToolSpec = {
+  type: "function";
+  name: string;
+  description: string;
+  inputSchema: RuntimeToolDefinition["inputSchema"];
+};
+
+export function createCodexDynamicToolSpecs(
+  tools: readonly RuntimeToolDefinition[]
+): CodexDynamicToolSpec[] {
+  return tools.map(({ name, description, inputSchema }) => ({
+    type: "function",
+    name,
+    description,
+    inputSchema,
+  }));
+}
+
 export type CodexRuntimeConfig = {
   projectId: string;
   workingDirectory: string;
@@ -81,6 +104,7 @@ export type CodexRuntimePlan = {
   args: string[];
   env: NodeJS.ProcessEnv;
   tools: RuntimeToolDefinition[];
+  dynamicTools: CodexDynamicToolSpec[];
 };
 
 export class AgentRuntimeResolutionError extends Error {}
@@ -132,7 +156,7 @@ export const CODEX_PROTOCOL_EVENT_NAMES = {
   turnCompleted: "turn/completed",
   turnFailed: "turn/failed",
   turnCancelled: "turn/cancelled",
-  toolCallRequested: "dynamic_tool_call_request",
+  toolCallRequested: "item/tool/call",
   inputRequired: "item/tool/requestUserInput",
   rateLimit: "turn/rate_limit",
   messageDelta: "item/message/delta",
@@ -637,29 +661,6 @@ export function buildCodexRuntimePlan(
       ? { SYMPHONY_ORCHESTRATOR_TOKEN: config.orchestratorToken }
       : {}),
   };
-  const linearGraphqlEnv = config.enableLinearGraphqlTool
-    ? {
-        LINEAR_GRAPHQL_TOOL_NAME: "linear_graphql",
-        LINEAR_GRAPHQL_URL:
-          config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
-        ...(config.linearAuthorization
-          ? {
-              LINEAR_AUTHORIZATION: config.linearAuthorization,
-            }
-          : {}),
-        ...(config.linearApiKey
-          ? {
-              LINEAR_API_KEY: config.linearApiKey,
-            }
-          : {}),
-      }
-    : {
-        LINEAR_GRAPHQL_TOOL_NAME: "",
-        LINEAR_GRAPHQL_URL: undefined,
-        LINEAR_API_KEY: undefined,
-        LINEAR_AUTHORIZATION: undefined,
-      };
-
   const plan = {
     cwd: config.workingDirectory,
     command: agentCommand.command,
@@ -670,27 +671,30 @@ export function buildCodexRuntimePlan(
       ...config.agentEnv,
       CODEX_PROJECT_ID: config.projectId,
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
-      GITHUB_GRAPHQL_TOOL_NAME: githubTool.name,
-      GITHUB_GRAPHQL_TOOL_COMMAND: [
-        githubTool.command,
-        ...githubTool.args,
-      ].join(" "),
-      ...linearGraphqlEnv,
       ...orchestratorRunEnv,
       ...agentEnv,
       ...gitCredentialHelper,
-      ...Object.assign({}, ...builtinTools.map((tool) => tool.env)),
-    },
+    } as NodeJS.ProcessEnv,
     tools,
+    dynamicTools: createCodexDynamicToolSpecs(builtinTools),
   };
 
-  // A broker can serve GitHub tools and Git without exposing raw tracker
-  // credentials to the coding-agent process. Brokerless deployments retain
-  // them temporarily for Phase 1a compatibility (#700 removes this path).
-  if (brokeredGitHubTracker) {
-    for (const name of secretEnvironmentNames) {
-      delete plan.env[name];
-    }
+  // Dynamic-tool credentials execute in the worker host. The brokerless
+  // Git credential helper still needs the GitHub token until #700 moves
+  // authenticated Git transport host-side.
+  for (const name of new Set([
+    ...secretEnvironmentNames.filter(
+      (name) => name !== "GITHUB_GRAPHQL_TOKEN"
+    ),
+    "LINEAR_API_KEY",
+    "LINEAR_AUTHORIZATION",
+    "LINEAR_GRAPHQL_URL",
+  ])) {
+    delete plan.env[name];
+  }
+
+  if (usesGitHubTokenBroker) {
+    delete plan.env.GITHUB_GRAPHQL_TOKEN;
   }
 
   return plan;
