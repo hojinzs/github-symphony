@@ -968,11 +968,14 @@ tracker:
   project_slug: symphony-0c79b11b75ea
   pickup_labels:
     include:
-      - agent
+      - " Agent "
       - dev-ready
+      - agent
+      - " "
     exclude:
-      - no-agent
+      - " NO-AGENT "
       - needs-spec
+      - no-agent
 codex:
   command: codex app-server
 ---

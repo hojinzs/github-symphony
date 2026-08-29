@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
+  normalizeLabels,
   parseWorkflowMarkdown,
   WorkflowValidationError,
   redactObservabilitySecrets,
@@ -933,12 +934,7 @@ function readStringArraySetting(
   key: string
 ): string[] {
   const field = value[key];
-  return Array.isArray(field)
-    ? field.filter(
-        (item): item is string =>
-          typeof item === "string" && item.trim().length > 0
-      )
-    : [];
+  return Array.isArray(field) ? normalizeLabels(field) : [];
 }
 
 function formatLinearConfigSummary(

@@ -24,6 +24,7 @@ import {
   DEFAULT_WORKFLOW_LIFECYCLE,
   type WorkflowLifecycleConfig,
 } from "./lifecycle.js";
+import { normalizeLabels } from "./normalization.js";
 
 type WorkflowFrontMatterNode =
   | string
@@ -538,8 +539,8 @@ function readPickupLabelsConfig(
 
   const input = value as Record<string, WorkflowFrontMatterNode>;
   return {
-    include: readStringList(input, "include") ?? [],
-    exclude: readStringList(input, "exclude") ?? [],
+    include: normalizeLabels(readStringList(input, "include") ?? []),
+    exclude: normalizeLabels(readStringList(input, "exclude") ?? []),
   };
 }
 

@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import {
+  normalizeLabels,
   parseWorkflowMarkdown,
   type OrchestratorTrackerSettingValue,
   type RepositoryRef,
@@ -308,7 +309,7 @@ function normalizeLabelList(
   value: OrchestratorTrackerSettingValue | undefined
 ): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((label): label is string => typeof label === "string");
+  return normalizeLabels(value);
 }
 
 /** Returns false only when the two label predicates are provably disjoint. */

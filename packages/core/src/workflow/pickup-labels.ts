@@ -1,5 +1,6 @@
 import type { OrchestratorProjectConfig } from "../contracts/status-surface.js";
 import type { TrackedIssue } from "../contracts/tracker-adapter.js";
+import { normalizeLabels } from "./normalization.js";
 
 /**
  * Workflow policy may narrow candidate listing by `tracker.pickup_labels`, which is how
@@ -41,7 +42,7 @@ export function resolvePickupLabelDispatchReason<T extends TrackedIssue>(
     return null;
   }
 
-  const labels = new Set(issue.labels);
+  const labels = new Set(normalizeLabels(issue.labels));
   const excludedLabel = [...exclude].find((label) => labels.has(label));
   if (excludedLabel) {
     return `Issue has excluded pickup label "${excludedLabel}".`;
@@ -53,7 +54,5 @@ export function resolvePickupLabelDispatchReason<T extends TrackedIssue>(
 }
 
 function readLabelList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((label): label is string => typeof label === "string")
-    : [];
+  return Array.isArray(value) ? normalizeLabels(value) : [];
 }
