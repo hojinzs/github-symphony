@@ -34,3 +34,6 @@ export function resolveWorkflowConfigTrackerAdapter(
 ): OrchestratorTrackerAdapter | undefined {
   return trackerAdapters.get(kind);
 }
+
+/** @deprecated Use resolveWorkflowConfigTrackerAdapter. */
+export const resolveWorkflowTrackerAdapter = resolveWorkflowConfigTrackerAdapter;

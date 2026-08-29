@@ -33,6 +33,7 @@ export {
   getSupportedTrackerKinds,
   resolveTrackerAdapter,
   resolveWorkflowConfigTrackerAdapter,
+  resolveWorkflowTrackerAdapter,
 } from "./tracker-adapters.js";
 export {
   acquireProjectLock,
