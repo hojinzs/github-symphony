@@ -11,6 +11,8 @@ import {
   type TrackerIssueCommentUpsertResult,
   type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
+  normalizeLabels,
+  parseTrackerTimestamp,
 } from "@gh-symphony/core";
 import {
   extractGitHubRateLimits,
@@ -482,8 +484,8 @@ export function normalizeProjectItem(
       item.content.assignees?.nodes?.find((assignee) => assignee?.login)
         ?.login ?? null,
     blockedBy,
-    createdAt: item.content.createdAt,
-    updatedAt: trackedUpdatedAt,
+    createdAt: parseTrackerTimestamp(item.content.createdAt),
+    updatedAt: parseTrackerTimestamp(trackedUpdatedAt),
     repository: {
       owner: repository.owner.login,
       name: repository.name,
@@ -543,8 +545,8 @@ function normalizePullRequestProjectItem(
     dispatchable: true,
     assigneeId: null,
     blockedBy: [],
-    createdAt: content.createdAt,
-    updatedAt: trackedUpdatedAt,
+    createdAt: parseTrackerTimestamp(content.createdAt),
+    updatedAt: parseTrackerTimestamp(trackedUpdatedAt),
     repository: pullRequest.repository,
     tracker: {
       adapter: "github-project",
@@ -648,6 +650,14 @@ export async function fetchProjectIssues(
     });
 
     issues.push(...pageIssues);
+    if (page.pageInfo.hasNextPage && !page.pageInfo.endCursor) {
+      throw trackerPaginationError({
+        adapter: "github-project",
+        projectId: config.projectId,
+        pageCount,
+        reason: "hasNextPage=true but endCursor is null",
+      });
+    }
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor);
 
@@ -2422,9 +2432,15 @@ function normalizeRepositoryRef(repository: {
 function normalizeLabelNames(
   nodes: Array<{ name: string | null } | null>
 ): string[] {
-  return nodes
-    .flatMap((label) => (label?.name ? [label.name.toLowerCase()] : []))
-    .sort();
+  return normalizeLabels(nodes.map((label) => label?.name)).sort();
+}
+
+function trackerPaginationError(input: Record<string, unknown>): Error {
+  const event = { event: "tracker-pagination-integrity-failure", ...input };
+  console.error(JSON.stringify(event));
+  const error = new Error(`tracker_pagination: ${input.reason}`);
+  Object.assign(error, { category: "tracker_pagination", event });
+  return error;
 }
 
 async function resolveIssueProjectItemForStateLookup(

@@ -8,6 +8,8 @@ import {
   type TrackedIssue,
   type TrackedIssueList,
   filterIssuesByPickupLabels,
+  normalizeLabels,
+  parseTrackerTimestamp,
 } from "@gh-symphony/core";
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
@@ -331,22 +333,20 @@ async function listLinearIssues(
   }
 
   const fetchedIssues = result.nodes.map((node) =>
-    normalizeLinearIssue(
-      project,
-      config.projectSlug,
-      node,
-      {
-        assignedOnly: config.assignedOnly,
-        rateLimits: result.rateLimits,
-        viewerId: result.viewerId,
-      }
-    )
+    normalizeLinearIssue(project, config.projectSlug, node, {
+      assignedOnly: config.assignedOnly,
+      rateLimits: result.rateLimits,
+      viewerId: result.viewerId,
+    })
   ) as TrackedIssueList;
   const blockerEligibleIssues = fetchedIssues.map((issue) =>
     applyBlockerDispatchability(issue, config)
   ) as TrackedIssueList;
   const issues = options.applyPickupLabels
-    ? (filterIssuesByPickupLabels(blockerEligibleIssues, project) as TrackedIssueList)
+    ? (filterIssuesByPickupLabels(
+        blockerEligibleIssues,
+        project
+      ) as TrackedIssueList)
     : blockerEligibleIssues;
   Object.defineProperty(issues, "rateLimits", {
     configurable: true,
@@ -358,11 +358,9 @@ async function listLinearIssues(
   if (config.assignedOnly) {
     emitDispatchableDerivedEvent({
       projectSlug: config.projectSlug,
-      dispatchableCount: issues.filter((issue) => issue.dispatchable)
+      dispatchableCount: issues.filter((issue) => issue.dispatchable).length,
+      nonDispatchableCount: issues.filter((issue) => !issue.dispatchable)
         .length,
-      nonDispatchableCount: issues.filter(
-        (issue) => !issue.dispatchable
-      ).length,
     });
   }
 
@@ -408,12 +406,29 @@ async function fetchPaginatedLinearIssues(
     const connection: LinearConnection<LinearIssueNode> | null | undefined =
       response.data.issues;
     issues.push(...(connection?.nodes ?? []));
+    if (connection?.pageInfo?.hasNextPage && !connection.pageInfo.endCursor) {
+      throw trackerPaginationError({
+        adapter: "linear",
+        projectSlug: input.projectSlug,
+        pageCount: page + 1,
+        reason: "hasNextPage=true but endCursor is null",
+      });
+    }
     after = connection?.pageInfo?.hasNextPage
       ? (connection.pageInfo.endCursor ?? null)
       : null;
     if (!after) {
       break;
     }
+  }
+
+  if (after) {
+    throw trackerPaginationError({
+      adapter: "linear",
+      projectSlug: input.projectSlug,
+      pageCount: input.maxPages,
+      reason: `maximum page limit (${input.maxPages}) reached before pagination completed`,
+    });
   }
 
   return {
@@ -472,13 +487,16 @@ export function normalizeLinearIssue(
         : parseLinearIssueNumber(identifier),
     title: issue.title ?? identifier,
     description: issue.description ?? null,
-    priority: typeof issue.priority === "number" ? issue.priority : null,
+    priority:
+      typeof issue.priority === "number" && issue.priority !== 0
+        ? issue.priority
+        : null,
     state,
     branchName: null,
     url: issue.url ?? null,
-    labels: (issue.labels?.nodes ?? [])
-      .map((label) => label.name)
-      .filter((label): label is string => typeof label === "string"),
+    labels: normalizeLabels(
+      (issue.labels?.nodes ?? []).map((label) => label.name)
+    ),
     dispatchable:
       !options.assignedOnly ||
       (assigneeId !== null && assigneeId === options.viewerId),
@@ -493,8 +511,8 @@ export function normalizeLinearIssue(
             : null,
         state: relation.issue?.state?.name ?? null,
       })),
-    createdAt: issue.createdAt ?? null,
-    updatedAt: issue.updatedAt ?? null,
+    createdAt: parseTrackerTimestamp(issue.createdAt),
+    updatedAt: parseTrackerTimestamp(issue.updatedAt),
     repository: project.repository,
     tracker: {
       adapter: "linear",
@@ -505,6 +523,14 @@ export function normalizeLinearIssue(
     metadata: {},
     rateLimits: options.rateLimits ?? null,
   };
+}
+
+function trackerPaginationError(input: Record<string, unknown>): Error {
+  const event = { event: "tracker-pagination-integrity-failure", ...input };
+  console.error(JSON.stringify(event));
+  const error = new Error(`tracker_pagination: ${input.reason}`);
+  Object.assign(error, { category: "tracker_pagination", event });
+  return error;
 }
 
 function createLinearGraphqlClient(

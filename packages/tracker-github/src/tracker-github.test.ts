@@ -456,6 +456,83 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.metadata).toEqual({});
   });
 
+  it("normalizes GitHub labels and malformed timestamps", () => {
+    const item = makeProjectItem({
+      itemId: "item-normalized",
+      issueId: "issue-normalized",
+      number: 17,
+      title: "Normalized issue",
+      assignees: [],
+      labels: [" Ready ", "READY", "", "Bug"],
+    });
+    item.updatedAt = "2026-03-01T00:00:00.000Z";
+    item.content.createdAt = "not-a-timestamp";
+    item.content.updatedAt = "2026-03-14t01:02:03+09:00";
+
+    expect(
+      normalizeGithubProjectItem(
+        "project-123",
+        item,
+        DEFAULT_WORKFLOW_LIFECYCLE
+      )
+    ).toMatchObject({
+      labels: ["bug", "ready"],
+      createdAt: null,
+      updatedAt: "2026-03-13T16:02:03.000Z",
+    });
+  });
+
+  it("fails and emits a structured event when GitHub pagination loses its cursor", async () => {
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+
+    await expect(
+      adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: { projectId: "project-123" },
+          },
+        },
+        {
+          token: "token",
+          fetchImpl: async () =>
+            makeJsonResponse({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: true },
+                  },
+                },
+              },
+            }),
+        }
+      )
+    ).rejects.toMatchObject({ category: "tracker_pagination" });
+
+    expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toMatchObject({
+      event: "tracker-pagination-integrity-failure",
+      adapter: "github-project",
+    });
+  });
+
   it("skips and emits an event when a Project item omits the configured state field", () => {
     const item = makeProjectItem({
       itemId: "item-missing-state",
@@ -653,6 +730,30 @@ describe("resolveTrackerAdapter", () => {
     });
     expect(issue?.pullRequest).not.toHaveProperty("labels");
     expect(issue?.pullRequest).not.toHaveProperty("assignees");
+  });
+
+  it("normalizes PullRequest Project item timestamps", () => {
+    const item = makePullRequestProjectItem({
+      itemId: "item-pr-normalized",
+      pullRequestId: "pr-normalized",
+      number: 8,
+      title: "Normalize pull request timestamps",
+      state: "Ready",
+      createdAt: "not-a-timestamp",
+      updatedAt: "2026-03-14t01:02:03+09:00",
+      itemUpdatedAt: "2026-03-13T00:00:00.000Z",
+    });
+
+    expect(
+      normalizeGithubProjectItem(
+        "project-123",
+        item,
+        DEFAULT_WORKFLOW_LIFECYCLE
+      )
+    ).toMatchObject({
+      createdAt: null,
+      updatedAt: "2026-03-13T16:02:03.000Z",
+    });
   });
 
   it("preserves fork head repository metadata when normalizing PullRequest Project items", () => {
@@ -6049,6 +6150,9 @@ function makePullRequestProjectItem(input: {
   number: number;
   title: string;
   state?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  itemUpdatedAt?: string | null;
   headRepository?: {
     name: string;
     url: string;
@@ -6057,7 +6161,7 @@ function makePullRequestProjectItem(input: {
 }) {
   return {
     id: input.itemId,
-    updatedAt: "2026-03-14T00:05:00.000Z",
+    updatedAt: input.itemUpdatedAt ?? "2026-03-14T00:05:00.000Z",
     fieldValues: {
       nodes: [
         {
@@ -6092,8 +6196,8 @@ function makePullRequestProjectItem(input: {
         url: "https://github.com/acme/platform",
         owner: { login: "acme" },
       },
-      createdAt: "2026-03-13T00:00:00.000Z",
-      updatedAt: "2026-03-14T00:00:00.000Z",
+      createdAt: input.createdAt ?? "2026-03-13T00:00:00.000Z",
+      updatedAt: input.updatedAt ?? "2026-03-14T00:00:00.000Z",
     },
   };
 }

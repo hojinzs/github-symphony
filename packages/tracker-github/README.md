@@ -2,6 +2,8 @@
 
 GitHub Project polling, issue normalization, and tracker-facing configuration validation that stay behind the core tracker adapter contract.
 
+Adapter profile note: labels are trimmed, lowercased, deduplicated, and sorted; timestamps are parsed to canonical ISO 8601 or `null`. A pagination response with `hasNextPage: true` and no cursor fails with the `tracker_pagination` category and a structured integrity event.
+
 ## Adapter profile
 
 - Candidate polling returns every active, in-scope Project item, including items
