@@ -737,6 +737,24 @@ Prompt`);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({
       "in progress": 2,
     });
+    expect(workflow.diagnostics).toEqual([
+      expect.objectContaining({
+        path: "agent.max_concurrent_agents_by_state.Ready",
+        reason: "must be greater than zero",
+      }),
+      expect.objectContaining({
+        path: "agent.max_concurrent_agents_by_state.Waiting",
+        reason: "must be greater than zero",
+      }),
+      expect.objectContaining({
+        path: "agent.max_concurrent_agents_by_state.Review",
+        reason: "must be a positive YAML integer",
+      }),
+      expect.objectContaining({
+        path: "agent.max_concurrent_agents_by_state.Done",
+        reason: "must be a positive YAML integer",
+      }),
+    ]);
   });
 
   it("preserves the path for an unresolved environment-backed workspace root", () => {

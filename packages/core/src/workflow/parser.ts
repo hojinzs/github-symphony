@@ -15,6 +15,7 @@ import {
   DEFAULT_WORKFLOW_DEFINITION,
   DEFAULT_WORKFLOW_TRACKER,
   type ParsedWorkflow,
+  type WorkflowDiagnostic,
   type WorkflowPriorityConfig,
   type WorkflowRuntimeConfig,
   type WorkflowRuntimeKind,
@@ -242,7 +243,7 @@ function parseWorkflowConfig(
     }) ?? []
   );
 
-  const maxConcurrentAgentsByState = readMaxConcurrentAgentsByState(
+  const stateConcurrency = readMaxConcurrentAgentsByState(
     agent,
     "max_concurrent_agents_by_state",
     "agent.max_concurrent_agents_by_state"
@@ -395,7 +396,7 @@ function parseWorkflowConfig(
           "max_retry_backoff_ms",
           "agent.max_retry_backoff_ms"
         ) ?? DEFAULT_MAX_RETRY_BACKOFF_MS,
-      maxConcurrentAgentsByState,
+      maxConcurrentAgentsByState: stateConcurrency.limits,
       maxFailureRetries:
         readOptionalIntegerLike(
           agent,
@@ -431,7 +432,8 @@ function parseWorkflowConfig(
     ),
     agentCommand,
     hookPath: readOptionalString(hooks, "after_create"),
-    maxConcurrentByState: maxConcurrentAgentsByState,
+    maxConcurrentByState: stateConcurrency.limits,
+    diagnostics: stateConcurrency.diagnostics,
   };
 
   return parsed;
@@ -1448,31 +1450,50 @@ function readMaxConcurrentAgentsByState(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
   path = key
-): Record<string, number> {
+): { limits: Record<string, number>; diagnostics: WorkflowDiagnostic[] } {
   const value = input[key];
   if (value === undefined || value === null) {
-    return {};
+    return { limits: {}, diagnostics: [] };
   }
   if (typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`Workflow front matter field "${path}" must be an object.`);
   }
 
   const result: Record<string, number> = {};
+  const diagnostics: WorkflowDiagnostic[] = [];
   for (const [entryKey, entryValue] of Object.entries(value)) {
-    if (
-      typeof entryValue !== "number" ||
-      !Number.isInteger(entryValue) ||
-      entryValue <= 0
-    ) {
+    const entryPath = `${path}.${entryKey}`;
+    if (typeof entryValue !== "number" || !Number.isInteger(entryValue)) {
+      diagnostics.push({
+        path: entryPath,
+        reason: "must be a positive YAML integer",
+        remediation:
+          "Use a whole number greater than zero, or remove the entry.",
+      });
+      continue;
+    }
+    if (entryValue <= 0) {
+      diagnostics.push({
+        path: entryPath,
+        reason: "must be greater than zero",
+        remediation:
+          "Use a whole number greater than zero, or remove the entry.",
+      });
       continue;
     }
 
     const normalizedKey = normalizeWorkflowState(entryKey);
     if (normalizedKey) {
       result[normalizedKey] = entryValue;
+    } else {
+      diagnostics.push({
+        path: entryPath,
+        reason: "state name is blank after normalization",
+        remediation: "Use a non-blank state name, or remove the entry.",
+      });
     }
   }
-  return result;
+  return { limits: result, diagnostics };
 }
 
 export function resolveEnvironmentValue(

@@ -77,6 +77,13 @@ export type WorkflowAgentConfig = {
   retryBaseDelayMs: number;
 };
 
+/** A non-fatal workflow configuration finding surfaced by validation tools. */
+export type WorkflowDiagnostic = {
+  path: string;
+  reason: string;
+  remediation: string;
+};
+
 export type RetryPolicyOptions = {
   baseDelayMs?: number;
   maxDelayMs?: number;
@@ -150,6 +157,7 @@ export type ParsedWorkflow = WorkflowDefinition & {
   agentCommand: string;
   hookPath: string | null;
   maxConcurrentByState: Record<string, number>;
+  diagnostics: WorkflowDiagnostic[];
 };
 
 export const DEFAULT_CODEX_COMMAND = "codex app-server";
@@ -251,6 +259,7 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   agentCommand: DEFAULT_CODEX_COMMAND,
   hookPath: null,
   maxConcurrentByState: {},
+  diagnostics: [],
 };
 
 export function resolveWorkflowRuntimeCommand(

@@ -260,6 +260,71 @@ Prompt {{ issue.identifier }}
     );
   });
 
+  it("reports ignored per-state concurrency entries in validation output", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "workflow-validate-concurrency-")
+    );
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: 0
+    Review: '2'
+    " In Progress ": 2
+codex:
+  command: codex app-server
+---
+Prompt {{ issue.identifier }}
+`,
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const report = JSON.parse(stdout.output()) as {
+      warnings: Array<{
+        title: string;
+        summary: string;
+        details: { path: string };
+      }>;
+    };
+    expect(report.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Ignored per-state concurrency entry",
+          summary: expect.stringContaining(
+            "agent.max_concurrent_agents_by_state.Ready"
+          ),
+          details: {
+            path: "agent.max_concurrent_agents_by_state.Ready",
+            reason: "must be greater than zero",
+          },
+        }),
+        expect.objectContaining({
+          title: "Ignored per-state concurrency entry",
+          summary: expect.stringContaining(
+            "agent.max_concurrent_agents_by_state.Review"
+          ),
+        }),
+      ])
+    );
+  });
+
   it("includes normalized required labels in JSON validation output", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "workflow-validate-required-labels-")

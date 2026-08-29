@@ -1,6 +1,7 @@
 import type {
   ParsedWorkflow,
   TrackedIssue,
+  WorkflowDiagnostic,
   WorkflowPriorityConfig,
 } from "@gh-symphony/core";
 import type { ProjectDetail } from "./github/client.js";
@@ -11,6 +12,17 @@ export type PriorityDiagnostic = {
   remediation?: string;
   details?: Record<string, unknown>;
 };
+
+export function buildStateConcurrencyDiagnostics(
+  workflow: ParsedWorkflow
+): PriorityDiagnostic[] {
+  return workflow.diagnostics.map((diagnostic: WorkflowDiagnostic) => ({
+    title: "Ignored per-state concurrency entry",
+    summary: `${diagnostic.path} is ignored because it ${diagnostic.reason}.`,
+    remediation: diagnostic.remediation,
+    details: { path: diagnostic.path, reason: diagnostic.reason },
+  }));
+}
 
 type RepositoryLabelSnapshot = {
   repository: string;

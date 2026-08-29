@@ -56,6 +56,7 @@ import {
   buildProviderDeprecationDiagnostics,
   buildPriorityConfigDiagnostics,
   buildPriorityDriftDiagnostics,
+  buildStateConcurrencyDiagnostics,
 } from "../priority-diagnostics.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
 import { standaloneProjectId } from "./project.js";
@@ -94,6 +95,7 @@ type DoctorCheckId =
   | "workflow_prompt_render"
   | "workflow_hooks"
   | "priority_mapping"
+  | "state_concurrency"
   | "claude_binary"
   | "anthropic_api_key"
   | "claude_mcp_config";
@@ -2176,6 +2178,17 @@ export async function runDoctorDiagnostics(
               diagnostic.remediation,
               diagnostic.details
             )
+        )
+      : []),
+    ...(workflow.status === "pass"
+      ? buildStateConcurrencyDiagnostics(workflow.workflow).map((diagnostic) =>
+          warnCheck(
+            "state_concurrency",
+            diagnostic.title,
+            diagnostic.summary,
+            diagnostic.remediation,
+            diagnostic.details
+          )
         )
       : []),
     ...(await buildPriorityMappingChecks({

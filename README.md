@@ -354,7 +354,7 @@ Lower numbers dispatch first. If an issue has multiple configured priority label
 
 Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. To migrate, replace it with `tracker.provider.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.provider.priority` wins and diagnostics warn about the conflict.
 
-`gh-symphony workflow validate` reports local config errors and legacy priority warnings. Strict front-matter failures use stable workflow error codes; with `--json`, `workflow validate` includes both `error.code` and `error.path`. `gh-symphony doctor` additionally checks live Project/repository drift: missing fields, missing labels, unmapped live options, stale configured mappings, and active issues that currently resolve to `priority = null` because their priority-like value is unmapped.
+`gh-symphony workflow validate` reports local config errors plus warnings for legacy priority configuration and ignored per-state concurrency entries. Each concurrency warning names the ignored `agent.max_concurrent_agents_by_state` path and reason, while valid entries in the same map remain active. Strict front-matter failures use stable workflow error codes; with `--json`, `workflow validate` includes both `error.code` and `error.path`. `gh-symphony doctor` additionally checks live Project/repository drift and reports the same local configuration warnings.
 
 ### Token-Only Setup
 
