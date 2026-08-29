@@ -932,6 +932,7 @@ The orchestrator runs independently as long as the repository has been initializ
 gh-symphony repo start                    # continuous polling
 gh-symphony repo start --once             # run startup cleanup + one poll/reconcile/dispatch tick
 gh-symphony repo start --http             # continuous polling + JSON status API on 127.0.0.1:4680
+gh-symphony repo start --port 4800        # preferred alias for --http with an explicit port
 gh-symphony repo start --once --http      # keep the JSON status API available after the one-shot tick until Ctrl+C
 gh-symphony repo start --web              # continuous polling + browser dashboard on 127.0.0.1:4680
 gh-symphony repo run beta/api#42          # dispatch a single issue
@@ -958,7 +959,7 @@ Runtime state lives under `.runtime/orchestrator/`:
 
 Read orchestration state via the status API (`/api/v1/state`) rather than reading status files directly.
 
-Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony repo start --once` is the first production-like run: it validates the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--http` when you want the JSON status API available; with `--once --http`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`. Add `--web` instead when you want the browser dashboard at `/` plus the JSON API.
+Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony repo start --once` is the first production-like run: it validates the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--port [port]` when you want the JSON status API available; `--http [port]` remains a supported alias. With `--once --port`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`. `server.port` in `WORKFLOW.md` enables the same API when no CLI port is supplied. Add `--web` instead when you want the browser dashboard at `/` plus the JSON API.
 
 ## Verification
 

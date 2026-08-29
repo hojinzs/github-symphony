@@ -1831,11 +1831,21 @@ Handle {{issue.identifier}}.\n`,
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("increments the port when the requested HTTP port is already in use", async () => {
+  it("uses --port in preference to server.port", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
     });
+    const blocker = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = blocker.address();
+    if (!address || typeof address === "string") {
+      blocker.close();
+      throw new Error("Expected TCP address");
+    }
+    await configureWorkflow(configDir, address.port);
     const lock = {
       lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
@@ -1854,16 +1864,6 @@ Handle {{issue.identifier}}.\n`,
       resolveRun?.();
     });
 
-    const blocker = createServer();
-    await new Promise<void>((resolve) =>
-      blocker.listen(0, "127.0.0.1", () => resolve())
-    );
-    const address = blocker.address();
-    if (!address || typeof address === "string") {
-      blocker.close();
-      throw new Error("Expected TCP address");
-    }
-
     const exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation(
@@ -1873,12 +1873,12 @@ Handle {{issue.identifier}}.\n`,
 
     try {
       const startPromise = startModule.default(
-        ["--http", String(address.port)],
+        ["--port", "0"],
         baseOptions(configDir)
       );
 
       const url = await waitForHttpUrl(stdout.output);
-      expect(new URL(url).port).toBe(String(address.port + 1));
+      expect(new URL(url).port).not.toBe(String(address.port));
 
       process.emit("SIGINT");
       await startPromise;
@@ -1890,6 +1890,41 @@ Handle {{issue.identifier}}.\n`,
     }
 
     expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("fails when a requested port is already in use", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const blocker = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = blocker.address();
+    if (!address || typeof address === "string") {
+      blocker.close();
+      throw new Error("Expected TCP address");
+    }
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+
+    try {
+      await expect(
+        startModule.default(
+          ["--port", String(address.port)],
+          baseOptions(configDir)
+        )
+      ).rejects.toThrow(`HTTP server port ${address.port} is already in use`);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        blocker.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
   });
 
   it("propagates lock acquisition failures", async () => {
@@ -2105,4 +2140,30 @@ async function createConfigFixture(input: {
   }
 
   return configDir;
+}
+
+async function configureWorkflow(
+  configDir: string,
+  port: number
+): Promise<void> {
+  const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+  const project = JSON.parse(
+    await readFile(projectPath, "utf8")
+  ) as CliProjectConfig;
+  const workflowPath = join(configDir, "projects", "tenant-a", "WORKFLOW.md");
+  project.workflowSource = { type: "repo", path: workflowPath };
+  await writeFile(projectPath, JSON.stringify(project), "utf8");
+  await writeFile(
+    workflowPath,
+    `---
+tracker:
+  kind: github-project
+server:
+  port: ${port}
+codex:
+  command: codex app-server
+---
+Prompt\n`,
+    "utf8"
+  );
 }

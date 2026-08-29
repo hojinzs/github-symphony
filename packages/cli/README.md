@@ -356,7 +356,7 @@ gh-symphony repo start --daemon          # Start in background
 gh-symphony repo stop                    # Stop the daemon
 ```
 
-Run `doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API remains available after that one-shot tick completes, and the process stays up until you interrupt it with `Ctrl+C`.
+Run `doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. Add `--port [port]` to enable the JSON status API; `--http [port]` remains an alias, and `server.port` in `WORKFLOW.md` applies when neither CLI option is present.
 
 ### Monitor
 
