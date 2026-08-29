@@ -11910,7 +11910,7 @@ Prefer focused changes.
     });
   });
 
-  it("disables workflow stall detection when stall_timeout_ms <= 0 but keeps the 30 minute fallback", async () => {
+  it("uses the fallback timeout as a silence interval when workflow stall detection is disabled", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-stall-disabled-")
@@ -11990,10 +11990,9 @@ Prefer focused changes.
     await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
 
-    expect(killImpl).toHaveBeenCalledWith(4108, "SIGTERM");
-    expect(updatedRun?.status).toBe("retrying");
-    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:31:01.000Z");
-    expect(updatedRun?.retryKind).toBe("continuation");
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.retryKind).toBeNull();
   });
 
   it("does not execute after_run while waiting for a retry schedule", async () => {

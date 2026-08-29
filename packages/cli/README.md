@@ -118,6 +118,18 @@ Pickup-label eligibility comparison is case-insensitive and ignores surrounding
 whitespace: `Agent`, `agent`, and `" AGENT "` are the same label. Do not use
 labels that differ only by case or outer whitespace as separate pickup gates.
 
+### Codex approval and turn timeout posture
+
+Codex workflows support only `codex.approval_policy: never`. The runtime has no
+operator-approval handler, so `on-request` and `untrusted` are rejected during
+workflow validation rather than leaving a worker session waiting for an
+unanswerable request. To migrate an existing workflow, change either value to
+`never` or remove `codex.approval_policy`.
+
+`runtime.timeouts.turn_timeout_ms` (and legacy `codex.turn_timeout_ms`) is the
+maximum silence interval for a Codex app-server turn. Every app-server output
+resets it; it is not a total turn-duration cap.
+
 Lifecycle generation enables blocker checks for the first configured active
 state (`Todo` with built-in defaults) while leaving planning states disabled.
 An explicit `tracker.blocker_check_states: []` disables blocker gating; this is

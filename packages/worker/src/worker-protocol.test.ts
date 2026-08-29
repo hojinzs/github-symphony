@@ -51,6 +51,8 @@ const TEST_TOOL_ENV = {
   GITHUB_GRAPHQL_TOKEN: "host-token",
   GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
 };
+import { createTurnSilenceTimer } from "./turn-silence-timer.js";
+import { createUnhandledServerRequestError } from "./server-request.js";
 
 // ---------------------------------------------------------------------------
 // Protocol primitives — replicated exactly from packages/worker/src/index.ts
@@ -675,26 +677,21 @@ function createProtocolContext(options: {
 
   function waitForTurnWithTimeout(): Promise<void> {
     return new Promise((resolve, reject) => {
-      let timer: ReturnType<typeof setTimeout>;
-      const timeout = () => {
+      const timer = createTurnSilenceTimer(turnTimeoutMs, () => {
         killCalled = true;
         reject(new Error("turn_timeout: silence interval exceeded"));
-      };
-      const arm = () => {
-        clearTimeout(timer);
-        timer = setTimeout(timeout, turnTimeoutMs);
-      };
-      timer = setTimeout(timeout, turnTimeoutMs);
-      resetTurnTimeout = arm;
+      });
+      timer.arm();
+      resetTurnTimeout = timer.arm;
 
       waitForTurnCompletion().then(
         () => {
-          clearTimeout(timer);
+          timer.cancel();
           resetTurnTimeout = null;
           resolve();
         },
         (error) => {
-          clearTimeout(timer);
+          timer.cancel();
           resetTurnTimeout = null;
           reject(error);
         }
@@ -825,6 +822,7 @@ function createProtocolContext(options: {
     if (event.payload.suppressUpdate) {
       return;
     }
+
     emitOrchestratorChannelEvent(getCodexObservabilityEventName(event));
   }
 
@@ -957,6 +955,13 @@ function createProtocolContext(options: {
 
     // Track the timestamp of every server-initiated notification/event.
     runtimeState.lastEventAt = new Date().toISOString();
+
+    const unsupportedRequest = createUnhandledServerRequestError(msg);
+    if (unsupportedRequest) {
+      sendMessage(unsupportedRequest);
+      return;
+    }
+
     const agentEvents = normalizeCodexRuntimeEvents(msg);
     let handledAgentEvent = false;
     for (const event of agentEvents) {
@@ -1896,6 +1901,75 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.run.lastError).toBe(
       "turn_failed: tool execution failed"
     );
+  });
+});
+
+describe("turn silence timer", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("extends the deadline for every app-server output", async () => {
+    const onTimeout = vi.fn();
+    const timer = createTurnSilenceTimer(1000, onTimeout);
+
+    timer.arm();
+    await vi.advanceTimersByTimeAsync(900);
+    timer.arm();
+    await vi.advanceTimersByTimeAsync(900);
+    timer.arm();
+    await vi.advanceTimersByTimeAsync(900);
+
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(101);
+    expect(onTimeout).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the active deadline when the turn completes", async () => {
+    const onTimeout = vi.fn();
+    const timer = createTurnSilenceTimer(1000, onTimeout);
+
+    timer.arm();
+    timer.cancel();
+    await vi.advanceTimersByTimeAsync(1001);
+
+    expect(onTimeout).not.toHaveBeenCalled();
+  });
+});
+
+describe("server-initiated requests", () => {
+  it("immediately rejects an approval request that cannot be handled", () => {
+    expect(
+      createUnhandledServerRequestError({
+        jsonrpc: "2.0",
+        id: "approval-1",
+        method: "item/approval/request",
+        params: {},
+      })
+    ).toEqual({
+      jsonrpc: "2.0",
+      id: "approval-1",
+      error: {
+        code: -32601,
+        message: "unhandled server request: item/approval/request",
+      },
+    });
+  });
+
+  it("does not turn responses or notifications into error replies", () => {
+    expect(
+      createUnhandledServerRequestError({ jsonrpc: "2.0", id: "1", result: {} })
+    ).toBeNull();
+    expect(
+      createUnhandledServerRequestError({
+        jsonrpc: "2.0",
+        method: "item/updated",
+      })
+    ).toBeNull();
   });
 });
 

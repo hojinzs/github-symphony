@@ -3246,23 +3246,21 @@ export class OrchestratorService {
       const lastActivityAtMs = parseTimestampMs(
         run.lastEventAt ?? run.startedAt
       );
-      const startedAtMs = parseTimestampMs(run.startedAt);
       const elapsedSinceLastActivityMs =
         lastActivityAtMs === null ? null : now.getTime() - lastActivityAtMs;
-      const runningSinceMs =
-        startedAtMs === null ? null : now.getTime() - startedAtMs;
       const isStalledByWorkflowTimeout =
         configuredStallTimeoutMs !== null &&
         configuredStallTimeoutMs > 0 &&
         elapsedSinceLastActivityMs !== null &&
         elapsedSinceLastActivityMs > configuredStallTimeoutMs;
       const isStalledByFallbackTimeout =
-        runningSinceMs !== null && runningSinceMs > STUCK_WORKER_TIMEOUT_MS;
+        elapsedSinceLastActivityMs !== null &&
+        elapsedSinceLastActivityMs > STUCK_WORKER_TIMEOUT_MS;
 
       if (isStalledByWorkflowTimeout || isStalledByFallbackTimeout) {
         const elapsedMs = isStalledByWorkflowTimeout
           ? elapsedSinceLastActivityMs
-          : runningSinceMs;
+          : elapsedSinceLastActivityMs;
         const timeoutMs = isStalledByWorkflowTimeout
           ? configuredStallTimeoutMs
           : STUCK_WORKER_TIMEOUT_MS;

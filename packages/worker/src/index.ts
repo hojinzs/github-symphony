@@ -82,6 +82,8 @@ import {
   buildCodexDynamicToolsParams,
   buildCodexInitializeParams,
 } from "./codex-initialize.js";
+import { createTurnSilenceTimer } from "./turn-silence-timer.js";
+import { createUnhandledServerRequestError } from "./server-request.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
@@ -1348,29 +1350,24 @@ async function runCodexClientProtocol(
    */
   function waitForTurnWithTimeout(): Promise<void> {
     return new Promise((resolve, reject) => {
-      let timer: NodeJS.Timeout;
-      const timeout = () => {
+      const timer = createTurnSilenceTimer(turnTimeoutMs, () => {
         process.stderr.write(
           `[worker] turn_timeout: no app-server output for ${turnTimeoutMs}ms — killing codex process\n`
         );
         requestChildTermination();
         reject(new Error("turn_timeout: silence interval exceeded"));
-      };
-      const arm = () => {
-        clearTimeout(timer);
-        timer = setTimeout(timeout, turnTimeoutMs);
-      };
-      timer = setTimeout(timeout, turnTimeoutMs);
-      resetTurnTimeout = arm;
+      });
+      timer.arm();
+      resetTurnTimeout = timer.arm;
 
       waitForTurnCompletion().then(
         () => {
-          clearTimeout(timer);
+          timer.cancel();
           resetTurnTimeout = null;
           resolve();
         },
         (error) => {
-          clearTimeout(timer);
+          timer.cancel();
           resetTurnTimeout = null;
           reject(error);
         }
@@ -1566,6 +1563,15 @@ async function runCodexClientProtocol(
       emitOrchestratorChannelEvent("worker_identity_violation");
       markTurnTerminalFailure("failed", reason);
       requestChildTermination();
+      return;
+    }
+
+    const unsupportedRequest = createUnhandledServerRequestError(msg);
+    if (unsupportedRequest) {
+      process.stderr.write(
+        `[worker] unhandled server request ${msg.method}; replying method_not_found\n`
+      );
+      sendMessage(unsupportedRequest);
       return;
     }
 
@@ -1829,7 +1835,7 @@ async function runCodexClientProtocol(
       );
       emitTurnStartedEvent(activeTurnTelemetry);
 
-      // Wait for turn completion with absolute timeout
+      // Wait for turn completion with a silence timeout.
       await waitForTurnWithTimeout();
 
       // Check for user_input_required (set by handleServerMessage)
