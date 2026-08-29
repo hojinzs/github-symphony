@@ -59,6 +59,7 @@ export async function deriveStandaloneProject(
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
     resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+    workflowPath,
   });
   const repository = parseRepository(workflow.repository);
   const adapter = workflow.tracker.kind ?? "github-project";

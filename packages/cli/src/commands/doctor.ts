@@ -708,6 +708,7 @@ async function checkWorkflow(
     const parsed = deps.parseWorkflowMarkdown(markdown, environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
       resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+      workflowPath,
     });
     return {
       status: "pass",

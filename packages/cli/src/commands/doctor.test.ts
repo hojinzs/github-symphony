@@ -1314,10 +1314,10 @@ Prompt body
     });
   });
 
-  it("reports invalid workflow files and blocks runtime command validation", async () => {
+  it("reports unterminated front matter and blocks runtime command validation", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const repoDir = await mkdtemp(join(tmpdir(), "doctor-repo-"));
-    await writeFile(join(repoDir, "WORKFLOW.md"), "invalid workflow", "utf8");
+    await writeFile(join(repoDir, "WORKFLOW.md"), "---\ntracker:\n", "utf8");
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {

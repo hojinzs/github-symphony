@@ -818,6 +818,7 @@ function validateWorkflow(
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
     resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+    workflowPath,
   });
   const samplePhase = resolveWorkflowExecutionPhase({
     issueState: SAMPLE_ISSUE.state,
@@ -971,6 +972,7 @@ async function runPreview(
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
     resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+    workflowPath,
   });
   if (
     flags.issue &&

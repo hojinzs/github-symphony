@@ -20,6 +20,8 @@ import {
   type WorkflowRuntimeKind,
   resolveWorkflowRuntimeCommand,
 } from "./config.js";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
   normalizeWorkflowState,
@@ -47,6 +49,10 @@ export type ParseWorkflowOptions = {
   resolveTrackerAdapter?: (
     kind: string
   ) => WorkflowConfigTrackerAdapter | undefined;
+  /** Absolute or relative path of the selected WORKFLOW.md, when known. */
+  workflowPath?: string;
+  /** Test seam for deterministic home-directory expansion. */
+  homeDir?: string;
 };
 
 export type WorkflowConfigTrackerAdapter = {
@@ -108,46 +114,65 @@ function parseWorkflowMarkdownInternal(
   options: ParseWorkflowOptions
 ): ParsedWorkflow {
   const compatibilityMode = options.compatibilityMode ?? "strict";
-  const frontMatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  const frontMatterMatch = markdown.match(
+    /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
+  );
 
   if (!frontMatterMatch) {
-    if (compatibilityMode === "legacy") {
+    if (/^---(?:\r?\n|$)/.test(markdown)) {
+      throw new WorkflowValidationError(
+        "workflow_parse_error",
+        "front_matter",
+        "WORKFLOW.md has unterminated YAML front matter."
+      );
+    }
+    if (
+      compatibilityMode === "legacy" &&
+      markdown.startsWith("## Prompt Guidelines")
+    ) {
       return parseLegacyWorkflowMarkdown(markdown);
     }
-    throw new WorkflowValidationError(
-      "workflow_parse_error",
-      "front_matter",
-      "WORKFLOW.md must use YAML front matter."
-    );
+    return parseWorkflowConfig({}, markdown.trim(), env, options);
   }
 
   const [, rawFrontMatter, rawPromptTemplate = ""] = frontMatterMatch;
   const frontMatter = parseFrontMatter(rawFrontMatter);
-  const promptTemplate = rawPromptTemplate.trim();
+  return parseWorkflowConfig(
+    frontMatter,
+    rawPromptTemplate.trim(),
+    env,
+    options
+  );
+}
 
-  const tracker = readRequiredObject(frontMatter, "tracker");
+function parseWorkflowConfig(
+  frontMatter: Record<string, WorkflowFrontMatterNode>,
+  promptTemplate: string,
+  env: NodeJS.ProcessEnv,
+  options: ParseWorkflowOptions
+): ParsedWorkflow {
+  const tracker = readObject(frontMatter, "tracker");
   const polling = readObject(frontMatter, "polling");
   const workspace = readObject(frontMatter, "workspace");
   const hooks = readObject(frontMatter, "hooks");
   const agent = readObject(frontMatter, "agent");
   const runtimeNode = readOptionalRuntimeObject(frontMatter);
   const hasRuntime = runtimeNode !== null;
-  const codex = hasRuntime
-    ? readObject(frontMatter, "codex")
-    : readRequiredObject(frontMatter, "codex");
+  const codex = readObject(frontMatter, "codex");
 
-  const trackerKind = readRequiredString(tracker, "kind", env, "tracker.kind");
+  const trackerKind = readOptionalString(tracker, "kind", "tracker.kind");
   const supportedTrackerKinds =
     options.supportedTrackerKinds ?? DEFAULT_SUPPORTED_TRACKER_KINDS;
-  if (!supportedTrackerKinds.includes(trackerKind)) {
+  if (trackerKind && !supportedTrackerKinds.includes(trackerKind)) {
     throw new WorkflowValidationError(
       "workflow_validation_error",
       "tracker.kind",
       `Unsupported workflow tracker.kind "${trackerKind}". Supported values: ${supportedTrackerKinds.join(", ")}.`
     );
   }
-  const trackerAdapter =
-    options.resolveTrackerAdapter?.(trackerKind) ?? options.trackerAdapter;
+  const trackerAdapter = trackerKind
+    ? (options.resolveTrackerAdapter?.(trackerKind) ?? options.trackerAdapter)
+    : options.trackerAdapter;
   const provider = readProviderConfig(tracker);
   const explicitProviderKeys = new Set(Object.keys(provider));
   const deprecatedKeys = promoteDeprecatedTrackerKeys(tracker, provider);
@@ -287,7 +312,7 @@ function parseWorkflowMarkdownInternal(
           "endpoint",
           env
         ) ?? (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
-      apiKey: readNormalizedOptionalString(
+      apiKey: readNormalizedOptionalSecret(
         tracker,
         provider,
         explicitProviderKeys,
@@ -343,13 +368,13 @@ function parseWorkflowMarkdownInternal(
     },
     repository: readOptionalExtensionObject(frontMatter, "repository"),
     workspace: {
-      root: readOptionalString(workspace, "root", env),
+      root: readOptionalPath(workspace, "root", env, "workspace.root", options),
     },
     hooks: {
-      afterCreate: readOptionalString(hooks, "after_create", env),
-      beforeRun: readOptionalString(hooks, "before_run", env),
-      afterRun: readOptionalString(hooks, "after_run", env),
-      beforeRemove: readOptionalString(hooks, "before_remove", env),
+      afterCreate: readOptionalString(hooks, "after_create"),
+      beforeRun: readOptionalString(hooks, "before_run"),
+      afterRun: readOptionalString(hooks, "after_run"),
+      beforeRemove: readOptionalString(hooks, "before_remove"),
       timeoutMs:
         readOptionalPositiveInteger(hooks, "timeout_ms", "hooks.timeout_ms") ??
         DEFAULT_HOOK_TIMEOUT_MS,
@@ -402,7 +427,7 @@ function parseWorkflowMarkdownInternal(
       env
     ),
     agentCommand,
-    hookPath: readOptionalString(hooks, "after_create", env),
+    hookPath: readOptionalString(hooks, "after_create"),
     maxConcurrentByState: maxConcurrentAgentsByState,
   };
 
@@ -497,8 +522,7 @@ function promoteDeprecatedTrackerKeys(
 
 function readProviderOptionalString(
   provider: Record<string, unknown>,
-  key: string,
-  env: NodeJS.ProcessEnv
+  key: string
 ): string | null {
   const value = provider[key];
   if (value === undefined || value === null) {
@@ -511,7 +535,7 @@ function readProviderOptionalString(
       `Workflow front matter field "tracker.provider.${key}" must be a string.`
     );
   }
-  return resolveEnvironmentValue(value, env, `tracker.provider.${key}`);
+  return value;
 }
 
 function readNormalizedOptionalString(
@@ -519,11 +543,27 @@ function readNormalizedOptionalString(
   provider: Record<string, unknown>,
   explicitProviderKeys: ReadonlySet<string>,
   key: string,
-  env: NodeJS.ProcessEnv
+  _env: NodeJS.ProcessEnv
 ): string | null {
   return explicitProviderKeys.has(key)
-    ? readProviderOptionalString(provider, key, env)
-    : readOptionalString(tracker, key, env, `tracker.${key}`);
+    ? readProviderOptionalString(provider, key)
+    : readOptionalString(tracker, key, `tracker.${key}`);
+}
+
+function readNormalizedOptionalSecret(
+  tracker: Record<string, WorkflowFrontMatterNode>,
+  provider: Record<string, unknown>,
+  explicitProviderKeys: ReadonlySet<string>,
+  key: string,
+  env: NodeJS.ProcessEnv
+): string | null {
+  const path = explicitProviderKeys.has(key)
+    ? `tracker.provider.${key}`
+    : `tracker.${key}`;
+  const value = explicitProviderKeys.has(key)
+    ? readProviderOptionalString(provider, key)
+    : readOptionalString(tracker, key, path);
+  return value === null ? null : resolveEnvironmentValue(value, env, path);
 }
 
 function readProviderStringList(
@@ -644,7 +684,7 @@ function readPriorityConfig(
   tracker: Record<string, WorkflowFrontMatterNode>,
   provider: Record<string, unknown>,
   explicitProviderKeys: ReadonlySet<string>,
-  env: NodeJS.ProcessEnv
+  _env: NodeJS.ProcessEnv
 ): WorkflowPriorityConfig | null {
   const priorityValue =
     (explicitProviderKeys.has("priority") ? provider.priority : undefined) ??
@@ -659,12 +699,12 @@ function readPriorityConfig(
     );
   }
   const priority = priorityValue as Record<string, WorkflowFrontMatterNode>;
-  const source = readRequiredString(priority, "source", env);
+  const source = readRequiredString(priority, "source");
   const keys = new Set(Object.keys(priority));
 
   if (source === "project-field") {
     rejectPriorityKeys(keys, ["source", "field", "values"], source);
-    const field = readRequiredString(priority, "field", env);
+    const field = readRequiredString(priority, "field");
     const values = readNumberMap(priority, "values", "tracker.priority.values");
     if (Object.keys(values).length === 0) {
       throw new Error(
@@ -1053,13 +1093,13 @@ function pushInlineArrayEntry(
 
 function parseRuntimeConfig(
   runtime: Record<string, WorkflowFrontMatterNode>,
-  env: NodeJS.ProcessEnv
+  _env: NodeJS.ProcessEnv
 ): WorkflowRuntimeConfig {
-  const kind = readRuntimeKind(runtime, env);
+  const kind = readRuntimeKind(runtime);
   const isolation = readObject(runtime, "isolation", "runtime.isolation");
   const auth = readObject(runtime, "auth", "runtime.auth");
   const timeouts = readObject(runtime, "timeouts", "runtime.timeouts");
-  const configuredCommand = readOptionalString(runtime, "command", env);
+  const configuredCommand = readOptionalString(runtime, "command");
   const command = configuredCommand ?? defaultRuntimeCommand(kind);
 
   if (!command) {
@@ -1090,7 +1130,7 @@ function parseRuntimeConfig(
         ) ?? false,
     },
     auth: {
-      env: readOptionalString(auth, "env", env),
+      env: readOptionalString(auth, "env"),
     },
     timeouts: {
       turnTimeoutMs:
@@ -1107,10 +1147,9 @@ function parseRuntimeConfig(
 }
 
 function readRuntimeKind(
-  runtime: Record<string, WorkflowFrontMatterNode>,
-  env: NodeJS.ProcessEnv
+  runtime: Record<string, WorkflowFrontMatterNode>
 ): WorkflowRuntimeKind {
-  const kind = readRequiredString(runtime, "kind", env);
+  const kind = readRequiredString(runtime, "kind");
   if (
     kind === "codex-app-server" ||
     kind === "claude-print" ||
@@ -1168,20 +1207,9 @@ function readOptionalExtensionObject(
   return readObject(input, key) as Record<string, unknown>;
 }
 
-function readRequiredObject(
-  input: Record<string, WorkflowFrontMatterNode>,
-  key: string
-): Record<string, WorkflowFrontMatterNode> {
-  if (!(key in input)) {
-    throw new Error(`Workflow front matter field "${key}" is required.`);
-  }
-  return readObject(input, key);
-}
-
 function readOptionalString(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
-  env: NodeJS.ProcessEnv,
   path = key
 ): string | null {
   const value = input[key];
@@ -1191,28 +1219,56 @@ function readOptionalString(
   if (typeof value !== "string") {
     throw new Error(`Workflow front matter field "${path}" must be a string.`);
   }
-  return resolveEnvironmentValue(value, env, path);
+  return value;
+}
+
+function readOptionalPath(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string,
+  env: NodeJS.ProcessEnv,
+  path: string,
+  options: ParseWorkflowOptions
+): string | null {
+  const value = readOptionalString(input, key, path);
+  if (value === null) {
+    return null;
+  }
+  const expanded = resolveEnvironmentValue(value, env, path);
+  const normalized = expandHomeDirectory(expanded, options.homeDir);
+  return resolve(
+    options.workflowPath ? dirname(options.workflowPath) : process.cwd(),
+    normalized
+  );
+}
+
+function expandHomeDirectory(value: string, homeDir = homedir()): string {
+  if (value === "~") {
+    return homeDir;
+  }
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return join(homeDir, value.slice(2));
+  }
+  return value;
 }
 
 function readOptionalWorkflowString(
   input: Record<string, WorkflowFrontMatterNode>,
   primaryKey: string,
   fallbackKey: string,
-  env: NodeJS.ProcessEnv
+  _env: NodeJS.ProcessEnv
 ): string | null {
   return (
-    readOptionalString(input, primaryKey, env) ??
-    readOptionalString(input, fallbackKey, env)
+    readOptionalString(input, primaryKey) ??
+    readOptionalString(input, fallbackKey)
   );
 }
 
 function readRequiredString(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
-  env: NodeJS.ProcessEnv,
   path = key
 ): string {
-  const value = readOptionalString(input, key, env, path);
+  const value = readOptionalString(input, key, path);
   if (!value) {
     throw new Error(`Workflow front matter field "${path}" is required.`);
   }
@@ -1316,10 +1372,10 @@ function readOptionalPositiveInteger(
 function readOptionalNonEmptyString(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
-  env: NodeJS.ProcessEnv,
+  _env: NodeJS.ProcessEnv,
   path: string
 ): string | null {
-  const value = readOptionalString(input, key, env, path);
+  const value = readOptionalString(input, key, path);
   if (value !== null && value.trim().length === 0) {
     throw new WorkflowValidationError(
       "workflow_validation_error",
@@ -1402,7 +1458,7 @@ export function resolveEnvironmentValue(
   env: NodeJS.ProcessEnv,
   path: string
 ): string {
-  const envTokenMatch = value.match(/^(?:env:)?([A-Z0-9_]+)$/);
+  const envTokenMatch = value.match(/^(?:env:)?([A-Za-z_][A-Za-z0-9_]*)$/);
   if (value.startsWith("env:") && envTokenMatch) {
     const resolved = env[envTokenMatch[1]];
     if (!resolved) {
@@ -1415,30 +1471,21 @@ export function resolveEnvironmentValue(
     return resolved;
   }
 
-  const dollarEnvTokenMatch = value.match(/^\$([A-Z0-9_]+)$/);
-  if (dollarEnvTokenMatch) {
-    const resolved = env[dollarEnvTokenMatch[1]];
-    if (!resolved) {
-      throw new WorkflowValidationError(
-        "workflow_validation_error",
-        path,
-        `Workflow front matter field "${path}" requires environment variable ${dollarEnvTokenMatch[1]}.`
-      );
+  return value.replace(
+    /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
+    (_, bracedName: string | undefined, plainName: string | undefined) => {
+      const name = bracedName ?? plainName!;
+      const resolved = env[name];
+      if (!resolved) {
+        throw new WorkflowValidationError(
+          "workflow_validation_error",
+          path,
+          `Workflow front matter field "${path}" requires environment variable ${name}.`
+        );
+      }
+      return resolved;
     }
-    return resolved;
-  }
-
-  return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name: string) => {
-    const resolved = env[name];
-    if (!resolved) {
-      throw new WorkflowValidationError(
-        "workflow_validation_error",
-        path,
-        `Workflow front matter field "${path}" requires environment variable ${name}.`
-      );
-    }
-    return resolved;
-  });
+  );
 }
 
 function matchOptionalSection(

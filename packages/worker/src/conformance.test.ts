@@ -55,10 +55,13 @@ describe("Symphony core conformance", () => {
     });
   });
 
-  it("rejects workflows without canonical front matter in strict mode", () => {
-    expect(() =>
-      parseWorkflowMarkdown("## Prompt Guidelines\n\nMissing everything else")
-    ).toThrow(/YAML front matter/);
+  it("accepts workflows without front matter as prompt-only defaults", () => {
+    expect(
+      parseWorkflowMarkdown("## Prompt Guidelines\n\nPrompt-only workflow")
+    ).toMatchObject({
+      promptTemplate: "## Prompt Guidelines\n\nPrompt-only workflow",
+      tracker: { kind: null },
+    });
   });
 
   it("keeps workspace paths isolated under the configured root", () => {

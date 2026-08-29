@@ -83,6 +83,87 @@ Prefer focused changes.
 `;
 
 describe("parseWorkflowMarkdown", () => {
+  it("treats a front-matter-free workflow as its prompt with default config", () => {
+    const workflow = parseWorkflowMarkdown(
+      "\r\n# Agent instructions\r\n\r\nWork carefully.\r\n"
+    );
+
+    expect(workflow).toMatchObject({
+      promptTemplate: "# Agent instructions\r\n\r\nWork carefully.",
+      tracker: { kind: null },
+      codex: { command: "codex app-server" },
+      format: "front-matter",
+    });
+  });
+
+  it("accepts CRLF front matter and normalizes workspace.root from WORKFLOW.md", () => {
+    const workflow = parseWorkflowMarkdown(
+      "---\r\nworkspace:\r\n  root: ~/workspaces\r\n---\r\nPrompt\r\n",
+      {},
+      {
+        workflowPath: "/projects/example/.config/WORKFLOW.md",
+        homeDir: "/home/agent",
+      }
+    );
+
+    expect(workflow.workspace.root).toBe("/home/agent/workspaces");
+  });
+
+  it("resolves relative workspace.root values from the workflow directory", () => {
+    const workflow = parseWorkflowMarkdown(
+      "---\nworkspace:\n  root: ../shared-workspaces\n---\nPrompt",
+      {},
+      { workflowPath: "/projects/example/.config/WORKFLOW.md" }
+    );
+
+    expect(workflow.workspace.root).toBe("/projects/example/shared-workspaces");
+  });
+
+  it("expands lowercase environment variables only in workspace paths", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+workspace:
+  root: $workspace_dir/checkouts
+hooks:
+  before_run: echo $workspace_dir ${"${workspace_dir}"}
+codex:
+  command: runner $workspace_dir ${"${workspace_dir}"}
+---
+Prompt`,
+      { workspace_dir: "/var/lib/symphony" },
+      { workflowPath: "/projects/example/WORKFLOW.md" }
+    );
+
+    expect(workflow.workspace.root).toBe("/var/lib/symphony/checkouts");
+    expect(workflow.hooks.beforeRun).toBe(
+      "echo $workspace_dir ${workspace_dir}"
+    );
+    expect(workflow.codex.command).toBe(
+      "runner $workspace_dir ${workspace_dir}"
+    );
+  });
+
+  it("reports a missing secret at the individual secret field", () => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: github-project
+  api_key: env:missing_token
+---
+Prompt`,
+        {}
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "workflow_validation_error",
+      path: "tracker.api_key",
+    });
+  });
+
   it.each([
     [
       "invalid YAML",
@@ -218,7 +299,7 @@ Prompt`,
     );
   });
 
-  it("resolves provider environment values before adapter validation", () => {
+  it("keeps non-secret provider values literal for adapter validation", () => {
     const validateProviderConfig = vi.fn(() => []);
     parseWorkflowMarkdownStrict(
       `---
@@ -578,15 +659,15 @@ Prompt`);
     });
   });
 
-  it("preserves paths for unresolved environment-backed fields", () => {
+  it("preserves the path for an unresolved environment-backed workspace root", () => {
     let thrown: unknown;
     try {
       parseWorkflowMarkdown(
         `---
 tracker:
   kind: github-project
-codex:
-  command: ${"${UNSET_CODEX_COMMAND}"}
+workspace:
+  root: ${"${UNSET_WORKSPACE_ROOT}"}
 ---
 Prompt`,
         {}
@@ -596,7 +677,7 @@ Prompt`,
     }
     expect(thrown).toMatchObject({
       code: "workflow_validation_error",
-      path: "codex.command",
+      path: "workspace.root",
     });
   });
 
@@ -1068,7 +1149,7 @@ Prompt body.
     ).toThrow(adapterError);
   });
 
-  it("resolves environment indirection from yaml front matter", () => {
+  it("keeps command strings opaque when they contain environment syntax", () => {
     const workflow = parseWorkflowMarkdown(
       `---
 tracker:
@@ -1083,7 +1164,7 @@ Render with env indirection.
       } as NodeJS.ProcessEnv
     );
 
-    expect(workflow.agentCommand).toBe("custom-app-server");
+    expect(workflow.agentCommand).toBe("${TEST_AGENT_COMMAND}");
   });
 
   it.each(["on-request", "untrusted"])(
@@ -1354,7 +1435,7 @@ runtime:
 ---
 Old schema.
 `)
-    ).toThrow(/tracker/);
+    ).toThrow(/kind/);
   });
 
   it("preserves multiline hook bodies", () => {
@@ -1553,18 +1634,18 @@ Broken prompt.
 
     await writeFile(
       workflowPath,
-      SAMPLE_WORKFLOW.replace("codex app-server", "$AGENT_COMMAND"),
+      SAMPLE_WORKFLOW.replace(".runtime/workspaces", "$WORKSPACE_ROOT"),
       "utf8"
     );
 
     const first = await store.load(workflowPath, {
-      AGENT_COMMAND: "codex app-server",
+      WORKSPACE_ROOT: "/tmp/first-workspaces",
     });
     const second = await store.load(workflowPath, {
-      AGENT_COMMAND: "claude --print",
+      WORKSPACE_ROOT: "/tmp/second-workspaces",
     });
 
     expect(second.revision).not.toBe(first.revision);
-    expect(second.agentCommand).toBe("claude --print");
+    expect(second.workflow.workspace.root).toBe("/tmp/second-workspaces");
   });
 });
