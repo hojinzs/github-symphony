@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OrchestratorProjectConfig } from "@gh-symphony/core";
+import {
+  parseWorkflowMarkdown,
+  type OrchestratorProjectConfig,
+} from "@gh-symphony/core";
 import { linearTrackerAdapter, normalizeLinearIssue } from "./index.js";
 
 const repository = {
@@ -85,6 +88,83 @@ describe("linearTrackerAdapter", () => {
       createdAt: null,
       updatedAt: "2026-04-30T16:02:03.000Z",
     });
+  });
+
+  it("accepts valid provider-owned Linear keys", () => {
+    expect(
+      linearTrackerAdapter.validateProviderConfig?.({
+        endpoint: "https://linear.test/graphql",
+        api_key: "$LINEAR_API_KEY",
+        project_slug: "platform",
+        pickup_labels: { include: ["agent"] },
+      })
+    ).toEqual([]);
+  });
+
+  it("documents Linear lifecycle defaults", () => {
+    expect(linearTrackerAdapter.defaultLifecycle?.()).toEqual({
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+      blockerCheckStates: ["Todo"],
+      planningStates: [],
+    });
+  });
+
+  it("validates malformed provider keys without coupling to error order", () => {
+    const paths = new Set(
+      linearTrackerAdapter
+        .validateProviderConfig?.({
+          api_key: "lin_secret",
+          project_id: "legacy-project",
+          teamId: "legacy-team",
+          team_id: "legacy-team",
+          pickup_labels: { include: "agent", exclude: [1] },
+        })
+        .map((error) => error.path)
+    );
+    expect(paths).toEqual(
+      new Set([
+        "tracker.provider.project_slug",
+        "tracker.provider.api_key",
+        "tracker.provider.project_id",
+        "tracker.provider.teamId",
+        "tracker.provider.team_id",
+        "tracker.provider.pickup_labels.include",
+        "tracker.provider.pickup_labels.exclude",
+      ])
+    );
+  });
+
+  it("permits ambient LINEAR_API_KEY authentication", () => {
+    expect(
+      linearTrackerAdapter.validateProviderConfig?.({
+        project_slug: "platform",
+      })
+    ).toEqual([]);
+  });
+
+  it("validates the raw API-key reference after provider resolution", () => {
+    expect(() =>
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: linear
+  provider:
+    project_slug: platform
+    endpoint: $LINEAR_ENDPOINT
+    api_key: $LINEAR_API_KEY
+codex:
+  command: codex
+---
+Prompt`,
+        {
+          LINEAR_ENDPOINT: "https://linear.test/graphql",
+          LINEAR_API_KEY: "lin_secret",
+        },
+        { trackerAdapter: linearTrackerAdapter }
+      )
+    ).not.toThrow();
   });
 
   it("queries Linear by project slug and state names with cursor pagination", async () => {

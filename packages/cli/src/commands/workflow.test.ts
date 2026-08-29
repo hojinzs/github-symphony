@@ -51,7 +51,7 @@ Labels={% for label in issue.labels %}{{ label }} {% endfor %}
 const LINEAR_WORKFLOW = `---
 tracker:
   kind: linear
-  api_key: lin_test_token
+  api_key: $LINEAR_API_KEY
   project_slug: symphony-0c79b11b75ea
   active_states:
     - Todo
@@ -597,6 +597,8 @@ Prompt {{ issue.identifier }}
       buildWorkerEnvironment: vi.fn(),
       reviveIssue: vi.fn(),
     });
+    const originalLinearApiKey = process.env.LINEAR_API_KEY;
+    process.env.LINEAR_API_KEY = "lin_test_token";
 
     await writeFile(workflowPath, LINEAR_WORKFLOW, "utf8");
 
@@ -644,6 +646,11 @@ Prompt {{ issue.identifier }}
         }
       );
     } finally {
+      if (originalLinearApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = originalLinearApiKey;
+      }
       stdout.restore();
     }
 
@@ -681,6 +688,8 @@ Prompt {{ issue.identifier }}
     const workflowPath = join(root, "WORKFLOW.md");
     const stderr = captureWrites(process.stderr);
     const resolveTrackerAdapter = vi.fn();
+    const originalLinearApiKey = process.env.LINEAR_API_KEY;
+    process.env.LINEAR_API_KEY = "lin_test_token";
 
     await writeFile(workflowPath, LINEAR_WORKFLOW, "utf8");
 
@@ -717,6 +726,11 @@ Prompt {{ issue.identifier }}
         noColor: false,
       });
     } finally {
+      if (originalLinearApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = originalLinearApiKey;
+      }
       stderr.restore();
     }
 

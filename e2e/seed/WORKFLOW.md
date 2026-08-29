@@ -1,7 +1,9 @@
 ---
 tracker:
   kind: file
-  project_id: e2e-test
+  provider:
+    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
+    project_id: e2e-test
   state_field: Status
   active_states:
     - Ready

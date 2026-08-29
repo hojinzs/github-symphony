@@ -1,5 +1,6 @@
 import {
   DEFAULT_LINEAR_GRAPHQL_URL as CORE_DEFAULT_LINEAR_GRAPHQL_URL,
+  WorkflowValidationError,
   type OrchestratorProjectConfig,
   type OrchestratorRunRecord,
   type OrchestratorTrackerAdapter,
@@ -197,6 +198,37 @@ const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
 `;
 
 export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
+  validateProviderConfig(provider, context) {
+    const errors: WorkflowValidationError[] = [];
+    validateRequiredProviderString(provider, "project_slug", errors);
+    validateOptionalProviderString(provider, "endpoint", errors);
+    validateLinearApiKey(context?.rawProvider ?? provider, errors);
+    validatePickupLabels(provider, errors);
+
+    for (const key of ["project_id", "projectId", "teamId", "team_id"]) {
+      if (provider[key] !== undefined && provider[key] !== null) {
+        errors.push(
+          new WorkflowValidationError(
+            "workflow_validation_error",
+            `tracker.provider.${key}`,
+            `Linear tracker provider does not support "${key}"; use "project_slug" to scope a Linear project.`
+          )
+        );
+      }
+    }
+    return errors;
+  },
+
+  defaultLifecycle() {
+    return {
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+      blockerCheckStates: ["Todo"],
+      planningStates: [],
+    };
+  },
+
   secretEnvironmentNames() {
     return ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"];
   },
@@ -296,6 +328,95 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     return { projectSlug: project.tracker.bindingId };
   },
 };
+
+function validateRequiredProviderString(
+  provider: Record<string, unknown>,
+  key: string,
+  errors: WorkflowValidationError[]
+): void {
+  const value = provider[key];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    errors.push(
+      new WorkflowValidationError(
+        "workflow_validation_error",
+        `tracker.provider.${key}`,
+        `${key} is required by the Linear tracker adapter.`
+      )
+    );
+  }
+}
+
+function validateOptionalProviderString(
+  provider: Record<string, unknown>,
+  key: string,
+  errors: WorkflowValidationError[]
+): void {
+  const value = provider[key];
+  if (value !== undefined && (typeof value !== "string" || !value.trim())) {
+    errors.push(
+      new WorkflowValidationError(
+        "workflow_validation_error",
+        `tracker.provider.${key}`,
+        `${key} must be a non-empty string when provided.`
+      )
+    );
+  }
+}
+
+function validateLinearApiKey(
+  provider: Record<string, unknown>,
+  errors: WorkflowValidationError[]
+): void {
+  const value = provider.api_key;
+  if (value === undefined || value === null) return;
+  if (
+    typeof value !== "string" ||
+    !/^(?:\$[A-Z0-9_]+|env:[A-Z0-9_]+|.*\$\{[A-Z0-9_]+\}.*)$/.test(value)
+  ) {
+    errors.push(
+      new WorkflowValidationError(
+        "workflow_validation_error",
+        "tracker.provider.api_key",
+        'api_key must reference an environment variable such as "$LINEAR_API_KEY", "env:LINEAR_API_KEY", or "${LINEAR_API_KEY}".'
+      )
+    );
+  }
+}
+
+function validatePickupLabels(
+  provider: Record<string, unknown>,
+  errors: WorkflowValidationError[]
+): void {
+  const value = provider.pickup_labels;
+  if (value === undefined || value === null) return;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    errors.push(
+      new WorkflowValidationError(
+        "workflow_validation_error",
+        "tracker.provider.pickup_labels",
+        "pickup_labels must be an object with optional include and exclude string lists."
+      )
+    );
+    return;
+  }
+  const labels = value as Record<string, unknown>;
+  for (const key of ["include", "exclude"]) {
+    const labelsForKey = labels[key];
+    if (
+      labelsForKey !== undefined &&
+      (!Array.isArray(labelsForKey) ||
+        labelsForKey.some((label) => typeof label !== "string"))
+    ) {
+      errors.push(
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          `tracker.provider.pickup_labels.${key}`,
+          `${key} must be a list of strings when provided.`
+        )
+      );
+    }
+  }
+}
 
 async function listLinearIssues(
   project: OrchestratorProjectConfig,

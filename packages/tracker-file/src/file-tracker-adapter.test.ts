@@ -68,6 +68,32 @@ describe("fileTrackerAdapter", () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
+  it("accepts a configured provider path", () => {
+    expect(
+      fileTrackerAdapter.validateProviderConfig?.({ path: "/tmp/issues.json" })
+    ).toEqual([]);
+  });
+
+  it("documents file lifecycle defaults", () => {
+    expect(fileTrackerAdapter.defaultLifecycle?.()).toEqual({
+      stateFieldName: "Status",
+      activeStates: ["Ready", "In Progress"],
+      terminalStates: ["Done", "Cancelled"],
+      blockerCheckStates: ["Ready"],
+      planningStates: [],
+    });
+  });
+
+  it("permits an absent provider path for the CLI compatibility fallback", () => {
+    expect(fileTrackerAdapter.validateProviderConfig?.({})).toEqual([]);
+  });
+
+  it("rejects an invalid configured provider path", () => {
+    expect(
+      fileTrackerAdapter.validateProviderConfig?.({ path: "" })
+    ).toMatchObject([{ path: "tracker.provider.path" }]);
+  });
+
   describe("listIssues", () => {
     it("reads issues from a JSON file", async () => {
       const issuesPath = join(testDir, "issues.json");

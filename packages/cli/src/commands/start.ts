@@ -23,6 +23,7 @@ import {
   getProcessIdentity,
   releaseProjectLock,
   resolveOrchestratorLogLevel,
+  resolveWorkflowConfigTrackerAdapter,
   type OrchestratorLogLevel,
   type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
@@ -194,7 +195,8 @@ async function preflightRepoStartAuth(
   }
 
   if (projectConfig.tracker.adapter === "linear") {
-    if (process.env.LINEAR_API_KEY?.trim()) {
+    const configuredToken = await resolveConfiguredLinearToken(projectConfig);
+    if (configuredToken?.trim() || process.env.LINEAR_API_KEY?.trim()) {
       return { ok: true };
     }
     process.stderr.write(
@@ -205,6 +207,26 @@ async function preflightRepoStartAuth(
   }
 
   return { ok: true };
+}
+
+async function resolveConfiguredLinearToken(
+  projectConfig: OrchestratorProjectConfig
+): Promise<string | null> {
+  const workflowPath = projectConfig.workflowSource?.path;
+  if (!workflowPath) return null;
+  try {
+    const workflow = parseWorkflowMarkdown(
+      await readFile(workflowPath, "utf8"),
+      process.env,
+      {
+        supportedTrackerKinds: getSupportedTrackerKinds(),
+        resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+      }
+    );
+    return workflow.tracker.apiKey;
+  } catch {
+    return null;
+  }
 }
 
 async function preflightWorkflowStart(
@@ -225,6 +247,7 @@ async function preflightWorkflowStart(
     );
     parseWorkflowMarkdown(await readFile(configuredPath, "utf8"), environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
+      resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
     });
     return true;
   } catch (error) {

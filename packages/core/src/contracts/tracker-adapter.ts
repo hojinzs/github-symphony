@@ -229,7 +229,8 @@ export type OrchestratorTrackerAdapter = {
    * adapter packages migrate to the provider-config contract.
    */
   validateProviderConfig?: (
-    provider: Record<string, unknown>
+    provider: Record<string, unknown>,
+    context?: { rawProvider: Record<string, unknown> }
   ) => WorkflowValidationError[];
   /** Supplies lifecycle defaults when a workflow intentionally omits them. */
   defaultLifecycle?: () => WorkflowLifecycleConfig;

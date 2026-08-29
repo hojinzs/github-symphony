@@ -21,9 +21,7 @@ import {
 } from "./lock.js";
 
 export { OrchestratorService, createStore };
-export {
-  resolveAdaptivePollIntervalMs,
-} from "./service.js";
+export { resolveAdaptivePollIntervalMs } from "./service.js";
 export type { OrchestratorLogLevel };
 export * from "./runtime-factory.js";
 export * from "./explain.js";

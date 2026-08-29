@@ -165,7 +165,7 @@ AI Agent
 - **Compose isolation**: runner scripts derive `COMPOSE_PROJECT_NAME`, `SYMPHONY_E2E_IMAGE`, and `SYMPHONY_E2E_PORT` from the absolute worktree path. Set `SYMPHONY_E2E_PROJECT`, `SYMPHONY_E2E_IMAGE`, or `SYMPHONY_E2E_PORT` to override a derived value. Containers, networks, volumes, images, and runner host ports are isolated across worktrees; manual Compose keeps host port `4680` by default.
 - **Event mirroring (optional)**: with the `docker-compose.e2e.events.yml` override, `events.ndjson` is also replicated to the host's `./evidence/`
 - **Golden path**: the container entrypoint boots the single-repo runtime in the order `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680 --bind-all`.
-- **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is a test-only environment variable used solely by the `kind: file` workflows of this Docker/local E2E setup to connect the mounted fixture to the `repo init` result.
+- **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is a test-only environment variable used by `tracker.provider.path` in the Docker/local `kind: file` workflows; it remains a compatibility fallback for older fixture workflows.
 
 ### Stub Worker Scenarios
 

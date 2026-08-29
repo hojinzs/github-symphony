@@ -1296,10 +1296,18 @@ Prompt`,
     });
 
     expect(resolution.isValid).toBe(true);
-    expect(validateProviderConfig).toHaveBeenCalledWith({
-      issues_path: "/tmp/issues.json",
-      state_field: "Status",
-    });
+    expect(validateProviderConfig).toHaveBeenCalledWith(
+      {
+        issues_path: "/tmp/issues.json",
+        state_field: "Status",
+      },
+      {
+        rawProvider: {
+          issues_path: "/tmp/issues.json",
+          state_field: "Status",
+        },
+      }
+    );
   });
 });
 

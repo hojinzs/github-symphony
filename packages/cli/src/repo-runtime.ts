@@ -24,6 +24,10 @@ import {
   type RepositoryRef,
 } from "@gh-symphony/core";
 import {
+  getSupportedTrackerKinds,
+  resolveWorkflowConfigTrackerAdapter,
+} from "@gh-symphony/orchestrator";
+import {
   saveGlobalConfig,
   saveProjectConfig,
   updateGlobalConfig,
@@ -31,6 +35,7 @@ import {
 } from "./config.js";
 import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
 import { standaloneProjectId } from "./standalone-project.js";
+import { resolveFileTrackerIssuesPath } from "./file-tracker-path.js";
 
 export type RepoInitFlags = {
   repoDir: string;
@@ -98,7 +103,11 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   }
   const workflow = parseWorkflowMarkdown(
     await readFile(workflowPath, "utf8"),
-    process.env
+    process.env,
+    {
+      supportedTrackerKinds: getSupportedTrackerKinds(),
+      resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+    }
   );
   validateRepoInitWorkflow(workflow);
   const repository = resolveRepository(repoDir);
@@ -132,14 +141,9 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     trackerSettings.priorityFieldName = workflow.tracker.priorityFieldName;
   }
   if (trackerAdapter === "file") {
-    if (!process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH) {
-      throw new Error(
-        "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH to point to the issues fixture."
-      );
-    }
-    // E2E-only escape hatch for binding the file tracker to a mounted fixture.
-    trackerSettings.issuesPath =
-      process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    trackerSettings.issuesPath = resolveFileTrackerIssuesPath(
+      workflow.tracker.provider.path
+    );
   }
   const workspaceDir = workflow.workspace.root
     ? resolve(repoDir, workflow.workspace.root)

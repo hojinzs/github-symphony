@@ -205,11 +205,12 @@ For Linear, configure the tracker in `WORKFLOW.md` and initialize the repository
 ```yaml
 tracker:
   kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: symphony-0c79b11b75ea
+  provider:
+    api_key: $LINEAR_API_KEY
+    project_slug: symphony-0c79b11b75ea
 ```
 
-`gh-symphony repo init` validates `tracker.project_slug` and resolves `tracker.api_key`, so `LINEAR_API_KEY` must be set before initialization. Linear aliases such as `tracker.project_id`, `projectId`, `project_id`, and `teamId` are rejected, and `.gh-symphony/config.json` is not a Linear source of truth.
+`gh-symphony repo init` validates `tracker.provider.project_slug` and resolves `tracker.provider.api_key` when supplied. If it is omitted, startup uses `LINEAR_API_KEY`. Deprecated flat keys remain supported as migration aliases, and `.gh-symphony/config.json` is not a Linear source of truth.
 
 Linear runs are polling-only. There is no webhook setup command. Put state transition, workpad comment, and PR handoff policy in `WORKFLOW.md`; see `docs/examples/linear-WORKFLOW.md` in the repository for a complete example. Preview a Linear issue prompt with:
 

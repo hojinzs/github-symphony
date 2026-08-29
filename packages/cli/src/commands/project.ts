@@ -7,6 +7,10 @@ import {
   type OrchestratorTrackerSettingValue,
   type RepositoryRef,
 } from "@gh-symphony/core";
+import {
+  getSupportedTrackerKinds,
+  resolveWorkflowConfigTrackerAdapter,
+} from "@gh-symphony/orchestrator";
 import type { GlobalOptions } from "../index.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
@@ -20,6 +24,7 @@ import {
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
 import { standaloneProjectId } from "../standalone-project.js";
 import { listInstances } from "../instances.js";
+import { resolveFileTrackerIssuesPath } from "../file-tracker-path.js";
 
 export { standaloneProjectId } from "../standalone-project.js";
 
@@ -51,7 +56,10 @@ export async function deriveStandaloneProject(
       `No WORKFLOW.md in ${projectDir}. Run this command from a standalone project folder or pass --project-dir <path>.`
     );
   }
-  const workflow = parseWorkflowMarkdown(markdown, process.env);
+  const workflow = parseWorkflowMarkdown(markdown, process.env, {
+    supportedTrackerKinds: getSupportedTrackerKinds(),
+    resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+  });
   const repository = parseRepository(workflow.repository);
   const adapter = workflow.tracker.kind ?? "github-project";
   const bindingId =
@@ -352,10 +360,12 @@ function trackerSettings(
       ? { pickupLabels: workflow.tracker.pickupLabels }
       : {}),
     repository: `${repository.owner}/${repository.name}`,
-    ...(workflow.tracker.kind === "file" &&
-    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
-      ? // E2E-only escape hatch, mirroring the repo-embedded runtime.
-        { issuesPath: process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH }
+    ...(workflow.tracker.kind === "file"
+      ? {
+          issuesPath: resolveFileTrackerIssuesPath(
+            workflow.tracker.provider.path
+          ),
+        }
       : {}),
   };
 }

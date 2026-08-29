@@ -89,6 +89,18 @@ codex:
 Handle {{issue.identifier}}.
 `;
 
+const FILE_WORKFLOW = `---
+tracker:
+  kind: file
+  provider:
+    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
+    project_id: e2e-test
+codex:
+  command: codex app-server
+---
+Prompt body.
+`;
+
 async function createGitRepo(remoteName = "platform"): Promise<string> {
   const repoDir = await mkdtemp(join(tmpdir(), "repo-init-"));
   execFileSync("git", ["-C", repoDir, "init"]);
@@ -690,16 +702,17 @@ Handle {{issue.identifier}}.
     );
   });
 
-  it("defers missing Linear project_slug validation to the adapter", async () => {
+  it("rejects a missing Linear project_slug through adapter validation", async () => {
     const repoDir = await createGitRepo();
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
+    const originalLinearApiKey = process.env.LINEAR_API_KEY;
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
       `---
 tracker:
   kind: linear
-  api_key: lin_test_token
+  api_key: $LINEAR_API_KEY
 codex:
   command: codex app-server
 ---
@@ -707,6 +720,7 @@ Handle {{issue.identifier}}.
 `,
       "utf8"
     );
+    process.env.LINEAR_API_KEY = "lin_test_token";
 
     try {
       await repoCommand(
@@ -714,11 +728,18 @@ Handle {{issue.identifier}}.
         baseOptions(join(repoDir, "unused"))
       );
     } finally {
+      if (originalLinearApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = originalLinearApiKey;
+      }
       stderr.restore();
     }
 
-    expect(process.exitCode).toBeUndefined();
-    expect(stderr.output()).toBe("");
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      "project_slug is required by the Linear tracker adapter."
+    );
   });
 
   it("fails Linear repo init when LINEAR_API_KEY reference is unresolved", async () => {
@@ -872,14 +893,7 @@ Handle {{issue.identifier}}.
     const stdout = captureWrites(process.stdout);
     const repoCommand = await loadRepoCommand();
     const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
-    await writeFile(
-      join(repoDir, "WORKFLOW.md"),
-      VALID_WORKFLOW.replace("github-project", "file").replace(
-        "PVT_project_123",
-        "e2e-test"
-      ),
-      "utf8"
-    );
+    await writeFile(join(repoDir, "WORKFLOW.md"), FILE_WORKFLOW, "utf8");
     process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH =
       "/e2e/fixtures/issues.json";
 
@@ -923,9 +937,9 @@ Handle {{issue.identifier}}.
     const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      VALID_WORKFLOW.replace("github-project", "file").replace(
-        "PVT_project_123",
-        "e2e-test"
+      FILE_WORKFLOW.replace(
+        "    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH\n    project_id: e2e-test\n",
+        ""
       ),
       "utf8"
     );
@@ -947,7 +961,39 @@ Handle {{issue.identifier}}.
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(
-      "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH"
+      'File tracker requires "tracker.provider.path" or GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH.'
     );
+  });
+
+  it("uses the legacy file fixture environment fallback when provider.path is absent", async () => {
+    const repoDir = await createGitRepo();
+    const repoCommand = await loadRepoCommand();
+    const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      FILE_WORKFLOW.replace(
+        "    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH\n    project_id: e2e-test\n",
+        ""
+      ),
+      "utf8"
+    );
+    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH =
+      "/tmp/legacy-issues.json";
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+      await expect(readRepoProjectConfig(repoDir)).resolves.toMatchObject({
+        tracker: { settings: { issuesPath: "/tmp/legacy-issues.json" } },
+      });
+    } finally {
+      if (originalIssuesPath === undefined) {
+        delete process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+      } else {
+        process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH = originalIssuesPath;
+      }
+    }
   });
 });

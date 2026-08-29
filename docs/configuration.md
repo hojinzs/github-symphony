@@ -130,6 +130,44 @@ planning/human-review execution phase. Linear `blocked_by` metadata is derived
 from inverse relations of type `blocks`; source-side relations describe issues
 blocked by the current issue and are not blockers of it.
 
+## Linear and file tracker providers
+
+Tracker-specific configuration belongs in `tracker.provider`. The former flat
+keys remain deprecated, non-breaking aliases: `gh-symphony doctor` renders the
+normalized provider block so operators can migrate without changing behavior.
+
+```yaml
+tracker:
+  kind: linear
+  provider:
+    endpoint: https://api.linear.app/graphql # optional
+    api_key: $LINEAR_API_KEY # optional environment reference
+    project_slug: platform # required Linear project slug
+    pickup_labels:
+      include: [agent]
+      exclude: [blocked]
+```
+
+Linear scopes polling with `project_slug`; it does not accept `project_id`,
+`projectId`, `teamId`, or `team_id` as aliases. When provided, `api_key` must
+be an environment reference so secrets remain outside committed workflow policy;
+when omitted, the runtime uses `LINEAR_API_KEY`. Its documented
+lifecycle default is `Todo`/`In Progress` active, `Done` terminal, `Todo`
+blocker-check, and no planning states.
+
+```yaml
+tracker:
+  kind: file
+  provider:
+    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
+    project_id: e2e-test
+```
+
+The file adapter is for local and Docker E2E fixtures. `provider.path` is the
+required JSON fixture path unless `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is set
+as the documented compatibility fallback; its defaults are `Ready`/`In Progress` active,
+`Done`/`Cancelled` terminal, `Ready` blocker-check, and no planning states.
+
 ## `GH_SYMPHONY_CONFIG_DIR` and Repository Runtimes
 
 `GH_SYMPHONY_CONFIG_DIR` (or `--config <dir>`) selects the shared CLI registry
@@ -373,19 +411,19 @@ uses them during setup and doctor checks where applicable.
 These variables affect the local `gh-symphony` process or repository runtime
 layout.
 
-| Variable                               | Default                                                                                       | Read by                       | Audience           | Notes                                                                                                                                                                                            |
-| -------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GH_SYMPHONY_CONFIG_DIR`               | CLI default config directory; official container sets `/var/lib/gh-symphony`                  | CLI                           | User-facing/ops    | Overrides the global runtime config directory. `--config <dir>` takes precedence. It also selects the explicit global `instances/` registry namespace; `--config` alone never splits that index. |
-| `GH_SYMPHONY_INSTANCES_DIR`            | `${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances`                                         | CLI daemon + `instances`      | User-facing/ops    | Host-global instance registry namespace. Captured before a `--config` runtime override and inherited by daemon children.                                                                         |
-| `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` | unset                                                                                         | CLI `repo init`               | Internal/E2E       | Required only when binding the file tracker to a mounted issues fixture. Not needed for GitHub or Linear trackers.                                                                               |
-| `GH_SYMPHONY_HTTP_TOKEN`               | random per `repo start` process                                                               | CLI HTTP servers              | User-facing/ops    | Shared bearer secret for all `/api/v1/*` routes. Set this for scripts, daemon clients, or a stable dashboard URL.                                                                                |
-| `SYMPHONY_EVENTS_DIR`                  | runtime-managed event storage                                                                 | Orchestrator package CLI      | User-facing/ops    | Optional override for where orchestrator events are written.                                                                                                                                     |
-| `SYMPHONY_LOG_LEVEL`                   | `normal`                                                                                      | CLI, orchestrator package CLI | User-facing/ops    | Supports `normal` and `verbose`. CLI flags override the env value.                                                                                                                               |
-| `SYMPHONY_WORKER_COMMAND`              | auto-resolved `@gh-symphony/worker`, bundled worker entry, then `gh-symphony-worker` fallback | Orchestrator                  | User-facing/ops    | Shell command used to start worker processes. Useful for local E2E, debugging, or custom worker wrappers.                                                                                        |
-| `SYMPHONY_E2E_PROJECT`                 | `symphony-e2e-<worktree-path-hash>`                                                           | Docker E2E runner scripts     | Internal/E2E       | Optional Compose project-name override. The runner derives a stable name from the current worktree and uses it for isolated containers, networks, volumes, and image tags.                       |
-| `NO_COLOR`                             | unset                                                                                         | CLI                           | User-facing        | Set indirectly by `--no-color`; honored by terminal output rendering.                                                                                                                            |
-| `EDITOR` / `VISUAL`                    | `vi` fallback                                                                                 | CLI `config edit`             | User-facing        | Selects the editor for interactive config editing.                                                                                                                                               |
-| `PATH` / `PATHEXT`                     | inherited from shell                                                                          | CLI doctor, child processes   | User-facing/system | Used for prerequisite and command discovery.                                                                                                                                                     |
+| Variable                               | Default                                                                                       | Read by                       | Audience           | Notes                                                                                                                                                                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GH_SYMPHONY_CONFIG_DIR`               | CLI default config directory; official container sets `/var/lib/gh-symphony`                  | CLI                           | User-facing/ops    | Overrides the global runtime config directory. `--config <dir>` takes precedence. It also selects the explicit global `instances/` registry namespace; `--config` alone never splits that index.  |
+| `GH_SYMPHONY_INSTANCES_DIR`            | `${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances`                                         | CLI daemon + `instances`      | User-facing/ops    | Host-global instance registry namespace. Captured before a `--config` runtime override and inherited by daemon children.                                                                          |
+| `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` | unset                                                                                         | CLI file tracker              | Internal/E2E       | Compatibility fallback for a file workflow without `tracker.provider.path`; provider paths may also use this variable or another environment reference. Not needed for GitHub or Linear trackers. |
+| `GH_SYMPHONY_HTTP_TOKEN`               | random per `repo start` process                                                               | CLI HTTP servers              | User-facing/ops    | Shared bearer secret for all `/api/v1/*` routes. Set this for scripts, daemon clients, or a stable dashboard URL.                                                                                 |
+| `SYMPHONY_EVENTS_DIR`                  | runtime-managed event storage                                                                 | Orchestrator package CLI      | User-facing/ops    | Optional override for where orchestrator events are written.                                                                                                                                      |
+| `SYMPHONY_LOG_LEVEL`                   | `normal`                                                                                      | CLI, orchestrator package CLI | User-facing/ops    | Supports `normal` and `verbose`. CLI flags override the env value.                                                                                                                                |
+| `SYMPHONY_WORKER_COMMAND`              | auto-resolved `@gh-symphony/worker`, bundled worker entry, then `gh-symphony-worker` fallback | Orchestrator                  | User-facing/ops    | Shell command used to start worker processes. Useful for local E2E, debugging, or custom worker wrappers.                                                                                         |
+| `SYMPHONY_E2E_PROJECT`                 | `symphony-e2e-<worktree-path-hash>`                                                           | Docker E2E runner scripts     | Internal/E2E       | Optional Compose project-name override. The runner derives a stable name from the current worktree and uses it for isolated containers, networks, volumes, and image tags.                        |
+| `NO_COLOR`                             | unset                                                                                         | CLI                           | User-facing        | Set indirectly by `--no-color`; honored by terminal output rendering.                                                                                                                             |
+| `EDITOR` / `VISUAL`                    | `vi` fallback                                                                                 | CLI `config edit`             | User-facing        | Selects the editor for interactive config editing.                                                                                                                                                |
+| `PATH` / `PATHEXT`                     | inherited from shell                                                                          | CLI doctor, child processes   | User-facing/system | Used for prerequisite and command discovery.                                                                                                                                                      |
 
 ## Tuning Knobs
 
