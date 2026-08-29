@@ -251,6 +251,7 @@ describe("buildProjectSnapshot", () => {
     });
     const run2 = mockRun({
       runId: "run-002",
+      createdAt: "2024-01-01T00:06:00Z",
       tokenUsage: {
         inputTokens: 2000,
         outputTokens: 1000,
@@ -274,7 +275,7 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.codexTotals!.inputTokens).toBe(3000);
     expect(snapshot.codexTotals!.outputTokens).toBe(1500);
     expect(snapshot.codexTotals!.totalTokens).toBe(4500);
-    expect(snapshot.codexTotals!.secondsRunning).toBeGreaterThan(0);
+    expect(snapshot.codexTotals!.secondsRunning).toBe(540);
   });
 
   it("handles runs with missing tokenUsage gracefully", () => {
@@ -826,6 +827,48 @@ describe("buildProjectSnapshot", () => {
 
     // 5 minutes = 300 seconds
     expect(snapshot.codexTotals!.secondsRunning).toBe(300);
+  });
+
+  it("accumulates completed retry sessions without counting retry gaps", () => {
+    const initialStartedAt = "2024-01-01T00:00:00Z";
+    const completedSession = mockRun({
+      runId: "run-001",
+      status: "failed",
+      createdAt: initialStartedAt,
+      updatedAt: "2024-01-01T00:02:00Z",
+      startedAt: initialStartedAt,
+      completedAt: "2024-01-01T00:02:00Z",
+    });
+    const retrySession = mockRun({
+      runId: "run-002",
+      status: "failed",
+      createdAt: initialStartedAt,
+      updatedAt: "2024-01-01T00:09:00Z",
+      startedAt: "2024-01-01T00:07:00Z",
+      completedAt: "2024-01-01T00:09:00Z",
+      cumulativeRuntimeMs: 120_000,
+    });
+    const activeSession = mockRun({
+      runId: "run-003",
+      status: "running",
+      createdAt: initialStartedAt,
+      updatedAt: "2024-01-01T00:12:00Z",
+      startedAt: "2024-01-01T00:11:00Z",
+      completedAt: null,
+      cumulativeRuntimeMs: 240_000,
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [activeSession],
+      allRuns: [completedSession, retrySession, activeSession],
+      summary: { dispatched: 3, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:14:00Z",
+      lastError: null,
+    });
+
+    // 2 min + 2 min + 3 min active; retry gaps (5 min and 2 min) are excluded.
+    expect(snapshot.codexTotals!.secondsRunning).toBe(420);
   });
 
   it("handles retrying run with null retryKind by defaulting to 'failure'", () => {

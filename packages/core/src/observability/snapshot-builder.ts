@@ -304,33 +304,57 @@ function aggregateTokenUsage(
   let inputTokens = 0;
   let outputTokens = 0;
   let totalTokens = 0;
-  let earliestStart: number | null = null;
-  let latestEnd: number | null = null;
-
   for (const run of runs) {
     if (run.tokenUsage) {
       inputTokens += run.tokenUsage.inputTokens;
       outputTokens += run.tokenUsage.outputTokens;
       totalTokens += run.tokenUsage.totalTokens;
     }
-    if (run.startedAt) {
-      const start = new Date(run.startedAt).getTime();
-      if (earliestStart === null || start < earliestStart) {
-        earliestStart = start;
-      }
-    }
-    const end = run.completedAt
-      ? new Date(run.completedAt).getTime()
-      : new Date(lastTickAt).getTime();
-    if (latestEnd === null || end > latestEnd) {
-      latestEnd = end;
+  }
+
+  const runtimeMs = Array.from(latestSessionsByRunLifecycle(runs).values())
+    .map((run) => runtimeMsForSnapshot(run, lastTickAt))
+    .reduce((total, sessionRuntimeMs) => total + sessionRuntimeMs, 0);
+  const secondsRunning = Math.max(0, Math.round(runtimeMs / 1000));
+
+  return { inputTokens, outputTokens, totalTokens, secondsRunning };
+}
+
+function latestSessionsByRunLifecycle(
+  runs: OrchestratorRunRecord[]
+): Map<string, OrchestratorRunRecord> {
+  const latestRuns = new Map<string, OrchestratorRunRecord>();
+
+  for (const run of runs) {
+    const key = `${run.projectId}:${run.issueId}:${run.createdAt}`;
+    const current = latestRuns.get(key);
+    if (
+      !current ||
+      new Date(run.updatedAt).getTime() >= new Date(current.updatedAt).getTime()
+    ) {
+      latestRuns.set(key, run);
     }
   }
 
-  const secondsRunning =
-    earliestStart !== null && latestEnd !== null
-      ? Math.max(0, Math.round((latestEnd - earliestStart) / 1000))
-      : 0;
+  return latestRuns;
+}
 
-  return { inputTokens, outputTokens, totalTokens, secondsRunning };
+function runtimeMsForSnapshot(
+  run: OrchestratorRunRecord,
+  lastTickAt: string
+): number {
+  const accumulatedRuntimeMs = run.cumulativeRuntimeMs ?? 0;
+  if (!run.startedAt) {
+    return accumulatedRuntimeMs;
+  }
+
+  const startedAtMs = new Date(run.startedAt).getTime();
+  const endedAt =
+    run.completedAt ?? (run.status === "running" ? lastTickAt : run.updatedAt);
+  const endedAtMs = new Date(endedAt).getTime();
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+    return accumulatedRuntimeMs;
+  }
+
+  return accumulatedRuntimeMs + Math.max(0, endedAtMs - startedAtMs);
 }

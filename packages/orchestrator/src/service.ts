@@ -1556,6 +1556,7 @@ export class OrchestratorService {
           issue,
           latestRunsByIssueId.get(issue.id) ?? null
         );
+        const previousRun = latestRunsByIssueId.get(issue.id) ?? null;
         const expiredConvergenceRun = expiredConvergenceLocks.get(issue.id);
         if (expiredConvergenceRun) {
           const recentEvents = await this.store.loadRecentRunEvents(
@@ -1604,6 +1605,10 @@ export class OrchestratorService {
         try {
           run = await this.startRun(tenant, issue, {
             attempt: existingIssueRecord?.retryEntry?.attempt ?? null,
+            cumulativeRuntimeMs:
+              recoveryContext || existingIssueRecord?.retryEntry
+                ? resolveCumulativeRuntimeMs(previousRun)
+                : undefined,
             recovery: recoveryContext,
             onPrepared: async (candidate) => {
               preparedRun = candidate;
@@ -2676,6 +2681,7 @@ export class OrchestratorService {
        * retry attempt exposed to workflow prompt rendering.
        */
       attempt?: number | null;
+      cumulativeRuntimeMs?: number;
       recovery?: IncompleteTurnRecoveryContext | null;
       onPrepared?: (run: OrchestratorRunRecord) => Promise<void>;
     } = {}
@@ -2958,6 +2964,7 @@ export class OrchestratorService {
       retryKind: recovery ? "recovery" : null,
       threadId: null,
       cumulativeTurnCount: 0,
+      cumulativeRuntimeMs: options.cumulativeRuntimeMs ?? 0,
       lastTurnSummary: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
@@ -4737,6 +4744,7 @@ export class OrchestratorService {
       const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
+        cumulativeRuntimeMs: resolveCumulativeRuntimeMs(run),
         recovery,
         onPrepared: async (candidate) => {
           preparedRun = candidate;
@@ -6079,6 +6087,25 @@ function resolvePersistedCumulativeTurnCount(
   run: OrchestratorRunRecord
 ): number {
   return run.cumulativeTurnCount ?? run.turnCount ?? 0;
+}
+
+function resolveCumulativeRuntimeMs(run: OrchestratorRunRecord | null): number {
+  if (!run) {
+    return 0;
+  }
+
+  const accumulatedRuntimeMs = run.cumulativeRuntimeMs ?? 0;
+  if (!run.startedAt) {
+    return accumulatedRuntimeMs;
+  }
+
+  const startedAtMs = parseTimestampMs(run.startedAt);
+  const endedAtMs = parseTimestampMs(run.completedAt ?? run.updatedAt);
+  if (startedAtMs === null || endedAtMs === null) {
+    return accumulatedRuntimeMs;
+  }
+
+  return accumulatedRuntimeMs + Math.max(0, endedAtMs - startedAtMs);
 }
 
 function shellQuote(value: string): string {

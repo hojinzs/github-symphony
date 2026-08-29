@@ -2460,6 +2460,7 @@ describe("OrchestratorService", () => {
     expect(recoveryRun).toMatchObject({
       status: "running",
       retryKind: "recovery",
+      cumulativeRuntimeMs: 300_000,
       recovery: expect.objectContaining({
         kind: "incomplete-turn-dirty-workspace",
         dirtyFiles: expectedDirtyFiles,
