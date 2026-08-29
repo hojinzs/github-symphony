@@ -1,3 +1,4 @@
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import { describe, it, expect } from "vitest";
 import { generateGhSymphonySkill } from "./gh-symphony.js";
 import { GH_SYMPHONY_REFERENCE_FILES } from "./gh-symphony-references/index.js";
@@ -84,6 +85,20 @@ describe("generateGhSymphonySkill", () => {
     expect(result).toContain("  provider:");
     expect(result).toContain("    project_id: PVT_xxx");
     expect(result).not.toContain("\n  project_id: PVT_xxx");
+  });
+
+  it("emits a parseable provider-form front matter example", () => {
+    const result = generateGhSymphonySkill(mockCtx);
+    const frontMatter = result.match(/```yaml\n([\s\S]*?)\n```/)?.[1];
+
+    expect(frontMatter).toBeDefined();
+    const parsed = parseWorkflowMarkdown(
+      `---\n${frontMatter}\n---\nPrompt`,
+      {}
+    );
+
+    expect(parsed.tracker.blockerCheckStates).toEqual(["Blocked"]);
+    expect(parsed.lifecycle.activeStates).toEqual(["Todo", "In Progress"]);
   });
 });
 

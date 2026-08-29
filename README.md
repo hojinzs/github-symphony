@@ -756,7 +756,7 @@ tick; dispatch events also include `workflowRevision`.
 
 The generated file includes:
 
-- **Lifecycle**: `tracker.provider.active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state; an explicit `tracker.provider.blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
+- **Lifecycle**: core `tracker.active_states` and `tracker.terminal_states`, plus provider-owned `blocker_check_states` and `planning_states`, derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state; an explicit `tracker.provider.blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
 - **Tracker provider**: adapter-owned settings are generated under `tracker.provider`. Flat tracker keys are deprecated aliases and will be removed in the next major release (#679).
 - **Runtime**: `agent_command` derived from `gh-symphony workflow init`
 - **Hooks**: `after_create` hook path

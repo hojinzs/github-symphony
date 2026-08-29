@@ -31,24 +31,22 @@ Human-readable `gh-symphony repo status`, `gh-symphony project status`, and
 their `--watch` dashboards show the applied revision; `--json` exposes the
 same metadata for automation.
 
-### Tracker provider changes are initialization-bound
+### Tracker provider binding and live reload
 
-Tracker configuration is deliberately not part of live reload. `repo init`
-resolves the selected adapter and writes its binding and settings into the
-runtime configuration (`config.json` and its project record). This includes the
-adapter kind, GitHub Project ID or Linear project slug, endpoint, resolved
-provider path, pickup labels, priority mapping, and tracker state settings.
-Editing the corresponding `tracker.provider` values in `WORKFLOW.md` does not
-reconfigure an already-running daemon or rewrite that runtime configuration.
+`repo init` writes the runtime's selected tracker adapter and repository/project
+binding to `config.json` and its project record. Changing that binding — for
+example, switching `tracker.kind`, moving to a different initialized project,
+or changing a runtime-owned provider path — requires running `gh-symphony repo
+init` again and restarting the daemon. A `WORKFLOW.md` edit never rewrites
+`config.json`.
 
-This is an intentional repository-local live-reload boundary: a valid
-`WORKFLOW.md` edit is still detected at the next reconciliation tick, but
-tracker-provider changes take effect only after the runtime is rebuilt. For a
-repo-embedded project, run `gh-symphony repo init` and then restart
-`gh-symphony repo start`. For a standalone project, stop and restart
-`gh-symphony project start`; its project record is derived again on start.
-Existing workers retain the tracker binding and effective policy they started
-with in every case.
+The workflow policy passed to the already-selected adapter is live-reloaded on
+every reconciliation tick. Changes to `tracker.provider` settings such as
+endpoint, project ID or slug, pickup labels, priority, blocker-check states,
+and planning states, plus core `tracker.active_states` and
+`tracker.terminal_states`, apply on the next tick. Existing workers keep the
+policy and tracker dependencies captured for their own run. This is the same
+tick-based reload boundary described above, not a watcher-driven update.
 
 ## Runtime, Retry, and Hook Divergences
 
@@ -145,7 +143,7 @@ should be disabled. This opt-out is an intentional repository-level divergence
 from the vendored Symphony specification's unconditional blocker rule.
 
 GitHub source-closed blockers and blockers whose Project workflow state is in
-`tracker.provider.terminal_states` are resolved. Linear uses its workflow-state relation
+`tracker.terminal_states` are resolved. Linear uses its workflow-state relation
 data directly. In both adapters, `blocked_by` remains best-effort metadata and
 `dispatchReason` identifies an unresolved dependency. Omitting
 `tracker.provider.planning_states` keeps planning disabled; blocker defaults do not enable the
@@ -296,7 +294,7 @@ provider block. `active_states` and `terminal_states` must be YAML lists (not
 comma-separated strings) and must be configured explicitly unless the selected
 adapter supplies lifecycle defaults.
 
-`tracker.provider.active_states` controls dispatch eligibility, while
+`tracker.active_states` controls dispatch eligibility, while
 `tracker.provider.planning_states` classifies states for prompt policy and status
 surfaces. Classification is independent of dispatch eligibility: a matching
 planning state resolves to `planning` even when it is absent from
