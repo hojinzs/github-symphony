@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   createServer,
@@ -237,12 +238,7 @@ async function preflightWorkflowStart(
   const workflowPath =
     configuredPath ??
     (projectConfig.workflowSource?.type === "repo"
-      ? join(
-          projectConfig.repositoryDir ??
-            projectConfig.repository.path ??
-            process.cwd(),
-          "WORKFLOW.md"
-        )
+      ? join(resolveWorkflowRepositoryDirectory(projectConfig), "WORKFLOW.md")
       : undefined);
   if (!workflowPath) return { ok: true, workflow: null };
 
@@ -262,8 +258,10 @@ async function preflightWorkflowStart(
     );
     return { ok: true, workflow };
   } catch (error) {
+    if (!configuredPath) {
+      return { ok: true, workflow: null };
+    }
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
-      if (!configuredPath) return { ok: true, workflow: null };
       process.stderr.write(
         `Configured workflow not found at ${workflowPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
       );
@@ -276,6 +274,27 @@ async function preflightWorkflowStart(
     process.exitCode = 1;
     return { ok: false };
   }
+}
+
+function resolveWorkflowRepositoryDirectory(
+  projectConfig: OrchestratorProjectConfig
+): string {
+  const { repository } = projectConfig;
+  if (repository.path) return repository.path;
+
+  try {
+    const url = new URL(repository.cloneUrl);
+    if (url.protocol === "file:") return fileURLToPath(url);
+  } catch {
+    if (
+      isAbsolute(repository.cloneUrl) ||
+      repository.cloneUrl.startsWith(".")
+    ) {
+      return repository.cloneUrl;
+    }
+  }
+
+  return process.cwd();
 }
 
 type GitHubAuthRuntimeError =
@@ -1056,12 +1075,12 @@ const handler = async (
     parsed.webPort === undefined
       ? workflowPreflight.workflow?.server.port
       : undefined;
-  const requestedHttpPort =
-    parsed.httpPort ?? configuredServerPort ?? undefined;
+  const requestedHttpPort = parsed.httpPortExplicit
+    ? parsed.httpPort
+    : (configuredServerPort ?? parsed.httpPort);
   const explicitHttpPort =
-    parsed.httpPort !== undefined
-      ? parsed.httpPortExplicit
-      : configuredServerPort !== undefined;
+    parsed.httpPortExplicit ||
+    (parsed.httpPort === undefined && configuredServerPort !== undefined);
   const httpApiToken = resolveHttpApiToken();
   const httpHost = parsed.bindAll ? BIND_ALL_HTTP_HOST : DEFAULT_HTTP_HOST;
 
