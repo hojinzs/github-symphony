@@ -326,6 +326,8 @@ to verify the following.
 
 - Single-issue `Ready → In progress → In review` transition
 - Intra-run continuation includes `--resume <sessionId>` and excludes `--fork-session`
+- Worker-level `max_turns` starts a second Claude invocation with continuation guidance and the same resumed session
+- Claude read timeout and output-silence turn timeout are unit-covered in `packages/runtime-claude/src/spawn.test.ts`
 - Inter-run recover includes `--resume <prevId> --fork-session`, stores a new session id, and preserves the `parentRunId` link
 - Resume session rejection records a `session_invalidated` event
 

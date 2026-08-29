@@ -406,12 +406,11 @@ At the time of the r3 rewrite, reflecting the Codex review and the user principl
 - **v1 handling**: none.
 - **Follow-up**: in a separate optimization ADR if token cost actually becomes a problem.
 
-#### Exclusion 6: Detailed semantics of `max-turns`
+#### Exclusion 6: Claude-internal `--max-turns` mapping
 
 - **What r1 had**: mapping rules between Claude `--max-turns` (the loop inside an invocation) and Symphony `agent.max_turns` (the number of continuations).
-- **Reasons for exclusion**: in v1 we do not set Claude `--max-turns` and delegate to Claude's default. Symphony `agent.max_turns` keeps its existing meaning (upper bound on process re-invocations). There is no need to pin down the mapping rules now.
-- **v1 handling**: `--max-turns` is not included in the Claude argv.
-- **Follow-up**: define it when an actual runaway case occurs.
+- **Current handling (#677)**: Symphony `agent.max_turns` is now enforced by the worker for the Claude print route, exactly as it is for Codex: it bounds Claude process turns within one worker session. The first turn receives the rendered prompt; later turns send continuation guidance and reuse the persisted Claude session with `--resume`. This is deliberately distinct from Claude's own `--max-turns`, which remains unset because it controls Claude-internal tool-loop behavior rather than Symphony worker turns.
+- **Timeout handling (#677)**: `runtime.timeouts.read_timeout_ms` limits waiting for the first Claude output, while `turn_timeout_ms` is a silence interval reset by each stdout or stderr chunk. Timeout expiry terminates the print child and reports `response_timeout` or `turn_timeout` to the worker lifecycle.
 
 ### 11.3 Core items retained (r3 → r5)
 

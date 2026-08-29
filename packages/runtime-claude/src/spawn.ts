@@ -29,6 +29,10 @@ export type ClaudeSpawnTurnInput = {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   stdinMessages: ClaudeWireMessage | readonly ClaudeWireMessage[];
+  /** Maximum wait for the first child output. */
+  initialOutputTimeoutMs?: number;
+  /** Maximum silence interval; every stdout or stderr chunk resets it. */
+  turnTimeoutMs?: number;
 };
 
 export type ClaudeSpawnTurnResult = {
@@ -69,6 +73,67 @@ export async function spawnClaudeTurn(
 
   const records: ClaudeSpawnRecord[] = [];
   const eventMapper = new ClaudePrintEventMapper();
+  let timeoutMessage: string | undefined;
+  let sawOutput = false;
+  let readTimer: NodeJS.Timeout | undefined;
+  let silenceTimer: NodeJS.Timeout | undefined;
+  let terminationTimer: NodeJS.Timeout | undefined;
+  const clearTimers = () => {
+    if (readTimer) clearTimeout(readTimer);
+    if (silenceTimer) clearTimeout(silenceTimer);
+    if (terminationTimer) clearTimeout(terminationTimer);
+    readTimer = undefined;
+    silenceTimer = undefined;
+    terminationTimer = undefined;
+  };
+  const terminateForTimeout = (message: string) => {
+    if (timeoutMessage) return;
+    timeoutMessage = message;
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // The child may already have exited while the timer fired.
+    }
+    terminationTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The child may have exited while the escalation timer fired.
+      }
+    }, 1_000);
+  };
+  const armSilenceTimer = () => {
+    if (input.turnTimeoutMs && input.turnTimeoutMs > 0) {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(
+        () =>
+          terminateForTimeout(
+            `turn_timeout: Claude produced no output for ${input.turnTimeoutMs}ms`
+          ),
+        input.turnTimeoutMs
+      );
+    }
+  };
+  const noteOutput = () => {
+    sawOutput = true;
+    if (readTimer) {
+      clearTimeout(readTimer);
+      readTimer = undefined;
+    }
+    armSilenceTimer();
+  };
+  if (input.initialOutputTimeoutMs && input.initialOutputTimeoutMs > 0) {
+    readTimer = setTimeout(() => {
+      if (!sawOutput) {
+        terminateForTimeout(
+          `response_timeout: Claude produced no output for ${input.initialOutputTimeoutMs}ms`
+        );
+      }
+    }, input.initialOutputTimeoutMs);
+  }
+  // The initial silence interval begins when the child is launched; each
+  // output chunk resets it, while the read timer remains until first output.
+  armSilenceTimer();
   let emittedErrorEvent = false;
   const emitEvent = (event: AgentEvent) => {
     if (event.name === "agent.error") {
@@ -81,14 +146,16 @@ export async function spawnClaudeTurn(
     "stdout",
     records,
     eventMapper,
-    emitEvent
+    emitEvent,
+    noteOutput
   );
   const stderrDone = collectNdjsonStream(
     child.stderr,
     "stderr",
     records,
     null,
-    null
+    null,
+    noteOutput
   );
   const exitDone = waitForChildExit(child, records);
 
@@ -116,18 +183,25 @@ export async function spawnClaudeTurn(
   }
 
   const outcome = await exitDone;
+  clearTimers();
 
   await Promise.all([stdoutDone, stderrDone]);
   const mapperState = eventMapper.snapshot();
-  const classification = classifyClaudeTurnExit({
-    exitCode: outcome.exitCode,
-    signal: outcome.signal,
-    resultEvent: mapperState.latestResultEvent,
-    errorEvent: mapperState.latestErrorEvent,
-    sawRateLimit: mapperState.sawRateLimit,
-    spawnErrorMessage:
-      "errorMessage" in outcome ? outcome.errorMessage : undefined,
-  });
+  const classification = timeoutMessage
+    ? {
+        kind: "process-error" as const,
+        transient: true,
+        reason: timeoutMessage,
+      }
+    : classifyClaudeTurnExit({
+        exitCode: outcome.exitCode,
+        signal: outcome.signal,
+        resultEvent: mapperState.latestResultEvent,
+        errorEvent: mapperState.latestErrorEvent,
+        sawRateLimit: mapperState.sawRateLimit,
+        spawnErrorMessage:
+          "errorMessage" in outcome ? outcome.errorMessage : undefined,
+      });
 
   if (
     (classification.kind === "app-error" ||
@@ -166,7 +240,9 @@ export async function spawnClaudeTurn(
     signal: outcome.signal,
     result: classification.kind,
     classification,
-    errorMessage: "errorMessage" in outcome ? outcome.errorMessage : undefined,
+    errorMessage:
+      timeoutMessage ??
+      ("errorMessage" in outcome ? outcome.errorMessage : undefined),
   };
 }
 
@@ -196,7 +272,8 @@ async function collectNdjsonStream(
   channel: ClaudeSpawnRecord["stream"],
   records: ClaudeSpawnRecord[],
   eventMapper: ClaudePrintEventMapper | null,
-  onEvent: ((event: AgentEvent) => void) | null
+  onEvent: ((event: AgentEvent) => void) | null,
+  onActivity: () => void
 ): Promise<void> {
   if (!stream) {
     return;
@@ -206,6 +283,7 @@ async function collectNdjsonStream(
 
   stream.setEncoding("utf8");
   stream.on("data", (chunk: string) => {
+    onActivity();
     buffer += chunk;
 
     while (true) {

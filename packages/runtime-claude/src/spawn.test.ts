@@ -7,6 +7,78 @@ import {
 } from "./spawn.js";
 
 describe("spawnClaudeTurn", () => {
+  it("fails when Claude produces no initial output before the stall deadline", async () => {
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      initialOutputTimeoutMs: 100,
+    });
+
+    expect(result).toMatchObject({
+      result: "process-error",
+      errorMessage: "response_timeout: Claude produced no output for 100ms",
+      classification: {
+        reason: "response_timeout: Claude produced no output for 100ms",
+      },
+    });
+  });
+
+  it("resets the turn silence timeout for every Claude output chunk", async () => {
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: [
+        "-e",
+        "let n=0; const t=setInterval(() => { console.log(JSON.stringify({type:'message_start'})); if (++n === 3) { clearInterval(t); process.exit(0); } }, 15)",
+      ],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      initialOutputTimeoutMs: 500,
+      turnTimeoutMs: 80,
+    });
+
+    expect(result.errorMessage).toBeUndefined();
+    expect(result.classification.reason).toBe("missing_result");
+  });
+
+  it("fails after a Claude output silence interval", async () => {
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: [
+        "-e",
+        "console.log(JSON.stringify({type:'message_start'})); setInterval(() => {}, 1000)",
+      ],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      initialOutputTimeoutMs: 500,
+      turnTimeoutMs: 30,
+    });
+
+    expect(result.errorMessage).toBe(
+      "turn_timeout: Claude produced no output for 30ms"
+    );
+  });
+
+  it("escalates a timed-out Claude child that ignores SIGTERM", async () => {
+    const startedAt = Date.now();
+    const result = await spawnClaudeTurn({
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+      ],
+      cwd: process.cwd(),
+      stdinMessages: [],
+      initialOutputTimeoutMs: 100,
+    });
+
+    expect(result.errorMessage).toBe(
+      "response_timeout: Claude produced no output for 100ms"
+    );
+    expect(Date.now() - startedAt).toBeLessThan(2_500);
+  });
+
   it("writes stream-json input, parses ndjson output, and returns success", async () => {
     const stdin = new PassThrough();
     let writtenStdin = "";
