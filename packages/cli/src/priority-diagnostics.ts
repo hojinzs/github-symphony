@@ -52,6 +52,91 @@ export function buildPriorityConfigDiagnostics(
   return diagnostics;
 }
 
+/** Migration guidance for flat tracker keys promoted by the core parser. */
+export function buildProviderDeprecationDiagnostics(
+  workflow: ParsedWorkflow
+): PriorityDiagnostic[] {
+  if (
+    workflow.tracker.kind !== "github-project" ||
+    workflow.tracker.deprecatedKeys.length === 0
+  ) {
+    return [];
+  }
+
+  const githubKeys = [
+    "project_id",
+    "project_slug",
+    "api_key",
+    "endpoint",
+    "state_field",
+    "priority",
+    "priority_field",
+    "pickup_labels",
+    "blocker_check_states",
+    "planning_states",
+  ];
+  const migrated = githubKeys.filter((key) =>
+    workflow.tracker.deprecatedKeys.includes(key)
+  );
+  if (migrated.length === 0) return [];
+
+  const provider = Object.fromEntries(
+    migrated.map((key) => [key, workflow.tracker.provider[key]])
+  );
+  const providerBlock = renderProviderBlock(provider);
+  return [
+    {
+      title: "Deprecated GitHub tracker keys",
+      summary: `Flat tracker key(s) ${migrated.join(", ")} are deprecated and remain supported for compatibility.`,
+      remediation: `Move them under tracker.provider (flat aliases will be removed in the next major release):\n\n${providerBlock}`,
+      details: { deprecatedKeys: migrated, providerBlock },
+    },
+  ];
+}
+
+function renderProviderBlock(provider: Record<string, unknown>): string {
+  const lines = ["tracker:", "  provider:"];
+  renderYamlObject(lines, provider, 4);
+  return ["```yaml", ...lines, "```"].join("\n");
+}
+
+function renderYamlObject(
+  lines: string[],
+  value: Record<string, unknown>,
+  indent: number
+): void {
+  for (const [key, entry] of Object.entries(value)) {
+    const padding = " ".repeat(indent);
+    if (Array.isArray(entry)) {
+      if (entry.length === 0) {
+        lines.push(`${padding}${key}: []`);
+      } else {
+        lines.push(`${padding}${key}:`);
+        for (const item of entry) {
+          lines.push(`${padding}  - ${renderYamlScalar(item)}`);
+        }
+      }
+    } else if (entry && typeof entry === "object") {
+      lines.push(`${padding}${key}:`);
+      renderYamlObject(lines, entry as Record<string, unknown>, indent + 2);
+    } else {
+      lines.push(`${padding}${key}: ${renderYamlScalar(entry)}`);
+    }
+  }
+}
+
+function renderYamlScalar(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
 export function buildPriorityDriftDiagnostics(input: {
   workflow: ParsedWorkflow;
   projectDetail: ProjectDetail;
@@ -208,7 +293,9 @@ function buildLabelDriftDiagnostics(input: {
       );
       return configuredLabel ? [configuredLabel] : [];
     });
-    return matches.length > 1 ? [{ issue: issue.identifier, labels: matches }] : [];
+    return matches.length > 1
+      ? [{ issue: issue.identifier, labels: matches }]
+      : [];
   });
   if (activeConflicts.length > 0) {
     diagnostics.push({

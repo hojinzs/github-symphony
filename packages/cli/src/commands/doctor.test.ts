@@ -549,6 +549,84 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("snapshots provider deprecation guidance for flat GitHub keys", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: github-project
+  project_id: PVT_test
+  pickup_labels:
+    include:
+      - agent-ready
+    exclude:
+      - blocked
+codex:
+  command: fake-agent
+---
+Prompt body
+`,
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail()) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.checks.find((check) => check.id === "provider_deprecation"))
+      .toMatchInlineSnapshot(`
+      {
+        "details": {
+          "deprecatedKeys": [
+            "project_id",
+            "pickup_labels",
+          ],
+          "providerBlock": "\`\`\`yaml
+      tracker:
+        provider:
+          project_id: "PVT_test"
+          pickup_labels:
+            include:
+              - "agent-ready"
+            exclude:
+              - "blocked"
+      \`\`\`",
+        },
+        "id": "provider_deprecation",
+        "remediation": "Move them under tracker.provider (flat aliases will be removed in the next major release):
+
+      \`\`\`yaml
+      tracker:
+        provider:
+          project_id: "PVT_test"
+          pickup_labels:
+            include:
+              - "agent-ready"
+            exclude:
+              - "blocked"
+      \`\`\`",
+        "required": true,
+        "status": "warn",
+        "summary": "Flat tracker key(s) project_id, pickup_labels are deprecated and remain supported for compatibility.",
+        "title": "Deprecated GitHub tracker keys",
+      }
+    `);
+  });
+
   it("validates GitHub auth against the configured GraphQL endpoint", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

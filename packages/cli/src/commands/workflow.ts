@@ -12,6 +12,7 @@ import {
 import {
   getSupportedTrackerKinds,
   resolveTrackerAdapter,
+  resolveWorkflowConfigTrackerAdapter,
 } from "@gh-symphony/orchestrator";
 import { fetchGithubProjectIssueByRepositoryAndNumber } from "@gh-symphony/tracker-github";
 import { type CliProjectConfig } from "../config.js";
@@ -29,6 +30,7 @@ import {
 import type { GlobalOptions } from "../index.js";
 import { writeCliError } from "../cli-error.js";
 import {
+  buildProviderDeprecationDiagnostics,
   buildPriorityConfigDiagnostics,
   type PriorityDiagnostic,
 } from "../priority-diagnostics.js";
@@ -814,6 +816,7 @@ function validateWorkflow(
 ): WorkflowValidationReport {
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
+    resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
   });
   const samplePhase = resolveWorkflowExecutionPhase({
     issueState: SAMPLE_ISSUE.state,
@@ -848,7 +851,10 @@ function validateWorkflow(
       promptRetry: "pass",
       continuationGuidance: continuationGuidanceStatus,
     },
-    warnings: buildPriorityConfigDiagnostics(workflow),
+    warnings: [
+      ...buildProviderDeprecationDiagnostics(workflow),
+      ...buildPriorityConfigDiagnostics(workflow),
+    ],
     summary: {
       trackerKind: workflow.tracker.kind,
       githubProjectId: workflow.githubProjectId,
@@ -962,6 +968,7 @@ async function runPreview(
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
+    resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
   });
   if (
     flags.issue &&

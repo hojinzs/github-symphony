@@ -10,6 +10,7 @@ import type {
 import {
   NonRetryableTrackerAdapterError,
   resolvePickupLabelDispatchReason,
+  WorkflowValidationError,
 } from "@gh-symphony/core";
 import {
   fetchGithubIssueStatesByIds,
@@ -21,6 +22,21 @@ import {
 } from "./adapter.js";
 
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
+  validateProviderConfig(provider) {
+    return validateGitHubProviderConfig(provider);
+  },
+
+  defaultLifecycle() {
+    // GitHub owns this Project vocabulary; the core fallback is transitional.
+    return {
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+      blockerCheckStates: ["Todo"],
+      planningStates: [],
+    };
+  },
+
   secretEnvironmentNames() {
     return [
       "GH_TOKEN",
@@ -283,6 +299,90 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     );
   },
 };
+
+const GITHUB_PROVIDER_STRING_KEYS = [
+  "project_id",
+  "endpoint",
+  "state_field",
+  "priority_field",
+] as const;
+
+const GITHUB_PROVIDER_OBJECT_KEYS = ["priority", "pickup_labels"] as const;
+
+const GITHUB_PROVIDER_LIST_KEYS = [
+  "active_states",
+  "terminal_states",
+  "blocker_check_states",
+  "planning_states",
+] as const;
+
+/** Validates documented GitHub Project provider keys while preserving unknown keys. */
+export function validateGitHubProviderConfig(
+  provider: Record<string, unknown>
+): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  for (const key of GITHUB_PROVIDER_STRING_KEYS) {
+    const value = provider[key];
+    if (value !== undefined && (typeof value !== "string" || !value.trim())) {
+      errors.push(
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          `tracker.provider.${key}`,
+          `GitHub provider key "${key}" must be a non-empty string when provided.`
+        )
+      );
+    }
+  }
+  const endpoint = provider.endpoint;
+  if (typeof endpoint === "string" && endpoint.trim()) {
+    try {
+      const url = new URL(endpoint);
+      if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("unsupported protocol");
+      }
+    } catch {
+      errors.push(
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          "tracker.provider.endpoint",
+          'GitHub provider key "endpoint" must be an HTTP(S) URL.'
+        )
+      );
+    }
+  }
+  for (const key of GITHUB_PROVIDER_LIST_KEYS) {
+    const value = provider[key];
+    if (
+      value !== undefined &&
+      (!Array.isArray(value) ||
+        value.some((item) => typeof item !== "string" || !item.trim()))
+    ) {
+      errors.push(
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          `tracker.provider.${key}`,
+          `GitHub provider key "${key}" must be a list of non-empty strings when provided.`
+        )
+      );
+    }
+  }
+  for (const key of GITHUB_PROVIDER_OBJECT_KEYS) {
+    const value = provider[key];
+    if (
+      value !== undefined &&
+      (value === null || Array.isArray(value) || typeof value !== "object")
+    ) {
+      errors.push(
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          `tracker.provider.${key}`,
+          `GitHub provider key "${key}" must be an object when provided.`
+        )
+      );
+    }
+  }
+  return errors;
+}
 
 type GitHubNativeRef = {
   itemId?: string;

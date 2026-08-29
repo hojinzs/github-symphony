@@ -1,4 +1,4 @@
-import { resolveTrackerAdapter as resolveGitHubAdapter } from "@gh-symphony/tracker-github";
+import { githubProjectTrackerAdapter } from "@gh-symphony/tracker-github";
 export { findGithubProjectIssue } from "@gh-symphony/tracker-github";
 import { fileTrackerAdapter } from "@gh-symphony/tracker-file";
 import { linearTrackerAdapter } from "@gh-symphony/tracker-linear";
@@ -7,20 +7,30 @@ import type {
   OrchestratorTrackerConfig,
 } from "@gh-symphony/core";
 
-const localAdapters = new Map<string, OrchestratorTrackerAdapter>([
+const trackerAdapters = new Map<string, OrchestratorTrackerAdapter>([
+  ["github-project", githubProjectTrackerAdapter],
   ["file", fileTrackerAdapter],
   ["linear", linearTrackerAdapter],
 ]);
 
 /** Adapter-owned tracker kinds supplied to workflow validation at the boundary. */
 export function getSupportedTrackerKinds(): readonly string[] {
-  return ["github-project", ...localAdapters.keys()];
+  return [...trackerAdapters.keys()];
 }
 
 export function resolveTrackerAdapter(
   tracker: OrchestratorTrackerConfig
 ): OrchestratorTrackerAdapter {
-  const local = localAdapters.get(tracker.adapter);
-  if (local) return local;
-  return resolveGitHubAdapter(tracker);
+  const adapter = trackerAdapters.get(tracker.adapter);
+  if (!adapter) {
+    throw new Error(`Unsupported tracker adapter: ${tracker.adapter}`);
+  }
+  return adapter;
+}
+
+/** Resolves adapter-owned workflow parser hooks without requiring a binding. */
+export function resolveWorkflowConfigTrackerAdapter(
+  kind: string
+): OrchestratorTrackerAdapter | undefined {
+  return trackerAdapters.get(kind);
 }

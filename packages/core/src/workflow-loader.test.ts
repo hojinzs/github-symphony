@@ -217,6 +217,30 @@ Prompt`,
     );
   });
 
+  it("resolves provider environment values before adapter validation", () => {
+    const validateProviderConfig = vi.fn(() => []);
+    parseWorkflowMarkdownStrict(
+      `---
+tracker:
+  kind: custom-tracker
+  provider:
+    endpoint: $GHES_URL
+codex:
+  command: codex
+---
+Prompt`,
+      { GHES_URL: "https://github.example/api/graphql" },
+      {
+        supportedTrackerKinds: ["custom-tracker"],
+        trackerAdapter: { validateProviderConfig },
+      }
+    );
+
+    expect(validateProviderConfig).toHaveBeenCalledWith({
+      endpoint: "https://github.example/api/graphql",
+    });
+  });
+
   it("resolves provider validation and lifecycle defaults from tracker.kind", () => {
     const selectedAdapter = {
       validateProviderConfig: vi.fn(() => []),

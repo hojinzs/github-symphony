@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import workflowCommand, {
   resetWorkflowCommandDependenciesForTest,
   setWorkflowCommandDependenciesForTest,
@@ -152,7 +153,65 @@ Prompt {{ issue.identifier }}
     }
 
     expect(stdout.output()).toContain("Warnings");
+    expect(stdout.output()).toContain("Deprecated GitHub tracker keys");
+    expect(stdout.output()).toContain("tracker:\n  provider:");
+    expect(stdout.output()).toContain('priority_field: "Priority"');
     expect(stdout.output()).toContain("Legacy priority mapping");
+  });
+
+  it("renders a copyable provider migration block that round-trips", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-provider-migration-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  pickup_labels:
+    include:
+      - agent-ready
+    exclude:
+      - blocked
+  priority:
+    source: labels
+    labels:
+      urgent: 1
+codex:
+  command: codex app-server
+---
+Prompt {{ issue.identifier }}
+`,
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const providerBlock = stdout
+      .output()
+      .match(/```yaml\n([\s\S]*?)\n```/)?.[1];
+    expect(stdout.output()).toContain("tracker.project_id=project-123");
+    expect(providerBlock).toContain("pickup_labels:\n      include:");
+    expect(providerBlock).toContain("priority:\n      source:");
+    const migrated = parseWorkflowMarkdown(
+      `---\n${providerBlock?.replace("tracker:\n", "tracker:\n  kind: github-project\n")}\ncodex:\n  command: codex app-server\n---\nPrompt`
+    );
+    expect(migrated.tracker.provider).toMatchObject({
+      project_id: "project-123",
+      pickup_labels: { include: ["agent-ready"], exclude: ["blocked"] },
+      priority: { source: "labels", labels: { urgent: 1 } },
+    });
   });
 
   it("includes priority precedence warnings in JSON validation output", async () => {
