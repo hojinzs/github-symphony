@@ -51,6 +51,9 @@ const TEST_TOOL_ENV = {
   GITHUB_GRAPHQL_TOKEN: "host-token",
   GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
 };
+import { createTurnSilenceTimer } from "./turn-silence-timer.js";
+import { createUnhandledServerRequestError } from "./server-request.js";
+import { findCwdBoundaryViolation } from "./workspace-boundary.js";
 
 // ---------------------------------------------------------------------------
 // Protocol primitives — replicated exactly from packages/worker/src/index.ts
@@ -116,6 +119,7 @@ function createProtocolContext(options: {
   turnTimeoutMs?: number;
   maxTurns?: number;
   tokenUsageBaseline?: TokenUsageSnapshot;
+  workspaceCwd?: string;
   orchestratorChannelWriter?: {
     write: (chunk: string) => boolean;
     once: (event: "drain", listener: () => void) => unknown;
@@ -132,6 +136,7 @@ function createProtocolContext(options: {
       outputTokens: 0,
       totalTokens: 0,
     },
+    workspaceCwd = "/workspace/repo",
     orchestratorChannelWriter,
   } = options;
   const fake = createFakeChild();
@@ -150,6 +155,7 @@ function createProtocolContext(options: {
   const pendingOrchestratorChannelPayloads: string[] = [];
   const maxPendingOrchestratorChannelPayloads = 16;
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
+  let resetTurnTimeout: (() => void) | null = null;
 
   const defaultOrchestratorChannelWriter = {
     write(chunk: string): boolean {
@@ -674,18 +680,22 @@ function createProtocolContext(options: {
 
   function waitForTurnWithTimeout(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = createTurnSilenceTimer(turnTimeoutMs, () => {
         killCalled = true;
-        reject(new Error("turn_timeout: turn exceeded time limit"));
-      }, turnTimeoutMs);
+        reject(new Error("turn_timeout: silence interval exceeded"));
+      });
+      timer.arm();
+      resetTurnTimeout = timer.arm;
 
       waitForTurnCompletion().then(
         () => {
-          clearTimeout(timer);
+          timer.cancel();
+          resetTurnTimeout = null;
           resolve();
         },
         (error) => {
-          clearTimeout(timer);
+          timer.cancel();
+          resetTurnTimeout = null;
           reject(error);
         }
       );
@@ -815,6 +825,7 @@ function createProtocolContext(options: {
     if (event.payload.suppressUpdate) {
       return;
     }
+
     emitOrchestratorChannelEvent(getCodexObservabilityEventName(event));
   }
 
@@ -904,6 +915,8 @@ function createProtocolContext(options: {
   }
 
   function handleServerMessage(msg: Record<string, unknown>): void {
+    resetTurnTimeout?.();
+
     // JSON-RPC response to our requests
     if ("id" in msg && msg.id != null && ("result" in msg || "error" in msg)) {
       const id = String(msg.id);
@@ -945,6 +958,23 @@ function createProtocolContext(options: {
 
     // Track the timestamp of every server-initiated notification/event.
     runtimeState.lastEventAt = new Date().toISOString();
+    const boundaryViolation = findCwdBoundaryViolation(
+      msg.params,
+      workspaceCwd
+    );
+    if (boundaryViolation) {
+      const reason = `identity_violation: event cwd '${boundaryViolation}' escapes workspace '${workspaceCwd}'`;
+      emitOrchestratorChannelEvent("worker_identity_violation");
+      markTurnTerminalFailure("failed", reason);
+      killCalled = true;
+      return;
+    }
+
+    const unsupportedRequest = createUnhandledServerRequestError(msg);
+    if (unsupportedRequest) {
+      sendMessage(unsupportedRequest);
+      return;
+    }
     const agentEvents = normalizeCodexRuntimeEvents(msg);
     let handledAgentEvent = false;
     for (const event of agentEvents) {
@@ -1452,10 +1482,10 @@ describe("read timeout (3.5)", () => {
     expect(result).toEqual({ serverInfo: { name: "codex", version: "1.0" } });
   });
 
-  it("includes env-derived approval and sandbox settings in protocol requests", () => {
+  it("includes the supported approval and sandbox settings in protocol requests", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
     sendStartupRequestsForEnv(ctx, {
-      SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_APPROVAL_POLICY: "never",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
@@ -1471,7 +1501,7 @@ describe("read timeout (3.5)", () => {
         method: "thread/start",
         params: {
           cwd: "/tmp",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandbox: "workspace-write",
           dynamicTools: TEST_DYNAMIC_TOOLS,
         },
@@ -1485,7 +1515,7 @@ describe("read timeout (3.5)", () => {
           input: [{ type: "text", text: "test prompt" }],
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandboxPolicy: { type: "dangerFullAccess" },
         },
       },
@@ -1496,7 +1526,7 @@ describe("read timeout (3.5)", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
 
     await sendStartupHandshake(ctx, {
-      SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_APPROVAL_POLICY: "never",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
@@ -1526,7 +1556,7 @@ describe("read timeout (3.5)", () => {
         method: "thread/start",
         params: {
           cwd: "/tmp",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandbox: "workspace-write",
           dynamicTools: TEST_DYNAMIC_TOOLS,
         },
@@ -1540,7 +1570,7 @@ describe("read timeout (3.5)", () => {
           input: [{ type: "text", text: "test prompt" }],
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandboxPolicy: { type: "dangerFullAccess" },
         },
       },
@@ -1723,20 +1753,38 @@ describe("turn timeout (3.6)", () => {
     vi.useRealTimers();
   });
 
-  it("rejects with turn_timeout when turn exceeds limit", async () => {
+  it("rejects with turn_timeout when a turn is silent beyond the limit", async () => {
     const ctx = createProtocolContext({ turnTimeoutMs: 1000 });
 
     const promise = ctx.waitForTurnWithTimeout();
 
     // Attach rejection handler BEFORE advancing timers to avoid unhandled rejection
     const rejection = expect(promise).rejects.toThrow(
-      "turn_timeout: turn exceeded time limit"
+      "turn_timeout: silence interval exceeded"
     );
 
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
 
     expect(ctx.killCalled).toBe(true);
+  });
+
+  it("allows a long turn when app-server output arrives before each deadline", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 1000 });
+    const promise = ctx.waitForTurnWithTimeout();
+
+    await vi.advanceTimersByTimeAsync(900);
+    ctx.handleServerMessage({ method: "codex/event/item_updated", params: {} });
+    await vi.advanceTimersByTimeAsync(900);
+    ctx.handleServerMessage({ method: "codex/event/item_updated", params: {} });
+    await vi.advanceTimersByTimeAsync(900);
+    ctx.handleServerMessage({
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+      params: {},
+    });
+
+    await promise;
+    expect(ctx.killCalled).toBe(false);
   });
 
   it("resolves normally when turn completes within limit", async () => {
@@ -1866,6 +1914,97 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.run.lastError).toBe(
       "turn_failed: tool execution failed"
     );
+  });
+});
+
+describe("turn silence timer", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("extends the deadline for every app-server output", async () => {
+    const onTimeout = vi.fn();
+    const timer = createTurnSilenceTimer(1000, onTimeout);
+
+    timer.arm();
+    await vi.advanceTimersByTimeAsync(900);
+    timer.arm();
+    await vi.advanceTimersByTimeAsync(900);
+    timer.arm();
+    await vi.advanceTimersByTimeAsync(900);
+
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(101);
+    expect(onTimeout).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the active deadline when the turn completes", async () => {
+    const onTimeout = vi.fn();
+    const timer = createTurnSilenceTimer(1000, onTimeout);
+
+    timer.arm();
+    timer.cancel();
+    await vi.advanceTimersByTimeAsync(1001);
+
+    expect(onTimeout).not.toHaveBeenCalled();
+  });
+});
+
+describe("server-initiated requests", () => {
+  it("fails closed when an unsupported request escapes the workspace boundary", () => {
+    const ctx = createProtocolContext({ workspaceCwd: "/workspace/repo" });
+
+    ctx.handleServerMessage({
+      jsonrpc: "2.0",
+      id: "approval-1",
+      method: "item/approval/request",
+      params: { cwd: "/etc" },
+    });
+
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "identity_violation: event cwd '/etc' escapes workspace '/workspace/repo'"
+    );
+    expect(ctx.killCalled).toBe(true);
+    expect(readSentMessages(ctx.fake.stdin)).toEqual([]);
+    expect(ctx.orchestratorEvents).toContainEqual(
+      expect.objectContaining({ event: "worker_identity_violation" })
+    );
+  });
+
+  it("immediately rejects an approval request that cannot be handled", () => {
+    expect(
+      createUnhandledServerRequestError({
+        jsonrpc: "2.0",
+        id: "approval-1",
+        method: "item/approval/request",
+        params: {},
+      })
+    ).toEqual({
+      jsonrpc: "2.0",
+      id: "approval-1",
+      error: {
+        code: -32601,
+        message: "unhandled server request: item/approval/request",
+      },
+    });
+  });
+
+  it("does not turn responses or notifications into error replies", () => {
+    expect(
+      createUnhandledServerRequestError({ jsonrpc: "2.0", id: "1", result: {} })
+    ).toBeNull();
+    expect(
+      createUnhandledServerRequestError({
+        jsonrpc: "2.0",
+        method: "item/updated",
+      })
+    ).toBeNull();
   });
 });
 

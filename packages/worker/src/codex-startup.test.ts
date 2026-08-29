@@ -21,7 +21,7 @@ describe("launchCodexWithValidatedPolicy", () => {
     expect(launch).not.toHaveBeenCalled();
   });
 
-  it("launches with typed policy settings after validation succeeds", async () => {
+  it("refuses an approval policy that could leave a request unanswered", async () => {
     const child = { pid: 42 };
     const launch = vi.fn(() => child);
     const onPolicyValidationFailure = vi.fn(async () => undefined);
@@ -36,15 +36,12 @@ describe("launchCodexWithValidatedPolicy", () => {
         launch,
         onPolicyValidationFailure
       )
-    ).resolves.toEqual({
-      child,
-      policySettings: {
-        approvalPolicy: "on-request",
-        threadSandbox: "workspace-write",
-        turnSandboxPolicy: { type: "dangerFullAccess" },
-      },
-    });
-    expect(launch).toHaveBeenCalledOnce();
-    expect(onPolicyValidationFailure).not.toHaveBeenCalled();
+    ).resolves.toBeNull();
+    expect(launch).not.toHaveBeenCalled();
+    expect(onPolicyValidationFailure).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Invalid SYMPHONY_APPROVAL_POLICY value "on-request". Expected one of: never.'
+      )
+    );
   });
 });

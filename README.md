@@ -976,11 +976,12 @@ workflows continue; workers warn operators to configure the broker or wait for
 #700. The host-owned transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
 
-By default, Codex uses `approval_policy: never` and the
+Codex supports only `approval_policy: never` and uses the
 `danger-full-access` thread sandbox; Claude uses `bypassPermissions`.
-Operators can configure the Codex approval and sandbox settings, but must use
-least-privilege credentials, dedicated workspaces, and controls appropriate to
-their environment. The target transport keeps credentials in the Symphony host
+Other Codex approval policies fail workflow validation because operator approval
+handling is not implemented. Operators can configure the Codex sandbox settings,
+but must use least-privilege credentials, dedicated workspaces, and controls
+appropriate to their environment. The target transport keeps credentials in the Symphony host
 or a host-side broker, returns only bounded issue-aware tool results to agents,
 uses loopback-only local services with scoped session capabilities, and gives
 the child an isolated home/configuration directory rather than a host `gh auth`

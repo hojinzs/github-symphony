@@ -2071,7 +2071,7 @@ describe("codex policy propagation", () => {
       "platform",
       {
         codex: {
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           threadSandbox: "workspace-write",
           turnSandboxPolicy: "workspace-write",
         },
@@ -2104,7 +2104,7 @@ describe("codex policy propagation", () => {
       ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
-          SYMPHONY_APPROVAL_POLICY: "on-request",
+          SYMPHONY_APPROVAL_POLICY: "never",
           SYMPHONY_ISSUE_TITLE: "Issue 1",
           SYMPHONY_THREAD_SANDBOX: "workspace-write",
           SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",

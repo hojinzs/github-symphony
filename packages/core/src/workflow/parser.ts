@@ -220,11 +220,24 @@ function parseWorkflowMarkdownInternal(
   );
 
   const runtime = hasRuntime ? parseRuntimeConfig(runtimeNode, env) : null;
+  const approvalPolicy = readOptionalString(
+    codex,
+    "approval_policy",
+    env,
+    "codex.approval_policy"
+  );
+  if (approvalPolicy !== null && approvalPolicy !== "never") {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      "codex.approval_policy",
+      'Workflow front matter field "codex.approval_policy" supports only "never" because approval requests cannot be handled.'
+    );
+  }
   const codexConfig = {
     command:
       readOptionalNonEmptyString(codex, "command", env, "codex.command") ??
       DEFAULT_AGENT_COMMAND,
-    approvalPolicy: readOptionalString(codex, "approval_policy", env),
+    approvalPolicy,
     threadSandbox: readOptionalString(codex, "thread_sandbox", env),
     turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
     turnTimeoutMs:

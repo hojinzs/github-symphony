@@ -82,6 +82,8 @@ import {
   buildCodexDynamicToolsParams,
   buildCodexInitializeParams,
 } from "./codex-initialize.js";
+import { createTurnSilenceTimer } from "./turn-silence-timer.js";
+import { createUnhandledServerRequestError } from "./server-request.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
@@ -1180,6 +1182,7 @@ async function runCodexClientProtocol(
   let consecutiveRefreshFailures = 0;
   let convergenceDetected = false;
   let terminationRequested = false;
+  let resetTurnTimeout: (() => void) | null = null;
 
   function requestChildTermination(): void {
     terminationRequested = true;
@@ -1342,26 +1345,30 @@ async function runCodexClientProtocol(
   }
 
   /**
-   * Wait for turn completion with an absolute timeout. Kills the codex
-   * process if the turn exceeds `turn_timeout_ms`.
+   * Wait for turn completion with a silence timeout. Every app-server output
+   * resets the deadline, so `turn_timeout_ms` is not a total turn cap.
    */
   function waitForTurnWithTimeout(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = createTurnSilenceTimer(turnTimeoutMs, () => {
         process.stderr.write(
-          `[worker] turn_timeout: turn exceeded ${turnTimeoutMs}ms — killing codex process\n`
+          `[worker] turn_timeout: no app-server output for ${turnTimeoutMs}ms — killing codex process\n`
         );
         requestChildTermination();
-        reject(new Error("turn_timeout: turn exceeded time limit"));
-      }, turnTimeoutMs);
+        reject(new Error("turn_timeout: silence interval exceeded"));
+      });
+      timer.arm();
+      resetTurnTimeout = timer.arm;
 
       waitForTurnCompletion().then(
         () => {
-          clearTimeout(timer);
+          timer.cancel();
+          resetTurnTimeout = null;
           resolve();
         },
         (error) => {
-          clearTimeout(timer);
+          timer.cancel();
+          resetTurnTimeout = null;
           reject(error);
         }
       );
@@ -1491,6 +1498,10 @@ async function runCodexClientProtocol(
   }
 
   function handleServerMessage(msg: Record<string, unknown>): void {
+    // §10.6: every app-server output extends the active turn's silence
+    // deadline, including JSON-RPC responses and server notifications.
+    resetTurnTimeout?.();
+
     // JSON-RPC response to our requests
     if ("id" in msg && msg.id != null && ("result" in msg || "error" in msg)) {
       const id = String(msg.id);
@@ -1555,6 +1566,15 @@ async function runCodexClientProtocol(
       return;
     }
 
+    const unsupportedRequest = createUnhandledServerRequestError(msg);
+    if (unsupportedRequest) {
+      process.stderr.write(
+        `[worker] unhandled server request ${msg.method}; replying method_not_found\n`
+      );
+      sendMessage(unsupportedRequest);
+      return;
+    }
+
     const agentEvents = normalizeCodexRuntimeEvents(msg);
     let handledAgentEvent = false;
     for (const event of agentEvents) {
@@ -1585,6 +1605,9 @@ async function runCodexClientProtocol(
   const frameCodexStdout = createCodexProtocolLineFramer({
     onMessage: handleServerMessage,
     onNonJson: (line) => {
+      // Non-JSON stdout is still app-server output, so it extends the active
+      // silence interval just like a parsed JSON-RPC message.
+      resetTurnTimeout?.();
       process.stderr.write(`[worker] codex stdout (non-JSON): ${line}\n`);
     },
     onFailure: failProtocol,
@@ -1815,7 +1838,7 @@ async function runCodexClientProtocol(
       );
       emitTurnStartedEvent(activeTurnTelemetry);
 
-      // Wait for turn completion with absolute timeout
+      // Wait for turn completion with a silence timeout.
       await waitForTurnWithTimeout();
 
       // Check for user_input_required (set by handleServerMessage)

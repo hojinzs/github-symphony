@@ -60,7 +60,7 @@ agent:
   max_turns: 2
 codex:
   command: node $STUB_WORKER_JS
-  approval_policy: on-request
+  approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy: dangerFullAccess
   stall_timeout_ms: 60000
