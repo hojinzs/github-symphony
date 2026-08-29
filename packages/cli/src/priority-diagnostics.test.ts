@@ -49,4 +49,25 @@ Prompt`);
       }),
     ]);
   });
+
+  it("renders collision warnings with grammar and padded paths", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: 1
+    " READY ": 2
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(buildStateConcurrencyDiagnostics(workflow)).toEqual([
+      expect.objectContaining({
+        summary:
+          'agent.max_concurrent_agents_by_state.Ready is ignored: duplicates agent.max_concurrent_agents_by_state[" READY "] after state-name normalization.',
+      }),
+    ]);
+  });
 });

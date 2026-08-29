@@ -1493,7 +1493,7 @@ function readMaxConcurrentAgentsByState(
         diagnostics.push({
           code: "state_concurrency_entry_ignored",
           path: previousPath,
-          reason: `is overridden by ${entryPath} after state-name normalization`,
+          reason: `duplicates ${entryPath} after state-name normalization`,
           remediation:
             "Remove one of the entries that normalize to the same state name.",
         });
@@ -1513,7 +1513,7 @@ function readMaxConcurrentAgentsByState(
 }
 
 function formatWorkflowMapEntryPath(path: string, entryKey: string): string {
-  return entryKey.trim().length === 0
+  return entryKey !== entryKey.trim()
     ? `${path}[${JSON.stringify(entryKey)}]`
     : `${path}.${entryKey}`;
 }

@@ -777,7 +777,8 @@ Prompt`);
       expect.objectContaining({
         code: "state_concurrency_entry_ignored",
         path: "agent.max_concurrent_agents_by_state.Ready",
-        reason: expect.stringContaining("READY"),
+        reason:
+          'duplicates agent.max_concurrent_agents_by_state[" READY "] after state-name normalization',
       }),
       expect.objectContaining({
         code: "state_concurrency_entry_ignored",
