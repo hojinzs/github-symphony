@@ -79,6 +79,10 @@ import {
   executeCodexDynamicToolCall,
 } from "./codex-dynamic-tools.js";
 import {
+  extractToolRateLimitPayload,
+  guardDynamicToolRateLimit,
+} from "./tool-rate-limit.js";
+import {
   buildCodexDynamicToolsParams,
   buildCodexInitializeParams,
 } from "./codex-initialize.js";
@@ -1516,15 +1520,33 @@ async function runCodexClientProtocol(
       process.stderr.write(
         `[worker] executing host dynamic tool "${toolName}" (callId=${callId})\n`
       );
-      void executeCodexDynamicToolCall(
+      void guardDynamicToolRateLimit(
         toolName,
-        params?.arguments,
-        createTrackerToolContext(env),
-        env,
-        {},
-        plan.dynamicTools.map((tool) => tool.name)
+        runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits
       )
+        .then(() =>
+          executeCodexDynamicToolCall(
+            toolName,
+            params?.arguments,
+            createTrackerToolContext(env),
+            env,
+            {},
+            plan.dynamicTools.map((tool) => tool.name)
+          )
+        )
         .then((result) => {
+          const toolRateLimits = extractToolRateLimitPayload(
+            result.contentItems.find((item) => item.type === "inputText")
+              ?.text ?? ""
+          );
+          if (toolRateLimits) {
+            applyRateLimitUpdate(
+              `tool.${toolName}`,
+              toolRateLimits,
+              "agent-tool"
+            );
+            emitOrchestratorChannelEvent("agent.rateLimit");
+          }
           sendMessage({ jsonrpc: "2.0", id: msg.id, result });
           runtimeState.lastEventAt = new Date().toISOString();
         })
