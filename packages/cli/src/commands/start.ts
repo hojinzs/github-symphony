@@ -253,7 +253,7 @@ async function preflightWorkflowStart(
       {
         supportedTrackerKinds: getSupportedTrackerKinds(),
         resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
-        workflowPath: configuredPath,
+        workflowPath,
       }
     );
     return { ok: true, workflow };

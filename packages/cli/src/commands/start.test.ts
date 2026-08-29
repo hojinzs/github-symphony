@@ -1837,15 +1837,18 @@ Handle {{issue.identifier}}.\n`,
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
     });
-    const blocker = createServer();
+    const probe = createServer();
     await new Promise<void>((resolve) =>
-      blocker.listen(0, "127.0.0.1", () => resolve())
+      probe.listen(0, "127.0.0.1", () => resolve())
     );
-    const address = blocker.address();
+    const address = probe.address();
     if (!address || typeof address === "string") {
-      blocker.close();
+      probe.close();
       throw new Error("Expected TCP address");
     }
+    await new Promise<void>((resolve, reject) =>
+      probe.close((error) => (error ? reject(error) : resolve()))
+    );
     await configureWorkflow(configDir, address.port);
     const lock = {
       lockPath: join(configDir, ".lock"),
@@ -1874,20 +1877,17 @@ Handle {{issue.identifier}}.\n`,
 
     try {
       const startPromise = startModule.default(
-        ["--port", "0"],
+        ["--port", String(address.port)],
         baseOptions(configDir)
       );
 
       const url = await waitForHttpUrl(stdout.output);
-      expect(new URL(url).port).not.toBe(String(address.port));
+      expect(new URL(url).port).toBe(String(address.port));
 
       process.emit("SIGINT");
       await startPromise;
     } finally {
       stdout.restore();
-      await new Promise<void>((resolve, reject) =>
-        blocker.close((error) => (error ? reject(error) : resolve()))
-      );
     }
 
     expect(exitSpy).toHaveBeenCalledWith(0);
@@ -2007,6 +2007,63 @@ Handle {{issue.identifier}}.\n`,
       expect(exitSpy).toHaveBeenCalledWith(0);
     }
   );
+
+  it("auto-increments an occupied configured port for a bare HTTP alias", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const blocker = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = blocker.address();
+    if (!address || typeof address === "string") {
+      blocker.close();
+      throw new Error("Expected TCP address");
+    }
+    await configureWorkflow(configDir, address.port);
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default(
+        ["--http"],
+        baseOptions(configDir)
+      );
+      const url = await waitForHttpUrl(stdout.output);
+      expect(Number(new URL(url).port)).toBeGreaterThan(address.port);
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+      await new Promise<void>((resolve, reject) =>
+        blocker.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
 
   it("reads server.port from a legacy repository workflow fallback", async () => {
     const configDir = await createConfigFixture({
