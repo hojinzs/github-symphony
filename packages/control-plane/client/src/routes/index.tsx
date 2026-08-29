@@ -212,7 +212,35 @@ function LoadingTable(props: { columns: string[] }) {
   );
 }
 
-function ActiveRunsTable(props: { projectState: ProjectState }) {
+function IssueLink(props: {
+  issueIdentifier: string;
+  issueUrl: string | null | undefined;
+}) {
+  if (props.issueUrl) {
+    return (
+      <a
+        href={props.issueUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="font-mono text-sm text-text-primary no-underline hover:text-interactive"
+      >
+        {props.issueIdentifier}
+      </a>
+    );
+  }
+
+  return (
+    <Link
+      to="/issues/$identifier"
+      params={{ identifier: props.issueIdentifier }}
+      className="font-mono text-sm text-text-primary no-underline hover:text-interactive"
+    >
+      {props.issueIdentifier}
+    </Link>
+  );
+}
+
+export function ActiveRunsTable(props: { projectState: ProjectState }) {
   if (props.projectState.activeRuns.length === 0) {
     return (
       <div className="px-5 pb-5 text-sm text-text-secondary">
@@ -238,13 +266,10 @@ function ActiveRunsTable(props: { projectState: ProjectState }) {
             {props.projectState.activeRuns.map((run) => (
               <Table.Row key={run.runId}>
                 <Table.Cell>
-                  <Link
-                    to="/issues/$identifier"
-                    params={{ identifier: run.issueIdentifier }}
-                    className="font-mono text-sm text-text-primary no-underline hover:text-interactive"
-                  >
-                    {run.issueIdentifier}
-                  </Link>
+                  <IssueLink
+                    issueIdentifier={run.issueIdentifier}
+                    issueUrl={run.issueUrl}
+                  />
                 </Table.Cell>
                 <Table.Cell>
                   <StatePill label={run.issueState} />
@@ -267,7 +292,7 @@ function ActiveRunsTable(props: { projectState: ProjectState }) {
   );
 }
 
-function RetryQueueTable(props: { projectState: ProjectState }) {
+export function RetryQueueTable(props: { projectState: ProjectState }) {
   if (props.projectState.retryQueue.length === 0) {
     return (
       <div className="px-5 pb-5 text-sm text-text-secondary">
@@ -292,13 +317,10 @@ function RetryQueueTable(props: { projectState: ProjectState }) {
             {props.projectState.retryQueue.map((entry) => (
               <Table.Row key={entry.runId}>
                 <Table.Cell>
-                  <Link
-                    to="/issues/$identifier"
-                    params={{ identifier: entry.issueIdentifier }}
-                    className="font-mono text-sm text-text-primary no-underline hover:text-interactive"
-                  >
-                    {entry.issueIdentifier}
-                  </Link>
+                  <IssueLink
+                    issueIdentifier={entry.issueIdentifier}
+                    issueUrl={entry.issueUrl}
+                  />
                 </Table.Cell>
                 <Table.Cell>
                   <StatePill label={entry.retryKind} />

@@ -8,7 +8,7 @@
     "priority": null,
     "state": "Ready",
     "branchName": null,
-    "url": null,
+    "url": "https://tracker.example.test/issues/issue-happy-1",
     "labels": [],
     "blockedBy": [],
     "createdAt": "2026-03-17T00:00:00Z",

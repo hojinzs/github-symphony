@@ -2941,6 +2941,7 @@ export class OrchestratorService {
       trackerItemId: trackerItemId(trackerAdapter, issue) ?? "",
       issueIdentifier: issue.identifier,
       issueTitle: issue.title,
+      issueUrl: issue.url,
       issueState: issue.state,
       repository: issue.repository,
       status: "running",

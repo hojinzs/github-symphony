@@ -36,7 +36,7 @@ const sampleIssue: TrackedIssue = {
   priority: null,
   state: "Ready",
   branchName: null,
-  url: null,
+  url: "https://tracker.example.test/issues/1",
   labels: [],
   dispatchable: true,
   assigneeId: null,
@@ -105,6 +105,7 @@ describe("fileTrackerAdapter", () => {
       expect(issues).toHaveLength(1);
       expect(issues[0].id).toBe("issue-1");
       expect(issues[0].state).toBe("Ready");
+      expect(issues[0].url).toBe("https://tracker.example.test/issues/1");
     });
 
     it("filters issues using configured pickup labels", async () => {

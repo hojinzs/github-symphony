@@ -107,6 +107,12 @@ export function createControlPlaneHandler(options: {
 }): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 ```
 
+### 1.5 §13 snapshot field mapping
+
+| Symphony §13 field | Implementation field | Notes |
+| --- | --- | --- |
+| `issue_url` on running/retrying rows (§13.3) | `activeRuns[].issueUrl`, `retryQueue[].issueUrl` | Captured from the tracker issue when a run is created; exposed unchanged by `GET /api/v1/state`. |
+
 Static assets are resolved relative to `import.meta.url`:
 
 ```typescript

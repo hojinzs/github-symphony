@@ -239,6 +239,8 @@ export type OrchestratorRunRecord = {
   trackerItemId?: string;
   issueIdentifier: string;
   issueTitle?: string;
+  /** Tracker-native URL captured when the run was created. */
+  issueUrl?: string | null;
   issueState: string;
   repository: RepositoryRef;
   status: OrchestratorRunStatus;
@@ -380,6 +382,7 @@ export type ProjectStatusSnapshot = {
   activeRuns: Array<{
     runId: string;
     issueIdentifier: string;
+    issueUrl?: string | null;
     issueWorkspaceKey: string | null;
     issueState: string;
     status: OrchestratorRunStatus;
@@ -411,6 +414,7 @@ export type ProjectStatusSnapshot = {
   retryQueue: Array<{
     runId: string;
     issueIdentifier: string;
+    issueUrl?: string | null;
     retryKind: RetryKind;
     nextRetryAt: string | null;
   }>;
