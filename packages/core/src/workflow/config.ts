@@ -57,6 +57,11 @@ export type WorkflowWorkspaceConfig = {
   root: string | null;
 };
 
+export type WorkflowServerConfig = {
+  /** Enables the optional HTTP server extension when present. */
+  port: number | null;
+};
+
 /**
  * Repository-specific front matter is an optional extension. Its schema is
  * owned by the extension consumer, so core preserves the decoded object.
@@ -130,6 +135,7 @@ export type WorkflowDefinition = {
     intervalMs: number;
   };
   repository: WorkflowRepositoryExtension;
+  server: WorkflowServerConfig;
   workspace: WorkflowWorkspaceConfig;
   hooks: WorkflowHooksConfig;
   agent: WorkflowAgentConfig;
@@ -196,6 +202,10 @@ export const DEFAULT_WORKFLOW_WORKSPACE: WorkflowWorkspaceConfig = {
   root: null,
 };
 
+export const DEFAULT_WORKFLOW_SERVER: WorkflowServerConfig = {
+  port: null,
+};
+
 export const DEFAULT_WORKFLOW_AGENT: WorkflowAgentConfig = {
   maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS,
   maxRetryBackoffMs: DEFAULT_MAX_RETRY_BACKOFF_MS,
@@ -223,6 +233,7 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
     intervalMs: DEFAULT_POLL_INTERVAL_MS,
   },
   repository: null,
+  server: DEFAULT_WORKFLOW_SERVER,
   workspace: DEFAULT_WORKFLOW_WORKSPACE,
   hooks: DEFAULT_WORKFLOW_HOOKS,
   agent: DEFAULT_WORKFLOW_AGENT,

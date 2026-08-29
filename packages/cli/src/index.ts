@@ -57,6 +57,7 @@ type CliOptionValues = Partial<
     follow?: boolean;
     force?: boolean;
     http?: string | boolean;
+    port?: string | boolean;
     issue?: string;
     level?: string;
     logLevel?: string;
@@ -585,6 +586,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "Bind HTTP servers to all interfaces instead of localhost"
       )
       .option(
+        "--port [port]",
+        "Expose the JSON status API and refresh endpoints over HTTP"
+      )
+      .option(
         "--http [port]",
         "Expose the JSON status API and refresh endpoints over HTTP"
       )
@@ -604,6 +609,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--assigned-only", values.assignedOnly);
     pushOption(args, "--allow-duplicate", values.allowDuplicate);
     pushOption(args, "--bind-all", values.bindAll);
+    pushOption(args, "--port", values.port);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);
     pushOption(args, "--log-level", values.logLevel);
@@ -719,6 +725,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "Bind HTTP servers to all interfaces instead of localhost"
       )
       .option(
+        "--port [port]",
+        "Expose the JSON status API and refresh endpoints over HTTP"
+      )
+      .option(
         "--http [port]",
         "Expose the JSON status API and refresh endpoints over HTTP"
       )
@@ -738,6 +748,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--assigned-only", values.assignedOnly);
     pushOption(args, "--allow-duplicate", values.allowDuplicate);
     pushOption(args, "--bind-all", values.bindAll);
+    pushOption(args, "--port", values.port);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);
     pushOption(args, "--log-level", values.logLevel);

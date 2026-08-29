@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import * as configModule from "../config.js";
@@ -1831,11 +1832,24 @@ Handle {{issue.identifier}}.\n`,
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("increments the port when the requested HTTP port is already in use", async () => {
+  it("uses --port in preference to server.port", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
     });
+    const probe = createServer();
+    await new Promise<void>((resolve) =>
+      probe.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = probe.address();
+    if (!address || typeof address === "string") {
+      probe.close();
+      throw new Error("Expected TCP address");
+    }
+    await new Promise<void>((resolve, reject) =>
+      probe.close((error) => (error ? reject(error) : resolve()))
+    );
+    await configureWorkflow(configDir, address.port);
     const lock = {
       lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
@@ -1854,16 +1868,6 @@ Handle {{issue.identifier}}.\n`,
       resolveRun?.();
     });
 
-    const blocker = createServer();
-    await new Promise<void>((resolve) =>
-      blocker.listen(0, "127.0.0.1", () => resolve())
-    );
-    const address = blocker.address();
-    if (!address || typeof address === "string") {
-      blocker.close();
-      throw new Error("Expected TCP address");
-    }
-
     const exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation(
@@ -1873,13 +1877,182 @@ Handle {{issue.identifier}}.\n`,
 
     try {
       const startPromise = startModule.default(
-        ["--http", String(address.port)],
+        ["--port", String(address.port)],
         baseOptions(configDir)
       );
 
       const url = await waitForHttpUrl(stdout.output);
-      expect(new URL(url).port).toBe(String(address.port + 1));
+      expect(new URL(url).port).toBe(String(address.port));
 
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("uses server.port when no CLI HTTP option is supplied", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const probe = createServer();
+    await new Promise<void>((resolve) =>
+      probe.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = probe.address();
+    if (!address || typeof address === "string") {
+      probe.close();
+      throw new Error("Expected TCP address");
+    }
+    await new Promise<void>((resolve, reject) =>
+      probe.close((error) => (error ? reject(error) : resolve()))
+    );
+    await configureWorkflow(configDir, address.port);
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default([], baseOptions(configDir));
+      const url = await waitForHttpUrl(stdout.output);
+      expect(new URL(url).port).toBe(String(address.port));
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it.each(["--http", "--port"])(
+    "uses server.port in preference to a bare %s option",
+    async (option) => {
+      const configDir = await createConfigFixture({
+        activeProject: "tenant-a",
+        projects: [createProject("tenant-a", "acme", "platform")],
+      });
+      const probe = createServer();
+      await new Promise<void>((resolve) =>
+        probe.listen(0, "127.0.0.1", () => resolve())
+      );
+      const address = probe.address();
+      if (!address || typeof address === "string") {
+        probe.close();
+        throw new Error("Expected TCP address");
+      }
+      await new Promise<void>((resolve, reject) =>
+        probe.close((error) => (error ? reject(error) : resolve()))
+      );
+      await configureWorkflow(configDir, address.port);
+      acquireProjectLock.mockResolvedValue({
+        lockPath: join(configDir, ".lock"),
+        ownerToken: "owner",
+        pid: 1234,
+        startedAt: "2026-03-17T00:00:00.000Z",
+      });
+      let resolveRun: (() => void) | undefined;
+      run.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveRun = resolve;
+          })
+      );
+      shutdown.mockImplementation(async () => {
+        resolveRun?.();
+      });
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(
+          ((_code?: number) => undefined) as (code?: number) => never
+        );
+      const stdout = captureWrites(process.stdout);
+
+      try {
+        const startPromise = startModule.default(
+          [option],
+          baseOptions(configDir)
+        );
+        const url = await waitForHttpUrl(stdout.output);
+        expect(new URL(url).port).toBe(String(address.port));
+        process.emit("SIGINT");
+        await startPromise;
+      } finally {
+        stdout.restore();
+      }
+
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    }
+  );
+
+  it("auto-increments an occupied configured port for a bare HTTP alias", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const blocker = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = blocker.address();
+    if (!address || typeof address === "string") {
+      blocker.close();
+      throw new Error("Expected TCP address");
+    }
+    await configureWorkflow(configDir, address.port);
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default(
+        ["--http"],
+        baseOptions(configDir)
+      );
+      const url = await waitForHttpUrl(stdout.output);
+      expect(Number(new URL(url).port)).toBeGreaterThan(address.port);
       process.emit("SIGINT");
       await startPromise;
     } finally {
@@ -1890,6 +2063,120 @@ Handle {{issue.identifier}}.\n`,
     }
 
     expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("reads server.port from a legacy repository workflow fallback", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const probe = createServer();
+    await new Promise<void>((resolve) =>
+      probe.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = probe.address();
+    if (!address || typeof address === "string") {
+      probe.close();
+      throw new Error("Expected TCP address");
+    }
+    await new Promise<void>((resolve, reject) =>
+      probe.close((error) => (error ? reject(error) : resolve()))
+    );
+    await configureLegacyWorkflow(configDir, address.port);
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default([], baseOptions(configDir));
+      const url = await waitForHttpUrl(stdout.output);
+      expect(new URL(url).port).toBe(String(address.port));
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("continues when an implicit legacy workflow is invalid", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    await configureInvalidLegacyWorkflow(configDir);
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+
+    await startModule.default(["--once"], baseOptions(configDir));
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("fails when a requested port is already in use", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const blocker = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = blocker.address();
+    if (!address || typeof address === "string") {
+      blocker.close();
+      throw new Error("Expected TCP address");
+    }
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+
+    try {
+      await expect(
+        startModule.default(
+          ["--port", String(address.port)],
+          baseOptions(configDir)
+        )
+      ).rejects.toThrow(`HTTP server port ${address.port} is already in use`);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        blocker.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
   });
 
   it("propagates lock acquisition failures", async () => {
@@ -2105,4 +2392,77 @@ async function createConfigFixture(input: {
   }
 
   return configDir;
+}
+
+async function configureWorkflow(
+  configDir: string,
+  port: number
+): Promise<void> {
+  const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+  const project = JSON.parse(
+    await readFile(projectPath, "utf8")
+  ) as CliProjectConfig;
+  const workflowPath = join(configDir, "projects", "tenant-a", "WORKFLOW.md");
+  project.workflowSource = { type: "repo", path: workflowPath };
+  await writeFile(projectPath, JSON.stringify(project), "utf8");
+  await writeFile(
+    workflowPath,
+    `---
+tracker:
+  kind: github-project
+server:
+  port: ${port}
+codex:
+  command: codex app-server
+---
+Prompt\n`,
+    "utf8"
+  );
+}
+
+async function configureLegacyWorkflow(
+  configDir: string,
+  port: number
+): Promise<void> {
+  const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+  const project = JSON.parse(
+    await readFile(projectPath, "utf8")
+  ) as CliProjectConfig;
+  const repositoryDir = join(configDir, "legacy-repository");
+  project.repository.cloneUrl = pathToFileURL(repositoryDir).href;
+  project.workflowSource = { type: "repo" };
+  await mkdir(repositoryDir, { recursive: true });
+  await writeFile(projectPath, JSON.stringify(project), "utf8");
+  await writeFile(
+    join(repositoryDir, "WORKFLOW.md"),
+    `---
+tracker:
+  kind: github-project
+server:
+  port: ${port}
+codex:
+  command: codex app-server
+---
+Prompt\n`,
+    "utf8"
+  );
+}
+
+async function configureInvalidLegacyWorkflow(
+  configDir: string
+): Promise<void> {
+  const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+  const project = JSON.parse(
+    await readFile(projectPath, "utf8")
+  ) as CliProjectConfig;
+  const repositoryDir = join(configDir, "invalid-legacy-repository");
+  project.repository.cloneUrl = pathToFileURL(repositoryDir).href;
+  project.workflowSource = { type: "repo" };
+  await mkdir(repositoryDir, { recursive: true });
+  await writeFile(projectPath, JSON.stringify(project), "utf8");
+  await writeFile(
+    join(repositoryDir, "WORKFLOW.md"),
+    "---\nserver:\n  port: invalid\n---\nPrompt\n",
+    "utf8"
+  );
 }

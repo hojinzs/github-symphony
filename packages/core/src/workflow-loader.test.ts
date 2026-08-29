@@ -246,6 +246,37 @@ Prompt`);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ ready: 2 });
   });
 
+  it("parses the optional HTTP server port", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+server:
+  port: 0
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.server.port).toBe(0);
+  });
+
+  it.each([-1, 65536, "'4680'"])(
+    "rejects invalid server.port values",
+    (port) => {
+      expect(() =>
+        parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+server:
+  port: ${port}
+codex:
+  command: codex
+---
+Prompt`)
+      ).toThrow(/server.port/);
+    }
+  );
+
   it("accepts tracker kinds injected by the adapter boundary", () => {
     const workflow = parseWorkflowMarkdown(
       `---

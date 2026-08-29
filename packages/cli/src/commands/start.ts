@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   createServer,
@@ -33,7 +34,7 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
+import { parseWorkflowMarkdown, type ParsedWorkflow } from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -232,39 +233,68 @@ async function resolveConfiguredLinearToken(
 async function preflightWorkflowStart(
   projectConfig: OrchestratorProjectConfig,
   runtimeRoot: string
-): Promise<boolean> {
+): Promise<{ ok: true; workflow: ParsedWorkflow | null } | { ok: false }> {
   const configuredPath = projectConfig.workflowSource?.path;
-  if (!configuredPath) {
-    // Legacy managed-project configs rely on the daemon's repository lookup,
-    // including its default workflow fallback. Avoid a divergent preflight.
-    return true;
-  }
+  const workflowPath =
+    configuredPath ??
+    (projectConfig.workflowSource?.type === "repo"
+      ? join(resolveWorkflowRepositoryDirectory(projectConfig), "WORKFLOW.md")
+      : undefined);
+  if (!workflowPath) return { ok: true, workflow: null };
 
   try {
     const environment = resolveManagedProjectEnvironment(
       projectConfig,
       runtimeRoot
     );
-    parseWorkflowMarkdown(await readFile(configuredPath, "utf8"), environment, {
-      supportedTrackerKinds: getSupportedTrackerKinds(),
-      resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
-      workflowPath: configuredPath,
-    });
-    return true;
+    const workflow = parseWorkflowMarkdown(
+      await readFile(workflowPath, "utf8"),
+      environment,
+      {
+        supportedTrackerKinds: getSupportedTrackerKinds(),
+        resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+        workflowPath,
+      }
+    );
+    return { ok: true, workflow };
   } catch (error) {
+    if (!configuredPath) {
+      return { ok: true, workflow: null };
+    }
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
       process.stderr.write(
-        `Configured workflow not found at ${configuredPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
+        `Configured workflow not found at ${workflowPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
       );
       process.exitCode = 1;
-      return false;
+      return { ok: false };
     }
     process.stderr.write(
-      `Workflow preflight failed for ${configuredPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
+      `Workflow preflight failed for ${workflowPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
     );
     process.exitCode = 1;
-    return false;
+    return { ok: false };
   }
+}
+
+function resolveWorkflowRepositoryDirectory(
+  projectConfig: OrchestratorProjectConfig
+): string {
+  const { repository } = projectConfig;
+  if (repository.path) return repository.path;
+
+  try {
+    const url = new URL(repository.cloneUrl);
+    if (url.protocol === "file:") return fileURLToPath(url);
+  } catch {
+    if (
+      isAbsolute(repository.cloneUrl) ||
+      repository.cloneUrl.startsWith(".")
+    ) {
+      return repository.cloneUrl;
+    }
+  }
+
+  return process.cwd();
 }
 
 type GitHubAuthRuntimeError =
@@ -360,6 +390,8 @@ function parseStartArgs(args: string[]): {
   allowDuplicate?: boolean;
   bindAll: boolean;
   httpPort?: number;
+  httpPortExplicit: boolean;
+  httpOption?: "--http" | "--port";
   webPort?: number;
   logLevel?: string;
   error?: string;
@@ -371,6 +403,8 @@ function parseStartArgs(args: string[]): {
     allowDuplicate?: boolean;
     bindAll: boolean;
     httpPort?: number;
+    httpPortExplicit: boolean;
+    httpOption?: "--http" | "--port";
     webPort?: number;
     logLevel?: string;
     error?: string;
@@ -378,6 +412,7 @@ function parseStartArgs(args: string[]): {
     daemon: false,
     bindAll: false,
     once: false,
+    httpPortExplicit: false,
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -402,13 +437,15 @@ function parseStartArgs(args: string[]): {
       parsed.bindAll = true;
       continue;
     }
-    if (arg === "--http") {
+    if (arg === "--http" || arg === "--port") {
+      parsed.httpOption = arg;
       const value = args[i + 1];
       if (!value || value.startsWith("-")) {
         parsed.httpPort = DEFAULT_HTTP_PORT;
         continue;
       }
       parsed.httpPort = parsePort(value, arg);
+      parsed.httpPortExplicit = true;
       i += 1;
       continue;
     }
@@ -439,7 +476,7 @@ function parseStartArgs(args: string[]): {
   }
 
   if (parsed.httpPort !== undefined && parsed.webPort !== undefined) {
-    parsed.error = "Options '--http' and '--web' cannot be used together";
+    parsed.error = `Options '${parsed.httpOption ?? "--http"}' and '--web' cannot be used together`;
   }
 
   return parsed;
@@ -650,6 +687,7 @@ async function startHttpServer(input: {
   runtimeRoot: string;
   projectId: string;
   initialPort: number;
+  explicitPort: boolean;
   host: string;
   apiToken: string;
   service: {
@@ -841,6 +879,9 @@ async function startHttpServer(input: {
     } catch (error) {
       await closeHttpServer(server).catch(() => {});
       if ((error as NodeJS.ErrnoException)?.code === "EADDRINUSE") {
+        if (input.explicitPort) {
+          throw new Error(`HTTP server port ${port} is already in use`);
+        }
         continue;
       }
       throw error;
@@ -951,7 +992,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      `Usage: gh-symphony ${options.invocation === "project" ? "project" : "repo"} start [--daemon] [--once] [--assigned-only] [--http [port]] [--web [port]] [--bind-all]${options.invocation === "project" ? " [--project-dir <path>]" : ""}\n`
+      `Usage: gh-symphony ${options.invocation === "project" ? "project" : "repo"} start [--daemon] [--once] [--assigned-only] [--port [port]] [--http [port]] [--web [port]] [--bind-all]${options.invocation === "project" ? " [--project-dir <path>]" : ""}\n`
     );
     process.exitCode = 2;
     return;
@@ -1023,9 +1064,23 @@ const handler = async (
   if (!authPreflight.ok) {
     return;
   }
-  if (!(await preflightWorkflowStart(projectConfig, runtimeRoot))) {
+  const workflowPreflight = await preflightWorkflowStart(
+    projectConfig,
+    runtimeRoot
+  );
+  if (!workflowPreflight.ok) {
     return;
   }
+  const configuredServerPort =
+    parsed.webPort === undefined
+      ? workflowPreflight.workflow?.server.port
+      : undefined;
+  const requestedHttpPort = parsed.httpPortExplicit
+    ? parsed.httpPort
+    : (configuredServerPort ?? parsed.httpPort);
+  const explicitHttpPort =
+    parsed.httpPortExplicit ||
+    (parsed.httpPort === undefined && configuredServerPort !== undefined);
   const httpApiToken = resolveHttpApiToken();
   const httpHost = parsed.bindAll ? BIND_ALL_HTTP_HOST : DEFAULT_HTTP_HOST;
 
@@ -1034,7 +1089,8 @@ const handler = async (
       options,
       projectId,
       parsed.logLevel ?? (options.verbose ? "verbose" : undefined),
-      parsed.httpPort,
+      requestedHttpPort,
+      explicitHttpPort,
       parsed.webPort,
       parsed.assignedOnly === true,
       parsed.bindAll,
@@ -1063,10 +1119,6 @@ const handler = async (
         processIdentity: projectLock.processIdentity,
       };
       await registerInstance(instance);
-      const readyPath = process.env[DAEMON_READY_PATH_ENV];
-      if (readyPath) {
-        await writeFile(readyPath, `${projectLock.pid}\n`, { mode: 0o600 });
-      }
     }
 
     const store = createStore(runtimeRoot);
@@ -1167,14 +1219,19 @@ const handler = async (
       workerHttpServer = await startHttpServer({
         runtimeRoot,
         projectId,
-        initialPort: parsed.httpPort ?? 0,
-        host: parsed.httpPort !== undefined ? httpHost : DEFAULT_HTTP_HOST,
+        initialPort: requestedHttpPort ?? 0,
+        explicitPort: explicitHttpPort,
+        host: requestedHttpPort !== undefined ? httpHost : DEFAULT_HTTP_HOST,
         apiToken: httpApiToken,
         service,
         trackerStateToken,
       });
       service.setWorkerOrchestratorUrl(workerHttpServer.url);
       service.setWorkerOrchestratorToken(trackerStateToken);
+      const readyPath = process.env[DAEMON_READY_PATH_ENV];
+      if (readyPath) {
+        await writeFile(readyPath, `${projectLock.pid}\n`, { mode: 0o600 });
+      }
 
       httpServer =
         parsed.webPort !== undefined
@@ -1189,7 +1246,7 @@ const handler = async (
               apiToken: httpApiToken,
               onRefreshRequest: () => service.requestReconcile(),
             })
-          : parsed.httpPort !== undefined
+          : requestedHttpPort !== undefined
             ? workerHttpServer
             : null;
       if (httpServer) {
@@ -1404,6 +1461,7 @@ async function startDaemon(
   projectId: string,
   logLevel?: string,
   httpPort?: number,
+  httpPortExplicit = false,
   webPort?: number,
   assignedOnly = false,
   bindAll = false,
@@ -1433,7 +1491,11 @@ async function startDaemon(
       ...(allowDuplicate ? ["--allow-duplicate"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
       ...(bindAll ? ["--bind-all"] : []),
-      ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
+      ...(httpPort !== undefined
+        ? httpPortExplicit
+          ? ["--port", String(httpPort)]
+          : ["--http"]
+        : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),
     ],

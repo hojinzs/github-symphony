@@ -91,6 +91,7 @@ strict parser as workflow loading. Failures include a stable error code; the
 | `codex.command`           | A non-empty string when provided                                                                                           | `workflow_validation_error` at `codex.command`                                |
 | `tracker.kind`            | One of `github-project`, `linear`, or `file`                                                                               | `workflow_validation_error` at `tracker.kind`                                 |
 | `tracker.required_labels` | An array of strings; comma-separated strings are rejected                                                                  | `workflow_validation_error` at `tracker.required_labels`                      |
+| `server.port`             | An integer from `0` to `65535`; `0` requests an ephemeral local port                                                       | `workflow_validation_error` at `server.port`                                  |
 
 Without front matter, the complete trimmed file is used as the workflow prompt
 and all configuration uses defaults; tracker selection is then checked by the
@@ -108,6 +109,16 @@ are trimmed and lowercased before storage and dispatch lookup, so for example
 `" In Progress "` and `in progress` configure the same limit. Entries whose
 values are non-positive or not YAML integers are ignored; valid entries in the
 same map remain effective.
+
+## Optional HTTP Server
+
+Set `server.port` in `WORKFLOW.md` to enable the HTTP status API on that port.
+`0` requests an ephemeral port. `gh-symphony repo start --port [port]` is the
+preferred CLI form and overrides `server.port`; `--http [port]` remains a
+supported alias. A configured or explicit CLI port fails startup when it is
+already occupied. A bare `--port` or `--http` keeps the legacy default-port
+auto-increment behavior, while omitting both options and `server.port` uses an
+ephemeral internal listener.
 
 `tracker.required_labels` defaults to `[]`. Labels are compared after trimming
 and lowercasing; every configured label must be present before an issue can be

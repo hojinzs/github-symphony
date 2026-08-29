@@ -58,7 +58,7 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   upgrade: [...GLOBAL_OPTIONS],
   repo: ["init", "start", "status", "stop", "run", "recover", "logs", "explain"],
   "repo:init": ["--repo-dir", "--workflow-file", ...GLOBAL_OPTIONS],
-  "repo:start": ["--daemon", "-d", "--once", "--assigned-only", "--http", "--web", "--bind-all", "--log-level", ...GLOBAL_OPTIONS],
+  "repo:start": ["--daemon", "-d", "--once", "--assigned-only", "--port", "--http", "--web", "--bind-all", "--log-level", ...GLOBAL_OPTIONS],
   "repo:status": ["--watch", "-w", ...GLOBAL_OPTIONS],
   "repo:stop": ["--force", ...GLOBAL_OPTIONS],
   "repo:run": ["--watch", ...GLOBAL_OPTIONS],

@@ -303,6 +303,7 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--assigned-only");
     expect(output).toContain("--allow-duplicate");
     expect(output).toContain("--bind-all");
+    expect(output).toContain("--port [port]");
     expect(output).toContain("--http [port]");
     expect(output).toContain("--web [port]");
     expect(output).toContain("--log-level <level>");

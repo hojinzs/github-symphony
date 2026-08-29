@@ -154,6 +154,7 @@ function parseWorkflowConfig(
   const tracker = readObject(frontMatter, "tracker");
   const polling = readObject(frontMatter, "polling");
   const workspace = readObject(frontMatter, "workspace");
+  const server = readObject(frontMatter, "server");
   const hooks = readObject(frontMatter, "hooks");
   const agent = readObject(frontMatter, "agent");
   const runtimeNode = readOptionalRuntimeObject(frontMatter);
@@ -366,6 +367,9 @@ function parseWorkflowConfig(
         ) ?? DEFAULT_POLL_INTERVAL_MS,
     },
     repository: readOptionalExtensionObject(frontMatter, "repository"),
+    server: {
+      port: readOptionalPort(server, "port", "server.port"),
+    },
     workspace: {
       root: readOptionalPath(workspace, "root", env, "workspace.root", options),
     },
@@ -1366,6 +1370,22 @@ function readOptionalPositiveInteger(
       "workflow_validation_error",
       path,
       `Workflow front matter field "${path}" must be a positive integer.`
+    );
+  }
+  return value;
+}
+
+function readOptionalPort(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string,
+  path: string
+): number | null {
+  const value = readOptionalIntegerLike(input, key, path);
+  if (value !== null && (value < 0 || value > 65_535)) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      path,
+      `Workflow front matter field "${path}" must be a port number between 0 and 65535.`
     );
   }
   return value;
