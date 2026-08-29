@@ -147,9 +147,10 @@ describe("generateReferenceWorkflow", () => {
     expect(output).not.toMatch(/\{\{[^}]+\}\}/);
   });
 
-  it("includes projectId in front matter", () => {
+  it("includes projectId in provider-form front matter", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("project_id: PVT_abc123");
+    expect(output).toContain("  provider:\n    project_id: PVT_abc123");
+    expect(output).not.toContain("\n  project_id:");
   });
 
   it("includes a Linear tracker example without webhook setup", () => {
@@ -157,8 +158,9 @@ describe("generateReferenceWorkflow", () => {
 
     expect(output).toContain("# Linear tracker example:");
     expect(output).toContain("#   kind: linear");
-    expect(output).toContain("#   api_key: $LINEAR_API_KEY");
-    expect(output).toContain("#   project_slug: symphony-0c79b11b75ea");
+    expect(output).toContain("#   provider:");
+    expect(output).toContain("#     api_key: $LINEAR_API_KEY");
+    expect(output).toContain("#     project_slug: symphony-0c79b11b75ea");
     expect(output).toContain("# a Linear webhook setup command.");
     expect(output).not.toContain("#   project_id:");
     expect(output).not.toContain("#   teamId:");
@@ -209,7 +211,7 @@ describe("generateReferenceWorkflow", () => {
 
   it("defaults blocker_check_states to Todo without lifecycle input", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("blocker_check_states:\n    - Todo");
+    expect(output).toContain("blocker_check_states:\n      - Todo");
     expect(output).toContain("planning_states: []");
   });
 
@@ -223,8 +225,8 @@ describe("generateReferenceWorkflow", () => {
       ],
     });
 
-    expect(output).toContain("blocker_check_states:\n    - Ready");
-    expect(output).not.toContain("blocker_check_states:\n    - Todo");
+    expect(output).toContain("blocker_check_states:\n      - Ready");
+    expect(output).not.toContain("blocker_check_states:\n      - Todo");
     expect(output).toContain("planning_states: []");
     expect(output).toContain(
       "Classifies matching active runs as planning; does not enforce a plan-only gate."
@@ -247,8 +249,8 @@ describe("generateReferenceWorkflow", () => {
       },
     });
 
-    expect(output).toContain("blocker_check_states:\n    - Todo");
-    expect(output).toContain("planning_states:\n    - In Progress");
+    expect(output).toContain("blocker_check_states:\n      - Todo");
+    expect(output).toContain("planning_states:\n      - In Progress");
   });
 
   it("handles null role columns in Status Map", () => {

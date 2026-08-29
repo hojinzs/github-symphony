@@ -78,6 +78,13 @@ describe("generateGhSymphonySkill", () => {
     const result = generateGhSymphonySkill(mockCtx);
     expect(result).not.toMatch(/\{\{/);
   });
+
+  it("documents provider-form tracker configuration", () => {
+    const result = generateGhSymphonySkill(mockCtx);
+    expect(result).toContain("  provider:");
+    expect(result).toContain("    project_id: PVT_xxx");
+    expect(result).not.toContain("\n  project_id: PVT_xxx");
+  });
 });
 
 describe("gh-symphony reference files", () => {

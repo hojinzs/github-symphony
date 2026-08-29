@@ -52,6 +52,9 @@ describe("generateWorkflowMarkdown", () => {
 
     expect(parsed.format).toBe("front-matter");
     expect(parsed.githubProjectId).toBe("PVT_abc123");
+    expect(parsed.tracker.deprecatedKeys).toEqual([]);
+    expect(markdown).toContain("  provider:");
+    expect(markdown).not.toContain("\n  project_id:");
   });
 
   it("produces lifecycle config matching the input", () => {
@@ -210,15 +213,15 @@ describe("generateWorkflowMarkdown", () => {
       includePriorityTemplates: true,
     });
     const uncommented = markdown
-      .replace("  # priority:", "  priority:")
-      .replace("  #   source: project-field", "    source: project-field")
-      .replace("  #   field: Priority", "    field: Priority")
-      .replace("  #   values:", "    values:")
-      .replace("  #     Urgent: 0", "      Urgent: 0")
-      .replace("  #     High: 1", "      High: 1");
+      .replace("    # priority:", "    priority:")
+      .replace("    #   source: project-field", "      source: project-field")
+      .replace("    #   field: Priority", "      field: Priority")
+      .replace("    #   values:", "      values:")
+      .replace("    #     Urgent: 0", "        Urgent: 0")
+      .replace("    #     High: 1", "        High: 1");
     const parsed = parseWorkflowMarkdown(uncommented, {});
 
-    expect(markdown).toContain("  # priority:");
+    expect(markdown).toContain("    # priority:");
     expect(markdown).not.toContain("\n# priority:");
     expect(parsed.tracker.priority).toEqual({
       source: "project-field",
@@ -285,6 +288,8 @@ describe("generateWorkflowMarkdown", () => {
       include: ["ready\nruntime:\n  command: malicious", "security:high"],
       exclude: ["blocked # not a comment"],
     });
+    expect(parsed.tracker.deprecatedKeys).toEqual([]);
+    expect(markdown).toContain("  provider:");
     expect(parsed.runtime?.kind).toBe("codex-app-server");
     expect(parsed.runtime?.command).toBe("codex");
   });

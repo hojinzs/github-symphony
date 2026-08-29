@@ -112,11 +112,12 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   lines.push("```yaml");
   lines.push("tracker:");
   lines.push("  kind: github-project");
-  lines.push("  project_id: PVT_xxx");
-  lines.push("  state_field: Status");
-  lines.push("  active_states: [Todo, In Progress]");
-  lines.push("  terminal_states: [Done, Cancelled]");
-  lines.push("  blocker_check_states: [Blocked]");
+  lines.push("  provider:");
+  lines.push("    project_id: PVT_xxx");
+  lines.push("    state_field: Status");
+  lines.push("    active_states: [Todo, In Progress]");
+  lines.push("    terminal_states: [Done, Cancelled]");
+  lines.push("    blocker_check_states: [Blocked]");
   lines.push("polling:");
   lines.push("  interval_ms: 30000");
   lines.push("workspace:");
