@@ -2,7 +2,7 @@
 
 - **Date**: 2026-08-28
 - **Status**: Accepted
-- **Related Issues**: #671, #672, #673, #675
+- **Related Issues**: #671, #672, #673, #675, #732
 - **Related Spec**: `docs/symphony-spec.md` §10.5, §11.5, §15.1, §15.3, §15.5, §17.5
 - **Symphony Layers**: Policy, Execution, Integration, Observability
 
@@ -204,13 +204,29 @@ tracked as a divergence, not an alternative architecture.
 The target architecture conforms to the upstream tool, secret-handling, and
 scope-narrowing requirements. `docs/symphony-spec.md` remains unchanged.
 
-Until #673 ships, the current agent-started MCP subprocess model is an
+Phase 2 is implemented through the adapter-owned `agentToolSpecs()` and
+`executeAgentTool(name, args, context)` contract. GitHub and Linear publish
+their tool schemas at session startup and execute the selected provider tool in
+the worker host with normalized issue context. The Docker host-tool and Claude
+HTTP-MCP black-box tests verify that the child receives tool results while the
+provider credential remains host-side; the per-provider contracts are recorded
+in [GitHub tracker tools](../trackers/github.md) and
+[Linear tracker tools](../trackers/linear.md). This closes the host-transport
+portion of #673 without editing the upstream specification.
+
+The generic GraphQL tools still require a caller to bind its document and
+variables to the active issue: `nativeRef` is passed only as host context and
+is not injected into arbitrary provider documents. This limitation is explicit
+in the per-tool contracts and must be replaced by provider-level target
+enforcement before treating arbitrary mutations as a complete §15.5 scope
+boundary.
+
+Before #673 shipped, the agent-started MCP subprocess model was an
 intentional, documented repository-local divergence. #672 removes raw tracker
 and broker values from coding-agent environments and `mcp.json`, isolates the
 child home/configuration directory, replaces child-authenticated Git transport
 with a host operation, and disables the agent-owned MCP path; it does not claim
-that the subprocess arrangement is conformant. #673 is the conformance-closing
-implementation.
+that the subprocess arrangement is conformant.
 
 ## README security-posture draft for #675
 

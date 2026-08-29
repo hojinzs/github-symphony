@@ -10,6 +10,10 @@ const env = {
   GITHUB_GRAPHQL_TOKEN: "host-only-test-token",
   GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
 };
+const previousEnvironment = Object.fromEntries(
+  Object.keys(env).map((name) => [name, process.env[name]])
+);
+Object.assign(process.env, env);
 const context = createTrackerToolContext(env);
 const originalFetch = globalThis.fetch;
 let request;
@@ -30,6 +34,13 @@ try {
   );
 } finally {
   globalThis.fetch = originalFetch;
+  for (const [name, value] of Object.entries(previousEnvironment)) {
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
 }
 
 if (

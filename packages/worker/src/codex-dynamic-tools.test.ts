@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createTrackerToolContext,
   executeCodexDynamicToolCall,
@@ -11,6 +11,11 @@ describe("Codex host dynamic tools", () => {
     SYMPHONY_ISSUE_NATIVE_REF: '{"itemId":"PVTI_730"}',
     GITHUB_GRAPHQL_TOKEN: "host-token",
   };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 
   it("executes the adapter-owned host tool with the issue context", async () => {
     const executeAgentTool = vi.fn().mockResolvedValue({ data: "ok" });
@@ -65,5 +70,35 @@ describe("Codex host dynamic tools", () => {
         },
       ],
     });
+  });
+
+  it("uses the selected adapter with host-process credentials", async () => {
+    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "host-token");
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
+        status: 200,
+      })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+
+    const response = await executeCodexDynamicToolCall(
+      "github_graphql",
+      { query: "query { viewer { login } }" },
+      createTrackerToolContext(env),
+      process.env
+    );
+
+    expect(response).toEqual({
+      success: true,
+      contentItems: [
+        { type: "inputText", text: '{"data":{"viewer":{"login":"octo"}}}' },
+      ],
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/graphql",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer host-token" }),
+      })
+    );
   });
 });
