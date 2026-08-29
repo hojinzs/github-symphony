@@ -708,7 +708,18 @@ async function checkWorkflow(
     const parsed = deps.parseWorkflowMarkdown(markdown, environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
       resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+      workflowPath,
     });
+    if (!parsed.tracker.kind) {
+      return {
+        status: "fail",
+        reason: "invalid",
+        workflowPath,
+        summary: "WORKFLOW.md has no tracker.kind, so it cannot dispatch work.",
+        remediation:
+          'Add front matter with a supported "tracker.kind" before starting dispatch.',
+      };
+    }
     return {
       status: "pass",
       command: parsed.agentCommand,

@@ -60,7 +60,10 @@ export class WorkflowConfigStore {
     }
 
     try {
-      const workflow = parseWorkflowMarkdown(markdown, env, this.parseOptions);
+      const workflow = parseWorkflowMarkdown(markdown, env, {
+        ...this.parseOptions,
+        workflowPath,
+      });
       const revision = createWorkflowRevision(workflow);
       const loadedAt = new Date().toISOString();
       this.cache.set(workflowPath, {

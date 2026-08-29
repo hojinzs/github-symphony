@@ -5192,10 +5192,19 @@ export class OrchestratorService {
     resolution: WorkflowResolution
   ): Promise<WorkflowResolution> {
     const cacheKey = this.workflowCacheKey(repository);
+    const dispatchResolution =
+      resolution.isValid && !resolution.workflow.tracker.kind
+        ? {
+            ...resolution,
+            isValid: false,
+            validationError:
+              'Workflow dispatch requires front matter field "tracker.kind".',
+          }
+        : resolution;
 
-    if (resolution.isValid) {
+    if (dispatchResolution.isValid) {
       const effectiveResolution: WorkflowResolution = {
-        ...resolution,
+        ...dispatchResolution,
         isValid: true,
         usedLastKnownGood: false,
         validationError: null,
@@ -5219,13 +5228,13 @@ export class OrchestratorService {
 
     const cached = this.lastKnownGoodWorkflows.get(cacheKey);
     const message =
-      resolution.validationError ?? "Invalid repository WORKFLOW.md";
+      dispatchResolution.validationError ?? "Invalid repository WORKFLOW.md";
     this.writeStderr(
       `[orchestrator] failed to reload WORKFLOW.md for ${repository.owner}/${repository.name}: ${message}`
     );
 
     if (!cached) {
-      return resolution;
+      return dispatchResolution;
     }
 
     return {

@@ -248,6 +248,7 @@ async function preflightWorkflowStart(
     parseWorkflowMarkdown(await readFile(configuredPath, "utf8"), environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
       resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+      workflowPath: configuredPath,
     });
     return true;
   } catch (error) {

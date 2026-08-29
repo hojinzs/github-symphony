@@ -1314,10 +1314,10 @@ Prompt body
     });
   });
 
-  it("reports invalid workflow files and blocks runtime command validation", async () => {
+  it("reports unterminated front matter and blocks runtime command validation", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const repoDir = await mkdtemp(join(tmpdir(), "doctor-repo-"));
-    await writeFile(join(repoDir, "WORKFLOW.md"), "invalid workflow", "utf8");
+    await writeFile(join(repoDir, "WORKFLOW.md"), "---\ntracker:\n", "utf8");
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
@@ -1344,6 +1344,31 @@ Prompt body
     ).toMatchObject({
       status: "fail",
       summary: expect.stringContaining("WORKFLOW.md is missing or invalid"),
+    });
+  });
+
+  it("reports a prompt-only workflow as non-dispatchable", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const repoDir = await mkdtemp(join(tmpdir(), "doctor-repo-"));
+    await writeFile(join(repoDir, "WORKFLOW.md"), "Prompt only", "utf8");
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => false,
+        inspectManagedProjectSelection: async () => ({
+          kind: "no_projects",
+          message:
+            "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
+        }),
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "workflow_file")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("no tracker.kind"),
+      remediation: expect.stringContaining("tracker.kind"),
     });
   });
 

@@ -153,6 +153,18 @@ describe("deriveStandaloneProject", () => {
     ).rejects.toThrow("No WORKFLOW.md in");
   });
 
+  it("requires tracker.kind before deriving a standalone project", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await writeFile(join(projectDir, "WORKFLOW.md"), "Prompt only", "utf8");
+
+    await expect(
+      deriveStandaloneProject(projectDir, { configDir })
+    ).rejects.toThrow(
+      'Workflow dispatch requires front matter field "tracker.kind".'
+    );
+  });
+
   it("points a repo-embedded workflow at repo start", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
     const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));

@@ -14528,6 +14528,33 @@ Workspace prompt.
     expect(result.warnings).toEqual([]);
   });
 
+  it("does not dispatch a prompt-only workflow without tracker.kind", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-prompt-only-workflow-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { rawWorkflow: "Handle the assigned issue." }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const spawnImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
   it("loads project .env for repository script hooks during workspace creation", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -14903,7 +14930,7 @@ Test workspace hook retries.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
-  it("resolves standalone project .env $VAR values with host precedence", async () => {
+  it("resolves standalone project identifiers when they contain $VAR", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalProjectId = process.env.PROJECT_ENV_WORKFLOW_ID;
     process.env.PROJECT_ENV_WORKFLOW_ID = "host-project-id";

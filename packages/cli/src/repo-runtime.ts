@@ -107,6 +107,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     {
       supportedTrackerKinds: getSupportedTrackerKinds(),
       resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+      workflowPath,
     }
   );
   validateRepoInitWorkflow(workflow);

@@ -536,7 +536,8 @@ async function startAssignedRun() {
     runtimeState.runPhase = "building_prompt";
     const workflow = parseWorkflowMarkdown(
       await readFile(workflowPath, "utf8"),
-      launcherEnv
+      launcherEnv,
+      { workflowPath }
     );
     const route = resolveWorkerRuntimeRoute(workflow);
     const runtimeCommand = resolveWorkflowRuntimeCommand(workflow);
