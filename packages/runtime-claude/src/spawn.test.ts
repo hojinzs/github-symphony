@@ -1,82 +1,176 @@
+import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   classifyClaudeTurnResult,
   spawnClaudeTurn,
   type SpawnLike,
 } from "./spawn.js";
 
+function createSpawnHarness() {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const emitter = new EventEmitter();
+  const kill = vi.fn(() => true);
+  const child = {
+    stdin,
+    stdout,
+    stderr,
+    kill,
+    emit(event: string, ...args: unknown[]) {
+      emitter.emit(event, ...args);
+    },
+    once(event: string, listener: (...args: unknown[]) => void) {
+      emitter.once(event, listener);
+      return child;
+    },
+    on(event: string, listener: (...args: unknown[]) => void) {
+      emitter.on(event, listener);
+      return child;
+    },
+    removeListener(event: string, listener: (...args: unknown[]) => void) {
+      emitter.removeListener(event, listener);
+      return child;
+    },
+  } as unknown as ReturnType<SpawnLike>;
+
+  return {
+    child,
+    stdin,
+    stdout,
+    stderr,
+    kill,
+    spawnImpl: vi.fn(() => child) as SpawnLike,
+  };
+}
+
 describe("spawnClaudeTurn", () => {
   it("fails when Claude produces no initial output before the stall deadline", async () => {
-    const result = await spawnClaudeTurn({
-      command: process.execPath,
-      args: ["-e", "setInterval(() => {}, 1000)"],
-      cwd: process.cwd(),
-      stdinMessages: [],
-      initialOutputTimeoutMs: 100,
-    });
+    vi.useFakeTimers();
+    try {
+      const { child, kill, spawnImpl, stdout, stderr } = createSpawnHarness();
+      const resultPromise = spawnClaudeTurn(
+        {
+          cwd: "/workspace",
+          args: ["-p"],
+          stdinMessages: [],
+          initialOutputTimeoutMs: 100,
+        },
+        { spawnImpl }
+      );
 
-    expect(result).toMatchObject({
-      result: "process-error",
-      errorMessage: "response_timeout: Claude produced no output for 100ms",
-      classification: {
-        reason: "response_timeout: Claude produced no output for 100ms",
-      },
-    });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(kill).toHaveBeenCalledWith("SIGTERM");
+      stdout.end();
+      stderr.end();
+      child.emit("close", null, "SIGTERM");
+
+      await expect(resultPromise).resolves.toMatchObject({
+        result: "process-error",
+        errorMessage: "response_timeout: Claude produced no output for 100ms",
+        classification: {
+          reason: "response_timeout: Claude produced no output for 100ms",
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resets the turn silence timeout for every Claude output chunk", async () => {
-    const result = await spawnClaudeTurn({
-      command: process.execPath,
-      args: [
-        "-e",
-        "let n=0; const t=setInterval(() => { console.log(JSON.stringify({type:'message_start'})); if (++n === 3) { clearInterval(t); process.exit(0); } }, 15)",
-      ],
-      cwd: process.cwd(),
-      stdinMessages: [],
-      initialOutputTimeoutMs: 500,
-      turnTimeoutMs: 80,
-    });
+    vi.useFakeTimers();
+    try {
+      const { child, kill, spawnImpl, stdout, stderr } = createSpawnHarness();
+      const resultPromise = spawnClaudeTurn(
+        {
+          cwd: "/workspace",
+          args: ["-p"],
+          stdinMessages: [],
+          initialOutputTimeoutMs: 500,
+          turnTimeoutMs: 80,
+        },
+        { spawnImpl }
+      );
 
-    expect(result.errorMessage).toBeUndefined();
-    expect(result.classification.reason).toBe("missing_result");
+      stdout.write('{"type":"message_start"}\n');
+      await vi.advanceTimersByTimeAsync(79);
+      stdout.write('{"type":"message_start"}\n');
+      await vi.advanceTimersByTimeAsync(79);
+      stdout.write('{"type":"message_start"}\n');
+      await vi.advanceTimersByTimeAsync(79);
+      expect(kill).not.toHaveBeenCalled();
+      stdout.end();
+      stderr.end();
+      child.emit("close", 0, null);
+
+      await expect(resultPromise).resolves.toMatchObject({
+        errorMessage: undefined,
+        classification: { reason: "missing_result" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails after a Claude output silence interval", async () => {
-    const result = await spawnClaudeTurn({
-      command: process.execPath,
-      args: [
-        "-e",
-        "console.log(JSON.stringify({type:'message_start'})); setInterval(() => {}, 1000)",
-      ],
-      cwd: process.cwd(),
-      stdinMessages: [],
-      initialOutputTimeoutMs: 500,
-      turnTimeoutMs: 30,
-    });
+    vi.useFakeTimers();
+    try {
+      const { child, kill, spawnImpl, stdout, stderr } = createSpawnHarness();
+      const resultPromise = spawnClaudeTurn(
+        {
+          cwd: "/workspace",
+          args: ["-p"],
+          stdinMessages: [],
+          initialOutputTimeoutMs: 500,
+          turnTimeoutMs: 30,
+        },
+        { spawnImpl }
+      );
 
-    expect(result.errorMessage).toBe(
-      "turn_timeout: Claude produced no output for 30ms"
-    );
+      stdout.write('{"type":"message_start"}\n');
+      await vi.advanceTimersByTimeAsync(30);
+      expect(kill).toHaveBeenCalledWith("SIGTERM");
+      stdout.end();
+      stderr.end();
+      child.emit("close", null, "SIGTERM");
+
+      await expect(resultPromise).resolves.toMatchObject({
+        errorMessage: "turn_timeout: Claude produced no output for 30ms",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("escalates a timed-out Claude child that ignores SIGTERM", async () => {
-    const startedAt = Date.now();
-    const result = await spawnClaudeTurn({
-      command: process.execPath,
-      args: [
-        "-e",
-        "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
-      ],
-      cwd: process.cwd(),
-      stdinMessages: [],
-      initialOutputTimeoutMs: 100,
-    });
+    vi.useFakeTimers();
+    try {
+      const { child, kill, spawnImpl, stdout, stderr } = createSpawnHarness();
+      const resultPromise = spawnClaudeTurn(
+        {
+          cwd: "/workspace",
+          args: ["-p"],
+          stdinMessages: [],
+          initialOutputTimeoutMs: 100,
+        },
+        { spawnImpl }
+      );
 
-    expect(result.errorMessage).toBe(
-      "response_timeout: Claude produced no output for 100ms"
-    );
-    expect(Date.now() - startedAt).toBeLessThan(2_500);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(kill).toHaveBeenCalledWith("SIGTERM");
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(kill).toHaveBeenLastCalledWith("SIGKILL");
+      stdout.end();
+      stderr.end();
+      child.emit("close", null, "SIGKILL");
+
+      await expect(resultPromise).resolves.toMatchObject({
+        errorMessage: "response_timeout: Claude produced no output for 100ms",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("writes stream-json input, parses ndjson output, and returns success", async () => {
