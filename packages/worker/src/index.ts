@@ -80,8 +80,8 @@ import {
 } from "./codex-dynamic-tools.js";
 import {
   extractToolRateLimitPayload,
-  guardDynamicToolRateLimit,
 } from "./tool-rate-limit.js";
+import { executeRateLimitedCodexDynamicToolCall } from "./host-dynamic-tool-call.js";
 import {
   buildCodexDynamicToolsParams,
   buildCodexInitializeParams,
@@ -1520,11 +1520,10 @@ async function runCodexClientProtocol(
       process.stderr.write(
         `[worker] executing host dynamic tool "${toolName}" (callId=${callId})\n`
       );
-      void guardDynamicToolRateLimit(
+      void executeRateLimitedCodexDynamicToolCall({
         toolName,
-        runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits
-      )
-        .then(() =>
+        rateLimits: runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits,
+        execute: () =>
           executeCodexDynamicToolCall(
             toolName,
             params?.arguments,
@@ -1532,12 +1531,11 @@ async function runCodexClientProtocol(
             env,
             {},
             plan.dynamicTools.map((tool) => tool.name)
-          )
-        )
+          ),
+      })
         .then((result) => {
           const toolRateLimits = extractToolRateLimitPayload(
-            result.contentItems.find((item) => item.type === "inputText")
-              ?.text ?? ""
+            result.contentItems[0]?.text ?? ""
           );
           if (toolRateLimits) {
             applyRateLimitUpdate(
