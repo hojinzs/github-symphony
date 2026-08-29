@@ -1965,7 +1965,9 @@ describe("OrchestratorService", () => {
 
   it("fails safely when an issue workspace path is an existing regular file", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workspace-file-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workspace-file-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -1992,9 +1994,7 @@ describe("OrchestratorService", () => {
 
     expect(snapshot.summary.dispatched).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
-    expect(
-      await readFile(workspacePath, "utf8")
-    ).toBe("preserve this file");
+    expect(await readFile(workspacePath, "utf8")).toBe("preserve this file");
     expect(
       await store.loadProjectIssueOrchestrations(projectConfig.projectId)
     ).toEqual([
@@ -9146,10 +9146,12 @@ Prefer focused changes.
       dueAt: "2026-03-08T00:00:07.000Z",
       error: "Worker process exited unexpectedly.",
     });
-    const events = (await readFile(
-      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
-      "utf8"
-    ))
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
