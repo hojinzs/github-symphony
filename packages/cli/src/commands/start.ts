@@ -234,11 +234,17 @@ async function preflightWorkflowStart(
   runtimeRoot: string
 ): Promise<{ ok: true; workflow: ParsedWorkflow | null } | { ok: false }> {
   const configuredPath = projectConfig.workflowSource?.path;
-  if (!configuredPath) {
-    // Legacy managed-project configs rely on the daemon's repository lookup,
-    // including its default workflow fallback. Avoid a divergent preflight.
-    return { ok: true, workflow: null };
-  }
+  const workflowPath =
+    configuredPath ??
+    (projectConfig.workflowSource?.type === "repo"
+      ? join(
+          projectConfig.repositoryDir ??
+            projectConfig.repository.path ??
+            process.cwd(),
+          "WORKFLOW.md"
+        )
+      : undefined);
+  if (!workflowPath) return { ok: true, workflow: null };
 
   try {
     const environment = resolveManagedProjectEnvironment(
@@ -246,7 +252,7 @@ async function preflightWorkflowStart(
       runtimeRoot
     );
     const workflow = parseWorkflowMarkdown(
-      await readFile(configuredPath, "utf8"),
+      await readFile(workflowPath, "utf8"),
       environment,
       {
         supportedTrackerKinds: getSupportedTrackerKinds(),
@@ -257,14 +263,15 @@ async function preflightWorkflowStart(
     return { ok: true, workflow };
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      if (!configuredPath) return { ok: true, workflow: null };
       process.stderr.write(
-        `Configured workflow not found at ${configuredPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
+        `Configured workflow not found at ${workflowPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
       );
       process.exitCode = 1;
       return { ok: false };
     }
     process.stderr.write(
-      `Workflow preflight failed for ${configuredPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
+      `Workflow preflight failed for ${workflowPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
     );
     process.exitCode = 1;
     return { ok: false };
@@ -364,6 +371,8 @@ function parseStartArgs(args: string[]): {
   allowDuplicate?: boolean;
   bindAll: boolean;
   httpPort?: number;
+  httpPortExplicit: boolean;
+  httpOption?: "--http" | "--port";
   webPort?: number;
   logLevel?: string;
   error?: string;
@@ -375,6 +384,8 @@ function parseStartArgs(args: string[]): {
     allowDuplicate?: boolean;
     bindAll: boolean;
     httpPort?: number;
+    httpPortExplicit: boolean;
+    httpOption?: "--http" | "--port";
     webPort?: number;
     logLevel?: string;
     error?: string;
@@ -382,6 +393,7 @@ function parseStartArgs(args: string[]): {
     daemon: false,
     bindAll: false,
     once: false,
+    httpPortExplicit: false,
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -407,12 +419,14 @@ function parseStartArgs(args: string[]): {
       continue;
     }
     if (arg === "--http" || arg === "--port") {
+      parsed.httpOption = arg;
       const value = args[i + 1];
       if (!value || value.startsWith("-")) {
         parsed.httpPort = DEFAULT_HTTP_PORT;
         continue;
       }
       parsed.httpPort = parsePort(value, arg);
+      parsed.httpPortExplicit = true;
       i += 1;
       continue;
     }
@@ -443,7 +457,7 @@ function parseStartArgs(args: string[]): {
   }
 
   if (parsed.httpPort !== undefined && parsed.webPort !== undefined) {
-    parsed.error = "Options '--http' and '--web' cannot be used together";
+    parsed.error = `Options '${parsed.httpOption ?? "--http"}' and '--web' cannot be used together`;
   }
 
   return parsed;
@@ -1038,9 +1052,16 @@ const handler = async (
   if (!workflowPreflight.ok) {
     return;
   }
-  const configuredServerPort = workflowPreflight.workflow?.server.port;
+  const configuredServerPort =
+    parsed.webPort === undefined
+      ? workflowPreflight.workflow?.server.port
+      : undefined;
   const requestedHttpPort =
     parsed.httpPort ?? configuredServerPort ?? undefined;
+  const explicitHttpPort =
+    parsed.httpPort !== undefined
+      ? parsed.httpPortExplicit
+      : configuredServerPort !== undefined;
   const httpApiToken = resolveHttpApiToken();
   const httpHost = parsed.bindAll ? BIND_ALL_HTTP_HOST : DEFAULT_HTTP_HOST;
 
@@ -1050,6 +1071,7 @@ const handler = async (
       projectId,
       parsed.logLevel ?? (options.verbose ? "verbose" : undefined),
       requestedHttpPort,
+      explicitHttpPort,
       parsed.webPort,
       parsed.assignedOnly === true,
       parsed.bindAll,
@@ -1078,10 +1100,6 @@ const handler = async (
         processIdentity: projectLock.processIdentity,
       };
       await registerInstance(instance);
-      const readyPath = process.env[DAEMON_READY_PATH_ENV];
-      if (readyPath) {
-        await writeFile(readyPath, `${projectLock.pid}\n`, { mode: 0o600 });
-      }
     }
 
     const store = createStore(runtimeRoot);
@@ -1183,7 +1201,7 @@ const handler = async (
         runtimeRoot,
         projectId,
         initialPort: requestedHttpPort ?? 0,
-        explicitPort: requestedHttpPort !== undefined,
+        explicitPort: explicitHttpPort,
         host: requestedHttpPort !== undefined ? httpHost : DEFAULT_HTTP_HOST,
         apiToken: httpApiToken,
         service,
@@ -1191,6 +1209,10 @@ const handler = async (
       });
       service.setWorkerOrchestratorUrl(workerHttpServer.url);
       service.setWorkerOrchestratorToken(trackerStateToken);
+      const readyPath = process.env[DAEMON_READY_PATH_ENV];
+      if (readyPath) {
+        await writeFile(readyPath, `${projectLock.pid}\n`, { mode: 0o600 });
+      }
 
       httpServer =
         parsed.webPort !== undefined
@@ -1420,6 +1442,7 @@ async function startDaemon(
   projectId: string,
   logLevel?: string,
   httpPort?: number,
+  httpPortExplicit = false,
   webPort?: number,
   assignedOnly = false,
   bindAll = false,
@@ -1449,7 +1472,11 @@ async function startDaemon(
       ...(allowDuplicate ? ["--allow-duplicate"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
       ...(bindAll ? ["--bind-all"] : []),
-      ...(httpPort !== undefined ? ["--port", String(httpPort)] : []),
+      ...(httpPort !== undefined
+        ? httpPortExplicit
+          ? ["--port", String(httpPort)]
+          : ["--http"]
+        : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),
     ],

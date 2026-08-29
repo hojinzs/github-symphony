@@ -115,9 +115,10 @@ same map remain effective.
 Set `server.port` in `WORKFLOW.md` to enable the HTTP status API on that port.
 `0` requests an ephemeral port. `gh-symphony repo start --port [port]` is the
 preferred CLI form and overrides `server.port`; `--http [port]` remains a
-supported alias. A configured or CLI-requested port fails startup when it is
-already occupied, while the internal listener uses an automatic port only when
-neither setting is present.
+supported alias. A configured or explicit CLI port fails startup when it is
+already occupied. A bare `--port` or `--http` keeps the legacy default-port
+auto-increment behavior, while omitting both options and `server.port` uses an
+ephemeral internal listener.
 
 `tracker.required_labels` defaults to `[]`. Labels are compared after trimming
 and lowercasing; every configured label must be present before an issue can be

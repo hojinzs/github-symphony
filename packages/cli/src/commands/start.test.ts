@@ -1892,6 +1892,116 @@ Handle {{issue.identifier}}.\n`,
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
+  it("uses server.port when no CLI HTTP option is supplied", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const probe = createServer();
+    await new Promise<void>((resolve) =>
+      probe.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = probe.address();
+    if (!address || typeof address === "string") {
+      probe.close();
+      throw new Error("Expected TCP address");
+    }
+    await new Promise<void>((resolve, reject) =>
+      probe.close((error) => (error ? reject(error) : resolve()))
+    );
+    await configureWorkflow(configDir, address.port);
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default([], baseOptions(configDir));
+      const url = await waitForHttpUrl(stdout.output);
+      expect(new URL(url).port).toBe(String(address.port));
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("reads server.port from a legacy repository workflow fallback", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const probe = createServer();
+    await new Promise<void>((resolve) =>
+      probe.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = probe.address();
+    if (!address || typeof address === "string") {
+      probe.close();
+      throw new Error("Expected TCP address");
+    }
+    await new Promise<void>((resolve, reject) =>
+      probe.close((error) => (error ? reject(error) : resolve()))
+    );
+    await configureLegacyWorkflow(configDir, address.port);
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default([], baseOptions(configDir));
+      const url = await waitForHttpUrl(stdout.output);
+      expect(new URL(url).port).toBe(String(address.port));
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
   it("fails when a requested port is already in use", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -2155,6 +2265,34 @@ async function configureWorkflow(
   await writeFile(projectPath, JSON.stringify(project), "utf8");
   await writeFile(
     workflowPath,
+    `---
+tracker:
+  kind: github-project
+server:
+  port: ${port}
+codex:
+  command: codex app-server
+---
+Prompt\n`,
+    "utf8"
+  );
+}
+
+async function configureLegacyWorkflow(
+  configDir: string,
+  port: number
+): Promise<void> {
+  const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+  const project = JSON.parse(
+    await readFile(projectPath, "utf8")
+  ) as CliProjectConfig;
+  const repositoryDir = join(configDir, "legacy-repository");
+  project.repositoryDir = repositoryDir;
+  project.workflowSource = { type: "repo" };
+  await mkdir(repositoryDir, { recursive: true });
+  await writeFile(projectPath, JSON.stringify(project), "utf8");
+  await writeFile(
+    join(repositoryDir, "WORKFLOW.md"),
     `---
 tracker:
   kind: github-project
