@@ -1047,7 +1047,7 @@ codex:
   command: codex app-server
 ---
 Prompt body.
-`);
+`)
     ).toThrow(
       expect.objectContaining({
         code: "workflow_validation_error",

@@ -186,8 +186,7 @@ function parseWorkflowMarkdownInternal(
       provider,
       explicitProviderKeys,
       "blocker_check_states"
-    ) ??
-    (activeStates[0] ? [activeStates[0]] : []);
+    ) ?? (activeStates[0] ? [activeStates[0]] : []);
   const planningStates =
     readNormalizedStringList(
       tracker,
@@ -607,7 +606,10 @@ function readRequiredLabelList(
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
     throw new WorkflowValidationError(
       "workflow_validation_error",
       "tracker.required_labels",
@@ -617,7 +619,7 @@ function readRequiredLabelList(
 
   // §5.3.1 requires blank configured labels to remain unsatisfied. The shared
   // normalizeLabels helper drops blanks, so it is intentionally not used here.
-  return value.map((label) => label.trim().toLowerCase());
+  return (value as string[]).map((label) => label.trim().toLowerCase());
 }
 
 function readPriorityConfig(

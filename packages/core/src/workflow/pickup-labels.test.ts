@@ -79,6 +79,6 @@ describe("resolvePickupLabelDispatchReason", () => {
         issue(["agent", "blocked"]),
         mixedCaseProject
       )
-    ).toBe('Issue has excluded pickup label "BLOCKED".');
+    ).toBe('Issue has excluded pickup label "blocked".');
   });
 });
