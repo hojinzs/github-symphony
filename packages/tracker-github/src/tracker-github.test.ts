@@ -732,6 +732,30 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.pullRequest).not.toHaveProperty("assignees");
   });
 
+  it("normalizes PullRequest Project item timestamps", () => {
+    const item = makePullRequestProjectItem({
+      itemId: "item-pr-normalized",
+      pullRequestId: "pr-normalized",
+      number: 8,
+      title: "Normalize pull request timestamps",
+      state: "Ready",
+      createdAt: "not-a-timestamp",
+      updatedAt: "2026-03-14t01:02:03+09:00",
+      itemUpdatedAt: "2026-03-13T00:00:00.000Z",
+    });
+
+    expect(
+      normalizeGithubProjectItem(
+        "project-123",
+        item,
+        DEFAULT_WORKFLOW_LIFECYCLE
+      )
+    ).toMatchObject({
+      createdAt: null,
+      updatedAt: "2026-03-13T16:02:03.000Z",
+    });
+  });
+
   it("preserves fork head repository metadata when normalizing PullRequest Project items", () => {
     // Checkout safety for fork PR subjects is enforced at the orchestrator layer.
     const issue = normalizeGithubProjectItem(
@@ -6126,6 +6150,9 @@ function makePullRequestProjectItem(input: {
   number: number;
   title: string;
   state?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  itemUpdatedAt?: string | null;
   headRepository?: {
     name: string;
     url: string;
@@ -6134,7 +6161,7 @@ function makePullRequestProjectItem(input: {
 }) {
   return {
     id: input.itemId,
-    updatedAt: "2026-03-14T00:05:00.000Z",
+    updatedAt: input.itemUpdatedAt ?? "2026-03-14T00:05:00.000Z",
     fieldValues: {
       nodes: [
         {
@@ -6169,8 +6196,8 @@ function makePullRequestProjectItem(input: {
         url: "https://github.com/acme/platform",
         owner: { login: "acme" },
       },
-      createdAt: "2026-03-13T00:00:00.000Z",
-      updatedAt: "2026-03-14T00:00:00.000Z",
+      createdAt: input.createdAt ?? "2026-03-13T00:00:00.000Z",
+      updatedAt: input.updatedAt ?? "2026-03-14T00:00:00.000Z",
     },
   };
 }

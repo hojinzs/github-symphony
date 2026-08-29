@@ -545,8 +545,8 @@ function normalizePullRequestProjectItem(
     dispatchable: true,
     assigneeId: null,
     blockedBy: [],
-    createdAt: content.createdAt,
-    updatedAt: trackedUpdatedAt,
+    createdAt: parseTrackerTimestamp(content.createdAt),
+    updatedAt: parseTrackerTimestamp(trackedUpdatedAt),
     repository: pullRequest.repository,
     tracker: {
       adapter: "github-project",
