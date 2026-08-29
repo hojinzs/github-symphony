@@ -29,6 +29,10 @@ import {
   createTrackerToolContext,
   executeCodexDynamicToolCall,
 } from "./codex-dynamic-tools.js";
+import {
+  extractToolRateLimitPayload,
+  guardDynamicToolRateLimit,
+} from "./tool-rate-limit.js";
 
 const TEST_DYNAMIC_TOOLS = [
   {
@@ -186,6 +190,7 @@ function createProtocolContext(options: {
     tokenUsage: { ...tokenUsageBaseline },
     lastEventAt: null as string | null,
     rateLimits: null as Record<string, unknown> | null,
+    agentGitHubRateLimits: null as Record<string, unknown> | null,
     sessionInfo: {
       threadId: "thread-1" as string | null,
       turnId: "turn-1" as string | null,
@@ -213,12 +218,19 @@ function createProtocolContext(options: {
 
   function applyRateLimitUpdate(
     source: string,
-    rateLimits: Record<string, unknown>
+    rateLimits: Record<string, unknown>,
+    runtimeSource = "codex"
   ): void {
     runtimeState.rateLimits = {
       ...rateLimits,
-      source: "codex",
+      source:
+        typeof rateLimits.source === "string"
+          ? rateLimits.source
+          : runtimeSource,
     };
+    if (runtimeState.rateLimits.source === "github") {
+      runtimeState.agentGitHubRateLimits = runtimeState.rateLimits;
+    }
     logs.push(
       `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits)}`
     );
@@ -936,15 +948,33 @@ function createProtocolContext(options: {
       runtimeState.lastEventAt = new Date().toISOString();
       const params = msg.params as Record<string, unknown> | undefined;
       const toolName = typeof params?.tool === "string" ? params.tool : "";
-      void executeCodexDynamicToolCall(
+      void guardDynamicToolRateLimit(
         toolName,
-        params?.arguments,
-        createTrackerToolContext(TEST_TOOL_ENV),
-        TEST_TOOL_ENV,
-        {},
-        TEST_DYNAMIC_TOOLS.map((tool) => tool.name)
+        runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits
       )
+        .then(() =>
+          executeCodexDynamicToolCall(
+            toolName,
+            params?.arguments,
+            createTrackerToolContext(TEST_TOOL_ENV),
+            TEST_TOOL_ENV,
+            {},
+            TEST_DYNAMIC_TOOLS.map((tool) => tool.name)
+          )
+        )
         .then((result) => {
+          const toolRateLimits = extractToolRateLimitPayload(
+            result.contentItems.find((item) => item.type === "inputText")
+              ?.text ?? ""
+          );
+          if (toolRateLimits) {
+            applyRateLimitUpdate(
+              `tool.${toolName}`,
+              toolRateLimits,
+              "agent-tool"
+            );
+            emitOrchestratorChannelEvent("agent.rateLimit");
+          }
           sendMessage({ jsonrpc: "2.0", id: msg.id, result });
           runtimeState.lastEventAt = new Date().toISOString();
         })
@@ -1709,7 +1739,7 @@ describe("rate-limit telemetry", () => {
     });
 
     expect(ctx.runtimeState.rateLimits).toEqual({
-      source: "codex",
+      source: "upstream",
       remaining: 42,
       resetAt: "2026-03-08T00:30:00.000Z",
     });
@@ -2842,9 +2872,28 @@ describe("token usage tracking", () => {
 describe("lastEventAt timestamp tracking", () => {
   it("responds to a host dynamic tool call and records tool activity", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
-        status: 200,
-      })
+      new Response(
+        JSON.stringify({
+          data: {
+            viewer: { login: "octo" },
+            __ghSymphonyRateLimit: {
+              cost: 3,
+              remaining: 4_997,
+              resetAt: "2026-08-29T10:00:00.000Z",
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4997",
+            "x-ratelimit-used": "3",
+            "x-ratelimit-reset": "1787997600",
+            "x-ratelimit-resource": "graphql",
+          },
+        }
+      )
     );
     const ctx = createProtocolContext({});
 
@@ -2875,6 +2924,21 @@ describe("lastEventAt timestamp tracking", () => {
       });
     });
     expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+    expect(ctx.runtimeState.rateLimits).toMatchObject({
+      source: "github",
+      resource: "graphql",
+      remaining: 4_997,
+      cost: 3,
+    });
+    expect(ctx.orchestratorEvents).toContainEqual(
+      expect.objectContaining({
+        event: "agent.rateLimit",
+        rateLimits: expect.objectContaining({
+          source: "github",
+          remaining: 4_997,
+        }),
+      })
+    );
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://api.github.com/graphql",
       expect.objectContaining({
