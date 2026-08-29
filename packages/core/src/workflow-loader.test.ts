@@ -405,7 +405,7 @@ Prompt`,
     );
 
     expect(workflow.tracker.provider).toMatchObject({
-      api_key: "token",
+      api_key: "$TRACKER_TOKEN",
       endpoint: "https://provider.example.test/graphql",
       project_slug: "platform",
       custom_setting: "retained",
@@ -445,6 +445,38 @@ Prompt`,
       projectId: "project-123",
       apiKey: "token",
       endpoint: "https://provider.example.test/graphql",
+    });
+  });
+
+  it("keeps resolved provider secrets private and resolves them once", () => {
+    const validateProviderConfig = vi.fn(() => []);
+    const workflow = parseWorkflowMarkdownStrict(
+      `---
+tracker:
+  kind: custom-tracker
+  provider:
+    api_key: env:TRACKER_TOKEN
+  state_field: Cost $USD
+codex:
+  command: codex
+---
+Prompt`,
+      { TRACKER_TOKEN: "abc$def" },
+      {
+        supportedTrackerKinds: ["custom-tracker"],
+        trackerAdapter: { validateProviderConfig },
+      }
+    );
+
+    expect(workflow.tracker.provider).toMatchObject({
+      api_key: "env:TRACKER_TOKEN",
+      state_field: "Cost $USD",
+    });
+    expect(workflow.tracker.apiKey).toBe("abc$def");
+    expect(workflow.tracker.stateFieldName).toBe("Cost $USD");
+    expect(validateProviderConfig).toHaveBeenCalledWith({
+      api_key: "abc$def",
+      state_field: "Cost $USD",
     });
   });
 

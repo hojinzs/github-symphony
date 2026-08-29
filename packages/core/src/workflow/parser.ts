@@ -590,7 +590,9 @@ function readNormalizedOptionalString(
   const value = explicitProviderKeys.has(key)
     ? readProviderOptionalString(provider, key)
     : readOptionalString(tracker, key, `tracker.${key}`);
-  return value === null ? null : resolveEnvironmentValue(value, env, `tracker.${key}`);
+  return value === null
+    ? null
+    : resolveEnvironmentValue(value, env, `tracker.${key}`);
 }
 
 function readNormalizedOptionalSecret(
@@ -1276,7 +1278,7 @@ function readOptionalPath(
   if (value === null) {
     return null;
   }
-  const expanded = resolveEnvironmentValue(value, env, path);
+  const expanded = resolvePathEnvironmentValue(value, env, path);
   const normalized = expandHomeDirectory(expanded, options.homeDir);
   return resolve(
     options.workflowPath ? dirname(options.workflowPath) : process.cwd(),
@@ -1519,6 +1521,34 @@ export function resolveEnvironmentValue(
       );
     }
     return resolved;
+  }
+
+  const match = value.match(
+    /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$/
+  );
+  if (!match) {
+    return value;
+  }
+
+  const name = match[1] ?? match[2]!;
+  const resolved = env[name];
+  if (!resolved) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      path,
+      `Workflow front matter field "${path}" requires environment variable ${name}.`
+    );
+  }
+  return resolved;
+}
+
+function resolvePathEnvironmentValue(
+  value: string,
+  env: NodeJS.ProcessEnv,
+  path: string
+): string {
+  if (value.startsWith("env:")) {
+    return resolveEnvironmentValue(value, env, path);
   }
 
   return value.replace(
