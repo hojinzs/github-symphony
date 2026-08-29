@@ -179,7 +179,8 @@ describe("sortCandidatesForDispatch", () => {
     ]);
   });
 
-  it("orders explicit tracker priority values before null priorities", () => {
+  // #725 documents this repository-local numeric priority mapping.
+  it("orders explicit tracker priority values per ADR 2026-08-28 before null priorities", () => {
     const sorted = sortCandidatesForDispatch([
       makeIssue({ identifier: "acme/repo#null", priority: null }),
       makeIssue({ identifier: "acme/repo#high", priority: 1 }),
@@ -195,23 +196,31 @@ describe("sortCandidatesForDispatch", () => {
     ]);
   });
 
-  it("breaks ties by createdAt oldest first", () => {
+  it("breaks ties by parsed createdAt instant, with null timestamps last", () => {
     const sorted = sortCandidatesForDispatch([
       makeIssue({
-        identifier: "acme/repo#2",
+        identifier: "acme/repo#null",
         priority: 1,
-        createdAt: "2026-03-09T00:00:00.000Z",
+        createdAt: null,
       }),
       makeIssue({
-        identifier: "acme/repo#1",
+        identifier: "acme/repo#later",
         priority: 1,
         createdAt: "2026-03-08T00:00:00.000Z",
+      }),
+      makeIssue({
+        identifier: "acme/repo#older",
+        priority: 1,
+        // This is 2026-03-07T23:30:00.000Z, despite sorting after the
+        // `Z` timestamp lexicographically.
+        createdAt: "2026-03-08T00:30:00.000+01:00",
       }),
     ]);
 
     expect(sorted.map((issue) => issue.identifier)).toEqual([
-      "acme/repo#1",
-      "acme/repo#2",
+      "acme/repo#older",
+      "acme/repo#later",
+      "acme/repo#null",
     ]);
   });
 

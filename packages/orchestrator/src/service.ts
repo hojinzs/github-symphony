@@ -6162,17 +6162,25 @@ export function sortCandidatesForDispatch(
   candidates: TrackedIssue[]
 ): TrackedIssue[] {
   return [...candidates].sort((a, b) => {
-    // 1. Priority ascending (null last)
+    // 1. Priority ascending (null last). See
+    // docs/adr/2026-08-28_priority-mapping-documented-different-mapping.md
+    // (#725).
     if (a.priority !== b.priority) {
       if (a.priority === null) return 1;
       if (b.priority === null) return -1;
       return a.priority - b.priority;
     }
-    // 2. createdAt oldest first (null last)
-    if (a.createdAt !== b.createdAt) {
-      if (a.createdAt === null) return 1;
-      if (b.createdAt === null) return -1;
-      return a.createdAt < b.createdAt ? -1 : 1;
+    // 2. createdAt oldest first (null or invalid timestamps last). Compare
+    // parsed instants rather than ISO strings so timezone offsets are ordered
+    // chronologically.
+    const aCreatedAt = a.createdAt === null ? null : Date.parse(a.createdAt);
+    const bCreatedAt = b.createdAt === null ? null : Date.parse(b.createdAt);
+    const aCreatedAtMillis = Number.isNaN(aCreatedAt) ? null : aCreatedAt;
+    const bCreatedAtMillis = Number.isNaN(bCreatedAt) ? null : bCreatedAt;
+    if (aCreatedAtMillis !== bCreatedAtMillis) {
+      if (aCreatedAtMillis === null) return 1;
+      if (bCreatedAtMillis === null) return -1;
+      return aCreatedAtMillis - bCreatedAtMillis;
     }
     // 3. identifier lexicographic
     return a.identifier.localeCompare(b.identifier);
