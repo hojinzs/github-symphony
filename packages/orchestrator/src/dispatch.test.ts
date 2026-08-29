@@ -1201,12 +1201,24 @@ describe("routability reconciliation", () => {
       issue.identifier
     );
     const workspacePath = resolveIssueWorkspaceDirectory(
-      store.projectDir(projectConfig.projectId),
+      projectConfig.workspaceDir,
       workspaceKey
     );
     const repositoryPath = join(workspacePath, "repository");
-    const sentinelPath = join(workspacePath, "preserve.txt");
+    const sentinelPath = join(repositoryPath, "preserve.txt");
     await mkdir(repositoryPath, { recursive: true });
+    execSync(`git -C ${shell(repositoryPath)} init`, { stdio: "ignore" });
+    execSync(
+      `git -C ${shell(repositoryPath)} config user.email tester@example.com`
+    );
+    execSync(`git -C ${shell(repositoryPath)} config user.name tester`);
+    await writeFile(join(repositoryPath, "tracked.txt"), "tracked", "utf8");
+    execSync(`git -C ${shell(repositoryPath)} add tracked.txt`, {
+      stdio: "ignore",
+    });
+    execSync(`git -C ${shell(repositoryPath)} commit -m init`, {
+      stdio: "ignore",
+    });
     await writeFile(sentinelPath, "do not clean", "utf8");
     await store.saveIssueWorkspace(
       makeIssueWorkspace({
@@ -1265,7 +1277,11 @@ describe("routability reconciliation", () => {
       expect.objectContaining({
         status: "suppressed",
         runPhase: "canceled_by_reconciliation",
-        recovery: null,
+        recovery: expect.objectContaining({
+          kind: "incomplete-turn-dirty-workspace",
+          workspacePath: repositoryPath,
+          dirtyFiles: ["preserve.txt"],
+        }),
         lastError: expect.stringContaining("missing required labels"),
       })
     );

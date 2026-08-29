@@ -6209,6 +6209,114 @@ Prefer focused changes.
       currentRunId: null,
       retryEntry: null,
     });
+
+    const releasedRun = await store.loadRun("run-1");
+    expect(releasedRun).not.toBeNull();
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "retry_queued",
+        currentRunId: "run-1",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:20.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:10.000Z",
+      },
+    ]);
+    await store.saveRun({
+      ...releasedRun!,
+      status: "retrying",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
+      runPhase: "failed",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+    });
+    fetchIssueStatesByIds.mockResolvedValueOnce([]);
+
+    await new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:01:00.000Z"),
+    }).runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "suppressed",
+      nextRetryAt: null,
+      runPhase: "canceled_by_reconciliation",
+      lastError: "Retry canceled because the tracker issue is no longer actionable.",
+    });
+
+    const missingIssueRun = await store.loadRun("run-1");
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "retry_queued",
+        currentRunId: "run-1",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:20.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:10.000Z",
+      },
+    ]);
+    await store.saveRun({
+      ...missingIssueRun!,
+      status: "retrying",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
+      runPhase: "failed",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+    });
+    fetchIssueStatesByIds.mockResolvedValueOnce([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        title: "Retry issue",
+        description: null,
+        state: "Todo",
+        priority: null,
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        url: "https://example.test/acme/platform/issues/1",
+        labels: ["agent"],
+        dispatchable: false,
+        assigneeId: null,
+        blockedBy: [],
+        repository,
+        tracker: { adapter: "github-project", issueId: "issue-1" },
+        metadata: {},
+      },
+    ]);
+
+    await new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:01:00.000Z"),
+    }).runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "suppressed",
+      nextRetryAt: null,
+      runPhase: "canceled_by_reconciliation",
+      lastError: "Retry canceled because the tracker issue is no longer actionable.",
+    });
   });
 
   it("requeues due retries when the single-ID refresh fails", async () => {
