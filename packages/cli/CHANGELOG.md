@@ -1,5 +1,37 @@
 # @gh-symphony/cli
 
+## 0.16.0
+
+### Minor Changes
+
+- [#734](https://github.com/hojinzs/github-symphony/pull/734) [`acff4c8`](https://github.com/hojinzs/github-symphony/commit/acff4c854febb5f370fa0d7ad0806c51974ad90a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Validate Linear and file tracker provider configuration, document adapter lifecycle defaults, and preserve deprecated flat tracker keys as compatibility aliases ([#709](https://github.com/hojinzs/github-symphony/issues/709)).
+
+### Patch Changes
+
+- [#746](https://github.com/hojinzs/github-symphony/pull/746) [`4331f02`](https://github.com/hojinzs/github-symphony/commit/4331f0239554c74e9ece4299e47d9fdb4a69ec0c) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Advertise Codex's experimental API capability when worker sessions use dynamic tools, allowing compatible app-server instances to accept `thread/start`.
+
+- [#763](https://github.com/hojinzs/github-symphony/pull/763) [`f8e746c`](https://github.com/hojinzs/github-symphony/commit/f8e746ce571ecc42db34470cd1858d9037a61f2e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Report `seconds_running` as accumulated worker-session runtime, excluding retry gaps while retaining completed-session runtime across restarts ([#750](https://github.com/hojinzs/github-symphony/issues/750)). Retry records now freeze their completed-session boundary so retry scheduling does not extend that measurement.
+
+- [#756](https://github.com/hojinzs/github-symphony/pull/756) [`50e7313`](https://github.com/hojinzs/github-symphony/commit/50e7313d2c355a3f8e407332b10f75f741d5c5e1) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Emit structured retry scheduling events and expose retry attempt and error details in status snapshots ([#749](https://github.com/hojinzs/github-symphony/issues/749)).
+
+- [#757](https://github.com/hojinzs/github-symphony/pull/757) [`a77cc34`](https://github.com/hojinzs/github-symphony/commit/a77cc34cc3fa382e05a52d08c83c13958ad1af86) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Expose tracker issue URLs on active and retrying control-plane run rows for [#748](https://github.com/hojinzs/github-symphony/issues/748).
+
+- [#753](https://github.com/hojinzs/github-symphony/pull/753) [`042e906`](https://github.com/hojinzs/github-symphony/commit/042e906468d80aff6e92b35799ea4bdb19cf0099) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Restore host-side dynamic-tool GitHub rate-limit protection and publish tool rate-limit updates to worker observability ([#744](https://github.com/hojinzs/github-symphony/issues/744)).
+
+- [#738](https://github.com/hojinzs/github-symphony/pull/738) [`753bf95`](https://github.com/hojinzs/github-symphony/commit/753bf95da8f7891f41d678491fb934c323bd882d) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Make Codex turn timeouts measure app-server silence rather than total runtime, and reject unsupported approval policies before they can stall a worker session ([#658](https://github.com/hojinzs/github-symphony/issues/658)).
+
+  Workflows that set `codex.approval_policy` to `on-request` or `untrusted` must change it to `never` or remove the setting before upgrading.
+
+- [#740](https://github.com/hojinzs/github-symphony/pull/740) [`c549379`](https://github.com/hojinzs/github-symphony/commit/c5493791ecf7425707fbd33d527dbf66e5be9e16) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Normalize `workspace.root` paths, keep command and hook strings opaque, and allow prompt-only WORKFLOW.md files ([#668](https://github.com/hojinzs/github-symphony/issues/668)).
+
+- [#764](https://github.com/hojinzs/github-symphony/pull/764) [`0e85d8a`](https://github.com/hojinzs/github-symphony/commit/0e85d8ac062673fa2c06e200fc35a0932ff1df45) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Generate provider-form tracker configuration in new workflows and document migration from deprecated flat tracker keys ([#710](https://github.com/hojinzs/github-symphony/issues/710)).
+
+- [#752](https://github.com/hojinzs/github-symphony/pull/752) [`45bb54e`](https://github.com/hojinzs/github-symphony/commit/45bb54e9cfa33e93a7d2782621fd20c307f11610) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Normalize per-state concurrency limit keys and ignore invalid overrides so `max_concurrent_agents_by_state` caps apply reliably ([#659](https://github.com/hojinzs/github-symphony/issues/659)).
+
+- [#745](https://github.com/hojinzs/github-symphony/pull/745) [`daf66cc`](https://github.com/hojinzs/github-symphony/commit/daf66cc85c43cd3c9c51ced1af79487112cac64d) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Normalize GitHub and Linear tracker labels and timestamps, map Linear no-priority values to `null`, and fail explicitly when tracker pagination loses integrity ([#726](https://github.com/hojinzs/github-symphony/issues/726)).
+
+- [#747](https://github.com/hojinzs/github-symphony/pull/747) [`8e635ef`](https://github.com/hojinzs/github-symphony/commit/8e635ef0e620f8ae51d88ae8457e245fff813c44) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Correct dispatch ordering for equal-priority candidates whose creation timestamps use different timezone offsets. ([#727](https://github.com/hojinzs/github-symphony/issues/727))
+
 ## 0.15.0
 
 ### Minor Changes
