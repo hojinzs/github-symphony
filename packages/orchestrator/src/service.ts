@@ -1551,12 +1551,12 @@ export class OrchestratorService {
           existingWorkspace?.workspaceKey ??
           existingIssueRecord?.workspaceKey ??
           preferredWorkspaceKey;
+        const previousRun = latestRunsByIssueId.get(issue.id) ?? null;
         const recoveryContext = await this.resolveIncompleteTurnRecoveryContext(
           tenant,
           issue,
-          latestRunsByIssueId.get(issue.id) ?? null
+          previousRun
         );
-        const previousRun = latestRunsByIssueId.get(issue.id) ?? null;
         const expiredConvergenceRun = expiredConvergenceLocks.get(issue.id);
         if (expiredConvergenceRun) {
           const recentEvents = await this.store.loadRecentRunEvents(
@@ -1608,6 +1608,10 @@ export class OrchestratorService {
             cumulativeRuntimeMs:
               recoveryContext || existingIssueRecord?.retryEntry
                 ? resolveCumulativeRuntimeMs(previousRun)
+                : undefined,
+            runtimeLifecycleId:
+              recoveryContext || existingIssueRecord?.retryEntry
+                ? (previousRun?.runtimeLifecycleId ?? previousRun?.runId)
                 : undefined,
             recovery: recoveryContext,
             onPrepared: async (candidate) => {
@@ -2682,6 +2686,7 @@ export class OrchestratorService {
        */
       attempt?: number | null;
       cumulativeRuntimeMs?: number;
+      runtimeLifecycleId?: string;
       recovery?: IncompleteTurnRecoveryContext | null;
       onPrepared?: (run: OrchestratorRunRecord) => Promise<void>;
     } = {}
@@ -2965,6 +2970,7 @@ export class OrchestratorService {
       threadId: null,
       cumulativeTurnCount: 0,
       cumulativeRuntimeMs: options.cumulativeRuntimeMs ?? 0,
+      runtimeLifecycleId: options.runtimeLifecycleId ?? runId,
       lastTurnSummary: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
@@ -3661,6 +3667,7 @@ export class OrchestratorService {
       ).toISOString();
     }
 
+    const retryCompletedAt = now.toISOString();
     const retryRecord: OrchestratorRunRecord = {
       ...runWithTokens,
       finalizationDeferralCount: 0,
@@ -3670,7 +3677,13 @@ export class OrchestratorService {
       attempt:
         persistedRetryKind === "continuation" ? 1 : runWithTokens.attempt + 1,
       processId: null,
-      updatedAt: now.toISOString(),
+      updatedAt: retryCompletedAt,
+      startedAt: null,
+      completedAt: retryCompletedAt,
+      cumulativeRuntimeMs: resolveCumulativeRuntimeMs({
+        ...runWithTokens,
+        completedAt: retryCompletedAt,
+      }),
       nextRetryAt,
       retryKind: persistedRetryKind,
       threadId:
@@ -4745,6 +4758,7 @@ export class OrchestratorService {
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
         cumulativeRuntimeMs: resolveCumulativeRuntimeMs(run),
+        runtimeLifecycleId: run.runtimeLifecycleId ?? run.runId,
         recovery,
         onPrepared: async (candidate) => {
           preparedRun = candidate;
@@ -4785,7 +4799,6 @@ export class OrchestratorService {
       ...restarted,
       attempt: run.attempt,
       retryKind: run.retryKind ?? "recovery",
-      createdAt: run.createdAt,
       issueWorkspaceKey: run.issueWorkspaceKey,
       threadId: null,
       cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
@@ -5058,13 +5071,19 @@ export class OrchestratorService {
           error,
         ].join(" ")
       : error;
+    const sessionEndedAt = run.completedAt ?? now.toISOString();
     await this.store.saveRun({
       ...run,
       status: suppressed ? "suppressed" : "retrying",
       attempt,
       processId: null,
       updatedAt: now.toISOString(),
-      completedAt: suppressed ? now.toISOString() : null,
+      startedAt: null,
+      completedAt: sessionEndedAt,
+      cumulativeRuntimeMs: resolveCumulativeRuntimeMs({
+        ...run,
+        completedAt: sessionEndedAt,
+      }),
       nextRetryAt: dueAt,
       // Requeueing only postpones a due retry; it must not discard the
       // recovery context that snapshot consumers use to expose dirty-workspace

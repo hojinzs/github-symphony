@@ -871,6 +871,91 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.codexTotals!.secondsRunning).toBe(420);
   });
 
+  it("accumulates a tick-dispatched retry with a fresh createdAt exactly once", () => {
+    const completedSession = mockRun({
+      runId: "run-001",
+      status: "failed",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:02:00Z",
+      startedAt: "2024-01-01T00:00:00Z",
+      completedAt: "2024-01-01T00:02:00Z",
+      runtimeLifecycleId: "run-001",
+    });
+    const activeRetry = mockRun({
+      runId: "run-002",
+      status: "running",
+      createdAt: "2024-01-01T00:07:00Z",
+      updatedAt: "2024-01-01T00:09:00Z",
+      startedAt: "2024-01-01T00:07:00Z",
+      completedAt: null,
+      cumulativeRuntimeMs: 120_000,
+      runtimeLifecycleId: "run-001",
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [activeRetry],
+      allRuns: [completedSession, activeRetry],
+      summary: { dispatched: 2, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:09:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.codexTotals!.secondsRunning).toBe(240);
+  });
+
+  it("uses frozen retry runtime instead of capacity wait bookkeeping time", () => {
+    const retryingRun = mockRun({
+      status: "retrying",
+      startedAt: null,
+      completedAt: "2024-01-01T00:02:00Z",
+      updatedAt: "2024-01-01T00:07:00Z",
+      cumulativeRuntimeMs: 120_000,
+      runtimeLifecycleId: "run-001",
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      allRuns: [retryingRun],
+      summary: { dispatched: 1, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:07:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.codexTotals!.secondsRunning).toBe(120);
+  });
+
+  it("sums legacy lifecycle sessions without cumulative runtime", () => {
+    const firstSession = mockRun({
+      runId: "run-001",
+      status: "failed",
+      createdAt: "2024-01-01T00:00:00Z",
+      startedAt: "2024-01-01T00:00:00Z",
+      completedAt: "2024-01-01T00:02:00Z",
+      updatedAt: "2024-01-01T00:02:00Z",
+    });
+    const secondSession = mockRun({
+      runId: "run-002",
+      status: "failed",
+      createdAt: "2024-01-01T00:00:00Z",
+      startedAt: "2024-01-01T00:07:00Z",
+      completedAt: "2024-01-01T00:09:00Z",
+      updatedAt: "2024-01-01T00:09:00Z",
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      allRuns: [firstSession, secondSession],
+      summary: { dispatched: 2, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:09:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.codexTotals!.secondsRunning).toBe(240);
+  });
+
   it("handles retrying run with null retryKind by defaulting to 'failure'", () => {
     const run = mockRun({
       status: "retrying",
