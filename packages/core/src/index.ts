@@ -14,6 +14,7 @@ export * from "./workflow/render.js";
 export * from "./workflow/exit-classification.js";
 export * from "./workflow/issue-identity.js";
 export * from "./workflow/normalization.js";
+export * from "./workflow/issue-routable.js";
 export * from "./workflow/pickup-labels.js";
 export * from "./orchestration/index.js";
 export * from "./runtime/index.js";

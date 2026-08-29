@@ -1013,6 +1013,56 @@ Prompt body.
     });
   });
 
+  it("normalizes required labels while preserving blank labels", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  required_labels:
+    - " Ready "
+    - ""
+  pickup_labels:
+    include:
+      - " Agent "
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.requiredLabels).toEqual(["ready", ""]);
+    expect(workflow.lifecycle.requiredLabels).toEqual(["ready", ""]);
+    expect(workflow.tracker.pickupLabels).toEqual({
+      include: ["agent"],
+      exclude: [],
+    });
+  });
+
+  it("rejects comma-separated required labels with the field path", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  required_labels: ready, agent
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      expect.objectContaining({
+        code: "workflow_validation_error",
+        path: "tracker.required_labels",
+      })
+    );
+  });
+
+  it("defaults omitted required labels to an empty list", () => {
+    const workflow = parseWorkflowMarkdown(SAMPLE_WORKFLOW);
+
+    expect(workflow.tracker.requiredLabels).toEqual([]);
+    expect(workflow.lifecycle.requiredLabels).toEqual([]);
+  });
+
   it("surfaces typed provider validation errors from the selected adapter", () => {
     const adapterError = new WorkflowValidationError(
       "workflow_validation_error",

@@ -68,14 +68,15 @@ diverge from the upstream shell-command hook model.
 strict parser as workflow loading. Failures include a stable error code; the
 `workflow validate --json` error also exposes its field path separately.
 
-| Rule                | Required value                                                                                                             | Error code/path                                                               |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Front matter syntax | A valid YAML mapping                                                                                                       | `workflow_parse_error` or `workflow_front_matter_not_a_map` at `front_matter` |
-| Numeric fields      | YAML integers; quoted numeric strings and fractions are rejected, including priority maps and per-state concurrency values | `workflow_validation_error` at the field path                                 |
-| `hooks.timeout_ms`  | A positive integer when provided                                                                                           | `workflow_validation_error` at `hooks.timeout_ms`                             |
-| `agent.max_turns`   | A positive integer when provided                                                                                           | `workflow_validation_error` at `agent.max_turns`                              |
-| `codex.command`     | A non-empty string when provided                                                                                           | `workflow_validation_error` at `codex.command`                                |
-| `tracker.kind`      | One of `github-project`, `linear`, or `file`                                                                               | `workflow_validation_error` at `tracker.kind`                                 |
+| Rule                      | Required value                                                                                                             | Error code/path                                                               |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Front matter syntax       | A valid YAML mapping                                                                                                       | `workflow_parse_error` or `workflow_front_matter_not_a_map` at `front_matter` |
+| Numeric fields            | YAML integers; quoted numeric strings and fractions are rejected, including priority maps and per-state concurrency values | `workflow_validation_error` at the field path                                 |
+| `hooks.timeout_ms`        | A positive integer when provided                                                                                           | `workflow_validation_error` at `hooks.timeout_ms`                             |
+| `agent.max_turns`         | A positive integer when provided                                                                                           | `workflow_validation_error` at `agent.max_turns`                              |
+| `codex.command`           | A non-empty string when provided                                                                                           | `workflow_validation_error` at `codex.command`                                |
+| `tracker.kind`            | One of `github-project`, `linear`, or `file`                                                                               | `workflow_validation_error` at `tracker.kind`                                 |
+| `tracker.required_labels` | An array of strings; comma-separated strings are rejected                                                                  | `workflow_validation_error` at `tracker.required_labels`                      |
 
 Omitted optional values retain their documented defaults. Per-state concurrency
 maps remain supported through `agent.max_concurrent_agents_by_state` and their
@@ -83,14 +84,18 @@ values must be positive YAML integers. This repository intentionally rejects an
 invalid override rather than ignoring it, so invalid configuration cannot silently
 disable dispatch for a state.
 
+`tracker.required_labels` defaults to `[]`. Labels are compared after trimming
+and lowercasing; every configured label must be present before an issue can be
+routed. A blank configured label is preserved and therefore matches no issue.
+
 ## Label and Timestamp Normalization
 
 Core normalizes workflow pickup labels and tracker-provided labels before label
 matching: it trims surrounding whitespace, lowercases values, drops blanks, and
 deduplicates while keeping the first occurrence. Thus `" Agent "`, `"agent"`,
-and `"AGENT"` are the same label. The same `normalizeLabels` helper is the
-shared implementation for current pickup-label handling and future
-`tracker.required_labels` configuration support.
+and `"AGENT"` are the same label. `tracker.required_labels` deliberately uses
+a separate normalization path: it retains blank configured labels so they match
+no issue, as required by Symphony specification §5.3.1.
 
 `parseTrackerTimestamp` accepts RFC 3339 timestamps, including lowercase `t` /
 `z` designators and leap seconds, and returns a canonical ISO 8601 UTC string;

@@ -92,6 +92,7 @@ type WorkflowValidationReport = {
     terminalStates: string[];
     blockerCheckStates: string[];
     planningStates: string[];
+    requiredLabels: string[];
     pollingIntervalMs: number;
     workspaceRoot: string | null;
     agentCommand: string;
@@ -863,6 +864,7 @@ function validateWorkflow(
       terminalStates: workflow.lifecycle.terminalStates,
       blockerCheckStates: workflow.tracker.blockerCheckStates,
       planningStates: workflow.lifecycle.planningStates,
+      requiredLabels: workflow.lifecycle.requiredLabels ?? [],
       pollingIntervalMs: workflow.polling.intervalMs,
       workspaceRoot: workflow.workspace.root,
       agentCommand: workflow.agentCommand,
