@@ -15009,7 +15009,9 @@ Prefer focused changes.
           ): Promise<WorkflowResolution>;
         }
       ).loadProjectWorkflowUncached(projectConfig, repository);
-      expect(projectResolution.workflow.tracker.projectId).toBe("project-env-id");
+      expect(projectResolution.workflow.tracker.projectId).toBe(
+        "project-env-id"
+      );
     } finally {
       if (originalProjectId === undefined) {
         delete process.env.PROJECT_ENV_WORKFLOW_ID;

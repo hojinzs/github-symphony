@@ -160,7 +160,9 @@ describe("deriveStandaloneProject", () => {
 
     await expect(
       deriveStandaloneProject(projectDir, { configDir })
-    ).rejects.toThrow('Workflow dispatch requires front matter field "tracker.kind".');
+    ).rejects.toThrow(
+      'Workflow dispatch requires front matter field "tracker.kind".'
+    );
   });
 
   it("points a repo-embedded workflow at repo start", async () => {
