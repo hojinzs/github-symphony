@@ -439,16 +439,18 @@ describe("init command config output", () => {
 
     expect(plan.workflowMd).toContain("tracker:\n  kind: linear\n");
     expect(plan.workflowMd).toContain(
-      "  endpoint: https://api.linear.app/graphql\n"
+      "  provider:\n    endpoint: https://api.linear.app/graphql\n"
     );
-    expect(plan.workflowMd).toContain("  api_key: $LINEAR_API_KEY\n");
+    expect(plan.workflowMd).toContain("    api_key: $LINEAR_API_KEY\n");
     expect(plan.workflowMd).toContain(
-      "  project_slug: symphony-0c79b11b75ea\n"
+      "    project_slug: symphony-0c79b11b75ea\n"
     );
     expect(plan.workflowMd).not.toContain("  pickup_labels:");
     expect(plan.workflowMd).not.toContain("  project_id:");
-    expect(plan.workflowMd).toContain("  blocker_check_states:\n    - Todo\n");
-    expect(plan.workflowMd).toContain("  planning_states: []\n");
+    expect(plan.workflowMd).toContain(
+      "    blocker_check_states:\n      - Todo\n"
+    );
+    expect(plan.workflowMd).toContain("    planning_states: []\n");
   });
 
   it("writes the simplified project config", async () => {

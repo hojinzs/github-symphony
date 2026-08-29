@@ -622,7 +622,7 @@ Prompt body
         "required": true,
         "status": "warn",
         "summary": "Flat tracker key(s) project_id, pickup_labels are deprecated and remain supported for compatibility.",
-        "title": "Deprecated GitHub tracker keys",
+        "title": "Deprecated tracker provider keys",
       }
     `);
   });

@@ -46,12 +46,19 @@ describe("generateWorkflowMarkdown", () => {
 
   it("generates valid WORKFLOW.md that round-trips through parseWorkflowMarkdown", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
-    const parsed = parseWorkflowMarkdown(markdown, {}, {
-      compatibilityMode: "legacy",
-    });
+    const parsed = parseWorkflowMarkdown(
+      markdown,
+      {},
+      {
+        compatibilityMode: "legacy",
+      }
+    );
 
     expect(parsed.format).toBe("front-matter");
     expect(parsed.githubProjectId).toBe("PVT_abc123");
+    expect(parsed.tracker.deprecatedKeys).toEqual([]);
+    expect(markdown).toContain("  provider:");
+    expect(markdown).not.toContain("\n  project_id:");
   });
 
   it("produces lifecycle config matching the input", () => {
@@ -210,15 +217,15 @@ describe("generateWorkflowMarkdown", () => {
       includePriorityTemplates: true,
     });
     const uncommented = markdown
-      .replace("  # priority:", "  priority:")
-      .replace("  #   source: project-field", "    source: project-field")
-      .replace("  #   field: Priority", "    field: Priority")
-      .replace("  #   values:", "    values:")
-      .replace("  #     Urgent: 0", "      Urgent: 0")
-      .replace("  #     High: 1", "      High: 1");
+      .replace("    # priority:", "    priority:")
+      .replace("    #   source: project-field", "      source: project-field")
+      .replace("    #   field: Priority", "      field: Priority")
+      .replace("    #   values:", "      values:")
+      .replace("    #     Urgent: 0", "        Urgent: 0")
+      .replace("    #     High: 1", "        High: 1");
     const parsed = parseWorkflowMarkdown(uncommented, {});
 
-    expect(markdown).toContain("  # priority:");
+    expect(markdown).toContain("    # priority:");
     expect(markdown).not.toContain("\n# priority:");
     expect(parsed.tracker.priority).toEqual({
       source: "project-field",
@@ -228,6 +235,16 @@ describe("generateWorkflowMarkdown", () => {
         High: 1,
       },
     });
+  });
+
+  it("keeps core lifecycle states outside the provider block", () => {
+    const markdown = generateWorkflowMarkdown(defaultInput);
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain("  active_states:");
+    expect(markdown).toContain("  terminal_states:");
+    expect(parsed.tracker.provider).not.toHaveProperty("active_states");
+    expect(parsed.tracker.provider).not.toHaveProperty("terminal_states");
   });
 
   it("includes a Status Map section in the prompt body", () => {
@@ -272,9 +289,13 @@ describe("generateWorkflowMarkdown", () => {
         },
       },
     });
-    const parsed = parseWorkflowMarkdown(markdown, {}, {
-      compatibilityMode: "legacy",
-    });
+    const parsed = parseWorkflowMarkdown(
+      markdown,
+      {},
+      {
+        compatibilityMode: "legacy",
+      }
+    );
 
     expect(markdown).toContain(JSON.stringify(injectedEndpoint));
     expect(markdown).toContain(JSON.stringify(injectedProjectSlug));
@@ -285,6 +306,8 @@ describe("generateWorkflowMarkdown", () => {
       include: ["ready\nruntime:\n  command: malicious", "security:high"],
       exclude: ["blocked # not a comment"],
     });
+    expect(parsed.tracker.deprecatedKeys).toEqual([]);
+    expect(markdown).toContain("  provider:");
     expect(parsed.runtime?.kind).toBe("codex-app-server");
     expect(parsed.runtime?.command).toBe("codex");
   });

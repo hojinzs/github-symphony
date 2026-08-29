@@ -311,16 +311,17 @@ Use a Project single-select field:
 ```yaml
 tracker:
   kind: github-project
-  project_id: PVT_kwDOxxxxxx
-  state_field: Status
-  priority:
-    source: project-field
-    field: Priority
-    values:
-      Urgent: 0
-      High: 1
-      Medium: 2
-      Low: 3
+  provider:
+    project_id: PVT_kwDOxxxxxx
+    state_field: Status
+    priority:
+      source: project-field
+      field: Priority
+      values:
+        Urgent: 0
+        High: 1
+        Medium: 2
+        Low: 3
 ```
 
 Or use exact repository labels:
@@ -328,14 +329,15 @@ Or use exact repository labels:
 ```yaml
 tracker:
   kind: github-project
-  project_id: PVT_kwDOxxxxxx
-  state_field: Status
-  priority:
-    source: labels
-    labels:
-      P0: 0
-      P1: 1
-      P2: 2
+  provider:
+    project_id: PVT_kwDOxxxxxx
+    state_field: Status
+    priority:
+      source: labels
+      labels:
+        P0: 0
+        P1: 1
+        P2: 2
 ```
 
 Or disable priority dispatch explicitly:
@@ -343,13 +345,14 @@ Or disable priority dispatch explicitly:
 ```yaml
 tracker:
   kind: github-project
-  priority:
-    source: disabled
+  provider:
+    priority:
+      source: disabled
 ```
 
 Lower numbers dispatch first. If an issue has multiple configured priority labels, Symphony uses the lowest numeric value and emits `priority.label_conflict_resolved`. If an active issue carries an unmapped configured-source value, it resolves to `priority = null` and emits `priority.unmapped`.
 
-Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. To migrate, replace it with `tracker.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.priority` wins and diagnostics warn about the conflict.
+Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. To migrate, replace it with `tracker.provider.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.provider.priority` wins and diagnostics warn about the conflict.
 
 `gh-symphony workflow validate` reports local config errors and legacy priority warnings. Strict front-matter failures use stable workflow error codes; with `--json`, `workflow validate` includes both `error.code` and `error.path`. `gh-symphony doctor` additionally checks live Project/repository drift: missing fields, missing labels, unmapped live options, stale configured mappings, and active issues that currently resolve to `priority = null` because their priority-like value is unmapped.
 
@@ -708,8 +711,9 @@ host:
 ```yaml
 tracker:
   kind: github-project
-  endpoint: https://github.example/api/graphql
-  project_id: PVT_xxx
+  provider:
+    endpoint: https://github.example/api/graphql
+    project_id: PVT_xxx
 ```
 
 Then initialize and validate the repository runtime:
@@ -722,9 +726,9 @@ gh-symphony doctor --smoke --issue owner/repo#123
 ```
 
 `GITHUB_GRAPHQL_API_URL` remains an optional process-level override. If both
-`tracker.endpoint` and `GITHUB_GRAPHQL_API_URL` are set, keep them identical;
+`tracker.provider.endpoint` and `GITHUB_GRAPHQL_API_URL` are set, keep them identical;
 `doctor` reports the resolved endpoint and warns when they disagree. During
-dispatch, the GitHub tracker injects the configured `tracker.endpoint` into the
+dispatch, the GitHub tracker injects the configured `tracker.provider.endpoint` into the
 worker as `GITHUB_GRAPHQL_API_URL`, so worker-side `github_graphql` calls do not
 fall back to `https://api.github.com/graphql`.
 
@@ -752,7 +756,8 @@ tick; dispatch events also include `workflowRevision`.
 
 The generated file includes:
 
-- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state; an explicit `blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
+- **Lifecycle**: core `tracker.active_states` and `tracker.terminal_states`, plus provider-owned `blocker_check_states` and `planning_states`, derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state; an explicit `tracker.provider.blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
+- **Tracker provider**: adapter-owned settings are generated under `tracker.provider`. Flat tracker keys are deprecated aliases and will be removed in the next major release (#679).
 - **Runtime**: `agent_command` derived from `gh-symphony workflow init`
 - **Hooks**: `after_create` hook path
 - **Scheduler**: `poll_interval_ms`
@@ -775,7 +780,7 @@ Available template variables:
 | `{{execution_phase}}`   | `planning`, `implementation`, or null    |
 | `{{guidelines}}`        | Prompt guidelines from WORKFLOW.md       |
 
-`tracker.planning_states` classifies matching states as `planning`; it does not
+`tracker.provider.planning_states` classifies matching states as `planning`; it does not
 impose a built-in plan-only gate or make a state eligible for dispatch.
 Use `execution_phase` in the prompt body when policy should change agent
 behavior, for example:

@@ -53,10 +53,6 @@ export function generateReferenceWorkflow(
 
   lines.push("tracker:");
   lines.push("  kind: github-project");
-  lines.push(`  project_id: ${input.projectId}`);
-  lines.push("  state_field: Status");
-  lines.push(...buildReferencePriorityLines(input.priority));
-  lines.push("");
 
   const activeColumns = input.statusColumns.filter((c) => c.role === "active");
   const waitColumns = input.statusColumns.filter((c) => c.role === "wait");
@@ -88,24 +84,30 @@ export function generateReferenceWorkflow(
     lines.push("  terminal_states: [{terminal column names}]");
   }
 
+  lines.push("  provider:");
+  lines.push(`    project_id: ${input.projectId}`);
+  lines.push("    state_field: Status");
+  lines.push(...buildReferencePriorityLines(input.priority, 4));
+
   lines.push(
-    ...buildReferenceStringList("blocker_check_states", blockerCheckStates)
+    ...buildReferenceStringList("blocker_check_states", blockerCheckStates, 4)
   );
   lines.push(
-    "  # Classifies matching active runs as planning; does not enforce a plan-only gate."
+    "    # Classifies matching active runs as planning; does not enforce a plan-only gate."
   );
   lines.push(
-    "  # Matching is trimmed/case-insensitive; use execution_phase in prompt policy."
+    "    # Matching is trimmed/case-insensitive; use execution_phase in prompt policy."
   );
-  lines.push(...buildReferenceStringList("planning_states", planningStates));
+  lines.push(...buildReferenceStringList("planning_states", planningStates, 4));
 
   lines.push("");
   lines.push("# Linear tracker example:");
   lines.push("# tracker:");
   lines.push("#   kind: linear");
-  lines.push("#   endpoint: https://api.linear.app/graphql");
-  lines.push("#   api_key: $LINEAR_API_KEY");
-  lines.push("#   project_slug: symphony-0c79b11b75ea");
+  lines.push("#   provider:");
+  lines.push("#     endpoint: https://api.linear.app/graphql");
+  lines.push("#     api_key: $LINEAR_API_KEY");
+  lines.push("#     project_slug: symphony-0c79b11b75ea");
   lines.push("#   active_states:");
   lines.push("#     - Todo");
   lines.push("#     - In Progress");
@@ -404,68 +406,80 @@ export function generateReferenceWorkflow(
   return lines.join("\n");
 }
 
-function buildReferenceStringList(key: string, values: string[]): string[] {
+function buildReferenceStringList(
+  key: string,
+  values: string[],
+  indent: number
+): string[] {
+  const padding = " ".repeat(indent);
   if (values.length === 0) {
-    return [`  ${key}: []`];
+    return [`${padding}${key}: []`];
   }
 
-  return [`  ${key}:`, ...values.map((value) => `    - ${value}`)];
+  return [
+    `${padding}${key}:`,
+    ...values.map((value) => `${padding}  - ${value}`),
+  ];
 }
 
 function buildReferencePriorityLines(
-  priority: WorkflowPriorityConfig | null
+  priority: WorkflowPriorityConfig | null,
+  indent: number
 ): string[] {
+  const padding = " ".repeat(indent);
+  const nestedPadding = " ".repeat(indent + 2);
+  const valuePadding = " ".repeat(indent + 4);
   const lines: string[] = [];
   if (priority?.source === "project-field" || priority?.source === "labels") {
     lines.push(
-      "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
+      `${padding}# Priority is explicit. Numbers below are editable policy (lower = higher priority).`
     );
   } else {
     lines.push(
-      "  # Priority dispatch is disabled until an operator chooses one explicit source."
+      `${padding}# Priority dispatch is disabled until an operator chooses one explicit source.`
     );
   }
   lines.push(
-    "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
+    `${padding}# See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md`
   );
   if (priority?.source === "project-field") {
-    lines.push("  priority:");
-    lines.push("    source: project-field");
-    lines.push(`    field: ${JSON.stringify(priority.field)}`);
-    lines.push("    values:");
+    lines.push(`${padding}priority:`);
+    lines.push(`${nestedPadding}source: project-field`);
+    lines.push(`${nestedPadding}field: ${JSON.stringify(priority.field)}`);
+    lines.push(`${nestedPadding}values:`);
     for (const [name, value] of Object.entries(priority.values)) {
-      lines.push(`      ${JSON.stringify(name)}: ${value}`);
+      lines.push(`${valuePadding}${JSON.stringify(name)}: ${value}`);
     }
     return lines;
   }
 
   if (priority?.source === "labels") {
-    lines.push("  priority:");
-    lines.push("    source: labels");
-    lines.push("    labels:");
+    lines.push(`${padding}priority:`);
+    lines.push(`${nestedPadding}source: labels`);
+    lines.push(`${nestedPadding}labels:`);
     for (const [name, value] of Object.entries(priority.labels)) {
-      lines.push(`      ${JSON.stringify(name)}: ${value}`);
+      lines.push(`${valuePadding}${JSON.stringify(name)}: ${value}`);
     }
     return lines;
   }
 
-  lines.push("  priority:");
-  lines.push("    source: disabled");
+  lines.push(`${padding}priority:`);
+  lines.push(`${nestedPadding}source: disabled`);
   lines.push("");
-  lines.push("  # Optional template: project-field priority source.");
-  lines.push("  # priority:");
-  lines.push("  #   source: project-field");
-  lines.push("  #   field: Priority");
-  lines.push("  #   values:");
-  lines.push("  #     Urgent: 0");
-  lines.push("  #     High: 1");
+  lines.push(`${padding}# Optional template: project-field priority source.`);
+  lines.push(`${padding}# priority:`);
+  lines.push(`${padding}#   source: project-field`);
+  lines.push(`${padding}#   field: Priority`);
+  lines.push(`${padding}#   values:`);
+  lines.push(`${padding}#     Urgent: 0`);
+  lines.push(`${padding}#     High: 1`);
   lines.push("");
-  lines.push("  # Optional template: labels priority source.");
-  lines.push("  # priority:");
-  lines.push("  #   source: labels");
-  lines.push("  #   labels:");
-  lines.push("  #     P0: 0");
-  lines.push("  #     P1: 1");
+  lines.push(`${padding}# Optional template: labels priority source.`);
+  lines.push(`${padding}# priority:`);
+  lines.push(`${padding}#   source: labels`);
+  lines.push(`${padding}#   labels:`);
+  lines.push(`${padding}#     P0: 0`);
+  lines.push(`${padding}#     P1: 1`);
   return lines;
 }
 

@@ -92,20 +92,21 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
 function buildTrackerFrontMatter(
   input: GenerateWorkflowInput
 ): Record<string, YamlFrontMatterNode> {
-  const tracker: Record<string, YamlFrontMatterNode> = {};
+  const provider: Record<string, YamlFrontMatterNode> = {};
+  const tracker: Record<string, YamlFrontMatterNode> = {
+    kind: input.tracker?.kind ?? "github-project",
+  };
   if (input.tracker?.kind === "linear") {
-    tracker.kind = "linear";
-    tracker.endpoint =
+    provider.endpoint =
       input.tracker.endpoint ?? "https://api.linear.app/graphql";
-    tracker.api_key = input.tracker.apiKey ?? "$LINEAR_API_KEY";
-    tracker.project_slug = input.tracker.projectSlug;
+    provider.api_key = input.tracker.apiKey ?? "$LINEAR_API_KEY";
+    provider.project_slug = input.tracker.projectSlug;
   } else {
-    tracker.kind = "github-project";
-    tracker.project_id = input.projectId;
-    tracker.state_field = input.stateFieldName;
+    provider.project_id = input.projectId;
+    provider.state_field = input.stateFieldName;
     const priority = buildPriorityFrontMatter(input);
     if (priority) {
-      tracker.priority = priority;
+      provider.priority = priority;
     }
   }
 
@@ -116,6 +117,8 @@ function buildTrackerFrontMatter(
   if (input.lifecycle.terminalStates.length > 0) {
     tracker.terminal_states = input.lifecycle.terminalStates;
   }
+
+  tracker.provider = provider;
 
   if (input.tracker?.kind === "linear") {
     const include = input.tracker.pickupLabels?.include ?? [];
@@ -128,12 +131,12 @@ function buildTrackerFrontMatter(
       if (exclude.length > 0) {
         pickupLabels.exclude = exclude;
       }
-      tracker.pickup_labels = pickupLabels;
+      provider.pickup_labels = pickupLabels;
     }
   }
 
-  tracker.blocker_check_states = input.lifecycle.blockerCheckStates ?? [];
-  tracker.planning_states = input.lifecycle.planningStates;
+  provider.blocker_check_states = input.lifecycle.blockerCheckStates ?? [];
+  provider.planning_states = input.lifecycle.planningStates;
 
   return tracker;
 }
@@ -226,32 +229,32 @@ function buildTrackerFrontMatterComments(
   const comments =
     input.priority.source === "disabled"
       ? [
-          "  # Priority dispatch is disabled until an operator chooses one explicit source.",
+          "    # Priority dispatch is disabled until an operator chooses one explicit source.",
         ]
       : [
-          "  # Priority is explicit. Numbers below are editable policy (lower = higher priority).",
+          "    # Priority is explicit. Numbers below are editable policy (lower = higher priority).",
         ];
   comments.push(
-    "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
+    "    # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
   );
 
   if (input.priority.source === "disabled" && input.includePriorityTemplates) {
     comments.push(
       "",
-      "  # Optional template: project-field priority source.",
-      "  # priority:",
-      "  #   source: project-field",
-      "  #   field: Priority",
-      "  #   values:",
-      "  #     Urgent: 0",
-      "  #     High: 1",
+      "    # Optional template: project-field priority source.",
+      "    # priority:",
+      "    #   source: project-field",
+      "    #   field: Priority",
+      "    #   values:",
+      "    #     Urgent: 0",
+      "    #     High: 1",
       "",
-      "  # Optional template: labels priority source.",
-      "  # priority:",
-      "  #   source: labels",
-      "  #   labels:",
-      "  #     P0: 0",
-      "  #     P1: 1"
+      "    # Optional template: labels priority source.",
+      "    # priority:",
+      "    #   source: labels",
+      "    #   labels:",
+      "    #     P0: 0",
+      "    #     P1: 1"
     );
   }
 

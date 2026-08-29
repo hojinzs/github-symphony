@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   DEFAULT_AFTER_CREATE_HOOK_COMMENT,
   DEFAULT_AFTER_CREATE_HOOK_PATH,
@@ -147,9 +148,10 @@ describe("generateReferenceWorkflow", () => {
     expect(output).not.toMatch(/\{\{[^}]+\}\}/);
   });
 
-  it("includes projectId in front matter", () => {
+  it("includes projectId in provider-form front matter", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("project_id: PVT_abc123");
+    expect(output).toContain("  provider:\n    project_id: PVT_abc123");
+    expect(output).not.toContain("\n  project_id:");
   });
 
   it("includes a Linear tracker example without webhook setup", () => {
@@ -157,8 +159,9 @@ describe("generateReferenceWorkflow", () => {
 
     expect(output).toContain("# Linear tracker example:");
     expect(output).toContain("#   kind: linear");
-    expect(output).toContain("#   api_key: $LINEAR_API_KEY");
-    expect(output).toContain("#   project_slug: symphony-0c79b11b75ea");
+    expect(output).toContain("#   provider:");
+    expect(output).toContain("#     api_key: $LINEAR_API_KEY");
+    expect(output).toContain("#     project_slug: symphony-0c79b11b75ea");
     expect(output).toContain("# a Linear webhook setup command.");
     expect(output).not.toContain("#   project_id:");
     expect(output).not.toContain("#   teamId:");
@@ -204,13 +207,41 @@ describe("generateReferenceWorkflow", () => {
   it("includes terminal states in tracker section", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("terminal_states:");
-    expect(output).toContain("    - Done");
+    expect(output).toContain("  terminal_states:\n    - Done");
   });
 
   it("defaults blocker_check_states to Todo without lifecycle input", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("blocker_check_states:\n    - Todo");
+    expect(output).toContain("blocker_check_states:\n      - Todo");
     expect(output).toContain("planning_states: []");
+  });
+
+  it("keeps the commented labels priority template valid when enabled", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      priority: null,
+    });
+    const enabled = output
+      .replace(
+        "    priority:\n      source: disabled",
+        "    # priority:\n    #   source: disabled"
+      )
+      .replace(
+        "    # Optional template: labels priority source.\n    # priority:",
+        "    # Optional template: labels priority source.\n    priority:"
+      )
+      .replace("    #   source: labels", "      source: labels")
+      .replace("    #   labels:", "      labels:")
+      .replace("    #     P0: 0", "        P0: 0")
+      .replace("    #     P1: 1", "        P1: 1");
+
+    const workflowMarkdown = enabled.slice(enabled.indexOf("---"));
+    expect(
+      parseWorkflowMarkdown(workflowMarkdown, {}).tracker.priority
+    ).toEqual({
+      source: "labels",
+      labels: { P0: 0, P1: 1 },
+    });
   });
 
   it("defaults blocker checks to the first custom active column", () => {
@@ -223,8 +254,8 @@ describe("generateReferenceWorkflow", () => {
       ],
     });
 
-    expect(output).toContain("blocker_check_states:\n    - Ready");
-    expect(output).not.toContain("blocker_check_states:\n    - Todo");
+    expect(output).toContain("blocker_check_states:\n      - Ready");
+    expect(output).not.toContain("blocker_check_states:\n      - Todo");
     expect(output).toContain("planning_states: []");
     expect(output).toContain(
       "Classifies matching active runs as planning; does not enforce a plan-only gate."
@@ -247,8 +278,8 @@ describe("generateReferenceWorkflow", () => {
       },
     });
 
-    expect(output).toContain("blocker_check_states:\n    - Todo");
-    expect(output).toContain("planning_states:\n    - In Progress");
+    expect(output).toContain("blocker_check_states:\n      - Todo");
+    expect(output).toContain("planning_states:\n      - In Progress");
   });
 
   it("handles null role columns in Status Map", () => {
