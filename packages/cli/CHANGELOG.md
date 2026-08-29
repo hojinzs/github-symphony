@@ -1,5 +1,27 @@
 # @gh-symphony/cli
 
+## 0.15.0
+
+### Minor Changes
+
+- [#714](https://github.com/hojinzs/github-symphony/pull/714) [`1d69b18`](https://github.com/hojinzs/github-symphony/commit/1d69b18494a4c296e762f3c8c10186494faf9394) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Move blocker eligibility into GitHub and Linear tracker-derived dispatchability, so orchestration scheduling and explain output consume adapter-provided reasons ([#663](https://github.com/hojinzs/github-symphony/issues/663)).
+
+- [#728](https://github.com/hojinzs/github-symphony/pull/728) [`2520c90`](https://github.com/hojinzs/github-symphony/commit/2520c90aa75f0ef1163277235071756297c3e67a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add GitHub Project provider validation, documented lifecycle defaults, and copyable deprecated flat-key migration diagnostics for [#708](https://github.com/hojinzs/github-symphony/issues/708).
+
+- [#735](https://github.com/hojinzs/github-symphony/pull/735) [`d270fe7`](https://github.com/hojinzs/github-symphony/commit/d270fe7116f00a436c503f8437168776341bba06) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Execute Codex provider-native dynamic tools in the Symphony host with issue-scoped context instead of agent-owned MCP subprocesses ([#730](https://github.com/hojinzs/github-symphony/issues/730)).
+
+- [#742](https://github.com/hojinzs/github-symphony/pull/742) [`dfa1afd`](https://github.com/hojinzs/github-symphony/commit/dfa1afd61d11ac48ddce5333503ad7d4073c422b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Enable Claude host-side MCP over a loopback HTTP/SSE endpoint with an ephemeral session capability, keeping adapter credentials out of generated `mcp.json` ([#731](https://github.com/hojinzs/github-symphony/issues/731)).
+
+- [#724](https://github.com/hojinzs/github-symphony/pull/724) [`73b5561`](https://github.com/hojinzs/github-symphony/commit/73b556199383dad5a244be8ead95bb6f25340ae0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add normalized workflow required-label routing for [#720](https://github.com/hojinzs/github-symphony/issues/720).
+
+### Patch Changes
+
+- [#741](https://github.com/hojinzs/github-symphony/pull/741) [`628528d`](https://github.com/hojinzs/github-symphony/commit/628528d81a23225ac95f21015f0eaff86204993a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Honor Symphony turn/read timeouts and `agent.max_turns` for Claude print-mode workers, including session-resumed continuation turns. ([#677](https://github.com/hojinzs/github-symphony/issues/677))
+
+- [#736](https://github.com/hojinzs/github-symphony/pull/736) [`51f28ee`](https://github.com/hojinzs/github-symphony/commit/51f28ee9d04573cb099da11f18769b53ba3b110e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Document the complete workflow template variable reference for [#675](https://github.com/hojinzs/github-symphony/issues/675).
+
+- [#729](https://github.com/hojinzs/github-symphony/pull/729) [`6a987fb`](https://github.com/hojinzs/github-symphony/commit/6a987fbe1f613ab4250af13308e4499162692248) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Normalize workflow pickup labels consistently (case- and surrounding-whitespace-insensitive) and provide shared tracker timestamp normalization helpers for [#725](https://github.com/hojinzs/github-symphony/issues/725).
+
 ## 0.14.0
 
 ### Minor Changes
