@@ -78,6 +78,7 @@ import {
   createTrackerToolContext,
   executeCodexDynamicToolCall,
 } from "./codex-dynamic-tools.js";
+import { buildCodexInitializeParams } from "./codex-initialize.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
@@ -1519,13 +1520,18 @@ async function runCodexClientProtocol(
         env,
         {},
         plan.dynamicTools.map((tool) => tool.name)
-      ).then((result) => {
-        sendMessage({ jsonrpc: "2.0", id: msg.id, result });
-        runtimeState.lastEventAt = new Date().toISOString();
-      }).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`[worker] host dynamic tool response failed: ${message}\n`);
-      });
+      )
+        .then((result) => {
+          sendMessage({ jsonrpc: "2.0", id: msg.id, result });
+          runtimeState.lastEventAt = new Date().toISOString();
+        })
+        .catch((error: unknown) => {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          process.stderr.write(
+            `[worker] host dynamic tool response failed: ${message}\n`
+          );
+        });
       return;
     }
 
@@ -1611,10 +1617,11 @@ async function runCodexClientProtocol(
   try {
     // Step 1: Initialize
     process.stderr.write("[worker] sending codex initialize\n");
-    await sendRequestWithTimeout("init-1", "initialize", {
-      clientInfo: { name: "github-symphony", version: "0.1.0" },
-      capabilities: {},
-    });
+    await sendRequestWithTimeout(
+      "init-1",
+      "initialize",
+      buildCodexInitializeParams(plan.dynamicTools)
+    );
     process.stderr.write("[worker] codex initialized\n");
 
     // Step 2: Notify codex that initialization is complete.
