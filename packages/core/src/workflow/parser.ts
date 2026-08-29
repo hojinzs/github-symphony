@@ -22,6 +22,7 @@ import {
 } from "./config.js";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
+  normalizeWorkflowState,
   type WorkflowLifecycleConfig,
 } from "./lifecycle.js";
 import { normalizeLabels } from "./normalization.js";
@@ -215,11 +216,10 @@ function parseWorkflowMarkdownInternal(
     }) ?? []
   );
 
-  const maxConcurrentAgentsByState = readNumberMap(
+  const maxConcurrentAgentsByState = readMaxConcurrentAgentsByState(
     agent,
     "max_concurrent_agents_by_state",
-    "agent.max_concurrent_agents_by_state",
-    { positive: true }
+    "agent.max_concurrent_agents_by_state"
   );
 
   const runtime = hasRuntime ? parseRuntimeConfig(runtimeNode, env) : null;
@@ -1362,6 +1362,37 @@ function readNumberMap(
       `${path}.${entryKey}`,
       `Workflow front matter field "${path}.${entryKey}" must be an integer.`
     );
+  }
+  return result;
+}
+
+function readMaxConcurrentAgentsByState(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string,
+  path = key
+): Record<string, number> {
+  const value = input[key];
+  if (value === undefined || value === null) {
+    return {};
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Workflow front matter field "${path}" must be an object.`);
+  }
+
+  const result: Record<string, number> = {};
+  for (const [entryKey, entryValue] of Object.entries(value)) {
+    if (
+      typeof entryValue !== "number" ||
+      !Number.isInteger(entryValue) ||
+      entryValue <= 0
+    ) {
+      continue;
+    }
+
+    const normalizedKey = normalizeWorkflowState(entryKey);
+    if (normalizedKey) {
+      result[normalizedKey] = entryValue;
+    }
   }
   return result;
 }

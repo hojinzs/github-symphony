@@ -148,13 +148,13 @@ describe("parseWorkflowMarkdown", () => {
     }
   });
 
-  it("applies defaults and preserves per-state concurrency maps", () => {
+  it("applies defaults and normalizes per-state concurrency map keys", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
 agent:
   max_concurrent_agents_by_state:
-    Ready: 2
+    " Ready ": 2
 codex:
   command: codex
 ---
@@ -162,7 +162,7 @@ Prompt`);
 
     expect(workflow.hooks.timeoutMs).toBeGreaterThan(0);
     expect(workflow.agent.maxTurns).toBeGreaterThan(0);
-    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Ready: 2 });
+    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ ready: 2 });
   });
 
   it("accepts tracker kinds injected by the adapter boundary", () => {
@@ -558,50 +558,22 @@ Prompt`,
     expect(thrown).toMatchObject({ path: "tracker.api_key" });
   });
 
-  it("rejects non-positive per-state concurrency overrides", () => {
-    let thrown: unknown;
-    try {
-      parseWorkflowMarkdown(`---
+  it("ignores invalid per-state concurrency overrides", () => {
+    const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
 agent:
   max_concurrent_agents_by_state:
     Ready: -1
+    Review: '2'
+    Done: 1.5
+    " In Progress ": 2
 codex:
   command: codex
 ---
 Prompt`);
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toMatchObject({
-      code: "workflow_validation_error",
-      path: "agent.max_concurrent_agents_by_state.Ready",
-    });
-  });
-
-  it.each([
-    ["a string", "'2'"],
-    ["a decimal", "1.5"],
-  ])("preserves map-entry paths when concurrency is %s", (_name, value) => {
-    let thrown: unknown;
-    try {
-      parseWorkflowMarkdown(`---
-tracker:
-  kind: github-project
-agent:
-  max_concurrent_agents_by_state:
-    Ready: ${value}
-codex:
-  command: codex
----
-Prompt`);
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toMatchObject({
-      code: "workflow_validation_error",
-      path: "agent.max_concurrent_agents_by_state.Ready",
+    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({
+      "in progress": 2,
     });
   });
 
@@ -651,7 +623,7 @@ Prompt`,
       extension_flag: true,
     });
     expect(workflow.agent.maxFailureRetries).toBe(6);
-    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
+    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ todo: 1 });
   });
 
   it("keeps planning disabled when blocker states are explicit", () => {
