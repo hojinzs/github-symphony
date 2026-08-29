@@ -353,6 +353,9 @@ describe("explainIssueDispatch", () => {
       eligible: false,
       reason: "not_dispatchable",
     });
+    expect(
+      report.checks.find((check) => check.id === "workflow_routability")
+    ).toMatchObject({ status: "pass" });
   });
 
   it("explains missing required labels after normalization", () => {
@@ -386,6 +389,30 @@ describe("explainIssueDispatch", () => {
         requiredLabels: ["ready", "agent"],
       })
     ).toEqual({ eligible: false, reason: "not_routable" });
+  });
+
+  it("prioritizes inactive state over missing required labels", () => {
+    const issue = makeIssue({
+      identifier: "acme/repo#1",
+      state: "Backlog",
+      labels: [],
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      lifecycle: { ...lifecycle, requiredLabels: ["agent"] },
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.summary).toContain('Project state "Backlog"');
+    expect(report.checks.filter((check) => check.status === "block")[0]?.id).toBe(
+      "workflow_state"
+    );
   });
 
   it("explains active linked PR cards when the canonical Issue is inactive", () => {
@@ -2456,7 +2483,6 @@ ${activeStateLines}
   terminal_states:
 ${terminalStateLines}
 ${requiredLabelLines}  blocker_check_states:
-  blocker_check_states:
     - Todo
 hooks:
   after_create: hooks/after_create.sh

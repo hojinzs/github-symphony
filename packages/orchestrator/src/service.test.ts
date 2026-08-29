@@ -6088,7 +6088,7 @@ Prefer focused changes.
     ).toMatchObject({ status: "cleanup_pending" });
   });
 
-  it("releases due retrying runs when the tracker issue is missing", async () => {
+  it("releases due retries that lose a required label with a routability reason", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-retry-release-")
@@ -6096,7 +6096,8 @@ Prefer focused changes.
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
-      "platform"
+      "platform",
+      { requiredLabels: ["agent"] }
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
@@ -6147,7 +6148,26 @@ Prefer focused changes.
 
     const spawnImpl = vi.fn();
     const listIssues = vi.fn().mockResolvedValue([]);
-    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        title: "Retry issue",
+        description: null,
+        state: "Todo",
+        priority: null,
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        url: "https://example.test/acme/platform/issues/1",
+        labels: [],
+        dispatchable: true,
+        assigneeId: null,
+        blockedBy: [],
+        repository,
+        tracker: { adapter: "github-project", issueId: "issue-1" },
+        metadata: {},
+      },
+    ]);
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
@@ -6172,7 +6192,6 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
-    expect(listIssues).toHaveBeenCalled();
     expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
       projectConfig,
       ["issue-1"],
@@ -6181,9 +6200,7 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
-    expect(updatedRun?.lastError).toBe(
-      "Retry canceled because the tracker issue is no longer actionable."
-    );
+    expect(updatedRun?.lastError).toContain("missing required labels");
     expect(issueRecords[0]).toMatchObject({
       issueId: "issue-1",
       completedOnce: false,
@@ -15852,6 +15869,7 @@ async function createRepositoryFixture(
     stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
     codexCommand?: string;
+    requiredLabels?: string[];
     rawWorkflow?: string;
   } = {}
 ): Promise<{
@@ -15962,6 +15980,7 @@ async function commitWorkflowFixture(
     includeAfterRunHook?: boolean;
     afterRunCommand?: string;
     codexCommand?: string;
+    requiredLabels?: string[];
     rawWorkflow?: string;
   } = {}
 ): Promise<void> {
@@ -16001,7 +16020,7 @@ tracker:
     - In Progress
   terminal_states:
     - Done
-  blocker_check_states:
+${options.requiredLabels?.length ? `  required_labels:\n${options.requiredLabels.map((label) => `    - ${label}`).join("\n")}\n` : ""}  blocker_check_states:
     - Todo
 hooks:
   after_create: hooks/after_create.sh

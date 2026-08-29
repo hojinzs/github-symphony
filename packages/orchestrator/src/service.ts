@@ -1892,14 +1892,13 @@ export class OrchestratorService {
           issue.isArchived !== true &&
           issueLifecycle !== null &&
           isStateTerminal(issue.state, issueLifecycle);
-        const recovery =
-          terminalState || activeButUnroutable
-            ? null
-            : await this.classifyIncompleteTurnDirtyWorkspace(
-                tenant,
-                activeRun,
-                now
-              );
+        const recovery = terminalState
+          ? null
+          : await this.classifyIncompleteTurnDirtyWorkspace(
+              tenant,
+              activeRun,
+              now
+            );
         const suppressedRun: OrchestratorRunRecord = {
           ...activeRun,
           status: "suppressed",
@@ -1921,13 +1920,13 @@ export class OrchestratorService {
               )
             : activeRun.runtimeSession,
           recovery,
-          lastError: recovery
-            ? "Run suppressed with recoverable incomplete-turn dirty workspace."
-            : terminalState
+          lastError: activeButUnroutable
+            ? `Run canceled by reconciliation because the active tracker issue is not routable: ${routability?.reason ?? "no reason was provided"}`
+            : recovery
+              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+              : terminalState
               ? "Run suppressed because the tracker issue moved to a terminal state."
-              : activeButUnroutable
-                ? `Run canceled by reconciliation because the active tracker issue is not routable: ${routability?.reason ?? "no reason was provided"}`
-                : "Run suppressed because the tracker state is no longer actionable.",
+              : "Run suppressed because the tracker state is no longer actionable.",
         };
         await this.store.saveRun(suppressedRun);
         this.logVerbose(
@@ -4276,15 +4275,19 @@ export class OrchestratorService {
       if (isStateTerminal(issue.state, resolution.lifecycle)) {
         return { action: "release", issue, terminal: true };
       }
-      const routability = issueRoutable(issue, resolution.lifecycle);
-      return this.isIssueCandidateEligible(issue, resolution.lifecycle)
+      const eligibility = isIssueCandidateEligibleWithReason(
+        issue,
+        resolution.lifecycle
+      );
+      return eligibility.eligible
         ? { action: "restart", issue }
         : {
             action: "release",
             issue,
-            reason: routability.routable
-              ? undefined
-              : `Retry canceled because the active tracker issue is not routable: ${routability.reason ?? "no reason was provided"}`,
+            reason:
+              eligibility.reason === "not_routable"
+                ? `Retry canceled because the active tracker issue is not routable: ${issueRoutable(issue, resolution.lifecycle).reason ?? "no reason was provided"}`
+                : undefined,
           };
     } catch (error) {
       const detail =
