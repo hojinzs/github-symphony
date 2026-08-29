@@ -151,8 +151,8 @@ function createSymphonyMcpServers(
 ): Record<string, McpServerDefinition> {
   if (env.SYMPHONY_CLAUDE_MCP_URL && env.SYMPHONY_CLAUDE_MCP_SESSION_TOKEN) {
     return {
-      github_graphql: {
-        type: "sse",
+      symphony: {
+        type: "http",
         url: env.SYMPHONY_CLAUDE_MCP_URL,
         headers: {
           Authorization: `Bearer ${env.SYMPHONY_CLAUDE_MCP_SESSION_TOKEN}`,

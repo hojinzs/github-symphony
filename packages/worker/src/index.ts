@@ -718,6 +718,7 @@ async function runNonCodexRuntimeAdapterLifecycle(
     env,
     runtimeRoot: env.WORKSPACE_RUNTIME_DIR,
     runtimeDirectory: env.WORKSPACE_RUNTIME_DIR,
+    hostMcpContext: createTrackerToolContext(env),
     onSpawned: (child) => {
       childProcess = child;
       if (runtimeState.run) {
@@ -892,6 +893,15 @@ async function runNonCodexRuntimeAdapterLifecycle(
     setTimeout(() => {
       process.exit(runtimeState.status === "completed" ? 0 : 1);
     }, 1500);
+  }
+}
+
+function parseIssueNativeRef(value: string | undefined): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
   }
 }
 

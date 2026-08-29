@@ -638,9 +638,16 @@ export function buildCodexRuntimePlan(
           ].filter((value): value is string => value !== undefined)
         )
       : servers
-  ).map(
-    ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
-  );
+  )
+    // Codex app-server accepts stdio definitions on this legacy path. HTTP
+    // entries are valid shared MCP config but belong to the Claude transport.
+    .filter(
+      (entry): entry is [string, { command: string; args?: string[]; env?: Record<string, string> }] =>
+        "command" in entry[1]
+    )
+    .map(
+      ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
+    );
   const gitCredentialHelper = createGitCredentialHelperEnvironment({
     ...config,
     githubToken: usesGitHubTokenBroker ? undefined : config.githubToken,

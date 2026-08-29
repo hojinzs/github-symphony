@@ -11,6 +11,7 @@ export * from "./adapter.js";
 export * from "./argv.js";
 export * from "./session-store.js";
 export * from "./mcp-compose.js";
+export * from "./mcp-http-server.js";
 export * from "./events.js";
 export * from "./exit-classifier.js";
 export * from "./preflight.js";
