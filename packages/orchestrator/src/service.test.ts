@@ -7302,6 +7302,7 @@ Prefer focused changes.
     await store.saveProjectConfig(projectConfig);
 
     const workers: EventEmitter[] = [];
+    const isProcessRunning = vi.fn().mockReturnValue(false);
     const spawnImpl = vi.fn().mockImplementation(() => {
       const worker = new EventEmitter() as EventEmitter & {
         pid: number;
@@ -7329,6 +7330,7 @@ Prefer focused changes.
         return createTrackerResponseWithState(repository, "Ready") as Response;
       }) as never,
       spawnImpl: spawnImpl as never,
+      isProcessRunning,
       now: () => now,
     });
 
@@ -7345,6 +7347,7 @@ Prefer focused changes.
     expect(retryWorkerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "retry_attempt=1"
     );
+    expect(isProcessRunning).toHaveBeenCalledWith(4310);
   });
 
   it("renders a queued failure retry attempt during ordinary dispatch", async () => {
@@ -15808,12 +15811,14 @@ Prefer focused changes.
       nextRetryAt: null,
     });
 
+    const isProcessRunning = vi.fn().mockReturnValue(false);
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4202,
         unref: vi.fn(),
       }) as never,
+      isProcessRunning,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
@@ -15830,6 +15835,7 @@ Prefer focused changes.
 
     expect(workspacePathFromHook).toBe(expectedWorkspacePath);
     expect(repositoryPathFromHook).toBe(repository.path);
+    expect(isProcessRunning).toHaveBeenCalledWith(999999);
   });
 });
 
