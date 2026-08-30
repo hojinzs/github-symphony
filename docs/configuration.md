@@ -125,6 +125,9 @@ ephemeral internal listener.
 `tracker.required_labels` defaults to `[]`. Labels are compared after trimming
 and lowercasing; every configured label must be present before an issue can be
 routed. A blank configured label is preserved and therefore matches no issue.
+Removing a required label blocks new dispatches and due retries. On the next
+reconciliation tick, an active worker for that issue is terminated without
+workspace cleanup so its work remains available for recovery.
 
 ## Label and Timestamp Normalization
 

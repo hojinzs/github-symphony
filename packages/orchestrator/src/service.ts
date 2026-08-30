@@ -22,6 +22,7 @@ import {
   executeWorkspaceHook,
   resolveHookCommand,
   isStateTerminal,
+  issueRoutable,
   isMatchingIssueRun,
   matchesWorkflowState,
   normalizeWorkflowState,
@@ -1853,7 +1854,19 @@ export class OrchestratorService {
           continue;
         }
 
+        const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
+        const routability = issueLifecycle
+          ? issueRoutable(issue, issueLifecycle)
+          : null;
+        const activeButUnroutable =
+          issueLifecycle !== null &&
+          issue.dispatchable &&
+          matchesWorkflowState(issue.state, issueLifecycle.activeStates) &&
+          routability !== null &&
+          !routability.routable;
+
         if (
+          !activeButUnroutable &&
           activeRun &&
           shouldAwaitTrackerProgressExit(activeRun, issue.state, now)
         ) {
@@ -1875,7 +1888,6 @@ export class OrchestratorService {
         ) {
           continue;
         }
-        const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
         const terminalState =
           issue.isArchived !== true &&
           issueLifecycle !== null &&
@@ -1908,9 +1920,11 @@ export class OrchestratorService {
               )
             : activeRun.runtimeSession,
           recovery,
-          lastError: recovery
-            ? "Run suppressed with recoverable incomplete-turn dirty workspace."
-            : terminalState
+          lastError: activeButUnroutable
+            ? `Run canceled by reconciliation because the active tracker issue is not routable: ${routability?.reason ?? "no reason was provided"}`
+            : recovery
+              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+              : terminalState
               ? "Run suppressed because the tracker issue moved to a terminal state."
               : "Run suppressed because the tracker state is no longer actionable.",
         };
@@ -3429,7 +3443,8 @@ export class OrchestratorService {
             ? { ...runWithTokens, issueState: retryAction.issue.state }
             : runWithTokens,
           issueRecords,
-          now
+          now,
+          retryAction.reason
         );
       }
       if (!(await this.hasRetryDispatchSlot(tenant, run, issueRecords, now))) {
@@ -4224,7 +4239,12 @@ export class OrchestratorService {
     trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<
     | { action: "restart"; issue: TrackedIssue }
-    | { action: "release"; issue?: TrackedIssue; terminal?: boolean }
+    | {
+        action: "release";
+        issue?: TrackedIssue;
+        terminal?: boolean;
+        reason?: string;
+      }
     | { action: "requeue"; error: string }
   > {
     try {
@@ -4255,9 +4275,20 @@ export class OrchestratorService {
       if (isStateTerminal(issue.state, resolution.lifecycle)) {
         return { action: "release", issue, terminal: true };
       }
-      return this.isIssueCandidateEligible(issue, resolution.lifecycle)
+      const eligibility = isIssueCandidateEligibleWithReason(
+        issue,
+        resolution.lifecycle
+      );
+      return eligibility.eligible
         ? { action: "restart", issue }
-        : { action: "release", issue };
+        : {
+            action: "release",
+            issue,
+            reason:
+              eligibility.reason === "not_routable"
+                ? `Retry canceled because the active tracker issue is not routable: ${issueRoutable(issue, resolution.lifecycle).reason ?? "no reason was provided"}`
+                : undefined,
+          };
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : this.formatErrorMessage(error);
@@ -4962,7 +4993,8 @@ export class OrchestratorService {
   private async releaseRetryingRun(
     run: OrchestratorRunRecord,
     issueRecords: IssueOrchestrationRecord[],
-    now: Date
+    now: Date,
+    reason?: string
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
@@ -4976,6 +5008,7 @@ export class OrchestratorService {
       nextRetryAt: null,
       runPhase: "canceled_by_reconciliation",
       lastError:
+        reason ??
         "Retry canceled because the tracker issue is no longer actionable.",
     };
     await this.store.saveRun(suppressedRun);

@@ -2,6 +2,7 @@ import {
   isStateActive,
   isStateTerminal,
   normalizeWorkflowState,
+  issueRoutable,
   deriveLegacyWorkspaceKey,
   isRecoveryWorkspaceActionable,
   type IssueWorkspaceRecord,
@@ -19,6 +20,7 @@ export type DispatchExplainCheck = {
     | "repository_linked"
     | "project_item_present"
     | "tracker_dispatchability"
+    | "workflow_routability"
     | "workflow_state"
     | "runtime_ownership"
     | "dispatch_limits";
@@ -106,6 +108,7 @@ export function explainIssueDispatch(
 
   checks.push(explainTrackerDispatchability(issue));
   checks.push(explainWorkflowState(issue, input.lifecycle));
+  checks.push(explainWorkflowRoutability(issue, input.lifecycle));
   checks.push(
     explainRuntimeOwnership(
       issue,
@@ -153,7 +156,7 @@ export function isIssueCandidateEligibleWithReason(
   lifecycle: WorkflowLifecycleConfig
 ): {
   eligible: boolean;
-  reason: "not_dispatchable" | "inactive_state" | null;
+  reason: "not_dispatchable" | "inactive_state" | "not_routable" | null;
 } {
   if (!issue.dispatchable) {
     return { eligible: false, reason: "not_dispatchable" };
@@ -163,7 +166,39 @@ export function isIssueCandidateEligibleWithReason(
     return { eligible: false, reason: "inactive_state" };
   }
 
+  if (!issueRoutable(issue, lifecycle).routable) {
+    return { eligible: false, reason: "not_routable" };
+  }
+
   return { eligible: true, reason: null };
+}
+
+function explainWorkflowRoutability(
+  issue: TrackedIssue,
+  lifecycle: WorkflowLifecycleConfig
+): DispatchExplainCheck {
+  if (!issue.dispatchable) {
+    return {
+      id: "workflow_routability",
+      status: "pass",
+      message: "Workflow routability is superseded by tracker dispatchability.",
+    };
+  }
+  const routability = issueRoutable(issue, lifecycle);
+  if (routability.routable) {
+    return {
+      id: "workflow_routability",
+      status: "pass",
+      message: "Issue satisfies workflow routing requirements.",
+    };
+  }
+
+  return {
+    id: "workflow_routability",
+    status: "block",
+    message: `not routable: ${routability.reason ?? "no reason was provided"}`,
+    details: { reason: routability.reason ?? null },
+  };
 }
 
 function explainTrackerDispatchability(
