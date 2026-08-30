@@ -10,4 +10,5 @@ services:
       - /e2e/work:size=100M,uid=1000,gid=1000,mode=1777
     environment:
       STUB_SCENARIO: ${STUB_SCENARIO:-happy}
+      E2E_REQUIRED_LABELS: ${E2E_REQUIRED_LABELS:-}
       GH_SYMPHONY_HTTP_TOKEN: ${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}
