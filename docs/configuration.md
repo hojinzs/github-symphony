@@ -78,20 +78,20 @@ diverge from the upstream shell-command hook model.
 
 ## WORKFLOW.md Front-matter Validation
 
-`gh-symphony workflow validate` and `gh-symphony repo doctor` use the same
+`gh-symphony workflow validate` and `gh-symphony doctor` use the same
 strict parser as workflow loading. Failures include a stable error code; the
 `workflow validate --json` error also exposes its field path separately.
 
-| Rule                      | Required value                                                                                                             | Error code/path                                                               |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Front matter syntax       | Optional; when present it must be a valid YAML mapping                                                                     | `workflow_parse_error` or `workflow_front_matter_not_a_map` at `front_matter` |
-| Numeric fields            | YAML integers; quoted numeric strings and fractions are rejected, including priority maps and per-state concurrency values | `workflow_validation_error` at the field path                                 |
-| `hooks.timeout_ms`        | A positive integer when provided                                                                                           | `workflow_validation_error` at `hooks.timeout_ms`                             |
-| `agent.max_turns`         | A positive integer when provided                                                                                           | `workflow_validation_error` at `agent.max_turns`                              |
-| `codex.command`           | A non-empty string when provided                                                                                           | `workflow_validation_error` at `codex.command`                                |
-| `tracker.kind`            | One of `github-project`, `linear`, or `file`                                                                               | `workflow_validation_error` at `tracker.kind`                                 |
-| `tracker.required_labels` | An array of strings; comma-separated strings are rejected                                                                  | `workflow_validation_error` at `tracker.required_labels`                      |
-| `server.port`             | An integer from `0` to `65535`; `0` requests an ephemeral local port                                                       | `workflow_validation_error` at `server.port`                                  |
+| Rule                      | Required value                                                                                                                     | Error code/path                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Front matter syntax       | Optional; when present it must be a valid YAML mapping                                                                             | `workflow_parse_error` or `workflow_front_matter_not_a_map` at `front_matter`                       |
+| Numeric fields            | YAML integers; quoted numeric strings and fractions are rejected. Invalid per-state concurrency entries are ignored with warnings. | `workflow_validation_error` at other invalid numeric field paths; warnings name ignored entry paths |
+| `hooks.timeout_ms`        | A positive integer when provided                                                                                                   | `workflow_validation_error` at `hooks.timeout_ms`                                                   |
+| `agent.max_turns`         | A positive integer when provided                                                                                                   | `workflow_validation_error` at `agent.max_turns`                                                    |
+| `codex.command`           | A non-empty string when provided                                                                                                   | `workflow_validation_error` at `codex.command`                                                      |
+| `tracker.kind`            | One of `github-project`, `linear`, or `file`                                                                                       | `workflow_validation_error` at `tracker.kind`                                                       |
+| `tracker.required_labels` | An array of strings; comma-separated strings are rejected                                                                          | `workflow_validation_error` at `tracker.required_labels`                                            |
+| `server.port`             | An integer from `0` to `65535`; `0` requests an ephemeral local port                                                               | `workflow_validation_error` at `server.port`                                                        |
 
 Without front matter, the complete trimmed file is used as the workflow prompt
 and all configuration uses defaults; tracker selection is then checked by the
@@ -108,7 +108,9 @@ maps remain supported through `agent.max_concurrent_agents_by_state`. State keys
 are trimmed and lowercased before storage and dispatch lookup, so for example
 `" In Progress "` and `in progress` configure the same limit. Entries whose
 values are non-positive or not YAML integers are ignored; valid entries in the
-same map remain effective.
+same map remain effective. `gh-symphony workflow validate` and `gh-symphony
+doctor` warn with the ignored entry path and reason so the configuration
+can be corrected without changing dispatch behavior.
 
 ## Optional HTTP Server
 
@@ -359,7 +361,7 @@ or field is omitted. Flat `tracker.project_id`, `tracker.endpoint`,
 `tracker.state_field`, `tracker.priority`, `tracker.pickup_labels`,
 `tracker.blocker_check_states`, and `tracker.planning_states` aliases remain
 supported for compatibility, but `gh-symphony workflow validate` and
-`gh-symphony repo doctor` warn and print a copyable `tracker.provider` block.
+`gh-symphony doctor` warn and print a copyable `tracker.provider` block.
 They are scheduled for removal in the next major release; see
 [ADR 2026-08-29](adr/2026-08-29_tracker-provider-alias-deprecation.md).
 

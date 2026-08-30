@@ -2961,6 +2961,50 @@ describe("doctor command handler", () => {
     });
   });
 
+  it("warns about ignored per-state concurrency entries", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\nagent:\n  max_concurrent_agents_by_state:\n    Ready: 0\n    Review: '2'\n    In-progress: 2\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.filter((check) => check.id === "state_concurrency")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Ignored per-state concurrency entry",
+          summary: expect.stringContaining(
+            "agent.max_concurrent_agents_by_state.Ready"
+          ),
+          details: expect.objectContaining({
+            path: "agent.max_concurrent_agents_by_state.Ready",
+            reason: "must be greater than zero",
+          }),
+        }),
+      ])
+    );
+  });
+
   it("warns for project-field priority drift without failing doctor", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

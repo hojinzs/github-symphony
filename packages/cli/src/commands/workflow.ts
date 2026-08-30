@@ -32,6 +32,7 @@ import { writeCliError } from "../cli-error.js";
 import {
   buildProviderDeprecationDiagnostics,
   buildPriorityConfigDiagnostics,
+  buildStateConcurrencyDiagnostics,
   type PriorityDiagnostic,
 } from "../priority-diagnostics.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
@@ -856,6 +857,7 @@ function validateWorkflow(
     warnings: [
       ...buildProviderDeprecationDiagnostics(workflow),
       ...buildPriorityConfigDiagnostics(workflow),
+      ...buildStateConcurrencyDiagnostics(workflow),
     ],
     summary: {
       trackerKind: workflow.tracker.kind,
