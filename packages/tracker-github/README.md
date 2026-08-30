@@ -1,25 +1,7 @@
 # @gh-symphony/tracker-github
 
-GitHub Project polling, issue normalization, and tracker-facing configuration validation that stay behind the core tracker adapter contract.
+GitHub Project polling, issue normalization, and tracker-facing configuration
+validation behind the core tracker adapter contract.
 
-Adapter profile note: labels are trimmed, lowercased, deduplicated, and sorted; timestamps are parsed to canonical ISO 8601 or `null`. A pagination response with `hasNextPage: true` and no cursor fails with the `tracker_pagination` category and a structured integrity event.
-
-## Adapter profile
-
-- Candidate polling returns every active, in-scope Project item, including items
-  that cannot be dispatched. GitHub-specific eligibility is expressed through
-  `dispatchable: false` and `dispatchReason`, so `repo explain` can report it.
-- `assigneeId` is the login of the first GitHub issue assignee, or `null` when
-  an issue has no assignee. It is a provider-native identity and is not a
-  cross-tracker identifier.
-- With `--assigned-only`, items assigned to another user stay visible but are
-  non-dispatchable. Repository scope and fork PR heads are handled the same
-  way.
-- Blocker eligibility is derived here, not by orchestration core. For states
-  selected by the workflow's `blocker_check_states`, unresolved GitHub
-  `blockedBy` issues produce `dispatchable: false` and a `dispatchReason`.
-  `blockedBy` remains best-effort provider metadata; closed blockers do not
-  prevent dispatch.
-- The adapter additionally owns GitHub-only lifecycle extensions: a synthetic
-  `Archived` state. This is a repository-specific integration choice, not a
-  normalized Symphony core state.
+The canonical compact adapter profile is
+[docs/trackers/github-project.md](../../docs/trackers/github-project.md).

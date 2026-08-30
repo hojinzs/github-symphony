@@ -5,14 +5,14 @@ current `linear` adapter before documenting its native tool.
 
 ## Configuration and scope
 
-| Item           | Contract                                                                                                                                                                                                                                        |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracker.kind` | `linear`                                                                                                                                                                                                                                        |
-| Provider scope | `tracker.provider.project_slug` selects the Linear project; the adapter polls its issues by workflow state. Team IDs and board IDs are not configuration substitutes.                                                                           |
-| Provider keys  | Required `project_slug`; optional `endpoint`, environment-reference `api_key`, and `pickup_labels` (`include`/`exclude`). `project_id`, `projectId`, `teamId`, and `team_id` are rejected. Unknown provider keys are preserved by core parsing. |
-| Defaults       | Endpoint defaults to `https://api.linear.app/graphql`; lifecycle defaults are `Status`, active `Todo`/`In Progress`, terminal `Done`, blocker checks in `Todo`, and no planning states.                                                         |
-| Credentials    | `api_key`, if given, must be `$NAME`, `env:NAME`, or `${NAME}`; otherwise polling uses `LINEAR_API_KEY`. `secretEnvironmentNames()` declares `LINEAR_API_KEY` and `LINEAR_AUTHORIZATION`, which stay out of agent-child inheritance.            |
-| Validation     | `project_slug` is required; optional strings must be non-empty; label rules must be string lists. These failures map to `invalid_tracker_config`; unavailable credentials map to `missing_tracker_secret`.                                      |
+| Item           | Contract                                                                                                                                                                                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracker.kind` | `linear`                                                                                                                                                                                                                                                            |
+| Provider scope | `tracker.provider.project_slug` selects the Linear project; the adapter polls its issues by workflow state. Team IDs and board IDs are not configuration substitutes.                                                                                               |
+| Provider keys  | Required `project_slug`; optional `endpoint`, environment-reference `api_key`, and `pickup_labels` (`include`/`exclude`). `project_id`, `projectId`, `teamId`, and `team_id` are rejected. Unknown provider keys are preserved by core parsing.                     |
+| Defaults       | Endpoint defaults to `https://api.linear.app/graphql`; lifecycle defaults are `Status`, active `Todo`/`In Progress`, terminal `Done`, and no planning states. Unless explicitly configured, blocker checks use the first active state (`Todo` with these defaults). |
+| Credentials    | `api_key`, if given, must be `$NAME`, `env:NAME`, or `${NAME}`; otherwise polling uses `LINEAR_API_KEY`. `secretEnvironmentNames()` declares `LINEAR_API_KEY` and `LINEAR_AUTHORIZATION`, which stay out of agent-child inheritance.                                |
+| Validation     | `project_slug` is required; optional strings must be non-empty; label rules must be string lists. See the error table for the §11.4 target mapping and current unnormalized surfaces.                                                                               |
 
 The adapter uses cursor pagination with a default page size of 50, a default
 maximum of 100 pages (capped at 1,000), and a 10-second per-page timeout
@@ -32,15 +32,21 @@ provider throttling because the adapter does not impose a separate scheduler.
 
 ## Error-category mapping
 
-| Provider-native failure                         | Adapter category         |
-| ----------------------------------------------- | ------------------------ |
-| Network failure or page timeout                 | `tracker_request`        |
-| Non-rate-limited HTTP status                    | `tracker_status`         |
-| Invalid JSON, GraphQL errors, or absent data    | `tracker_response`       |
-| Missing cursor or maximum-page truncation       | `tracker_pagination`     |
-| Linear throttle / `Retry-After` response        | `tracker_rate_limited`   |
-| Invalid provider keys or unsupported scope keys | `invalid_tracker_config` |
-| No resolved Linear credential                   | `missing_tracker_secret` |
+This table records the Symphony §11.4 target mapping required by §11.2. Today,
+only `tracker_pagination` is emitted as a structured adapter `category`.
+The other rows describe the intended normalized category; current configuration
+failures are `WorkflowValidationError` and request/response failures are native
+errors rather than a normalized category.
+
+| Provider-native failure                         | §11.4 target category    | Current adapter surface                |
+| ----------------------------------------------- | ------------------------ | -------------------------------------- |
+| Network failure or page timeout                 | `tracker_request`        | Native request/timeout error           |
+| Non-rate-limited HTTP status                    | `tracker_status`         | Native HTTP error                      |
+| Invalid JSON, GraphQL errors, or absent data    | `tracker_response`       | Native GraphQL/response error          |
+| Missing cursor or maximum-page truncation       | `tracker_pagination`     | Structured `tracker_pagination`        |
+| Linear throttle / `Retry-After` response        | `tracker_rate_limited`   | Native HTTP/GraphQL error              |
+| Invalid provider keys or unsupported scope keys | `invalid_tracker_config` | `WorkflowValidationError`              |
+| No resolved Linear credential                   | `missing_tracker_secret` | Adapter initialization/configure error |
 
 ## Native tool
 

@@ -6,23 +6,24 @@ Integration-layer behavior; it does not add provider semantics to core.
 
 ## Configuration and scope
 
-| Item           | Contract                                                                                                                                                                                                                                                                                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracker.kind` | `github-project`                                                                                                                                                                                                                                                                                                                                        |
-| Provider scope | `tracker.provider.project_id` selects one GitHub Project V2. `repository` is derived from each issue; the optional runtime repository filter and `--assigned-only` are adapter dispatchability rules.                                                                                                                                                   |
-| Provider keys  | `project_id`, `endpoint`, `state_field`, `priority_field`, `priority`, `pickup_labels`, `active_states`, `terminal_states`, `blocker_check_states`, and `planning_states`. Unknown provider keys are preserved by core configuration parsing. Flat `tracker.*` keys are deprecated compatibility aliases.                                               |
-| Defaults       | Lifecycle defaults are `Status`, active `Todo`/`In Progress`, terminal `Done`, blocker checks in `Todo`, and no planning states. Priority is `null` unless the configured `priority` policy or deprecated `priority_field` resolves a value.                                                                                                            |
-| Credentials    | `GITHUB_GRAPHQL_TOKEN` is the polling credential. `secretEnvironmentNames()` declares `GH_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_TOKEN`, and `GITHUB_GRAPHQL_TOKEN`; these names are removed from agent-child inheritance.                                                                                                                              |
-| Validation     | Declared string keys must be non-empty; `endpoint` must be an HTTP(S) URL; state lists must contain non-empty strings; `priority` and `pickup_labels` must be objects. Missing `project_id` or `GITHUB_GRAPHQL_TOKEN` prevents adapter use. Configuration failures map to `invalid_tracker_config`; absent credentials map to `missing_tracker_secret`. |
+| Item           | Contract                                                                                                                                                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracker.kind` | `github-project`                                                                                                                                                                                                                                                                                                                |
+| Provider scope | `tracker.provider.project_id` selects one GitHub Project V2. `repository` is derived from each issue; the optional runtime repository filter and `--assigned-only` are adapter dispatchability rules.                                                                                                                           |
+| Provider keys  | `project_id`, `endpoint`, `state_field`, `priority_field`, `priority`, `pickup_labels`, `active_states`, `terminal_states`, `blocker_check_states`, and `planning_states`. Unknown provider keys are preserved by core configuration parsing. Flat `tracker.*` keys are deprecated compatibility aliases.                       |
+| Defaults       | Lifecycle defaults are `Status`, active `Todo`/`In Progress`, terminal `Done`, and no planning states. Unless explicitly configured, blocker checks use the first active state (`Todo` with these defaults). Priority is `null` unless the configured `priority` policy or deprecated `priority_field` resolves a value.        |
+| Credentials    | `GITHUB_GRAPHQL_TOKEN` is the polling credential. `secretEnvironmentNames()` declares `GH_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_TOKEN`, and `GITHUB_GRAPHQL_TOKEN`; these names are removed from agent-child inheritance.                                                                                                      |
+| Validation     | Declared string keys must be non-empty; `endpoint` must be an HTTP(S) URL; state lists must contain non-empty strings; `priority` and `pickup_labels` must be objects. Missing `project_id` or `GITHUB_GRAPHQL_TOKEN` prevents adapter use. See the error table for the §11.4 target mapping and current unnormalized surfaces. |
 
-Candidate polling scopes Project V2 items to configured active states using the
-GitHub `query` argument. State and ID refreshes are unfiltered so terminal
-items remain reconcilable. The adapter uses cursor pagination with a default
-page size of 25; a next-page response without a cursor is an integrity failure.
-Each GraphQL request has a 30-second default timeout (or the configured positive
-`timeoutMs`). It records GraphQL rate-limit metadata and applies the shared
-GitHub policy: honor `Retry-After`, otherwise wait only until the known primary
-reset, capped at 60 seconds, before retrying rate-limited requests.
+Candidate polling excludes configured terminal states with the GitHub `query`
+argument; it can therefore return non-terminal items outside `active_states`.
+State and ID refreshes are unfiltered so terminal items remain reconcilable. The
+adapter uses cursor pagination with a default page size of 25; a next-page
+response without a cursor is an integrity failure. Each GraphQL request has a
+30-second default timeout (or the configured positive `timeoutMs`). It records
+GraphQL rate-limit metadata and applies the shared GitHub policy: it honors the
+later of `Retry-After` and a known primary reset. If that required wait exceeds
+60 seconds, the request is not retried and the rate-limit error is surfaced.
 
 The [2026-07-19 GitHub API rate-limit audit](../reports/2026-07-19-github-api-rate-limit-audit.md)
 records why the profile keeps the page size at 25 and measures query cost by
@@ -49,12 +50,18 @@ in the host process. See the linked tool document for scope and safe-use rules.
 
 ## Error-category mapping
 
-| Provider-native failure                                             | Adapter category         |
-| ------------------------------------------------------------------- | ------------------------ |
-| Network/transport failure or timeout                                | `tracker_request`        |
-| Non-rate-limited HTTP status                                        | `tracker_status`         |
-| Invalid JSON, GraphQL errors, or missing expected response data     | `tracker_response`       |
-| Missing cursor or incomplete cursor traversal                       | `tracker_pagination`     |
-| GitHub primary/secondary quota exhaustion or `Retry-After` response | `tracker_rate_limited`   |
-| Invalid Project/provider setting or unsupported configured shape    | `invalid_tracker_config` |
-| No resolved GitHub credential                                       | `missing_tracker_secret` |
+This table records the Symphony §11.4 target mapping required by §11.2. Today,
+only `tracker_pagination` is emitted as a structured adapter `category`.
+The other rows describe the intended normalized category; current failures are
+surfaced as `GitHubTrackerHttpError`, `GitHubTrackerQueryError`, or
+`WorkflowValidationError` and are not yet normalized.
+
+| Provider-native failure                                | §11.4 target category    | Current adapter surface                |
+| ------------------------------------------------------ | ------------------------ | -------------------------------------- |
+| Network/transport failure or timeout                   | `tracker_request`        | `GitHubTrackerHttpError`               |
+| Non-rate-limited HTTP status                           | `tracker_status`         | `GitHubTrackerHttpError`               |
+| Invalid JSON, GraphQL errors, or missing expected data | `tracker_response`       | `GitHubTrackerQueryError`              |
+| Missing cursor or incomplete cursor traversal          | `tracker_pagination`     | Structured `tracker_pagination`        |
+| GitHub quota exhaustion or `Retry-After` response      | `tracker_rate_limited`   | `GitHubTrackerHttpError`               |
+| Invalid Project/provider setting or configured shape   | `invalid_tracker_config` | `WorkflowValidationError`              |
+| No resolved GitHub credential                          | `missing_tracker_secret` | Adapter initialization/configure error |
