@@ -1,5 +1,19 @@
 # @gh-symphony/cli
 
+## 0.17.0
+
+### Minor Changes
+
+- [#755](https://github.com/hojinzs/github-symphony/pull/755) [`9f61b43`](https://github.com/hojinzs/github-symphony/commit/9f61b43e1e91855425ae9dd3bb208a3bddb6d421) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Apply required-label routing checks throughout orchestrator dispatch, retry, and reconciliation, with explainable cancellation reasons for [#721](https://github.com/hojinzs/github-symphony/issues/721).
+
+### Patch Changes
+
+- [#754](https://github.com/hojinzs/github-symphony/pull/754) [`c549d08`](https://github.com/hojinzs/github-symphony/commit/c549d0809fabe9a2e0881305322263608fae63a6) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Document host-side GitHub and Linear tracker tools, their execution-context and credential boundaries, and Docker verification for [#732](https://github.com/hojinzs/github-symphony/issues/732).
+
+- [#768](https://github.com/hojinzs/github-symphony/pull/768) [`188eb24`](https://github.com/hojinzs/github-symphony/commit/188eb2476498e50b8cb029c76ab0c4953d72d046) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Warn in `workflow validate` and `doctor` when ignored per-state concurrency entries cannot take effect ([#767](https://github.com/hojinzs/github-symphony/issues/767)).
+
+- [#761](https://github.com/hojinzs/github-symphony/pull/761) [`026916b`](https://github.com/hojinzs/github-symphony/commit/026916b752ce26a2c36134d10ac55d5d53554bf9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Support `server.port` workflow configuration and the `--port` HTTP CLI alias for [#751](https://github.com/hojinzs/github-symphony/issues/751).
+
 ## 0.16.0
 
 ### Minor Changes
