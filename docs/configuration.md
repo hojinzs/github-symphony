@@ -122,12 +122,22 @@ already occupied. A bare `--port` or `--http` keeps the legacy default-port
 auto-increment behavior, while omitting both options and `server.port` uses an
 ephemeral internal listener.
 
-`tracker.required_labels` defaults to `[]`. Labels are compared after trimming
-and lowercasing; every configured label must be present before an issue can be
-routed. A blank configured label is preserved and therefore matches no issue.
-Removing a required label blocks new dispatches and due retries. On the next
-reconciliation tick, an active worker for that issue is terminated without
+`tracker.required_labels` defaults to `[]`. It is an ALL-of routability gate:
+labels are compared after trimming and lowercasing, and every configured label
+must be present before an issue can be routed. A blank configured label is
+preserved and therefore matches no issue. Removing a required label blocks new
+dispatches and due retries; a worker also stops before its next turn when its
+authenticated tracker-state read returns a refreshed, non-routable snapshot.
+Reconciliation still terminates an active worker on its next tick without
 workspace cleanup so its work remains available for recovery.
+
+`tracker.provider.pickup_labels.include` is separate from
+`tracker.required_labels`. For GitHub and Linear it is an ANY-of candidate
+pre-filter: an issue needs at least one include label to enter the dispatch
+candidate set. `exclude` always wins. Pickup-label changes affect future
+candidate listing only; they do not make an already-running issue non-routable
+or stop its worker. Use `required_labels` when the label must remain true
+throughout a run.
 
 ## Label and Timestamp Normalization
 

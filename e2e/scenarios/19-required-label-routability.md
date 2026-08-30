@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Verify that an active issue which loses a required label is canceled on the
-next reconciliation tick, retains its workspace, and exposes the routing
-reason to diagnostics.
+Verify both required-label boundaries: a candidate missing a required label is
+never dispatched, and an active issue that loses one is canceled on the next
+reconciliation tick. Both cases retain an explainable routability reason.
 
 ## Setup
 
@@ -14,7 +14,20 @@ reason to diagnostics.
 3. Inject a `Ready` file-tracker issue with the `agent` label and wait until
    the stub worker is running.
 
-## Steps
+## Case A: missing label before dispatch
+
+1. Inject a `Ready` file-tracker issue without the `agent` label.
+2. Trigger `POST /api/v1/refresh` with the E2E bearer token and wait for two
+   reconciliation ticks.
+3. Inspect `/api/v1/state`, `events.ndjson`, and `repo explain`.
+
+### Expected results
+
+- No worker is started and no `run-dispatched` event is written.
+- `gh-symphony repo explain <identifier>` reports
+  `not routable: Issue is missing required labels ("agent").`.
+
+## Case B: label removed during a run
 
 1. Remove `agent` from the issue's `labels` array while preserving its active
    state.
