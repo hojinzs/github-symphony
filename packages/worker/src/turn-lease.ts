@@ -66,6 +66,7 @@ export async function refreshTrackerState(
       outcome?: string;
       state?: string | null;
       routable?: boolean | null;
+      routableReason?: string | null;
     };
     if (
       result.ok !== true ||
@@ -77,6 +78,11 @@ export async function refreshTrackerState(
     }
 
     const active = matchesWorkflowState(result.state, activeStates);
+    if (active && !result.routable) {
+      console.error(
+        `[worker] issue no longer routable: ${result.routableReason ?? "no reason provided"}`
+      );
+    }
     return active && result.routable ? "active" : "non-actionable";
   } catch {
     return "unknown";

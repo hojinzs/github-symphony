@@ -190,6 +190,7 @@ describe("tracker refresh fail-closed threshold", () => {
   });
 
   it("returns non-actionable when a refreshed active issue is not routable", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -197,6 +198,7 @@ describe("tracker refresh fail-closed threshold", () => {
           outcome: "confirmed",
           state: "In progress",
           routable: false,
+          routableReason: 'Issue is missing required labels ("agent").',
         })
       )
     );
@@ -212,6 +214,10 @@ describe("tracker refresh fail-closed threshold", () => {
         fetchImpl
       )
     ).resolves.toBe("non-actionable");
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[worker] issue no longer routable: Issue is missing required labels ("agent").'
+    );
+    errorSpy.mockRestore();
   });
 
   it("fails closed when a confirmed read lacks a routability decision", async () => {
