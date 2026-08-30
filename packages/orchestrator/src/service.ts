@@ -537,7 +537,7 @@ export class OrchestratorService {
           }
         }
 
-        const result = await requestState(
+        let result = await requestState(
           this.projectConfig,
           {
             issueSubjectId: run.issueSubjectId,
@@ -546,6 +546,51 @@ export class OrchestratorService {
           },
           this.createTrackerDependencies()
         );
+        if (
+          input.request.type === "state-read" &&
+          result.ok === true &&
+          result.outcome === "confirmed"
+        ) {
+          const workflowResolution = await this.loadProjectWorkflow(
+            this.projectConfig,
+            run.repository
+          );
+          if (!isUsableWorkflowResolution(workflowResolution)) {
+            result = {
+              ...result,
+              ok: false,
+              outcome: "failed",
+              routable: null,
+              error: "workflow_unavailable_for_routability_check",
+            };
+          } else {
+            const refreshed = await trackerAdapter.fetchIssueStatesByIds(
+              this.projectConfig,
+              [run.issueSubjectId],
+              this.createTrackerDependencies()
+            );
+            const refreshedIssue = refreshed.find(
+              (issue) => issue.id === run.issueSubjectId
+            );
+            if (!refreshedIssue) {
+              result = {
+                ...result,
+                ok: false,
+                outcome: "failed",
+                routable: null,
+                error: "tracker_issue_snapshot_missing",
+              };
+            } else {
+              result = {
+                ...result,
+                routable: issueRoutable(
+                  refreshedIssue,
+                  workflowResolution.lifecycle
+                ).routable,
+              };
+            }
+          }
+        }
         let recordConfirmedTrackerProgress = false;
         if (input.request.type === "transition-request") {
           const workflowResolution = await this.loadProjectWorkflow(

@@ -250,6 +250,11 @@ export type TrackerStateResult = {
   reason: string | null;
   rateLimits: Record<string, unknown> | null;
   error: string | null;
+  /**
+   * State-read only: routability calculated from a freshly normalized tracker
+   * snapshot. `null` means that no routability decision was available.
+   */
+  routable?: boolean | null;
 };
 
 export type TrackerTerminalFact = {

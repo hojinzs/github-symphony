@@ -109,7 +109,12 @@ describe("tracker refresh fail-closed threshold", () => {
       .fn()
       .mockResolvedValue(
         new Response(
-          JSON.stringify({ ok: true, outcome: "confirmed", state: "LAND" })
+          JSON.stringify({
+            ok: true,
+            outcome: "confirmed",
+            state: "LAND",
+            routable: true,
+          })
         )
       );
 
@@ -142,7 +147,12 @@ describe("tracker refresh fail-closed threshold", () => {
       .fn()
       .mockResolvedValue(
         new Response(
-          JSON.stringify({ ok: true, outcome: "confirmed", state: "Done" })
+          JSON.stringify({
+            ok: true,
+            outcome: "confirmed",
+            state: "Done",
+            routable: true,
+          })
         )
       );
 
@@ -174,6 +184,55 @@ describe("tracker refresh fail-closed threshold", () => {
           SYMPHONY_RUN_ID: "run-1",
         },
         ["Ready"],
+        fetchImpl
+      )
+    ).resolves.toBe("unknown");
+  });
+
+  it("returns non-actionable when a refreshed active issue is not routable", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "In progress",
+          routable: false,
+        })
+      )
+    );
+
+    await expect(
+      refreshTrackerState(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        ["Ready", "In progress", "Land"],
+        fetchImpl
+      )
+    ).resolves.toBe("non-actionable");
+  });
+
+  it("fails closed when a confirmed read lacks a routability decision", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "In progress",
+        })
+      )
+    );
+
+    await expect(
+      refreshTrackerState(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        ["Ready", "In progress", "Land"],
         fetchImpl
       )
     ).resolves.toBe("unknown");

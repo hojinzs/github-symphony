@@ -65,17 +65,19 @@ export async function refreshTrackerState(
       ok?: boolean;
       outcome?: string;
       state?: string | null;
+      routable?: boolean | null;
     };
     if (
       result.ok !== true ||
       result.outcome !== "confirmed" ||
-      typeof result.state !== "string"
+      typeof result.state !== "string" ||
+      typeof result.routable !== "boolean"
     ) {
       return "unknown";
     }
 
     const active = matchesWorkflowState(result.state, activeStates);
-    return active ? "active" : "non-actionable";
+    return active && result.routable ? "active" : "non-actionable";
   } catch {
     return "unknown";
   }
