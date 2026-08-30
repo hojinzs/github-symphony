@@ -255,6 +255,8 @@ export type TrackerStateResult = {
    * snapshot. `null` means that no routability decision was available.
    */
   routable?: boolean | null;
+  /** State-read only: concrete reason when the refreshed issue is unroutable. */
+  routableReason?: string | null;
 };
 
 export type TrackerTerminalFact = {

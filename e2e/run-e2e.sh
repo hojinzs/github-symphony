@@ -228,7 +228,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
     if [ -z "$SCENARIO_RUN_ID" ]; then
       SCENARIO_RUN_ID=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0].get('runId','') if r else '')" 2>/dev/null || echo "")
     fi
-    if [ "$SCENARIO" = "required-label-removed" ]; then
+    if [ "$SCENARIO" = "required-label-removed" ] && [ "$LABEL_REMOVED" != true ]; then
       python3 - <<'PY'
 import json
 from pathlib import Path

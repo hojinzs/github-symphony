@@ -575,18 +575,25 @@ export class OrchestratorService {
             if (!refreshedIssue) {
               result = {
                 ...result,
-                ok: false,
-                outcome: "failed",
-                routable: null,
+                // A filtered, deleted, or archived item is an intentional
+                // stop condition for the worker, not an orchestrator outage.
+                routable: false,
+                routableReason: "tracker_issue_snapshot_missing",
                 error: "tracker_issue_snapshot_missing",
               };
             } else {
+              const routability = issueRoutable(
+                refreshedIssue,
+                workflowResolution.lifecycle
+              );
               result = {
                 ...result,
-                routable: issueRoutable(
-                  refreshedIssue,
-                  workflowResolution.lifecycle
-                ).routable,
+                // State and routability must describe precisely the same
+                // normalized snapshot at a turn boundary.
+                state: refreshedIssue.state,
+                rateLimits: refreshed.rateLimits ?? result.rateLimits,
+                routable: routability.routable,
+                routableReason: routability.reason,
               };
             }
           }
