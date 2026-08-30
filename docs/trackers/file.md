@@ -22,12 +22,12 @@ a file/response failure rather than a silent partial read.
 
 ## Normalized issue contract
 
-| Field or condition                  | File mapping                                                                                                                                                                                                            |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id` and `native_ref`               | Fixture `id` is retained unchanged. `native_ref` is retained when supplied; otherwise it defaults to `{ itemId: tracker.itemId }` only for a string item ID, or `{ itemId: null }`.                                     |
-| State, labels, priority, timestamps | Valid fixture values are preserved; fixture authors supply their normalized form. The adapter does not invent provider-specific state, label, priority, or timestamp mappings.                                          |
-| `dispatchable`                      | An omitted value defaults to `true`; `false` and `dispatchReason` can be supplied to exercise the adapter-neutral scheduler gate. Pickup-label filtering remains available through the shared normalized filter.        |
-| Malformed and optional fields       | Entries lacking required shape (`id`, `identifier`, `state`, object `repository`, object `tracker`, or a boolean `dispatchable` when supplied) are skipped with a diagnostic. Optional `assigneeId` defaults to `null`. |
+| Field or condition                  | File mapping                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id` and `native_ref`               | Fixture `id` is retained unchanged. `native_ref` is retained when supplied; otherwise it defaults to `{ itemId: tracker.itemId }` only for a string item ID, or `{ itemId: null }`.                                                                                                                                |
+| State, labels, priority, timestamps | Valid fixture values are preserved; fixture authors supply their normalized form. The adapter does not invent provider-specific state, label, priority, or timestamp mappings.                                                                                                                                     |
+| `dispatchable`                      | An omitted value defaults to `true`; `false` and `dispatchReason` can be supplied to exercise the adapter-neutral scheduler gate. Pickup-label filtering remains available through the shared normalized filter.                                                                                                   |
+| Malformed and optional fields       | Entries lacking the checked shape (`id`, `identifier`, `state`, object `repository`, object `tracker`, or a boolean `dispatchable` when supplied) are skipped with a diagnostic. This check is not exhaustive: for example, a missing `title` is currently not rejected. Optional `assigneeId` defaults to `null`. |
 
 ## Native tools and errors
 
