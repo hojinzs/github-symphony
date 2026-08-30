@@ -32,7 +32,6 @@ export async function executeLinearGraphQL(
 ): Promise<unknown> {
   assertTrackerToolExecutionContext(context);
   validateLinearGraphQLInvocation(invocation);
-  assertInvocationTargetsActiveIssue(invocation, context);
   const authorization = resolveLinearAuthorizationHeader(config);
   const apiUrl = validateLinearGraphQLApiUrl(
     config.apiUrl ?? DEFAULT_LINEAR_GRAPHQL_API_URL
@@ -72,38 +71,6 @@ function assertTrackerToolExecutionContext(
   ) {
     throw new Error("Tracker tool context must identify the current issue.");
   }
-}
-
-function assertInvocationTargetsActiveIssue(
-  invocation: LinearGraphQLInvocation,
-  context: TrackerToolExecutionContext | undefined
-): void {
-  if (!context) return;
-  const allowedTargets = collectScopeValues({
-    id: context.issue.id,
-    identifier: context.issue.identifier,
-    nativeRef: context.issue.nativeRef,
-  });
-  const invocationValues = collectScopeValues(invocation.variables ?? {});
-  if (![...invocationValues].some((value) => allowedTargets.has(value))) {
-    throw new Error(
-      "linear_graphql requires variables that target the active issue scope."
-    );
-  }
-}
-
-function collectScopeValues(
-  value: unknown,
-  output = new Set<string>()
-): Set<string> {
-  if (typeof value === "string" && value.trim() !== "") {
-    output.add(value);
-  } else if (Array.isArray(value)) {
-    for (const entry of value) collectScopeValues(entry, output);
-  } else if (value && typeof value === "object") {
-    for (const entry of Object.values(value)) collectScopeValues(entry, output);
-  }
-  return output;
 }
 
 export function validateLinearGraphQLInvocation(

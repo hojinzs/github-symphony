@@ -131,10 +131,7 @@ if (server.type !== "http") {
 }
 (async () => {
   const calls = [
-    {
-      query: "query ActiveIssue($id: ID!) { node(id: $id) { id } }",
-      variables: { id: "issue-worker-claude" },
-    },
+    { query: "query { viewer { login } }" },
     {
       query: "mutation AddComment($subjectId: ID!, $body: String!) { addComment(input: { subjectId: $subjectId, body: $body }) { commentEdge { node { id } } } }",
       variables: { subjectId: "issue-worker-claude", body: "host-side comment" },

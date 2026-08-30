@@ -54,8 +54,12 @@ describe("validateLinearGraphQLInvocation", () => {
 });
 
 describe("executeLinearGraphQL", () => {
-  it("rejects a host-side operation that is not scoped to the active issue", async () => {
-    const fetchImpl = vi.fn();
+  it("executes a workspace query while carrying host-side issue context", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { id: "user-1" } } }), {
+        status: 200,
+      })
+    );
 
     await expect(
       executeLinearGraphQL(
@@ -70,8 +74,8 @@ describe("executeLinearGraphQL", () => {
           },
         }
       )
-    ).rejects.toThrow(/active issue scope/);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    ).resolves.toEqual({ data: { viewer: { id: "user-1" } } });
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it("posts a single operation with runtime-managed Authorization", async () => {

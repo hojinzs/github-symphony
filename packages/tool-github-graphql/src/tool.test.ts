@@ -300,8 +300,12 @@ describe("resolveGitHubGraphQLToken", () => {
 });
 
 describe("executeGitHubGraphQL", () => {
-  it("rejects a host-side operation that is not scoped to the active issue", async () => {
-    const fetchImpl = vi.fn();
+  it("executes a repository query while carrying host-side issue context", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
+        status: 200,
+      })
+    );
 
     await expect(
       executeGitHubGraphQL(
@@ -312,12 +316,18 @@ describe("executeGitHubGraphQL", () => {
           issue: {
             id: "issue-1",
             identifier: "owner/repo#1",
-            nativeRef: { itemId: "project-item-1" },
+            nativeRef: {
+              itemId: "project-item-1",
+              contentType: "Issue",
+              sourceState: "OPEN",
+              linkedPullRequests: [],
+              linkedPullRequestsTruncated: false,
+            },
           },
         }
       )
-    ).rejects.toThrow(/active issue scope/);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    ).resolves.toEqual({ data: { viewer: { login: "octo" } } });
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   afterEach(() => {

@@ -32,7 +32,7 @@ globalThis.fetch = async (url, init) => {
                 },
               },
             }
-          : { data: { node: { id: "docker-issue-730" } } }
+          : { data: { viewer: { login: "docker-host-tool" } } }
     ),
     { status: 200 }
   );
@@ -42,10 +42,7 @@ try {
   responses = await Promise.all([
     executeCodexDynamicToolCall(
       "github_graphql",
-      {
-        query: "query ActiveIssue($id: ID!) { node(id: $id) { id } }",
-        variables: { id: "docker-issue-730" },
-      },
+      { query: "query { viewer { login } }" },
       context,
       env
     ),
@@ -82,7 +79,7 @@ try {
 if (
   responses.some((response) => response.success !== true) ||
   responses[0]?.contentItems[0]?.text !==
-    '{"data":{"node":{"id":"docker-issue-730"}}}'
+    '{"data":{"viewer":{"login":"docker-host-tool"}}}'
 ) {
   throw new Error(`unexpected_host_tool_response:${JSON.stringify(responses)}`);
 }
@@ -94,7 +91,7 @@ if (
       request.url !== "https://api.github.com/graphql" ||
       request.init?.headers?.authorization !== "Bearer host-only-test-token"
   ) ||
-  !requests[0]?.init?.body?.includes("docker-issue-730") ||
+  !requests[0]?.init?.body?.includes("viewer") ||
   !requests[1]?.init?.body?.includes("addComment") ||
   !requests[1]?.init?.body?.includes("docker-issue-730") ||
   !requests[2]?.init?.body?.includes("updateProjectV2ItemFieldValue") ||

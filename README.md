@@ -989,8 +989,7 @@ Other Codex approval policies fail workflow validation because operator approval
 handling is not implemented. Operators can configure the Codex sandbox settings,
 but must use least-privilege credentials, dedicated workspaces, and controls
 appropriate to their environment. The target transport keeps credentials in the Symphony host
-or a host-side broker, rejects tracker-tool calls that do not carry an exact
-active-issue/provider identifier, returns only bounded issue-aware tool results to agents,
+or a host-side broker, returns only bounded issue-aware tool results to agents,
 uses loopback-only local services with scoped session capabilities, and gives
 the child an isolated home/configuration directory rather than a host `gh auth`
 store. Authenticated Git transport is performed by the host.
