@@ -30,10 +30,12 @@ Architecture documentation scoped to a single package lives in that package's
 
 ## trackers/
 
-Provider-specific host-side agent-tool contracts:
+Provider-specific compact adapter profiles and host-side agent-tool contracts:
 
-- [GitHub](trackers/github.md) — `github_graphql`
-- [Linear](trackers/linear.md) — `linear_graphql`
+- [GitHub Project](trackers/github-project.md) — configuration, normalization, and `github_graphql`
+- [GitHub tool](trackers/github.md) — standalone `github_graphql` tool contract
+- [Linear](trackers/linear.md) — configuration, normalization, and `linear_graphql`
+- [File](trackers/file.md) — local/Docker E2E fixture adapter profile
 
 ## designs/
 
