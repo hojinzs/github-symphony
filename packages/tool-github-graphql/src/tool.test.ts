@@ -328,6 +328,10 @@ describe("executeGitHubGraphQL", () => {
       )
     ).resolves.toEqual({ data: { viewer: { login: "octo" } } });
     expect(fetchImpl).toHaveBeenCalledOnce();
+    const body = JSON.parse(
+      String(fetchImpl.mock.calls[0]![1]!.body)
+    ) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["query"]);
   });
 
   afterEach(() => {
