@@ -2871,6 +2871,8 @@ describe("token usage tracking", () => {
 
 describe("lastEventAt timestamp tracking", () => {
   it("responds to a host dynamic tool call and records tool activity", async () => {
+    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "host-token");
+    vi.stubEnv("GITHUB_GRAPHQL_API_URL", "https://api.github.com/graphql");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -2946,6 +2948,7 @@ describe("lastEventAt timestamp tracking", () => {
       })
     );
     fetchSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 
   it("returns a structured response for an unknown host dynamic tool", async () => {

@@ -130,25 +130,37 @@ if (server.type !== "http") {
   throw new Error("host MCP configuration must use Streamable HTTP");
 }
 (async () => {
-  const response = await fetch(server.url, {
-    method: "POST",
-    headers: { ...server.headers, "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "stub-host-tool-call",
-      method: "tools/call",
-      params: {
-        name: "github_graphql",
-        arguments: { query: "query { viewer { login } }" },
-      },
-    }),
-  });
-  const payload = await response.json();
+  const calls = [
+    { query: "query { viewer { login } }" },
+    {
+      query: "mutation AddComment($subjectId: ID!, $body: String!) { addComment(input: { subjectId: $subjectId, body: $body }) { commentEdge { node { id } } } }",
+      variables: { subjectId: "issue-worker-claude", body: "host-side comment" },
+    },
+    {
+      query: "mutation UpdateState($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) { updateProjectV2ItemFieldValue(input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value }) { projectV2Item { id } } }",
+      variables: { projectId: "stub-project", itemId: "item-worker-claude", fieldId: "status-field", value: { singleSelectOptionId: "in-review" } },
+    },
+  ];
+  const responses = [];
+  for (const [index, argumentsValue] of calls.entries()) {
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: { ...server.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `stub-host-tool-call-${index}`,
+        method: "tools/call",
+        params: { name: "github_graphql", arguments: argumentsValue },
+      }),
+    });
+    responses.push({ status: response.status, payload: await response.json() });
+  }
   process.stdout.write(JSON.stringify({
     url: server.url,
-    responseStatus: response.status,
-    result: payload.result,
-    error: payload.error,
+    responseStatus: responses.at(-1).status,
+    result: responses.at(-1).payload.result,
+    error: responses.at(-1).payload.error,
+    calls: responses,
   }));
 })().catch((error) => {
   process.stderr.write(String(error));

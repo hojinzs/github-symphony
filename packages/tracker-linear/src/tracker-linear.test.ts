@@ -1,9 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   parseWorkflowMarkdown,
   type OrchestratorProjectConfig,
 } from "@gh-symphony/core";
 import { linearTrackerAdapter, normalizeLinearIssue } from "./index.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 const repository = {
   owner: "acme",
@@ -71,6 +76,50 @@ function linearIssueNode(
 }
 
 describe("linearTrackerAdapter", () => {
+  it("advertises and executes its host-side tool with normalized issue context", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ data: { issueUpdate: { success: true } } })
+      );
+    vi.stubGlobal("fetch", fetchImpl);
+    const context = {
+      issue: {
+        id: "issue-1",
+        identifier: "ENG-123",
+        nativeRef: { itemId: "issue-1" },
+      },
+      environment: { LINEAR_API_KEY: "linear-token" },
+    };
+
+    expect(linearTrackerAdapter.agentToolSpecs?.()).toEqual([
+      expect.objectContaining({ name: "linear_graphql" }),
+    ]);
+    await expect(
+      linearTrackerAdapter.executeAgentTool?.(
+        "linear_graphql",
+        { query: "mutation { issueUpdate { success } }" },
+        context
+      )
+    ).resolves.toEqual({ data: { issueUpdate: { success: true } } });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.linear.app/graphql",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "linear-token" }),
+      })
+    );
+  });
+
+  it("rejects a tool not owned by the Linear adapter", async () => {
+    await expect(
+      linearTrackerAdapter.executeAgentTool?.(
+        "github_graphql",
+        {},
+        { issue: { id: "issue-1", identifier: "ENG-123", nativeRef: null } }
+      )
+    ).rejects.toThrow("Unknown Linear agent tool");
+  });
+
   it("normalizes labels and timestamps and maps priority zero to null", () => {
     const issue = normalizeLinearIssue(
       makeProject(),

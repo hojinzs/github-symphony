@@ -11,6 +11,7 @@ import type {
   AgentRuntimeEvent,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
+  AgentToolExecutionContext,
   WorkflowDefinition,
 } from "@gh-symphony/core";
 import { extractEnvForClaude } from "@gh-symphony/core";
@@ -26,9 +27,7 @@ export type WorkerNonCodexRuntimeContext = {
   env: NodeJS.ProcessEnv;
   runtimeRoot?: string;
   runtimeDirectory?: string;
-  hostMcpContext?: {
-    issue: { id: string; identifier: string; nativeRef: unknown };
-  };
+  hostMcpContext?: AgentToolExecutionContext;
   onSpawned?: (child: ChildProcess) => void;
   claudeDependencies?: ClaudeRuntimeDependencies;
   customDependencies?: {

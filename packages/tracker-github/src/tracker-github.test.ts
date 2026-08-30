@@ -28,12 +28,66 @@ import { GitHubGraphQLRateLimitError } from "./github-rate-limit.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   resetGitHubRateLimitCacheForTests();
   resetPriorityOptionOrderCacheForTests();
 });
 
 describe("GitHub canonical subject adapter hook", () => {
+  it("advertises and executes its host-side tool with normalized issue context", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
+        status: 200,
+      })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const context = {
+      issue: {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        nativeRef: { itemId: "item-1" },
+      },
+      environment: { GITHUB_GRAPHQL_TOKEN: "host-token" },
+    };
+
+    expect(githubProjectTrackerAdapter.agentToolSpecs?.()).toEqual([
+      expect.objectContaining({ name: "github_graphql" }),
+    ]);
+    await expect(
+      githubProjectTrackerAdapter.executeAgentTool?.(
+        "github_graphql",
+        { query: "query { viewer { login } }" },
+        context
+      )
+    ).resolves.toMatchObject({ data: { viewer: { login: "octo" } } });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/graphql",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer host-token",
+        }),
+      })
+    );
+  });
+
+  it("rejects a tool not owned by the GitHub adapter", async () => {
+    await expect(
+      githubProjectTrackerAdapter.executeAgentTool?.(
+        "linear_graphql",
+        {},
+        {
+          issue: {
+            id: "issue-1",
+            identifier: "acme/platform#1",
+            nativeRef: null,
+          },
+        }
+      )
+    ).rejects.toThrow("Unknown GitHub agent tool");
+  });
+
   it("merges a linked PR Project state without exposing native data to callers", () => {
     const issue = makeTrackedIssue();
     issue.nativeRef = {

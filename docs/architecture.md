@@ -127,13 +127,13 @@ to Git subprocesses.
 ```
 cli (bundles: orchestrator, worker, control-plane, dashboard, runtime-claude, tracker-github, core)
 orchestrator ──→ core, runtime-claude, runtime-codex, tracker-file, tracker-github, tracker-linear
-worker ────────→ core, extension-github-workflow, runtime-claude, runtime-codex, tool-github-graphql, tool-linear-graphql, tracker-github
+worker ────────→ core, extension-github-workflow, runtime-claude, runtime-codex, tool-github-graphql, tracker-github, tracker-linear
 control-plane ─→ core, dashboard
 dashboard ─────→ core
-runtime-claude ─→ core, tool-github-graphql, tool-linear-graphql
+runtime-claude ─→ core, tool-github-graphql, tool-linear-graphql, tracker-github, tracker-linear
 runtime-codex ──→ core, tool-github-graphql, tool-linear-graphql
 tracker-github ─→ core, tool-github-graphql
-tracker-linear ─→ core
+tracker-linear ─→ core, tool-linear-graphql
 tracker-file ───→ core
 extension-github-workflow ─→ core
 tool-github-graphql ─→ core

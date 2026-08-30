@@ -25,6 +25,10 @@ type Invocation = {
     result?: {
       content?: Array<{ type: string; text: string }>;
     };
+    calls?: Array<{
+      status: number;
+      payload: { result?: unknown; error?: unknown };
+    }>;
     error?: { code: number; message: string };
   } | null;
   trackerCredentialEnvironment: {
@@ -125,8 +129,15 @@ global.fetch = async (url, options) => {
   const authorization = options?.headers?.authorization;
   fs.appendFileSync(process.env.CLAUDE_STUB_LOG_DIR + "/host-fetch.ndjson", JSON.stringify({
     hostCredentialUsed: authorization === "Bearer stub-token",
+    body: options?.body,
   }) + "\\n");
-  return new Response(JSON.stringify({ data: { viewer: { login: "host-mcp-stub" } } }), {
+  const body = String(options?.body);
+  const payload = body.includes("addComment")
+    ? { data: { addComment: { commentEdge: { node: { id: "comment-claude" } } } } }
+    : body.includes("updateProjectV2ItemFieldValue")
+      ? { data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: "item-worker-claude" } } } }
+      : { data: { viewer: { login: "host-mcp-stub" } } };
+  return new Response(JSON.stringify(payload), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
@@ -207,13 +218,28 @@ global.fetch = async (url, options) => {
       result: {
         content: [
           expect.objectContaining({
-            text: expect.stringContaining("host-mcp-stub"),
+            text: expect.stringContaining("item-worker-claude"),
           }),
         ],
       },
     });
-    expect(await readFile(join(logDir, "host-fetch.ndjson"), "utf8")).toContain(
-      '"hostCredentialUsed":true'
+    const hostFetches = (
+      await readFile(join(logDir, "host-fetch.ndjson"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as { hostCredentialUsed: boolean; body: string }
+      );
+    // The fixture runs two Claude turns, each issuing query/comment/state calls.
+    expect(hostFetches).toHaveLength(6);
+    expect(hostFetches.every((entry) => entry.hostCredentialUsed)).toBe(true);
+    expect(hostFetches.map((entry) => entry.body).join("\n")).toContain(
+      "addComment"
+    );
+    expect(hostFetches.map((entry) => entry.body).join("\n")).toContain(
+      "updateProjectV2ItemFieldValue"
     );
     expect(result.stderr).toContain("host MCP server started");
     expect(result.stderr).toContain("host MCP server stopped");

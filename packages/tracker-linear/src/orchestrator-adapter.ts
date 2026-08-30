@@ -12,6 +12,10 @@ import {
   normalizeLabels,
   parseTrackerTimestamp,
 } from "@gh-symphony/core";
+import {
+  executeLinearGraphQL,
+  type LinearGraphQLInvocation,
+} from "@gh-symphony/tool-linear-graphql";
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
 const DEFAULT_PAGE_SIZE = 50;
@@ -231,6 +235,51 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
 
   secretEnvironmentNames() {
     return ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"];
+  },
+
+  agentToolSpecs() {
+    return [
+      {
+        name: "linear_graphql",
+        description:
+          "Execute a Linear GraphQL query or mutation for the active tracker issue.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "GraphQL query or mutation document.",
+            },
+            variables: {
+              type: "object",
+              description: "Variables for the GraphQL document.",
+            },
+            operationName: {
+              type: "string",
+              description: "Optional GraphQL operation name.",
+            },
+          },
+          required: ["query"],
+          additionalProperties: false,
+        },
+      },
+    ];
+  },
+
+  async executeAgentTool(name, args, context) {
+    if (name !== "linear_graphql") {
+      throw new Error(`Unknown Linear agent tool: ${name}`);
+    }
+    return executeLinearGraphQL(
+      args as LinearGraphQLInvocation,
+      {
+        apiKey: context.environment?.LINEAR_API_KEY,
+        apiUrl: context.environment?.LINEAR_GRAPHQL_URL,
+        authorizationHeader: context.environment?.LINEAR_AUTHORIZATION,
+      },
+      fetch,
+      context
+    );
   },
 
   async listIssues(project, dependencies = {}) {

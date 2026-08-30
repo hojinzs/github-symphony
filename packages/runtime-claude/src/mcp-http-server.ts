@@ -1,12 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { executeGitHubGraphQL } from "@gh-symphony/tool-github-graphql";
-import { executeLinearGraphQL } from "@gh-symphony/tool-linear-graphql";
+import type {
+  AgentToolExecutionContext,
+  OrchestratorTrackerAdapter,
+} from "@gh-symphony/core";
+import { githubProjectTrackerAdapter } from "@gh-symphony/tracker-github";
+import { linearTrackerAdapter } from "@gh-symphony/tracker-linear";
 
-export type ClaudeMcpHostContext = {
-  issue: { id: string; identifier: string; nativeRef: unknown };
-};
+export type ClaudeMcpHostContext = AgentToolExecutionContext;
 export type ClaudeMcpHttpServer = {
   url: string;
   sessionToken: string;
@@ -91,38 +93,22 @@ async function dispatch(
   const argumentsValue = payload.params.arguments;
   if (!isRecord(argumentsValue) || typeof name !== "string")
     return error(id, -32602, "Tool arguments must be an object.");
+  const adapter = resolveHostToolAdapters(env).find((candidate) =>
+    candidate.agentToolSpecs?.().some((tool) => tool.name === name)
+  );
+  if (!adapter?.executeAgentTool) {
+    return error(id, -32602, `Tool "${name}" is not available.`);
+  }
   try {
-    const result =
-      name === "github_graphql"
-        ? await executeGitHubGraphQL(
-            argumentsValue as {
-              query: string;
-              variables?: Record<string, unknown>;
-              operationName?: string;
-            },
-            githubConfig(env),
-            fetch,
-            context
-          )
-        : name === "linear_graphql" && env.SYMPHONY_TRACKER_KIND === "linear"
-          ? await executeLinearGraphQL(
-              argumentsValue as {
-                query: string;
-                variables?: Record<string, unknown>;
-                operationName?: string;
-              },
-              linearConfig(env),
-              fetch,
-              context
-            )
-          : undefined;
-    return result === undefined
-      ? error(id, -32602, `Tool "${name}" is not available.`)
-      : {
-          jsonrpc: "2.0",
-          id,
-          result: { content: [{ type: "text", text: JSON.stringify(result) }] },
-        };
+    const result = await adapter.executeAgentTool(name, argumentsValue, {
+      ...context,
+      environment: env,
+    });
+    return {
+      jsonrpc: "2.0",
+      id,
+      result: { content: [{ type: "text", text: JSON.stringify(result) }] },
+    };
   } catch (cause) {
     return {
       jsonrpc: "2.0",
@@ -145,38 +131,17 @@ async function dispatch(
 function availableTools(
   env: NodeJS.ProcessEnv
 ): Array<Record<string, unknown>> {
-  const tool = (name: string) => ({
-    name,
-    description: `Execute a ${name} request through the worker host.`,
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        variables: { type: "object" },
-        operationName: { type: "string" },
-      },
-      required: ["query"],
-    },
-  });
+  return resolveHostToolAdapters(env).flatMap(
+    (adapter) => adapter.agentToolSpecs?.() ?? []
+  );
+}
+
+function resolveHostToolAdapters(
+  env: NodeJS.ProcessEnv
+): readonly OrchestratorTrackerAdapter[] {
   return env.SYMPHONY_TRACKER_KIND === "linear"
-    ? [tool("github_graphql"), tool("linear_graphql")]
-    : [tool("github_graphql")];
-}
-function githubConfig(env: NodeJS.ProcessEnv) {
-  return {
-    token: env.GITHUB_GRAPHQL_TOKEN,
-    apiUrl: env.GITHUB_GRAPHQL_API_URL,
-    tokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
-    tokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
-    tokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
-  };
-}
-function linearConfig(env: NodeJS.ProcessEnv) {
-  return {
-    apiKey: env.LINEAR_API_KEY,
-    apiUrl: env.LINEAR_GRAPHQL_URL,
-    authorizationHeader: env.LINEAR_AUTHORIZATION,
-  };
+    ? [githubProjectTrackerAdapter, linearTrackerAdapter]
+    : [githubProjectTrackerAdapter];
 }
 function isAuthorized(request: IncomingMessage, token: string): boolean {
   return request.headers.authorization === `Bearer ${token}`;

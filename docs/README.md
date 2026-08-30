@@ -28,6 +28,13 @@ header metadata rather than directories.
 Architecture documentation scoped to a single package lives in that package's
 `README.md` (for example [packages/control-plane/README.md](../packages/control-plane/README.md)).
 
+## trackers/
+
+Provider-specific host-side agent-tool contracts:
+
+- [GitHub](trackers/github.md) — `github_graphql`
+- [Linear](trackers/linear.md) — `linear_graphql`
+
 ## designs/
 
 | Document                                                                                                                     | Layers                                                        | Status            |
