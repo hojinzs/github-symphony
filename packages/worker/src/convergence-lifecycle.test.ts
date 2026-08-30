@@ -90,6 +90,7 @@ describe("convergence threshold lifecycle", () => {
             ok: true,
             outcome: "confirmed",
             state: "In review",
+            routable: true,
           })
         )
       )
@@ -103,7 +104,12 @@ describe("convergence threshold lifecycle", () => {
     await expect(
       runConvergenceThreshold(
         new Response(
-          JSON.stringify({ ok: true, outcome: "confirmed", state: "Done" })
+          JSON.stringify({
+            ok: true,
+            outcome: "confirmed",
+            state: "Done",
+            routable: true,
+          })
         )
       )
     ).resolves.toEqual({
@@ -118,7 +124,12 @@ describe("convergence threshold lifecycle", () => {
     await expect(
       runConvergenceThreshold(
         new Response(
-          JSON.stringify({ ok: true, outcome: "confirmed", state: "Land" })
+          JSON.stringify({
+            ok: true,
+            outcome: "confirmed",
+            state: "Land",
+            routable: true,
+          })
         )
       )
     ).resolves.toEqual({

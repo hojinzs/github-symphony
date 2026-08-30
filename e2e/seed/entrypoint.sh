@@ -10,6 +10,18 @@ rm -rf "$WORK_DIR"
 git clone "$REPO_DIR" "$WORK_DIR"
 git -C "$WORK_DIR" remote set-url origin test-owner/test-repo
 
+if [ -n "${E2E_REQUIRED_LABELS:-}" ]; then
+  awk -v labels="$E2E_REQUIRED_LABELS" '
+    /^  active_states:/ {
+      print "  required_labels:"
+      count = split(labels, values, ",")
+      for (labelIndex = 1; labelIndex <= count; labelIndex += 1) print "    - " values[labelIndex]
+    }
+    { print }
+  ' "$WORK_DIR/WORKFLOW.md" > /tmp/e2e-workflow.md
+  mv /tmp/e2e-workflow.md "$WORK_DIR/WORKFLOW.md"
+fi
+
 # GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH is intentionally limited to the
 # file-tracker E2E workflow so repo init can bind the mounted fixture file.
 cd "$WORK_DIR"

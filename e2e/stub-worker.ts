@@ -11,6 +11,8 @@
  *   transition-race — requests Ready → In review, then stalls for reconciliation
  *   api-progress    — requests Ready → Done, confirms readback, then completes
  *   api-progress-unknown — confirms Done, removes the canonical item, then completes
+ *   required-label-removed — completes turn one, then proves a routability
+ *                            refresh prevents turn two after its label is removed
  */
 
 import { existsSync } from "node:fs";
@@ -36,7 +38,8 @@ type Scenario =
   | "retry-attempt"
   | "transition-race"
   | "api-progress"
-  | "api-progress-unknown";
+  | "api-progress-unknown"
+  | "required-label-removed";
 const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "happy",
   "fail",
@@ -47,6 +50,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "transition-race",
   "api-progress",
   "api-progress-unknown",
+  "required-label-removed",
 ]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
@@ -69,6 +73,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     "transition-race": { startMs: 2000, runMs: Infinity },
     "api-progress": { startMs: 2000, runMs: 1000 },
     "api-progress-unknown": { startMs: 2000, runMs: 1000 },
+    "required-label-removed": { startMs: 2000, runMs: 1000 },
   };
 
 function resolveCoreModuleUrl(): string {
@@ -88,6 +93,25 @@ function resolveCoreModuleUrl(): string {
     }
   }
   throw new Error(`stub_core_module_not_found:${workerPath}`);
+}
+
+function resolveWorkerModuleUrl(): string {
+  const workerPath = process.argv[1];
+  if (!workerPath) {
+    throw new Error("stub_worker_path_unavailable");
+  }
+  const workerDir = dirname(resolve(workerPath));
+  for (const root of [
+    workerDir,
+    resolve(workerDir, ".."),
+    resolve(workerDir, "../.."),
+  ]) {
+    const turnLeasePath = join(root, "packages/worker/dist/turn-lease.js");
+    if (existsSync(turnLeasePath)) {
+      return pathToFileURL(turnLeasePath).href;
+    }
+  }
+  throw new Error(`stub_worker_turn_lease_not_found:${workerPath}`);
 }
 
 const ORCHESTRATOR_URL = process.env.SYMPHONY_ORCHESTRATOR_URL ?? "";
@@ -280,6 +304,36 @@ async function removeCanonicalTrackerItem(): Promise<void> {
   console.error("[stub-worker] api-progress canonical item removed");
 }
 
+async function preventSecondTurnAfterLabelRemoval(): Promise<void> {
+  const { refreshTrackerState } = (await import(resolveWorkerModuleUrl())) as {
+    refreshTrackerState: (
+      env: NodeJS.ProcessEnv,
+      activeStates: readonly string[]
+    ) => Promise<"active" | "non-actionable" | "unknown">;
+  };
+  console.error("[stub-worker] turn=1 completed");
+  const issuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+  const labelRemovalSignal = issuesPath
+    ? join(dirname(issuesPath), "required-label-removed.signal")
+    : null;
+  if (!labelRemovalSignal) {
+    throw new Error("stub_file_tracker_issues_path_missing");
+  }
+  // Wait for the runner to update the fixture instead of racing its status
+  // poll with a fixed delay. The bounded wait still fails loudly in CI.
+  for (let attempt = 0; attempt < 30 && !existsSync(labelRemovalSignal); attempt += 1) {
+    await sleep(500);
+  }
+  if (!existsSync(labelRemovalSignal)) {
+    throw new Error("stub_required_label_removal_not_observed");
+  }
+  const state = await refreshTrackerState(process.env, ["Ready"]);
+  if (state !== "non-actionable") {
+    throw new Error(`stub_turn_two_should_be_prevented:${state}`);
+  }
+  console.error("[stub-worker] turn=2 prevented by routability refresh");
+}
+
 async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
@@ -354,6 +408,9 @@ async function run() {
   }
   if (SCENARIO === "api-progress-unknown") {
     await removeCanonicalTrackerItem();
+  }
+  if (SCENARIO === "required-label-removed") {
+    await preventSecondTurnAfterLabelRemoval();
   }
   await sleep(durations.runMs);
 

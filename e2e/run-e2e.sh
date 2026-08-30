@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, non-dispatchable
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, non-dispatchable, required-label-missing, required-label-removed
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -40,6 +40,7 @@ cleanup() {
   "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 2>/dev/null || true
   remove_e2e_compose_image
   echo "[]" > e2e/fixtures/issues.json 2>/dev/null || true
+  rm -f e2e/fixtures/required-label-removed.signal
 }
 # ── Setup ─────────────────────────────────────────────────────
 
@@ -49,11 +50,16 @@ log "Compose project: ${COMPOSE_PROJECT_NAME}"
 assert_e2e_project_is_available docker-compose.e2e.yml
 
 echo "[]" > e2e/fixtures/issues.json
+rm -f e2e/fixtures/required-label-removed.signal
 trap cleanup EXIT
 
 # Set scenario in environment
 export STUB_SCENARIO="$SCENARIO"
-STUB_SCENARIO="$SCENARIO" "${COMPOSE[@]}" up -d --build 2>&1 | tail -1
+E2E_REQUIRED_LABELS=""
+if [ "$SCENARIO" = "required-label-missing" ] || [ "$SCENARIO" = "required-label-removed" ]; then
+  E2E_REQUIRED_LABELS="agent"
+fi
+E2E_REQUIRED_LABELS="$E2E_REQUIRED_LABELS" STUB_SCENARIO="$SCENARIO" "${COMPOSE[@]}" up -d --build 2>&1 | tail -1
 
 log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
@@ -105,6 +111,10 @@ log "Initial state: idle"
 
 if [ "$SCENARIO" = "non-dispatchable" ]; then
   cp e2e/fixtures/non-dispatchable.json e2e/fixtures/issues.json
+elif [ "$SCENARIO" = "required-label-missing" ]; then
+  cp e2e/fixtures/required-label-missing.json e2e/fixtures/issues.json
+elif [ "$SCENARIO" = "required-label-removed" ]; then
+  cp e2e/fixtures/required-label-active.json e2e/fixtures/issues.json
 else
   cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
 fi
@@ -126,7 +136,7 @@ fi
 
 log "Issues injected; refresh trigger accepted (202). Polling for reconciliation"
 
-if [ "$SCENARIO" = "non-dispatchable" ]; then
+if [ "$SCENARIO" = "non-dispatchable" ] || [ "$SCENARIO" = "required-label-missing" ]; then
   # A tick can have started before the fixture copy, then publish after the
   # refresh request. Waiting for two new tick start timestamps means the
   # second observed tick must have started after that older tick finished.
@@ -151,12 +161,24 @@ if [ "$SCENARIO" = "non-dispatchable" ]; then
   done
   ACTIVE=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary']['activeRuns'])" 2>/dev/null || echo '?')
   if [ "$ACTIVE" != "0" ]; then
-    fail "Non-dispatchable issue started a worker"
+    fail "Ineligible issue started a worker"
     exit 1
   fi
   EXPLAIN_JSON=$("${COMPOSE[@]}" exec -T -w /e2e/work/test-repo -e GITHUB_GRAPHQL_TOKEN=e2e-token symphony-e2e \
     node /app/packages/cli/dist/index.js repo explain test-owner/test-repo#1 --json)
-  echo "$EXPLAIN_JSON" | python3 -c '
+  if [ "$SCENARIO" = "required-label-missing" ]; then
+    echo "$EXPLAIN_JSON" | python3 -c '
+import json
+import sys
+
+report = json.load(sys.stdin)
+assert report["dispatchable"] is False, report
+assert report["summary"] == "Not dispatchable: not routable: Issue is missing required labels (\"agent\").", report
+checks = {check["id"]: check for check in report["checks"]}
+assert checks["workflow_routability"]["status"] == "block", checks
+'
+  else
+    echo "$EXPLAIN_JSON" | python3 -c '
 import json
 import sys
 
@@ -167,13 +189,14 @@ checks = {check["id"]: check for check in report["checks"]}
 assert checks["tracker_dispatchability"]["status"] == "block", checks
 assert checks["tracker_dispatchability"]["details"]["dispatchReason"] == "fixture eligibility gate: assigned to another agent", checks
 '
+  fi
   if "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec grep -H "run-dispatched" {} + 2>/dev/null | grep -q .'; then
     fail "Non-dispatchable issue wrote a run-dispatched event"
     exit 1
   fi
   log "=== Result ==="
   log "  Worker dispatched: NO"
-  log "  Explain reason:    fixture eligibility gate: assigned to another agent"
+  log "  Explain reason:    $( [ "$SCENARIO" = "required-label-missing" ] && echo 'missing required label' || echo 'fixture eligibility gate' )"
   echo ""
   log "PASSED"
   exit 0
@@ -186,6 +209,7 @@ SAW_RETRY=false
 SAW_REDACTED_STATE=false
 SCENARIO_RUN_ID=""
 ELAPSED=0
+LABEL_REMOVED=false
 
 log "Polling..."
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
@@ -205,6 +229,18 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
     SAW_RUNNING=true
     if [ -z "$SCENARIO_RUN_ID" ]; then
       SCENARIO_RUN_ID=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0].get('runId','') if r else '')" 2>/dev/null || echo "")
+    fi
+    if [ "$SCENARIO" = "required-label-removed" ] && [ "$LABEL_REMOVED" != true ]; then
+      python3 - <<'PY'
+import json
+from pathlib import Path
+path = Path("e2e/fixtures/issues.json")
+issues = json.loads(path.read_text())
+issues[0]["labels"] = []
+path.write_text(json.dumps(issues))
+PY
+      : > e2e/fixtures/required-label-removed.signal
+      LABEL_REMOVED=true
     fi
     if echo "$STATUS_JSON" | python3 -c '
 import json, sys
@@ -248,6 +284,24 @@ log "=== Event Logs ==="
 "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
 
 echo ""
+if [ "$SCENARIO" = "required-label-removed" ]; then
+  if [ "$SAW_RUNNING" != true ] || [ "$LABEL_REMOVED" != true ]; then
+    fail "Required-label removal did not reach an active worker"
+    exit 1
+  fi
+  if ! "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "turn=1 completed" /e2e/work && grep -R -q "turn=2 prevented by routability refresh" /e2e/work'; then
+    fail "Expected the routability refresh to prevent turn two after label removal"
+    exit 1
+  fi
+  log "=== Result ==="
+  log "  Worker started with required label: YES"
+  log "  Label removed during run:          YES"
+  log "  Turn one completed:                YES"
+  log "  Turn two prevented by refresh:     YES"
+  log "PASSED"
+  exit 0
+fi
+
 if [ "$SCENARIO" = "transition-race" ]; then
   if [ "$SAW_RUNNING" != true ]; then
     fail "=== Result ==="

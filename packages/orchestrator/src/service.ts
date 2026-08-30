@@ -182,6 +182,36 @@ export function shouldRecordConfirmedTrackerProgress(
   );
 }
 
+/**
+ * Replaces the initial state-read with facts from one freshly normalized
+ * snapshot so a worker never combines an old lifecycle state with new label
+ * routing. A missing snapshot is a clean routing stop (for example, Linear
+ * pickup filtering), rather than transport failure.
+ */
+export function applyStateReadRoutability(
+  result: TrackerStateResult,
+  refreshedIssue: TrackedIssue | undefined,
+  refreshedRateLimits: Record<string, unknown> | null | undefined,
+  lifecycle: WorkflowLifecycleConfig
+): TrackerStateResult {
+  if (!refreshedIssue) {
+    return {
+      ...result,
+      rateLimits: refreshedRateLimits ?? result.rateLimits,
+      routable: false,
+      routableReason: "tracker_issue_snapshot_missing",
+    };
+  }
+  const routability = issueRoutable(refreshedIssue, lifecycle);
+  return {
+    ...result,
+    state: refreshedIssue.state,
+    rateLimits: refreshedRateLimits ?? result.rateLimits,
+    routable: routability.routable,
+    routableReason: routability.reason ?? null,
+  };
+}
+
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
 >;
@@ -537,7 +567,7 @@ export class OrchestratorService {
           }
         }
 
-        const result = await requestState(
+        let result = await requestState(
           this.projectConfig,
           {
             issueSubjectId: run.issueSubjectId,
@@ -546,6 +576,40 @@ export class OrchestratorService {
           },
           this.createTrackerDependencies()
         );
+        if (
+          input.request.type === "state-read" &&
+          result.ok === true &&
+          result.outcome === "confirmed"
+        ) {
+          const workflowResolution = await this.loadProjectWorkflow(
+            this.projectConfig,
+            run.repository
+          );
+          if (!isUsableWorkflowResolution(workflowResolution)) {
+            result = {
+              ...result,
+              ok: false,
+              outcome: "failed",
+              routable: null,
+              error: "workflow_unavailable_for_routability_check",
+            };
+          } else {
+            const refreshed = await trackerAdapter.fetchIssueStatesByIds(
+              this.projectConfig,
+              [run.issueSubjectId],
+              this.createTrackerDependencies()
+            );
+            const refreshedIssue = refreshed.find(
+              (issue) => issue.id === run.issueSubjectId
+            );
+            result = applyStateReadRoutability(
+              result,
+              refreshedIssue,
+              refreshed.rateLimits,
+              workflowResolution.lifecycle
+            );
+          }
+        }
         let recordConfirmedTrackerProgress = false;
         if (input.request.type === "transition-request") {
           const workflowResolution = await this.loadProjectWorkflow(
@@ -663,6 +727,8 @@ export class OrchestratorService {
       outcome: result.outcome,
       reason: result.reason,
       error: result.error,
+      routable: result.routable,
+      routableReason: result.routableReason,
       rateLimits: result.rateLimits,
     });
   }
