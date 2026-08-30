@@ -49,6 +49,7 @@ log "Compose project: ${COMPOSE_PROJECT_NAME}"
 assert_e2e_project_is_available docker-compose.e2e.yml
 
 echo "[]" > e2e/fixtures/issues.json
+rm -f e2e/fixtures/required-label-removed.signal
 trap cleanup EXIT
 
 # Set scenario in environment
@@ -237,6 +238,7 @@ issues = json.loads(path.read_text())
 issues[0]["labels"] = []
 path.write_text(json.dumps(issues))
 PY
+      : > e2e/fixtures/required-label-removed.signal
       LABEL_REMOVED=true
     fi
     if echo "$STATUS_JSON" | python3 -c '

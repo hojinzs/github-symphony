@@ -106,7 +106,7 @@ describe("state-read routability", () => {
       outcome: "confirmed",
       routable: false,
       routableReason: "tracker_issue_snapshot_missing",
-      error: "tracker_issue_snapshot_missing",
+      error: null,
     });
   });
 });
@@ -1315,6 +1315,28 @@ describe("OrchestratorService", () => {
     expect(persistedRun?.trackerProgressConfirmedAt).toBeNull();
     expect(loadWorkflowSpy).toHaveBeenCalledOnce();
     loadWorkflowSpy.mockClear();
+    requestState.mockResolvedValueOnce({
+      ok: true,
+      outcome: "confirmed",
+      state: "In progress",
+      expectedState: null,
+      targetState: null,
+      reason: null,
+      rateLimits: null,
+      error: null,
+    });
+    loadWorkflowSpy.mockResolvedValueOnce({
+      isValid: false,
+      usedLastKnownGood: false,
+    } as WorkflowResolution);
+    await expect(
+      service.requestTrackerState({ runId: "run-1", request: { type: "state-read" } })
+    ).resolves.toMatchObject({
+      ok: false,
+      outcome: "failed",
+      routable: null,
+      error: "workflow_unavailable_for_routability_check",
+    });
     const providerError = Object.assign(new Error("rate limit exhausted"), {
       rateLimits: {
         source: "github",
@@ -1345,6 +1367,13 @@ describe("OrchestratorService", () => {
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     expect(events).toEqual([
+      expect.objectContaining({
+        event: "tracker.state",
+        runId: "run-1",
+        outcome: "failed",
+        error: "workflow_unavailable_for_routability_check",
+        routable: null,
+      }),
       expect.objectContaining({
         event: "tracker.state",
         runId: "run-1",

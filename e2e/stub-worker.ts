@@ -312,8 +312,21 @@ async function preventSecondTurnAfterLabelRemoval(): Promise<void> {
     ) => Promise<"active" | "non-actionable" | "unknown">;
   };
   console.error("[stub-worker] turn=1 completed");
-  // Give the runner a deterministic window to remove the required label.
-  await sleep(2_000);
+  const issuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+  const labelRemovalSignal = issuesPath
+    ? join(dirname(issuesPath), "required-label-removed.signal")
+    : null;
+  if (!labelRemovalSignal) {
+    throw new Error("stub_file_tracker_issues_path_missing");
+  }
+  // Wait for the runner to update the fixture instead of racing its status
+  // poll with a fixed delay. The bounded wait still fails loudly in CI.
+  for (let attempt = 0; attempt < 30 && !existsSync(labelRemovalSignal); attempt += 1) {
+    await sleep(500);
+  }
+  if (!existsSync(labelRemovalSignal)) {
+    throw new Error("stub_required_label_removal_not_observed");
+  }
   const state = await refreshTrackerState(process.env, ["Ready"]);
   if (state !== "non-actionable") {
     throw new Error(`stub_turn_two_should_be_prevented:${state}`);

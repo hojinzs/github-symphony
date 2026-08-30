@@ -49,6 +49,10 @@ export type TrackerStateRequestEvent = {
   outcome: "confirmed" | "expected_state_mismatch" | "rejected" | "failed";
   reason: string | null;
   error: string | null;
+  /** State-read routability decision from the refreshed tracker snapshot. */
+  routable?: boolean | null;
+  /** Concrete reason when a refreshed state-read is not routable. */
+  routableReason?: string | null;
   rateLimits?: Record<string, unknown> | null;
 };
 

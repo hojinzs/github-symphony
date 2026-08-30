@@ -199,7 +199,6 @@ export function applyStateReadRoutability(
       ...result,
       routable: false,
       routableReason: "tracker_issue_snapshot_missing",
-      error: "tracker_issue_snapshot_missing",
     };
   }
   const routability = issueRoutable(refreshedIssue, lifecycle);
@@ -727,6 +726,8 @@ export class OrchestratorService {
       outcome: result.outcome,
       reason: result.reason,
       error: result.error,
+      routable: result.routable,
+      routableReason: result.routableReason,
       rateLimits: result.rateLimits,
     });
   }
