@@ -89,9 +89,10 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract. Its pickup labels instead filter the candidate list before dispatch, so label-ineligible Linear items are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records.
 - File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
-- GitHub adapter profile: `packages/tracker-github/README.md`. Its synthetic
-  `Archived` state is a GitHub-specific implementation choice, not normalized
-  Symphony core behavior.
+- Compact adapter profiles: [GitHub Project](trackers/github-project.md),
+  [Linear](trackers/linear.md), and [file](trackers/file.md). GitHub's
+  synthetic `Archived` state is a GitHub-specific implementation choice, not
+  normalized Symphony core behavior.
 
 ### 6. Observability — events and status surfaces
 
