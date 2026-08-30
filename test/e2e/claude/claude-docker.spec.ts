@@ -177,6 +177,9 @@ global.fetch = async (url, options) => {
           SYMPHONY_RUN_ID: "run-worker-claude",
           SYMPHONY_ISSUE_ID: "issue-worker-claude",
           SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
+          SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify({
+            itemId: "item-worker-claude",
+          }),
           SYMPHONY_ISSUE_STATE: "In progress",
           SYMPHONY_MAX_TURNS: "2",
           SYMPHONY_CONTINUATION_GUIDANCE:

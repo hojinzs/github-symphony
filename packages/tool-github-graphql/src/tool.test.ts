@@ -300,6 +300,26 @@ describe("resolveGitHubGraphQLToken", () => {
 });
 
 describe("executeGitHubGraphQL", () => {
+  it("rejects a host-side operation that is not scoped to the active issue", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeGitHubGraphQL(
+        { query: "query Viewer { viewer { login } }" },
+        { token: "ghs_static" },
+        fetchImpl as typeof fetch,
+        {
+          issue: {
+            id: "issue-1",
+            identifier: "owner/repo#1",
+            nativeRef: { itemId: "project-item-1" },
+          },
+        }
+      )
+    ).rejects.toThrow(/active issue scope/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     githubGraphQLRateLimitPolicy.reset();
   });

@@ -54,6 +54,26 @@ describe("validateLinearGraphQLInvocation", () => {
 });
 
 describe("executeLinearGraphQL", () => {
+  it("rejects a host-side operation that is not scoped to the active issue", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        { query: "query Viewer { viewer { id } }" },
+        { apiKey: "lin_api_key" },
+        fetchImpl as typeof fetch,
+        {
+          issue: {
+            id: "issue-1",
+            identifier: "ENG-1",
+            nativeRef: { itemId: "issue-1", projectSlug: "project-a" },
+          },
+        }
+      )
+    ).rejects.toThrow(/active issue scope/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("posts a single operation with runtime-managed Authorization", async () => {
     const fetchImpl = vi
       .fn()

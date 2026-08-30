@@ -2906,7 +2906,10 @@ describe("lastEventAt timestamp tracking", () => {
       params: {
         tool: "github_graphql",
         callId: "call-1",
-        arguments: { query: "query { viewer { login } }" },
+        arguments: {
+          query: "query ActiveIssue($id: ID!) { node(id: $id) { id } }",
+          variables: { id: "issue-730" },
+        },
       },
     });
 
@@ -2944,7 +2947,9 @@ describe("lastEventAt timestamp tracking", () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://api.github.com/graphql",
       expect.objectContaining({
-        headers: expect.objectContaining({ authorization: "Bearer host-token" }),
+        headers: expect.objectContaining({
+          authorization: "Bearer host-token",
+        }),
       })
     );
     fetchSpy.mockRestore();
