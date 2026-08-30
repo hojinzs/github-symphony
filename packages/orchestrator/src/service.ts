@@ -197,6 +197,7 @@ export function applyStateReadRoutability(
   if (!refreshedIssue) {
     return {
       ...result,
+      rateLimits: refreshedRateLimits ?? result.rateLimits,
       routable: false,
       routableReason: "tracker_issue_snapshot_missing",
     };

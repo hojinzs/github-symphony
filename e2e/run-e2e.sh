@@ -40,6 +40,7 @@ cleanup() {
   "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 2>/dev/null || true
   remove_e2e_compose_image
   echo "[]" > e2e/fixtures/issues.json 2>/dev/null || true
+  rm -f e2e/fixtures/required-label-removed.signal
 }
 # ── Setup ─────────────────────────────────────────────────────
 

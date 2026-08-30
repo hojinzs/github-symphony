@@ -101,9 +101,12 @@ describe("state-read routability", () => {
   });
 
   it("treats a filtered snapshot as a clean routing stop", () => {
-    expect(applyStateReadRoutability(confirmed, undefined, null, lifecycle)).toMatchObject({
+    expect(
+      applyStateReadRoutability(confirmed, undefined, { remaining: 7 }, lifecycle)
+    ).toMatchObject({
       ok: true,
       outcome: "confirmed",
+      rateLimits: { remaining: 7 },
       routable: false,
       routableReason: "tracker_issue_snapshot_missing",
       error: null,
@@ -1337,6 +1340,7 @@ describe("OrchestratorService", () => {
       routable: null,
       error: "workflow_unavailable_for_routability_check",
     });
+    loadWorkflowSpy.mockClear();
     const providerError = Object.assign(new Error("rate limit exhausted"), {
       rateLimits: {
         source: "github",
@@ -1370,16 +1374,16 @@ describe("OrchestratorService", () => {
       expect.objectContaining({
         event: "tracker.state",
         runId: "run-1",
-        outcome: "failed",
-        error: "workflow_unavailable_for_routability_check",
-        routable: null,
+        outcome: "expected_state_mismatch",
+        confirmedState: "Ready",
+        rateLimits: expect.objectContaining({ cycleCost: 1 }),
       }),
       expect.objectContaining({
         event: "tracker.state",
         runId: "run-1",
-        outcome: "expected_state_mismatch",
-        confirmedState: "Ready",
-        rateLimits: expect.objectContaining({ cycleCost: 1 }),
+        outcome: "failed",
+        error: "workflow_unavailable_for_routability_check",
+        routable: null,
       }),
       expect.objectContaining({
         event: "tracker.state",
