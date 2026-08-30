@@ -93,6 +93,9 @@ touches a layer, check that its slice (and the linked documents) still holds.
   [Linear](trackers/linear.md), and [file](trackers/file.md). GitHub's
   synthetic `Archived` state is a GitHub-specific implementation choice, not
   normalized Symphony core behavior.
+- Host-side tracker tools: provider adapters own advertised schemas, credentials,
+  and active-issue scope validation. Codex snapshots those schemas in its runtime
+  plan; Claude snapshots them when its loopback Streamable HTTP MCP server starts.
 
 ### 6. Observability — events and status surfaces
 

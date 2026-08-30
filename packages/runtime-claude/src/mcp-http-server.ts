@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type {
   AgentToolExecutionContext,
+  AgentToolSpec,
   OrchestratorTrackerAdapter,
 } from "@gh-symphony/core";
 import { githubProjectTrackerAdapter } from "@gh-symphony/tracker-github";
@@ -20,8 +21,15 @@ export async function startClaudeMcpHttpServer(options: {
   env: NodeJS.ProcessEnv;
   context: ClaudeMcpHostContext;
   onEvent?: (event: "started" | "stopped") => void;
+  adapters?: readonly Pick<
+    OrchestratorTrackerAdapter,
+    "agentToolSpecs" | "executeAgentTool"
+  >[];
 }): Promise<ClaudeMcpHttpServer> {
   const sessionToken = randomBytes(32).toString("base64url");
+  const toolSnapshot = createToolSnapshot(
+    options.adapters ?? resolveHostToolAdapters(options.env)
+  );
   let server: Server | null = createServer(async (request, response) => {
     if (!isAuthorized(request, sessionToken)) {
       response.writeHead(401, { "content-type": "application/json" });
@@ -38,7 +46,12 @@ export async function startClaudeMcpHttpServer(options: {
       response.end(JSON.stringify(error(null, -32700, "Parse error")));
       return;
     }
-    const result = await dispatch(payload, options.env, options.context);
+    const result = await dispatch(
+      payload,
+      options.env,
+      options.context,
+      toolSnapshot
+    );
     if (!("id" in payload)) {
       response.writeHead(202).end();
       return;
@@ -71,7 +84,8 @@ export async function startClaudeMcpHttpServer(options: {
 async function dispatch(
   payload: Record<string, unknown>,
   env: NodeJS.ProcessEnv,
-  context: ClaudeMcpHostContext
+  context: ClaudeMcpHostContext,
+  toolSnapshot: readonly HostToolSnapshot[]
 ): Promise<Record<string, unknown>> {
   const id = payload.id ?? null;
   if (payload.method === "initialize")
@@ -86,16 +100,20 @@ async function dispatch(
     };
   if (payload.method === "ping") return { jsonrpc: "2.0", id, result: {} };
   if (payload.method === "tools/list")
-    return { jsonrpc: "2.0", id, result: { tools: availableTools(env) } };
+    return {
+      jsonrpc: "2.0",
+      id,
+      result: { tools: toolSnapshot.map((entry) => entry.spec) },
+    };
   if (payload.method !== "tools/call" || !isRecord(payload.params))
     return error(id, -32601, "Method not found");
   const name = payload.params.name;
   const argumentsValue = payload.params.arguments;
   if (!isRecord(argumentsValue) || typeof name !== "string")
     return error(id, -32602, "Tool arguments must be an object.");
-  const adapter = resolveHostToolAdapters(env).find((candidate) =>
-    candidate.agentToolSpecs?.().some((tool) => tool.name === name)
-  );
+  const adapter = toolSnapshot.find(
+    (entry) => entry.spec.name === name
+  )?.adapter;
   if (!adapter?.executeAgentTool) {
     return error(id, -32602, `Tool "${name}" is not available.`);
   }
@@ -128,11 +146,22 @@ async function dispatch(
   }
 }
 
-function availableTools(
-  env: NodeJS.ProcessEnv
-): Array<Record<string, unknown>> {
-  return resolveHostToolAdapters(env).flatMap(
-    (adapter) => adapter.agentToolSpecs?.() ?? []
+type HostToolSnapshot = {
+  spec: AgentToolSpec;
+  adapter: Pick<OrchestratorTrackerAdapter, "executeAgentTool">;
+};
+
+function createToolSnapshot(
+  adapters: readonly Pick<
+    OrchestratorTrackerAdapter,
+    "agentToolSpecs" | "executeAgentTool"
+  >[]
+): readonly HostToolSnapshot[] {
+  return adapters.flatMap((adapter) =>
+    (adapter.agentToolSpecs?.() ?? []).map((spec) => ({
+      spec: structuredClone(spec),
+      adapter,
+    }))
   );
 }
 

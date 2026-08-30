@@ -13,6 +13,54 @@ afterEach(async () => {
 });
 
 describe("Claude host MCP HTTP server", () => {
+  it("freezes the advertised tool specs when the server starts", async () => {
+    let specs = [
+      {
+        name: "snapshotted_tool",
+        description: "Initial tool",
+        inputSchema: {
+          type: "object" as const,
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
+      },
+    ];
+    const adapter = {
+      agentToolSpecs: () => specs,
+      executeAgentTool: vi.fn(),
+    };
+    server = await startClaudeMcpHttpServer({
+      env: {},
+      context: {
+        issue: { id: "issue-1", identifier: "owner/repo#1", nativeRef: {} },
+      },
+      adapters: [adapter],
+    });
+    specs = [
+      {
+        ...specs[0]!,
+        name: "reloaded_tool",
+        description: "Reloaded tool",
+      },
+    ];
+
+    const response = await fetch(server.url, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${server.sessionToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+
+    await expect(response.json()).resolves.toMatchObject({
+      result: {
+        tools: [expect.objectContaining({ name: "snapshotted_tool" })],
+      },
+    });
+  });
+
   it("requires its session capability and exposes only the selected host tool", async () => {
     server = await startClaudeMcpHttpServer({
       env: { SYMPHONY_TRACKER_KIND: "github" },
