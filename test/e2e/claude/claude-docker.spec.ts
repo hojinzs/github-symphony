@@ -593,7 +593,13 @@ async function createTurnLeaseServer(): Promise<{
     if (request.method === "POST" && request.url === "/api/v1/tracker-state") {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(
-        JSON.stringify({ ok: true, outcome: "confirmed", state: "In progress" })
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "In progress",
+          routable: true,
+          routableReason: null,
+        })
       );
       return;
     }
