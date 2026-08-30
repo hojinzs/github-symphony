@@ -601,9 +601,14 @@ describe("lifecycle command integration", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
 
-    await recoverModule.default(["--dry-run"], baseOptions(configDir));
+    const isProcessRunning = vi.fn().mockReturnValue(false);
+
+    await recoverModule.default(["--dry-run"], baseOptions(configDir), {
+      isProcessRunning,
+    });
 
     expect(orchestratorRunCli).not.toHaveBeenCalled();
+    expect(isProcessRunning).toHaveBeenCalledWith(999_999);
     expect(
       stdout.mock.calls.some((call) =>
         String(call[0]).includes("acme/platform#7")

@@ -2,9 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
-import {
-  resolveRuntimeRoot,
-} from "../orchestrator-runtime.js";
+import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
@@ -15,6 +13,10 @@ type RecoverCandidate = {
   issueIdentifier: string;
   status: string;
   reason: string;
+};
+
+type RecoverDependencies = {
+  isProcessRunning?: (pid: number) => boolean;
 };
 
 function parseRecoverArgs(args: string[]): {
@@ -37,7 +39,8 @@ function parseRecoverArgs(args: string[]): {
 
 const handler = async (
   args: string[],
-  options: GlobalOptions
+  options: GlobalOptions,
+  dependencies: RecoverDependencies = {}
 ): Promise<void> => {
   const parsed = parseRecoverArgs(args);
 
@@ -54,7 +57,11 @@ const handler = async (
   const projectId = projectConfig.projectId;
   if (parsed.dryRun) {
     process.stdout.write("Dry run — scanning for stalled runs...\n");
-    const candidates = await listRecoverCandidates(runtimeRoot, projectId);
+    const candidates = await listRecoverCandidates(
+      runtimeRoot,
+      projectId,
+      dependencies.isProcessRunning ?? isProcessRunning
+    );
     if (options.json) {
       process.stdout.write(JSON.stringify(candidates, null, 2) + "\n");
       return;
@@ -85,7 +92,8 @@ export default handler;
 
 async function listRecoverCandidates(
   runtimeRoot: string,
-  projectId: string
+  projectId: string,
+  isRunning: (pid: number) => boolean
 ): Promise<RecoverCandidate[]> {
   const runRoots = [
     join(runtimeRoot, "runs"),
@@ -119,7 +127,7 @@ async function listRecoverCandidates(
           continue;
         }
 
-        const reason = detectRecoveryReason(run);
+        const reason = detectRecoveryReason(run, isRunning);
         if (!reason) {
           continue;
         }
@@ -141,19 +149,23 @@ async function listRecoverCandidates(
   return candidates;
 }
 
-function detectRecoveryReason(run: {
-  status: string;
-  processId: number | null;
-  startedAt: string | null;
-  nextRetryAt: string | null;
-}): string | null {
+function detectRecoveryReason(
+  run: {
+    status: string;
+    processId: number | null;
+    startedAt: string | null;
+    nextRetryAt: string | null;
+  },
+  isRunning: (pid: number) => boolean
+): string | null {
   if (run.processId) {
     const startedAt = run.startedAt ? new Date(run.startedAt).getTime() : 0;
     const runningForMs = Date.now() - startedAt;
-    if (isProcessRunning(run.processId) && runningForMs > 30 * 60 * 1000) {
+    const processRunning = isRunning(run.processId);
+    if (processRunning && runningForMs > 30 * 60 * 1000) {
       return "worker appears stuck";
     }
-    if (!isProcessRunning(run.processId)) {
+    if (!processRunning) {
       return "worker process is no longer running";
     }
   }
