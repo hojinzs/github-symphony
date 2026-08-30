@@ -23,6 +23,7 @@ import {
   type OrchestratorRunRecord,
   type OrchestratorTrackerDependencies,
   type RepositoryRef,
+  type TrackedIssue,
   type TrackedIssueList,
   type WorkflowResolution,
 } from "@gh-symphony/core";
@@ -31,12 +32,84 @@ import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
 import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
 import {
+  applyStateReadRoutability,
   clampPollInterval,
   OrchestratorService,
   shouldAwaitTrackerProgressExit,
   shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
+
+describe("state-read routability", () => {
+  const confirmed = {
+    ok: true,
+    outcome: "confirmed" as const,
+    state: "In progress",
+    expectedState: null,
+    targetState: null,
+    reason: null,
+    rateLimits: { source: "github", remaining: 10 },
+    error: null,
+  };
+  const lifecycle = { requiredLabels: ["agent"] };
+  const issue = (overrides: Partial<TrackedIssue> = {}) =>
+    ({
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      title: "Issue",
+      description: null,
+      priority: null,
+      state: "In progress",
+      branchName: null,
+      url: null,
+      labels: ["agent"],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: null,
+      updatedAt: null,
+      repository: { owner: "acme", name: "platform" },
+      tracker: { adapter: "file", bindingId: "test" },
+      metadata: {},
+      ...overrides,
+    }) as TrackedIssue;
+
+  it("derives confirmed state and routability from one refreshed snapshot", () => {
+    expect(
+      applyStateReadRoutability(
+        confirmed,
+        issue({ state: "Done" }),
+        { source: "github", remaining: 9 },
+        lifecycle
+      )
+    ).toMatchObject({
+      state: "Done",
+      routable: true,
+      routableReason: null,
+      rateLimits: { remaining: 9 },
+    });
+  });
+
+  it("reports an active issue missing a required label as unroutable", () => {
+    expect(
+      applyStateReadRoutability(confirmed, issue({ labels: [] }), null, lifecycle)
+    ).toMatchObject({
+      state: "In progress",
+      routable: false,
+      routableReason: 'Issue is missing required labels ("agent").',
+    });
+  });
+
+  it("treats a filtered snapshot as a clean routing stop", () => {
+    expect(applyStateReadRoutability(confirmed, undefined, null, lifecycle)).toMatchObject({
+      ok: true,
+      outcome: "confirmed",
+      routable: false,
+      routableReason: "tracker_issue_snapshot_missing",
+      error: "tracker_issue_snapshot_missing",
+    });
+  });
+});
 
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;

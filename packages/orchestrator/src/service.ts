@@ -182,6 +182,36 @@ export function shouldRecordConfirmedTrackerProgress(
   );
 }
 
+/**
+ * Replaces the initial state-read with facts from one freshly normalized
+ * snapshot so a worker never combines an old lifecycle state with new label
+ * routing. A missing snapshot is a clean routing stop (for example, Linear
+ * pickup filtering), rather than transport failure.
+ */
+export function applyStateReadRoutability(
+  result: TrackerStateResult,
+  refreshedIssue: TrackedIssue | undefined,
+  refreshedRateLimits: Record<string, unknown> | null | undefined,
+  lifecycle: WorkflowLifecycleConfig
+): TrackerStateResult {
+  if (!refreshedIssue) {
+    return {
+      ...result,
+      routable: false,
+      routableReason: "tracker_issue_snapshot_missing",
+      error: "tracker_issue_snapshot_missing",
+    };
+  }
+  const routability = issueRoutable(refreshedIssue, lifecycle);
+  return {
+    ...result,
+    state: refreshedIssue.state,
+    rateLimits: refreshedRateLimits ?? result.rateLimits,
+    routable: routability.routable,
+    routableReason: routability.reason ?? null,
+  };
+}
+
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
 >;
@@ -572,30 +602,12 @@ export class OrchestratorService {
             const refreshedIssue = refreshed.find(
               (issue) => issue.id === run.issueSubjectId
             );
-            if (!refreshedIssue) {
-              result = {
-                ...result,
-                // A filtered, deleted, or archived item is an intentional
-                // stop condition for the worker, not an orchestrator outage.
-                routable: false,
-                routableReason: "tracker_issue_snapshot_missing",
-                error: "tracker_issue_snapshot_missing",
-              };
-            } else {
-              const routability = issueRoutable(
-                refreshedIssue,
-                workflowResolution.lifecycle
-              );
-              result = {
-                ...result,
-                // State and routability must describe precisely the same
-                // normalized snapshot at a turn boundary.
-                state: refreshedIssue.state,
-                rateLimits: refreshed.rateLimits ?? result.rateLimits,
-                routable: routability.routable,
-                routableReason: routability.reason,
-              };
-            }
+            result = applyStateReadRoutability(
+              result,
+              refreshedIssue,
+              refreshed.rateLimits,
+              workflowResolution.lifecycle
+            );
           }
         }
         let recordConfirmedTrackerProgress = false;

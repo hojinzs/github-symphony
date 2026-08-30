@@ -237,7 +237,6 @@ issues = json.loads(path.read_text())
 issues[0]["labels"] = []
 path.write_text(json.dumps(issues))
 PY
-      orch_curl -sS -X POST http://localhost:4680/api/v1/refresh >/dev/null
       LABEL_REMOVED=true
     fi
     if echo "$STATUS_JSON" | python3 -c '
@@ -287,14 +286,15 @@ if [ "$SCENARIO" = "required-label-removed" ]; then
     fail "Required-label removal did not reach an active worker"
     exit 1
   fi
-  if ! "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "received SIGTERM" /e2e/work && find /e2e/work -path "*/runs/*/run.json" | grep -q .'; then
-    fail "Expected SIGTERM and retained run workspace after label removal"
+  if ! "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "turn=1 completed" /e2e/work && grep -R -q "turn=2 prevented by routability refresh" /e2e/work'; then
+    fail "Expected the routability refresh to prevent turn two after label removal"
     exit 1
   fi
   log "=== Result ==="
   log "  Worker started with required label: YES"
   log "  Label removed during run:          YES"
-  log "  SIGTERM + workspace retained:      YES"
+  log "  Turn one completed:                YES"
+  log "  Turn two prevented by refresh:     YES"
   log "PASSED"
   exit 0
 fi
