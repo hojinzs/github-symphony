@@ -53,6 +53,13 @@ export async function composeClaudeMcpConfig(
     env: symphonyTokenEnv,
     builtins: createSymphonyMcpServers(symphonyTokenEnv),
   });
+  // The child may connect to the worker-owned loopback transport, but it must
+  // never launch provider or repository MCP subprocesses itself.
+  mcpServers = Object.fromEntries(
+    Object.entries(mcpServers).filter(
+      ([, server]) => server.type === "http" && typeof server.url === "string"
+    )
+  );
   if (symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear") {
     delete mcpServers.linear_graphql;
   }

@@ -39,7 +39,7 @@ describe("composeClaudeMcpConfig", () => {
     );
   });
 
-  it("creates a runtime mcp config with only github_graphql when none exists", async () => {
+  it("creates an empty native MCP config when no host endpoint exists", async () => {
     const workspaceRoot = await createTempWorkspace();
     const runtimeRoot = join(workspaceRoot, "runtime");
 
@@ -57,22 +57,7 @@ describe("composeClaudeMcpConfig", () => {
       ],
       cleanupPath: join(runtimeRoot, "mcp.json"),
     });
-    expect(await readJson(result.finalPath)).toEqual({
-      mcpServers: {
-        github_graphql: {
-          command: "node",
-          args: [
-            expect.stringContaining("mcp-server.js"),
-            "--server",
-            "github",
-          ],
-          env: {
-            GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-            GITHUB_GRAPHQL_TOKEN: "token-1",
-          },
-        },
-      },
-    });
+    expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });
   });
 
   it("writes only the loopback URL and session capability for host-side MCP", async () => {
@@ -169,29 +154,45 @@ describe("composeClaudeMcpConfig", () => {
     expect(await readFile(workspaceMcpPath, "utf8")).toBe(originalConfig);
     expect(await readJson(result.finalPath)).toEqual({
       customTopLevel: true,
-      mcpServers: {
-        user_server: {
-          command: "node",
-          args: ["user-server.js"],
-        },
-        github_graphql: {
-          command: "node",
-          args: [
-            expect.stringContaining("mcp-server.js"),
-            "--server",
-            "github",
-          ],
-          env: {
-            GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-            GITHUB_GRAPHQL_TOKEN: "token-2",
-            GITHUB_PROJECT_ID: "project-1",
+      mcpServers: {},
+    });
+  });
+
+  it("exposes only the host HTTP MCP endpoint to the Claude child", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    await writeFile(
+      join(workspaceRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          repository_subprocess: {
+            command: "node",
+            args: ["untrusted-server.js"],
           },
+        },
+      }),
+      "utf8"
+    );
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+      SYMPHONY_TRUST_REPO_CONFIG: "true",
+      SYMPHONY_CLAUDE_MCP_URL: "http://127.0.0.1:43123/mcp",
+      SYMPHONY_CLAUDE_MCP_SESSION_TOKEN: "session-capability",
+    });
+
+    expect(await readJson(result.finalPath)).toEqual({
+      mcpServers: {
+        symphony: {
+          type: "http",
+          url: "http://127.0.0.1:43123/mcp",
+          headers: { Authorization: "Bearer session-capability" },
         },
       },
     });
   });
 
-  it("adds linear_graphql only for Linear tracker sessions", async () => {
+  it("does not expose Linear provider subprocesses", async () => {
     const workspaceRoot = await createTempWorkspace();
 
     const result = await composeClaudeMcpConfig(workspaceRoot, false, {
@@ -200,33 +201,7 @@ describe("composeClaudeMcpConfig", () => {
       LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
     });
 
-    expect(await readJson(result.finalPath)).toEqual({
-      mcpServers: {
-        github_graphql: {
-          command: "node",
-          args: [
-            expect.stringContaining("mcp-server.js"),
-            "--server",
-            "github",
-          ],
-          env: {
-            GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-          },
-        },
-        linear_graphql: {
-          command: "node",
-          args: [
-            expect.stringContaining("mcp-server.js"),
-            "--server",
-            "linear",
-          ],
-          env: {
-            LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
-            LINEAR_API_KEY: "lin_api_key",
-          },
-        },
-      },
-    });
+    expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });
   });
 
   it("does not add linear_graphql for non-Linear tracker sessions", async () => {
@@ -270,19 +245,7 @@ describe("composeClaudeMcpConfig", () => {
     });
     const config = await readJson(result.finalPath);
 
-    expect(config.mcpServers).toEqual({
-      user_server: {
-        command: "node",
-        args: ["user-server.js"],
-      },
-      github_graphql: {
-        command: "node",
-        args: [expect.stringContaining("mcp-server.js"), "--server", "github"],
-        env: {
-          GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-        },
-      },
-    });
+    expect(config.mcpServers).toEqual({});
     expect(JSON.stringify(config)).not.toContain("old-secret");
   });
 
@@ -321,26 +284,7 @@ describe("composeClaudeMcpConfig", () => {
       cleanupPath: join(runtimeRoot, "mcp.json"),
     });
     expect(await readFile(workspaceMcpPath, "utf8")).toBe(originalConfig);
-    expect(await readJson(result.finalPath)).toEqual({
-      mcpServers: {
-        user_server: {
-          command: "node",
-          args: ["user-server.js"],
-        },
-        github_graphql: {
-          command: "node",
-          args: [
-            expect.stringContaining("mcp-server.js"),
-            "--server",
-            "github",
-          ],
-          env: {
-            GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-            GITHUB_GRAPHQL_TOKEN: "token-3",
-          },
-        },
-      },
-    });
+    expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });
   });
 
   it("enforces strict MCP config when repository sidecars are untrusted", async () => {
@@ -360,11 +304,7 @@ describe("composeClaudeMcpConfig", () => {
       "--mcp-config",
       join(runtimeRoot, "mcp.json"),
     ]);
-    expect(await readJson(result.finalPath)).toEqual({
-      mcpServers: {
-        github_graphql: expect.any(Object),
-      },
-    });
+    expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });
   });
 
   it("resolves project sidecar env from the host environment", async () => {
@@ -385,9 +325,7 @@ describe("composeClaudeMcpConfig", () => {
         SYMPHONY_PROJECT_DIR: projectRoot,
         WORKSPACE_RUNTIME_DIR: runtimeRoot,
       });
-      expect(await readJson(result.finalPath)).toMatchObject({
-        mcpServers: { vendor: { env: { TOKEN: "host-secret" } } },
-      });
+      expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });
     } finally {
       delete process.env.MCP_HOST_TOKEN;
     }
@@ -420,21 +358,7 @@ describe("composeClaudeMcpConfig", () => {
 
     expect(result.finalPath).toBe(join(runtimeRoot, "mcp.json"));
     expect(await readFile(workspaceMcpPath, "utf8")).toBe(originalConfig);
-    expect(await readJson(result.finalPath)).toEqual({
-      mcpServers: {
-        github_graphql: {
-          command: "node",
-          args: [
-            expect.stringContaining("mcp-server.js"),
-            "--server",
-            "github",
-          ],
-          env: {
-            GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-          },
-        },
-      },
-    });
+    expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });
   });
 
   it("keeps an existing git workspace clean after non-strict preparation", async () => {
@@ -484,19 +408,7 @@ describe("composeClaudeMcpConfig", () => {
 
     expect(stdout).toBe("");
     expect(await readFile(workspaceMcpPath, "utf8")).toBe(userConfig);
-    expect(await readJson(result.finalPath)).toMatchObject({
-      mcpServers: {
-        user_server: {
-          command: "node",
-          args: ["user-server.js"],
-        },
-        github_graphql: {
-          env: {
-            GITHUB_GRAPHQL_TOKEN: "token-clean",
-          },
-        },
-      },
-    });
+    expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });
   });
 
   it("removes a declared secret value from a custom MCP env key when brokered", async () => {

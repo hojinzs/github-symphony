@@ -131,26 +131,67 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.command).toBe("codex");
     expect(plan.args).toEqual(["app-server"]);
     expect(plan.cwd).toBe("/tmp/workspace-123");
-    expect(plan.tools).toHaveLength(1);
+    expect(plan.tools).toEqual([]);
     expect(plan.dynamicTools).toEqual([
       expect.objectContaining({ name: "github_graphql", type: "function" }),
     ]);
     expect(plan.env.CODEX_PROJECT_ID).toBe("workspace-123");
     expect(plan.env.GITHUB_GRAPHQL_TOOL_NAME).toBeUndefined();
     expect(plan.env.GITHUB_GRAPHQL_TOOL_COMMAND).toBeUndefined();
-    expect(plan.env.GIT_CONFIG_KEY_0).toBe("credential.helper");
-    expect(plan.env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
+    expect(plan.env.GIT_CONFIG_KEY_0).toBeUndefined();
+    expect(plan.env.GIT_CONFIG_VALUE_0).toBeUndefined();
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
     expect(plan.env.CODEX_HOME).toBeUndefined();
     expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
     expect(plan.env.GITHUB_TOKEN).toBeUndefined();
     expect(plan.env.GH_TOKEN).toBeUndefined();
-    expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
-    expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBe("runtime-secret");
+    expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
   });
 
-  it("keeps direct Git credentials available to the compatibility helper", () => {
+  it("isolates the agent from host Git credentials and native MCP subprocesses", () => {
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      githubToken: "raw-github-token",
+      githubTokenBrokerUrl:
+        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
+      githubTokenBrokerSecret: "broker-secret",
+      enableLinearGraphqlTool: true,
+      linearApiKey: "lin-api-key",
+      linearAuthorization: "Bearer lin-authorization",
+      trackerSecretEnvironmentNames: [
+        "GITHUB_GRAPHQL_TOKEN",
+        "GITHUB_TOKEN_BROKER_SECRET",
+        "LINEAR_API_KEY",
+        "LINEAR_AUTHORIZATION",
+      ],
+      extraEnv: {
+        HOME: "/Users/operator",
+        GH_CONFIG_DIR: "/Users/operator/.config/gh",
+        WORKSPACE_RUNTIME_DIR: "/tmp/runtime-123",
+      },
+    });
+
+    expect(plan.dynamicTools.map((tool) => tool.name)).toEqual([
+      "github_graphql",
+      "linear_graphql",
+    ]);
+    expect(plan.tools).toEqual([]);
+    expect(plan.env).toMatchObject({
+      HOME: "/tmp/runtime-123/child-home",
+      GH_CONFIG_DIR: "/tmp/runtime-123/child-home/gh",
+    });
+    expect(plan.env.GIT_CONFIG_COUNT).toBeUndefined();
+    expect(plan.env.GIT_CONFIG_KEY_0).toBeUndefined();
+    expect(plan.env.GIT_CONFIG_VALUE_0).toBeUndefined();
+    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
+    expect(plan.env.LINEAR_API_KEY).toBeUndefined();
+    expect(plan.env.LINEAR_AUTHORIZATION).toBeUndefined();
+  });
+
+  it("removes direct Git credentials without a broker", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
@@ -158,8 +199,8 @@ describe("buildCodexRuntimePlan", () => {
       trackerSecretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
     });
 
-    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
-    expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
+    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.tools).toEqual([]);
   });
 
   it("preserves CODEX_HOME when explicitly provided by the environment", () => {
@@ -209,7 +250,7 @@ describe("buildCodexRuntimePlan", () => {
     }
   });
 
-  it("preserves builtin schemas and isolates sidecar env from the agent", async () => {
+  it("advertises builtin schemas dynamically without exposing sidecars", async () => {
     const root = await mkdtemp(join(tmpdir(), "codex-mcp-sidecar-"));
     const workspace = join(root, "workspace");
     const project = join(root, "project");
@@ -235,16 +276,10 @@ describe("buildCodexRuntimePlan", () => {
         projectDirectory: project,
         extraEnv: { CODEX_HOME: "/tmp/codex" },
       });
-      const githubTool = plan.tools.find(
-        (tool) => tool.name === "github_graphql"
+      expect(plan.dynamicTools[0]?.inputSchema.properties).toHaveProperty(
+        "query"
       );
-      const vendorTool = plan.tools.find((tool) => tool.name === "vendor_api");
-      expect(githubTool?.inputSchema.properties).toHaveProperty("query");
-      expect(vendorTool).toMatchObject({
-        command: "vendor-mcp",
-        args: ["--serve"],
-        env: { VENDOR_SECRET: "vendor-secret" },
-      });
+      expect(plan.tools).toEqual([]);
       expect(plan.env.VENDOR_SECRET).toBeUndefined();
     } finally {
       delete process.env.MCP_VENDOR_SECRET;
@@ -334,7 +369,7 @@ describe("buildCodexRuntimePlan", () => {
     }
   });
 
-  it("exposes linear_graphql only when enabled for Linear tracker sessions", () => {
+  it("advertises linear_graphql dynamically only for Linear sessions", () => {
     const nonLinearPlan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
@@ -342,7 +377,7 @@ describe("buildCodexRuntimePlan", () => {
         OPENAI_API_KEY: "sk-ready-runtime",
       },
     });
-    expect(nonLinearPlan.tools.map((tool) => tool.name)).toEqual([
+    expect(nonLinearPlan.dynamicTools.map((tool) => tool.name)).toEqual([
       "github_graphql",
     ]);
     expect(nonLinearPlan.env.LINEAR_GRAPHQL_TOOL_NAME).toBeUndefined();
@@ -387,20 +422,14 @@ describe("buildCodexRuntimePlan", () => {
       },
     });
 
-    expect(linearPlan.tools.map((tool) => tool.name)).toEqual([
+    expect(linearPlan.dynamicTools.map((tool) => tool.name)).toEqual([
       "github_graphql",
       "linear_graphql",
     ]);
     expect(linearPlan.env.LINEAR_GRAPHQL_TOOL_NAME).toBeUndefined();
     expect(linearPlan.env.LINEAR_GRAPHQL_URL).toBeUndefined();
     expect(linearPlan.env.LINEAR_API_KEY).toBeUndefined();
-    const linearTool = linearPlan.tools.find(
-      (tool) => tool.name === "linear_graphql"
-    );
-    expect(linearTool?.env).toEqual({
-      LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
-      LINEAR_API_KEY: "lin_api_key",
-    });
+    expect(linearPlan.tools).toEqual([]);
 
     const brokeredLinearPlan = buildCodexRuntimePlan({
       projectId: "workspace-123",

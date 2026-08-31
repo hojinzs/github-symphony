@@ -323,8 +323,57 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
 
     expect(calls[0]?.GITHUB_TOKEN).toBeUndefined();
-    expect(calls[0]?.GIT_CONFIG_KEY_0).toBe("credential.helper");
-    expect(calls[0]?.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
+    expect(calls[0]?.GIT_CONFIG_KEY_0).toBeUndefined();
+    expect(calls[0]?.GIT_CONFIG_VALUE_0).toBeUndefined();
+    expect(calls[0]?.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
+  });
+
+  it("spawns Claude with an isolated home and no host Git credentials", async () => {
+    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = (_command, _args, options) => {
+      calls.push(options.env as NodeJS.ProcessEnv | undefined);
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        inheritProcessEnv: true,
+        runtimeDirectory: "/runtime/run-123",
+        env: {
+          HOME: "/Users/operator",
+          GH_CONFIG_DIR: "/Users/operator/.config/gh",
+          GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+          GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+          LINEAR_API_KEY: "lin-api-key",
+          LINEAR_AUTHORIZATION: "Bearer lin-authorization",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "GITHUB_TOKEN_BROKER_SECRET",
+            "LINEAR_API_KEY",
+            "LINEAR_AUTHORIZATION",
+          ]),
+        },
+      },
+      { spawnImpl }
+    );
+
+    await adapter.spawnTurn({ messages: [] });
+
+    expect(calls[0]).toMatchObject({
+      HOME: "/runtime/run-123/child-home",
+      GH_CONFIG_DIR: "/runtime/run-123/child-home/gh",
+    });
+    expect(calls[0]?.GIT_CONFIG_COUNT).toBeUndefined();
+    expect(calls[0]?.GIT_CONFIG_KEY_0).toBeUndefined();
+    expect(calls[0]?.GIT_CONFIG_VALUE_0).toBeUndefined();
+    expect(calls[0]?.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
+    expect(calls[0]?.LINEAR_API_KEY).toBeUndefined();
+    expect(calls[0]?.LINEAR_AUTHORIZATION).toBeUndefined();
   });
 
   it("uses configured args and strict mcp isolation for spawned argv", async () => {
@@ -419,7 +468,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.args).toContain("--strict-mcp-config");
     expect(calls[0]?.args).toContain("--mcp-config");
     expect(calls[0]?.args).toContain(mcpConfigPath);
-    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+    expect(await readFile(mcpConfigPath, "utf8")).toBe(
+      '{\n  "mcpServers": {}\n}\n'
+    );
 
     await adapter.shutdown();
 
@@ -469,7 +520,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.args).toContain("--mcp-config");
     expect(calls[0]?.args).toContain(mcpConfigPath);
     expect(calls[0]?.args).toContain("--strict-mcp-config");
-    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+    expect(await readFile(mcpConfigPath, "utf8")).toBe(
+      '{\n  "mcpServers": {}\n}\n'
+    );
     await expect(
       readFile(join(workspaceRoot, ".mcp.json"), "utf8")
     ).rejects.toMatchObject({
@@ -503,12 +556,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
       };
     };
 
-    expect(config.mcpServers?.github_graphql?.env).toMatchObject({
-      GITHUB_PROJECT_ID: "project-from-config",
-    });
-    expect(
-      config.mcpServers?.github_graphql?.env?.GITHUB_GRAPHQL_TOKEN
-    ).toBeUndefined();
+    expect(config.mcpServers).toEqual({});
   });
 
   it("never writes inherited GitHub credentials into the MCP config", async () => {
@@ -567,7 +615,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     await adapter.prepare({ runId: "run-1" });
     const mcpConfigPath = join(runtimeRoot, "mcp.json");
-    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+    expect(await readFile(mcpConfigPath, "utf8")).toBe(
+      '{\n  "mcpServers": {}\n}\n'
+    );
 
     await adapter.cancel("test");
 
@@ -609,7 +659,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     const replacedConfig = await readFile(mcpConfigPath, "utf8");
     expect(replacedConfig).not.toContain("second-token");
     expect(replacedConfig).not.toContain("first-token");
-    expect(replacedConfig).toContain("https://second.example/graphql");
+    expect(replacedConfig).toBe('{\n  "mcpServers": {}\n}\n');
     expect(replacedConfig).not.toContain("https://first.example/graphql");
 
     await adapter.shutdown();
@@ -676,7 +726,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     await pending;
   });
 
-  it("returns an empty env object instead of inheriting process env by accident", async () => {
+  it("returns only the isolated child boundary instead of inheriting process env", async () => {
     const originalEnv = process.env;
     const calls: Array<NodeJS.ProcessEnv | undefined> = [];
     const { child, stdout, stderr } = createStubChild();
@@ -710,7 +760,11 @@ describe("ClaudePrintRuntimeAdapter", () => {
       process.env = originalEnv;
     }
 
-    expect(calls[0]).toEqual({});
+    expect(calls[0]).toEqual({
+      HOME: "/workspace/.runtime/child-home",
+      GH_CONFIG_DIR: "/workspace/.runtime/child-home/gh",
+      GIT_TERMINAL_PROMPT: "0",
+    });
   });
 
   it("prepares a first turn with --session-id and persists the session file", async () => {

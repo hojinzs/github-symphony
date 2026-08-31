@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildAgentInputRequiredReason,
@@ -8,9 +9,7 @@ import {
   readAgentCredentialCache,
   shouldReuseAgentCredentialCache,
   writeAgentCredentialCache,
-  composeMcpServers,
   collectMcpSecretEnvironmentNames,
-  stripMcpServerSecretEnvironmentValues,
   type AgentRuntimeAdapter,
   type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
@@ -604,16 +603,6 @@ export function buildCodexRuntimePlan(
       .filter((tool): tool is RuntimeToolDefinition => tool !== undefined)
       .map((tool) => [tool.name, tool])
   );
-  const servers = composeMcpServers({
-    repositoryDir: config.workingDirectory,
-    projectDir: config.projectDirectory,
-    trustRepoConfig: config.trustRepoConfig,
-    env: config.extraEnv,
-    builtins,
-  });
-  if (!config.enableLinearGraphqlTool) {
-    delete servers.linear_graphql;
-  }
   const secretEnvironmentNames = [
     ...(config.trackerSecretEnvironmentNames ?? []),
     ...collectMcpSecretEnvironmentNames({
@@ -623,35 +612,7 @@ export function buildCodexRuntimePlan(
       secretEnvironmentNames: config.trackerSecretEnvironmentNames ?? [],
     }),
   ];
-  const brokeredGitHubTracker =
-    usesGitHubTokenBroker && config.trackerKind !== "linear";
-  const tools = Object.entries(
-    brokeredGitHubTracker
-      ? stripMcpServerSecretEnvironmentValues(
-          servers,
-          secretEnvironmentNames,
-          [
-            ...secretEnvironmentNames.map(
-              (name) => config.extraEnv?.[name] ?? process.env[name]
-            ),
-            config.githubToken,
-          ].filter((value): value is string => value !== undefined)
-        )
-      : servers
-  )
-    // Codex app-server accepts stdio definitions on this legacy path. HTTP
-    // entries are valid shared MCP config but belong to the Claude transport.
-    .filter(
-      (entry): entry is [string, { command: string; args?: string[]; env?: Record<string, string> }] =>
-        "command" in entry[1]
-    )
-    .map(
-      ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
-    );
-  const gitCredentialHelper = createGitCredentialHelperEnvironment({
-    ...config,
-    githubToken: usesGitHubTokenBroker ? undefined : config.githubToken,
-  });
+  const childHome = resolveCodexChildHome(config);
 
   const agentCommand = parseAgentCommand(
     config.agentCommand ?? "codex app-server"
@@ -680,19 +641,20 @@ export function buildCodexRuntimePlan(
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       ...orchestratorRunEnv,
       ...agentEnv,
-      ...gitCredentialHelper,
+      HOME: childHome,
+      GH_CONFIG_DIR: join(childHome, "gh"),
     } as NodeJS.ProcessEnv,
-    tools,
+    tools: [],
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
   };
 
-  // Dynamic-tool credentials execute in the worker host. The brokerless
-  // Git credential helper still needs the GitHub token until #700 moves
-  // authenticated Git transport host-side.
   for (const name of new Set([
-    ...secretEnvironmentNames.filter(
-      (name) => name !== "GITHUB_GRAPHQL_TOKEN"
-    ),
+    ...secretEnvironmentNames,
+    "GH_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_TOKEN",
+    "GITHUB_GRAPHQL_TOKEN",
+    "GITHUB_TOKEN_BROKER_SECRET",
     "LINEAR_API_KEY",
     "LINEAR_AUTHORIZATION",
     "LINEAR_GRAPHQL_URL",
@@ -700,11 +662,18 @@ export function buildCodexRuntimePlan(
     delete plan.env[name];
   }
 
-  if (usesGitHubTokenBroker) {
-    delete plan.env.GITHUB_GRAPHQL_TOKEN;
-  }
-
   return plan;
+}
+
+function resolveCodexChildHome(config: CodexRuntimeConfig): string {
+  const runtimeDirectory =
+    config.extraEnv?.WORKSPACE_RUNTIME_DIR ??
+    join(
+      dirname(config.workingDirectory),
+      ".runtime",
+      basename(config.workingDirectory)
+    );
+  return join(runtimeDirectory, "child-home");
 }
 
 export function launchCodexAppServer(
@@ -752,6 +721,8 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
       ...this.config,
       agentEnv,
     });
+    await mkdir(this.plan.env.HOME!, { recursive: true, mode: 0o700 });
+    await mkdir(this.plan.env.GH_CONFIG_DIR!, { recursive: true, mode: 0o700 });
   }
 
   async spawnTurn(
