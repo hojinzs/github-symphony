@@ -138,6 +138,11 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
         hostMcpSessionToken: this.hostMcpServer?.sessionToken,
       })
     );
+    if (this.preparedMcpConfig.excludedServerNames?.length) {
+      process.stderr.write(
+        `[runtime-claude] ignored child MCP declarations: ${this.preparedMcpConfig.excludedServerNames.join(", ")}; only the worker-owned loopback Streamable HTTP endpoint is exposed\n`
+      );
+    }
   }
 
   async spawnTurn(

@@ -150,6 +150,7 @@ describe("composeClaudeMcpConfig", () => {
       finalPath: join(runtimeRoot, "mcp.json"),
       extraArgv: ["--mcp-config", join(runtimeRoot, "mcp.json")],
       cleanupPath: join(runtimeRoot, "mcp.json"),
+      excludedServerNames: ["user_server"],
     });
     expect(await readFile(workspaceMcpPath, "utf8")).toBe(originalConfig);
     expect(await readJson(result.finalPath)).toEqual({
@@ -168,6 +169,14 @@ describe("composeClaudeMcpConfig", () => {
           repository_subprocess: {
             command: "node",
             args: ["untrusted-server.js"],
+          },
+          repository_http: {
+            type: "http",
+            url: "https://repository.example/mcp",
+          },
+          repository_sse: {
+            type: "sse",
+            url: "https://repository.example/sse",
           },
         },
       }),
@@ -190,6 +199,11 @@ describe("composeClaudeMcpConfig", () => {
         },
       },
     });
+    expect(result.excludedServerNames).toEqual([
+      "repository_http",
+      "repository_sse",
+      "repository_subprocess",
+    ]);
   });
 
   it("does not expose Linear provider subprocesses", async () => {
@@ -282,6 +296,7 @@ describe("composeClaudeMcpConfig", () => {
         join(runtimeRoot, "mcp.json"),
       ],
       cleanupPath: join(runtimeRoot, "mcp.json"),
+      excludedServerNames: ["user_server"],
     });
     expect(await readFile(workspaceMcpPath, "utf8")).toBe(originalConfig);
     expect(await readJson(result.finalPath)).toEqual({ mcpServers: {} });

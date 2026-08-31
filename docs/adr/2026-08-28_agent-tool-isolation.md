@@ -120,10 +120,12 @@ translated into a second protocol.
 #### Claude transport
 
 For Claude, the worker or orchestrator starts an MCP server as a host-owned
-per-run service and exposes it over HTTP/SSE (or the then-supported HTTP MCP
-transport). It binds to loopback by default on an ephemeral port. The generated
-`mcp.json` contains only that URL and a worker-issued, high-entropy session
-capability token; it never contains an adapter credential.
+per-run service and exposes it over the supported Streamable HTTP transport. It
+binds to loopback by default on an ephemeral port. The generated `mcp.json`
+contains only that URL and a worker-issued, high-entropy session capability
+token; it never contains an adapter credential. Repository, project, and user
+HTTP, SSE, and subprocess declarations are excluded from the child config and
+reported by name in the worker diagnostic stream.
 
 The capability token is scoped to one run and MCP server, may call only the
 selected adapter's snapshotted tools, is rejected after expiry, and is revoked

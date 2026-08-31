@@ -123,16 +123,26 @@ async function readCurrentBranch(
   cwd: string,
   env: NodeJS.ProcessEnv
 ): Promise<string | null> {
+  const args = ["symbolic-ref", "--quiet", "--short", "HEAD"];
   try {
-    const branch = await runGit(cwd, env, [
-      "symbolic-ref",
-      "--quiet",
-      "--short",
-      "HEAD",
-    ]);
-    return branch.trim() || null;
-  } catch {
-    return null;
+    const { stdout } = await execFileAsync("git", args, {
+      cwd,
+      env,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return stdout.trim() || null;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === 1 &&
+      "stderr" in error &&
+      String(error.stderr).trim() === ""
+    ) {
+      return null;
+    }
+    throw createGitError(args, error);
   }
 }
 
@@ -149,12 +159,16 @@ async function runGit(
     });
     return stdout;
   } catch (error) {
-    const detail =
-      error && typeof error === "object" && "stderr" in error
-        ? String(error.stderr).trim()
-        : error instanceof Error
-          ? error.message
-          : String(error);
-    throw new Error(`git ${args.join(" ")} failed: ${detail}`);
+    throw createGitError(args, error);
   }
+}
+
+function createGitError(args: string[], error: unknown): Error {
+  const detail =
+    error && typeof error === "object" && "stderr" in error
+      ? String(error.stderr).trim()
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return new Error(`git ${args.join(" ")} failed: ${detail}`);
 }

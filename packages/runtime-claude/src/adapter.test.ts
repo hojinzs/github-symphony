@@ -570,6 +570,45 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
   });
 
+  it("reports trusted MCP declarations excluded from the child boundary", async () => {
+    const workspaceRoot = await createTempDir();
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    await writeFile(
+      join(workspaceRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          repository_sse: {
+            type: "sse",
+            url: "https://repository.example/sse",
+          },
+        },
+      })
+    );
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      runtimeDirectory: runtimeRoot,
+      env: {
+        SYMPHONY_TRUST_REPO_CONFIG: "true",
+      },
+    });
+
+    try {
+      await adapter.prepare({ runId: "run-1" });
+
+      expect(stderrWrite).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "ignored child MCP declarations: repository_sse"
+        )
+      );
+    } finally {
+      stderrWrite.mockRestore();
+      await adapter.shutdown();
+    }
+  });
+
   it("does not inherit host MCP credentials during prepare unless enabled", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
     const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));

@@ -86,6 +86,32 @@ describe("synchronizeAssignedBranch", () => {
     expect(remoteMainAfter).toBe(remoteMainBefore);
   });
 
+  it("reports detached HEAD as an assigned-worktree state error", async () => {
+    const { workspace } = await createGitFixture();
+    await git(workspace, "checkout", "--detach");
+
+    await expect(
+      synchronizeAssignedBranch({
+        cwd: workspace,
+        assignedBranch: "feat/assigned",
+      })
+    ).rejects.toThrow(
+      "refusing to push: assigned worktree is in detached HEAD state"
+    );
+  });
+
+  it("preserves symbolic-ref diagnostics for failures other than detached HEAD", async () => {
+    const root = await mkdtemp(join(tmpdir(), "worker-git-transport-invalid-"));
+    tempRoots.push(root);
+
+    await expect(
+      synchronizeAssignedBranch({
+        cwd: root,
+        assignedBranch: "feat/assigned",
+      })
+    ).rejects.toThrow("not a git repository");
+  });
+
   it("returns a distinct transport failure without throwing after the agent succeeded", async () => {
     const { workspace } = await createGitFixture();
     const competing = join(workspace, "..", "competing");

@@ -1,14 +1,33 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import { ClaudePrintRuntimeAdapter } from "@gh-symphony/runtime-claude";
 import { CodexRuntimeAdapter } from "@gh-symphony/runtime-codex";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   createWorkflowRuntimeAdapter,
   CustomCommandRuntimeAdapter,
 } from "./runtime-factory.js";
 import type { SpawnLike } from "@gh-symphony/runtime-claude";
+
+const tempRoots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    tempRoots
+      .splice(0)
+      .map((root) => rm(root, { recursive: true, force: true }))
+  );
+});
+
+async function createTempWorkspace(): Promise<string> {
+  const workspace = await mkdtemp(join(tmpdir(), "runtime-factory-"));
+  tempRoots.push(workspace);
+  return workspace;
+}
 
 function parseWorkflow(frontMatter: string) {
   return parseWorkflowMarkdown(`---
@@ -72,6 +91,7 @@ describe("createWorkflowRuntimeAdapter", () => {
   });
 
   it("creates a codex-app-server adapter with runtime command args", async () => {
+    const workingDirectory = await createTempWorkspace();
     const workflow = parseWorkflow(`runtime:
   kind: codex-app-server
   command: codex
@@ -83,12 +103,7 @@ describe("createWorkflowRuntimeAdapter", () => {
 
     const adapter = createWorkflowRuntimeAdapter(workflow, {
       projectId: "project-1",
-      workingDirectory: "/workspace",
-      codexDependencies: {
-        mkdirImpl: async () => undefined,
-        writeFileImpl: async () => undefined,
-        copyFileImpl: async () => undefined,
-      },
+      workingDirectory,
     });
 
     expect(adapter).toBeInstanceOf(CodexRuntimeAdapter);
@@ -101,18 +116,14 @@ describe("createWorkflowRuntimeAdapter", () => {
   });
 
   it("uses the default codex-app-server command when runtime command is absent", async () => {
+    const workingDirectory = await createTempWorkspace();
     const workflow = parseWorkflow(`runtime:
   kind: codex-app-server
 `);
 
     const adapter = createWorkflowRuntimeAdapter(workflow, {
       projectId: "project-1",
-      workingDirectory: "/workspace",
-      codexDependencies: {
-        mkdirImpl: async () => undefined,
-        writeFileImpl: async () => undefined,
-        copyFileImpl: async () => undefined,
-      },
+      workingDirectory,
     });
 
     expect(adapter).toBeInstanceOf(CodexRuntimeAdapter);
