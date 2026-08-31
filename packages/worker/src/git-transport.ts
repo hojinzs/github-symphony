@@ -133,7 +133,9 @@ export function shouldSynchronizeAssignedBranch(options: {
   return !options.userInputRequired && !options.terminalFailure;
 }
 
-function buildHostGitEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function buildHostGitEnvironment(
+  env: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv {
   const hasBroker = Boolean(
     env.GITHUB_TOKEN_BROKER_URL && env.GITHUB_TOKEN_BROKER_SECRET
   );

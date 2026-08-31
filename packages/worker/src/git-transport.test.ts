@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildHostGitEnvironment,
   shouldSynchronizeAssignedBranch,
   synchronizeAssignedBranch,
   trySynchronizeAssignedBranch,
@@ -289,6 +290,20 @@ describe("shouldSynchronizeAssignedBranch", () => {
       ).toBe(expected);
     }
   );
+});
+
+describe("buildHostGitEnvironment", () => {
+  it("preserves configured GHES identity for the credential helper", () => {
+    const env = buildHostGitEnvironment({
+      GITHUB_GRAPHQL_TOKEN: "host-token",
+      GITHUB_GIT_HOST: "github.enterprise.example",
+      GITHUB_GIT_USERNAME: "symphony-service",
+    });
+
+    expect(env.GITHUB_GIT_HOST).toBe("github.enterprise.example");
+    expect(env.GITHUB_GIT_USERNAME).toBe("symphony-service");
+    expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
+  });
 });
 
 async function createGitFixture() {
