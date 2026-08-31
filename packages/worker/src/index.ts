@@ -55,7 +55,11 @@ import {
 } from "./runtime-routing.js";
 import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
-import { synchronizeAssignedBranch } from "./git-transport.js";
+import {
+  shouldSynchronizeAssignedBranch,
+  trySynchronizeAssignedBranch,
+  type GitTransportAttempt,
+} from "./git-transport.js";
 import {
   findCwdBoundaryViolation,
   formatEventCwdSuffix,
@@ -816,15 +820,6 @@ async function runNonCodexRuntimeAdapterLifecycle(
       if (turnCount === maxTurns) maxTurnsReached = true;
     }
 
-    if (!terminalFailure) {
-      const transport = await synchronizeAssignedBranch({
-        cwd: env.WORKING_DIRECTORY!,
-        env,
-      });
-      process.stderr.write(
-        `[worker] host Git transport pushed ${transport.branch} at ${transport.head}\n`
-      );
-    }
     runtimeState.status = terminalFailure ? "failed" : "completed";
     runtimeState.runPhase = terminalFailure
       ? isNonCodexTimeoutFailure(terminalFailure)
@@ -843,6 +838,22 @@ async function runNonCodexRuntimeAdapterLifecycle(
       convergenceDetected: false,
       maxTurnsReached,
     });
+    if (
+      shouldSynchronizeAssignedBranch({
+        userInputRequired:
+          terminalFailure === DEFAULT_AGENT_INPUT_REQUIRED_REASON ||
+          terminalFailure?.startsWith("turn_input_required:") === true,
+        terminalFailure: terminalFailure !== null,
+      })
+    ) {
+      recordGitTransportAttempt(
+        await trySynchronizeAssignedBranch({
+          cwd: env.WORKING_DIRECTORY!,
+          assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+          env,
+        })
+      );
+    }
 
     if (terminalFailure) {
       emitTurnFailedEvent(turnTelemetry, terminalFailure);
@@ -1968,19 +1979,6 @@ async function runCodexClientProtocol(
       `[worker] multi-turn loop complete after ${turnCount} turn(s) — exiting worker\n`
     );
     runtimeState.runPhase = "finishing";
-    if (
-      !userInputRequired &&
-      !turnTerminalFailurePhase &&
-      !convergenceDetected
-    ) {
-      const transport = await synchronizeAssignedBranch({
-        cwd: plan.cwd,
-        env,
-      });
-      process.stderr.write(
-        `[worker] host Git transport pushed ${transport.branch} at ${transport.head}\n`
-      );
-    }
     runtimeState.status =
       userInputRequired || turnTerminalFailurePhase ? "failed" : "completed";
     runtimeState.runPhase = convergenceDetected
@@ -1995,6 +1993,20 @@ async function runCodexClientProtocol(
       convergenceDetected,
       maxTurnsReached,
     });
+    if (
+      shouldSynchronizeAssignedBranch({
+        userInputRequired,
+        terminalFailure: turnTerminalFailurePhase !== null,
+      })
+    ) {
+      recordGitTransportAttempt(
+        await trySynchronizeAssignedBranch({
+          cwd: plan.cwd,
+          assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+          env,
+        })
+      );
+    }
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
     await persistSessionTokenUsageArtifact(env);
@@ -2068,6 +2080,22 @@ async function runCodexClientProtocol(
     setTimeout(() => {
       process.exit(1);
     }, 1500);
+  }
+}
+
+function recordGitTransportAttempt(attempt: GitTransportAttempt): void {
+  if (attempt.ok) {
+    process.stderr.write(
+      `[worker] host Git transport pushed ${attempt.result.branch} at ${attempt.result.head}\n`
+    );
+    return;
+  }
+  const error = `git_transport_failed: ${attempt.error}`;
+  process.stderr.write(
+    `[worker] host Git transport failed: ${attempt.error}\n`
+  );
+  if (runtimeState.run) {
+    runtimeState.run.lastError = error;
   }
 }
 

@@ -14337,6 +14337,9 @@ Workspace prompt.
     expect(workerEnv?.WORKING_DIRECTORY).toBe(
       join(workspaceRecord!.workspacePath, "repository")
     );
+    expect(workerEnv?.SYMPHONY_ASSIGNED_BRANCH).toBe(
+      await gitModule.readGitCurrentBranch(workerEnv!.WORKING_DIRECTORY)
+    );
     expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
   });
 

@@ -2925,6 +2925,12 @@ export class OrchestratorService {
       workflowForPopulate.workflow
     );
     await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
+    const assignedBranch = await readGitCurrentBranch(repositoryDirectory);
+    if (!assignedBranch) {
+      throw new Error(
+        `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
+      );
+    }
 
     const shouldSaveWorkspaceRecord =
       !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;
@@ -3105,6 +3111,7 @@ export class OrchestratorService {
           CODEX_PROJECT_ID: tenant.projectId,
           PROJECT_ID: tenant.projectId,
           WORKING_DIRECTORY: repositoryDirectory,
+          SYMPHONY_ASSIGNED_BRANCH: assignedBranch,
           WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
           SYMPHONY_PROJECT_DIR:
             tenant.projectDir ?? this.store.projectDir(tenant.projectId),
