@@ -30,7 +30,7 @@ describe("synchronizeAssignedBranch", () => {
     const workspace = join(root, "workspace");
     const observer = join(root, "observer");
 
-    await git(root, "init", "--bare", remote);
+    await git(root, "init", "--bare", "--initial-branch=main", remote);
     await git(root, "init", "-b", "main", seed);
     await git(seed, "config", "user.name", "Symphony Test");
     await git(seed, "config", "user.email", "symphony@example.com");
@@ -164,7 +164,7 @@ async function createGitFixture() {
   const remote = join(root, "remote.git");
   const seed = join(root, "seed");
   const workspace = join(root, "workspace");
-  await git(root, "init", "--bare", remote);
+  await git(root, "init", "--bare", "--initial-branch=main", remote);
   await git(root, "init", "-b", "main", seed);
   await git(seed, "config", "user.name", "Symphony Test");
   await git(seed, "config", "user.email", "symphony@example.com");
