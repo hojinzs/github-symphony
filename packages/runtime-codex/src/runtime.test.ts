@@ -511,6 +511,17 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(env.GITHUB_TOKEN_BROKER_URL).toContain("/runtime-credentials");
   });
 
+  it("preserves a configured Git host and username for the helper", () => {
+    const env = createGitCredentialHelperEnvironment({
+      githubToken: "host-token",
+      gitHost: "github.enterprise.example",
+      gitUsername: "symphony-service",
+    });
+
+    expect(env.GITHUB_GIT_HOST).toBe("github.enterprise.example");
+    expect(env.GITHUB_GIT_USERNAME).toBe("symphony-service");
+  });
+
   it("rejects non-https broker URLs before exposing them to git", () => {
     expect(() =>
       createGitCredentialHelperEnvironment({

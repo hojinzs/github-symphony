@@ -817,15 +817,19 @@ export function createGitCredentialHelperEnvironment(
     | "githubTokenBrokerUrl"
     | "githubTokenBrokerSecret"
     | "githubTokenCachePath"
-  >
+  > & {
+    gitHost?: string;
+    gitUsername?: string;
+  }
 ): Record<string, string> {
   const githubTokenBrokerUrl = config.githubTokenBrokerUrl
     ? validateGitHubTokenBrokerUrl(config.githubTokenBrokerUrl)
     : undefined;
 
   return {
-    GITHUB_GIT_HOST: DEFAULT_GITHUB_GIT_HOST,
-    GITHUB_GIT_USERNAME: DEFAULT_GITHUB_GIT_USERNAME,
+    GITHUB_GIT_HOST: config.gitHost?.trim() || DEFAULT_GITHUB_GIT_HOST,
+    GITHUB_GIT_USERNAME:
+      config.gitUsername?.trim() || DEFAULT_GITHUB_GIT_USERNAME,
     GIT_TERMINAL_PROMPT: "0",
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "credential.helper",
