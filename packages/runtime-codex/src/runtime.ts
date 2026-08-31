@@ -1,13 +1,17 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildAgentInputRequiredReason,
   DEFAULT_LINEAR_GRAPHQL_URL,
+  prepareAgentChildHome,
   readAgentCredentialCache,
+  resolveAgentChildHome,
   shouldReuseAgentCredentialCache,
+  stageJsonCredentialFile,
   writeAgentCredentialCache,
   collectMcpSecretEnvironmentNames,
   type AgentRuntimeAdapter,
@@ -607,7 +611,10 @@ export function buildCodexRuntimePlan(
       secretEnvironmentNames: config.trackerSecretEnvironmentNames ?? [],
     }),
   ];
-  const childHome = resolveCodexChildHome(config);
+  const childHome = resolveAgentChildHome({
+    workingDirectory: config.workingDirectory,
+    runtimeDirectory: config.extraEnv?.WORKSPACE_RUNTIME_DIR,
+  });
 
   const agentCommand = parseAgentCommand(
     config.agentCommand ?? "codex app-server"
@@ -638,6 +645,7 @@ export function buildCodexRuntimePlan(
       ...agentEnv,
       HOME: childHome,
       GH_CONFIG_DIR: join(childHome, "gh"),
+      CODEX_HOME: join(childHome, ".codex"),
     } as NodeJS.ProcessEnv,
     tools: [],
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
@@ -658,17 +666,6 @@ export function buildCodexRuntimePlan(
   }
 
   return plan;
-}
-
-function resolveCodexChildHome(config: CodexRuntimeConfig): string {
-  const runtimeDirectory =
-    config.extraEnv?.WORKSPACE_RUNTIME_DIR ??
-    join(
-      dirname(config.workingDirectory),
-      ".runtime",
-      basename(config.workingDirectory)
-    );
-  return join(runtimeDirectory, "child-home");
 }
 
 export function launchCodexAppServer(
@@ -716,8 +713,13 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
       ...this.config,
       agentEnv,
     });
-    await mkdir(this.plan.env.HOME!, { recursive: true, mode: 0o700 });
-    await mkdir(this.plan.env.GH_CONFIG_DIR!, { recursive: true, mode: 0o700 });
+    await prepareAgentChildHome(this.plan.env.HOME!);
+    if (!this.plan.env.OPENAI_API_KEY) {
+      await stageJsonCredentialFile({
+        source: join(resolveHostCodexHome(this.config), "auth.json"),
+        destination: join(this.plan.env.CODEX_HOME!, "auth.json"),
+      });
+    }
   }
 
   async spawnTurn(
@@ -774,6 +776,14 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
   getPreparedPlan(): CodexRuntimePlan | null {
     return this.plan;
   }
+}
+
+function resolveHostCodexHome(config: CodexRuntimeConfig): string {
+  return (
+    config.extraEnv?.CODEX_HOME ??
+    process.env.CODEX_HOME ??
+    join(config.extraEnv?.HOME ?? process.env.HOME ?? homedir(), ".codex")
+  );
 }
 
 export function createCodexRuntimeAdapter(

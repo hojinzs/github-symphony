@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -142,7 +149,9 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GIT_CONFIG_VALUE_0).toBeUndefined();
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
-    expect(plan.env.CODEX_HOME).toBeUndefined();
+    expect(plan.env.CODEX_HOME).toBe(
+      "/tmp/workspace-123/.runtime/child-home/.codex"
+    );
     expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
     expect(plan.env.GITHUB_TOKEN).toBeUndefined();
     expect(plan.env.GH_TOKEN).toBeUndefined();
@@ -181,6 +190,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env).toMatchObject({
       HOME: "/tmp/runtime-123/child-home",
       GH_CONFIG_DIR: "/tmp/runtime-123/child-home/gh",
+      CODEX_HOME: "/tmp/runtime-123/child-home/.codex",
     });
     expect(plan.env.GIT_CONFIG_COUNT).toBeUndefined();
     expect(plan.env.GIT_CONFIG_KEY_0).toBeUndefined();
@@ -203,7 +213,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.tools).toEqual([]);
   });
 
-  it("preserves CODEX_HOME when explicitly provided by the environment", () => {
+  it("uses an isolated CODEX_HOME when a host source is explicitly provided", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
@@ -215,10 +225,12 @@ describe("buildCodexRuntimePlan", () => {
       },
     });
 
-    expect(plan.env.CODEX_HOME).toBe("/tmp/local-codex-home");
+    expect(plan.env.CODEX_HOME).toBe(
+      "/tmp/workspace-123/.runtime/child-home/.codex"
+    );
   });
 
-  it("preserves CODEX_HOME when explicitly provided by process env", () => {
+  it("does not expose process CODEX_HOME to the child", () => {
     process.env.CODEX_HOME = "/tmp/process-codex-home";
 
     const plan = buildCodexRuntimePlan({
@@ -229,7 +241,9 @@ describe("buildCodexRuntimePlan", () => {
       },
     });
 
-    expect(plan.env.CODEX_HOME).toBe("/tmp/process-codex-home");
+    expect(plan.env.CODEX_HOME).toBe(
+      "/tmp/workspace-123/.runtime/child-home/.codex"
+    );
   });
 
   it("does not inherit unallowlisted process env secrets", () => {
@@ -964,11 +978,83 @@ describe("prepareCodexRuntimePlan", () => {
     );
 
     expect(plan.env.OPENAI_API_KEY).toBe("sk-plan-agent");
-    expect(plan.env.CODEX_HOME).toBeUndefined();
+    expect(plan.env.CODEX_HOME).toBe(
+      "/tmp/workspace-123/.runtime/child-home/.codex"
+    );
   });
 });
 
 describe("createCodexRuntimeAdapter", () => {
+  it("stages only Codex provider auth into the isolated child home", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-child-auth-"));
+    const hostHome = join(root, "host-home");
+    const hostCodexHome = join(hostHome, ".codex");
+    const runtimeDirectory = join(root, "runtime");
+    const workspace = join(root, "workspace");
+    await Promise.all([
+      mkdir(hostCodexHome, { recursive: true }),
+      mkdir(workspace),
+    ]);
+    await writeFile(
+      join(hostCodexHome, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: { access_token: "provider" },
+      })
+    );
+    await writeFile(
+      join(hostCodexHome, "config.toml"),
+      "[mcp_servers.github]\n"
+    );
+
+    try {
+      const adapter = createCodexRuntimeAdapter(
+        {
+          projectId: "workspace-auth",
+          workingDirectory: workspace,
+          extraEnv: {
+            HOME: hostHome,
+            WORKSPACE_RUNTIME_DIR: runtimeDirectory,
+          },
+        },
+        {
+          spawnImpl: vi.fn().mockReturnValue({
+            pid: 42,
+            exitCode: null,
+            signalCode: null,
+            kill: vi.fn(),
+          }),
+        }
+      );
+
+      await adapter.prepare();
+      const result = await adapter.spawnTurn();
+      const childCodexHome = join(runtimeDirectory, "child-home", ".codex");
+
+      expect(
+        JSON.parse(await readFile(join(childCodexHome, "auth.json"), "utf8"))
+      ).toEqual({
+        auth_mode: "chatgpt",
+        tokens: { access_token: "provider" },
+      });
+      await expect(
+        readFile(join(childCodexHome, "config.toml"), "utf8")
+      ).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(
+        (await stat(join(runtimeDirectory, "child-home"))).mode & 0o777
+      ).toBe(0o700);
+      expect(
+        (await stat(join(runtimeDirectory, "child-home", "gh"))).mode & 0o777
+      ).toBe(0o700);
+      await adapter.shutdown();
+      expect(result.plan.env.CODEX_HOME).toBe(childCodexHome);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("implements the adapter prepare -> spawnTurn -> shutdown flow", async () => {
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 42,
@@ -993,7 +1079,9 @@ describe("createCodexRuntimeAdapter", () => {
     const result = await adapter.spawnTurn();
 
     expect(result.plan.env.OPENAI_API_KEY).toBe("sk-direct-runtime");
-    expect(result.plan.env.CODEX_HOME).toBeUndefined();
+    expect(result.plan.env.CODEX_HOME).toBe(
+      "/tmp/workspace-123/.runtime/child-home/.codex"
+    );
     expect(spawnImpl).toHaveBeenCalledOnce();
 
     await adapter.shutdown();

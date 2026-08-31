@@ -983,6 +983,10 @@ through host dynamic tools; Claude's generated MCP configuration contains only
 the worker-owned loopback endpoint and its per-run capability. The host-owned
 transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
+When no direct provider API key is configured, a non-bare runtime stages only
+the provider login into this private home: Codex `auth.json`, or Claude's
+`claudeAiOauth` entry without `mcpOAuth`. Host agent configuration and GitHub
+CLI credentials remain outside the child boundary.
 
 Codex supports only `approval_policy: never` and uses the
 `danger-full-access` thread sandbox; Claude uses `bypassPermissions`.

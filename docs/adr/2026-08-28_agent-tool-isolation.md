@@ -136,7 +136,10 @@ Both phase-2 launchers retain the isolated child home/configuration directory
 from phase 1. Agent preflight must not require `gh auth`, and neither `HOME`,
 `GH_CONFIG_DIR`, nor an inherited credential-helper configuration may expose a
 host GitHub login. The worker performs authenticated Git transport and tool
-calls with its host credential; the child receives only repository state and
+calls with its host credential. For non-bare local provider authentication, the
+worker stages only Codex `auth.json` or Claude's `claudeAiOauth` entry into the
+private child home; Claude `mcpOAuth`, host agent configuration, and host `gh`
+state are excluded. The child otherwise receives only repository state and
 bounded results.
 
 ### Credential flow

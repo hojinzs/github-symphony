@@ -449,14 +449,21 @@ target a non-`github.com` host.
 These variables are passed through to the selected agent runtime. The CLI also
 uses them during setup and doctor checks where applicable.
 
-| Variable            | Default | Read by                                    | Audience             | Notes                                                                                                      |
-| ------------------- | ------- | ------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`    | unset   | Codex runtime                              | User-facing          | Direct Codex/OpenAI credential. A broker can provide this instead.                                         |
-| `OPENAI_BASE_URL`   | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI-compatible endpoint override passed to Codex.                                              |
-| `OPENAI_ORG_ID`     | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI organization value passed to Codex.                                                        |
-| `OPENAI_PROJECT`    | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI project value passed to Codex.                                                             |
-| `ANTHROPIC_API_KEY` | unset   | CLI setup/doctor, Claude preflight/runtime | User-facing          | Direct Claude credential. Required for bare Claude runtimes unless an agent credential broker supplies it. |
-| `CODEX_HOME`        | unset   | Codex runtime launcher                     | User-facing/advanced | Passed through to Codex only when set. Useful for isolating Codex config in containers or CI.              |
+| Variable            | Default | Read by                                    | Audience             | Notes                                                                                                                                    |
+| ------------------- | ------- | ------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`    | unset   | Codex runtime                              | User-facing          | Direct Codex/OpenAI credential. A broker can provide this instead.                                                                       |
+| `OPENAI_BASE_URL`   | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI-compatible endpoint override passed to Codex.                                                                            |
+| `OPENAI_ORG_ID`     | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI organization value passed to Codex.                                                                                      |
+| `OPENAI_PROJECT`    | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI project value passed to Codex.                                                                                           |
+| `ANTHROPIC_API_KEY` | unset   | CLI setup/doctor, Claude preflight/runtime | User-facing          | Direct Claude credential. Required for bare Claude runtimes unless an agent credential broker supplies it.                               |
+| `CODEX_HOME`        | unset   | Codex runtime launcher                     | User-facing/advanced | Host-side source for Codex `auth.json`. The child always receives a workspace-contained `CODEX_HOME`; host configuration is not exposed. |
+
+When a direct provider API key is absent, non-bare runtimes copy only the
+provider login needed by the selected agent into the private child home. Codex
+stages `auth.json`; Claude stages only `claudeAiOauth` from
+`.claude/.credentials.json` and excludes `mcpOAuth`. The child `HOME`,
+`CODEX_HOME`, and `GH_CONFIG_DIR` stay inside the workspace runtime directory,
+with no host `gh` configuration or tracker credential files.
 
 ## CLI And Repository Runtime
 
@@ -505,7 +512,7 @@ not set them manually.
 | --------------------------------- | ----------------------------------------- | --------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PROJECT_ID` / `CODEX_PROJECT_ID` | active project ID                         | Codex runtime launcher                        | Internal/injected | Runtime project identity. One of these is required when running the launcher directly.                                                                                                                                             |
 | `WORKING_DIRECTORY`               | issue repository checkout path            | Worker, Codex runtime launcher                | Internal/injected | Worker cwd / repository workspace path. Required when running a launcher directly.                                                                                                                                                 |
-| `SYMPHONY_ASSIGNED_BRANCH`        | orchestrator-captured checkout branch      | Worker host Git transport                     | Internal/injected | Immutable per-run push target captured before the coding-agent child starts. The host refuses to push when the child moves the worktree to another branch.                                                                         |
+| `SYMPHONY_ASSIGNED_BRANCH`        | orchestrator-captured checkout branch     | Worker host Git transport                     | Internal/injected | Immutable per-run push target captured before the coding-agent child starts. The host refuses to push when the child moves the worktree to another branch.                                                                         |
 | `WORKSPACE_RUNTIME_DIR`           | issue runtime directory                   | Worker, Codex runtime, Claude runtime         | Internal/injected | Stores worker runtime artifacts such as token usage and MCP config. Claude's generated `mcp.json` uses a worker-owned loopback HTTP/SSE URL plus an ephemeral per-run session capability; it does not contain adapter credentials. |
 | child `HOME` / `GH_CONFIG_DIR`    | `<WORKSPACE_RUNTIME_DIR>/child-home`      | Codex and Claude child processes              | Internal/injected | Isolates agent configuration from the operator's home, `gh auth` store, and global Git credential helpers.                                                                                                                         |
 | `SYMPHONY_RENDERED_PROMPT`        | rendered issue prompt                     | Worker                                        | Internal/injected | Prompt sent to the agent runtime.                                                                                                                                                                                                  |

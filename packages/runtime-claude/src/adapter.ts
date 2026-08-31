@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
   AgentSessionInvalidatedEvent,
@@ -15,6 +16,9 @@ import type {
 import {
   collectMcpSecretEnvironmentNames,
   extractEnvForClaude,
+  prepareAgentChildHome,
+  resolveAgentChildHome,
+  stageJsonCredentialFile,
 } from "@gh-symphony/core";
 import {
   buildClaudePrintArgv,
@@ -112,6 +116,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
   async prepare(context: ClaudeRuntimePrepareContext): Promise<void> {
     await this.cleanupPreparedMcpConfig();
     this.pendingEvents.length = 0;
+    await this.prepareChildHome();
     this.preparedSession = await this.prepareSession(context);
     if (this.config.hostMcpContext) {
       this.hostMcpServer = await startClaudeMcpHttpServer({
@@ -391,12 +396,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
     input: ClaudeRuntimeTurnInput,
     argv: string[]
   ): Promise<ClaudeSpawnTurnResult> {
-    const childHome = join(
-      this.config.runtimeDirectory ??
-        this.config.runtimeRoot ??
-        join(this.config.workingDirectory, ".runtime"),
-      "child-home"
-    );
+    const childHome = this.resolveChildHome();
     return await spawnClaudeTurn(
       {
         command: input.command ?? this.config.command,
@@ -432,6 +432,31 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
         },
       }
     );
+  }
+
+  private resolveChildHome(): string {
+    return resolveAgentChildHome({
+      workingDirectory: this.config.workingDirectory,
+      runtimeDirectory: this.config.runtimeDirectory ?? this.config.runtimeRoot,
+    });
+  }
+
+  private async prepareChildHome(): Promise<void> {
+    const childHome = this.resolveChildHome();
+    await prepareAgentChildHome(childHome);
+    if (
+      this.config.isolation?.bare === true ||
+      this.config.env?.ANTHROPIC_API_KEY
+    ) {
+      return;
+    }
+
+    const hostHome = this.config.env?.HOME ?? process.env.HOME ?? homedir();
+    await stageJsonCredentialFile({
+      source: join(hostHome, ".claude", ".credentials.json"),
+      destination: join(childHome, ".claude", ".credentials.json"),
+      allowedKeys: ["claudeAiOauth"],
+    });
   }
 
   private async persistForkedSessionId(

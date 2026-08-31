@@ -1,5 +1,12 @@
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -374,6 +381,39 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
     expect(calls[0]?.LINEAR_API_KEY).toBeUndefined();
     expect(calls[0]?.LINEAR_AUTHORIZATION).toBeUndefined();
+  });
+
+  it("prepares a private child home with Claude auth but without MCP OAuth", async () => {
+    const root = await createTempDir();
+    const hostHome = join(root, "host-home");
+    const hostClaudeHome = join(hostHome, ".claude");
+    const runtimeDirectory = join(root, "runtime");
+    await mkdir(hostClaudeHome, { recursive: true });
+    await writeFile(
+      join(hostClaudeHome, ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: { accessToken: "provider-token" },
+        mcpOAuth: { github: "must-not-be-staged" },
+      })
+    );
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: root,
+      runtimeDirectory,
+      env: { HOME: hostHome },
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+
+    const childHome = join(runtimeDirectory, "child-home");
+    expect(
+      JSON.parse(
+        await readFile(join(childHome, ".claude", ".credentials.json"), "utf8")
+      )
+    ).toEqual({
+      claudeAiOauth: { accessToken: "provider-token" },
+    });
+    expect((await stat(childHome)).mode & 0o777).toBe(0o700);
+    expect((await stat(join(childHome, "gh"))).mode & 0o777).toBe(0o700);
   });
 
   it("uses configured args and strict mcp isolation for spawned argv", async () => {
