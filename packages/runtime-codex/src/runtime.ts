@@ -598,11 +598,6 @@ export function buildCodexRuntimePlan(
   const builtinTools = [githubTool, linearTool].filter(
     (tool): tool is RuntimeToolDefinition => tool !== undefined
   );
-  const builtins = Object.fromEntries(
-    builtinTools
-      .filter((tool): tool is RuntimeToolDefinition => tool !== undefined)
-      .map((tool) => [tool.name, tool])
-  );
   const secretEnvironmentNames = [
     ...(config.trackerSecretEnvironmentNames ?? []),
     ...collectMcpSecretEnvironmentNames({
