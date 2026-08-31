@@ -195,6 +195,7 @@ global.fetch = async (url, options) => {
           ]),
           GITHUB_PROJECT_ID: "stub-project",
           WORKING_DIRECTORY: workspace,
+          SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
           WORKSPACE_RUNTIME_DIR: runtimeRoot,
           SYMPHONY_WORKFLOW_PATH: workflowPath,
           SYMPHONY_RENDERED_PROMPT: "Handle worker runtime adapter issue.",
