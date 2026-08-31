@@ -997,8 +997,11 @@ appropriate to their environment. The target transport keeps credentials in the 
 or a host-side broker, returns only bounded issue-aware tool results to agents,
 uses loopback-only local services with scoped session capabilities, and gives
 the child an isolated home/configuration directory rather than a host `gh auth`
-store. After a successful agent run, the worker fetches and fast-forward checks
-the assigned branch before performing the authenticated push from the host.
+store. After a successful agent run, the worker copies the assigned ref into a
+temporary host-owned bare repository, fetches and fast-forward checks the
+orchestrator-owned target URL, and performs the authenticated push with
+repository hooks disabled. Child changes to `origin`, Git hooks, or repository
+Git configuration cannot redirect or extend that credential-bearing operation.
 
 This trust posture is an intentional repository-local divergence: Codex defaults
 to `approval_policy: never` with `danger-full-access`, Claude defaults to

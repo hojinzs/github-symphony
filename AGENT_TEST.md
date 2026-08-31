@@ -343,7 +343,9 @@ to verify the following.
 - The child receives a runtime-owned `HOME`/`GH_CONFIG_DIR`, no raw GitHub or
   Linear credential, no broker secret, and no inherited Git credential helper
 - The successful worker lifecycle fetches and pushes the assigned branch from
-  the host after the agent turns complete
+  the host after the agent turns complete; unit fixtures additionally prove a
+  child-mutated `origin` and executable pre-push hook cannot affect or observe
+  the credential-bearing transport
 
 ### 6. Check logs
 

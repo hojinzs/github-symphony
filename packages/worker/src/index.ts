@@ -850,6 +850,7 @@ async function runNonCodexRuntimeAdapterLifecycle(
         await trySynchronizeAssignedBranch({
           cwd: env.WORKING_DIRECTORY!,
           assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+          remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
           env,
         })
       );
@@ -2003,6 +2004,7 @@ async function runCodexClientProtocol(
         await trySynchronizeAssignedBranch({
           cwd: plan.cwd,
           assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+          remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
           env,
         })
       );

@@ -148,7 +148,11 @@ describe("composeClaudeMcpConfig", () => {
 
     expect(result).toEqual({
       finalPath: join(runtimeRoot, "mcp.json"),
-      extraArgv: ["--mcp-config", join(runtimeRoot, "mcp.json")],
+      extraArgv: [
+        "--strict-mcp-config",
+        "--mcp-config",
+        join(runtimeRoot, "mcp.json"),
+      ],
       cleanupPath: join(runtimeRoot, "mcp.json"),
       excludedServerNames: ["user_server"],
     });
@@ -263,7 +267,7 @@ describe("composeClaudeMcpConfig", () => {
     expect(JSON.stringify(config)).not.toContain("old-secret");
   });
 
-  it("writes strict mode config to an ephemeral path without mutating the workspace file", async () => {
+  it("forces strict mode after excluding trusted repository MCP servers", async () => {
     const workspaceRoot = await createTempWorkspace();
     const runtimeRoot = join(workspaceRoot, "runtime-root");
     const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
@@ -282,7 +286,7 @@ describe("composeClaudeMcpConfig", () => {
       ) + "\n";
     await writeFile(workspaceMcpPath, originalConfig, "utf8");
 
-    const result = await composeClaudeMcpConfig(workspaceRoot, true, {
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
       GITHUB_GRAPHQL_TOKEN: "token-3",
       WORKSPACE_RUNTIME_DIR: runtimeRoot,
       SYMPHONY_TRUST_REPO_CONFIG: "true",

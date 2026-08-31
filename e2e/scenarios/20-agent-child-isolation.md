@@ -19,8 +19,11 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 - `HOME` and `GH_CONFIG_DIR` point below `WORKSPACE_RUNTIME_DIR/child-home`.
 - No `GIT_CONFIG_*` credential helper reaches the child.
 - Generated `mcp.json` exposes only the worker-owned `symphony` HTTP endpoint
-  and its session capability; query, comment, and Project-state calls succeed.
+  and its session capability under forced strict MCP mode; query, comment, and
+  Project-state calls succeed.
 - Worker stderr confirms the assigned branch was pushed by host Git transport.
+- Unit fixtures prove a child-mutated `origin` cannot redirect that push and a
+  child-authored pre-push hook cannot observe the host credential.
 - The companion Codex Docker lifecycle remains healthy.
 
 ## Cleanup

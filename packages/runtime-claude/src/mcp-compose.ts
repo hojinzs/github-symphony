@@ -38,7 +38,7 @@ export type ClaudeMcpCompositionResult = {
 
 export async function composeClaudeMcpConfig(
   workspaceRoot: string,
-  strictMode: boolean,
+  _strictMode: boolean,
   symphonyTokenEnv: ClaudeMcpTokenEnvironment = {}
 ): Promise<ClaudeMcpCompositionResult> {
   const finalPath = resolveRuntimeMcpConfigPath(
@@ -102,10 +102,7 @@ export async function composeClaudeMcpConfig(
 
   return {
     finalPath,
-    extraArgv:
-      strictMode || !trustRepoConfig
-        ? ["--strict-mcp-config", "--mcp-config", finalPath]
-        : ["--mcp-config", finalPath],
+    extraArgv: ["--strict-mcp-config", "--mcp-config", finalPath],
     cleanupPath: finalPath,
     ...(excludedServerNames.length > 0 ? { excludedServerNames } : {}),
   };

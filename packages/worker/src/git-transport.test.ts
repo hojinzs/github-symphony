@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -47,6 +47,7 @@ describe("synchronizeAssignedBranch", () => {
     const result = await synchronizeAssignedBranch({
       cwd: workspace,
       assignedBranch: "feat/assigned",
+      remoteUrl: remote,
     });
 
     expect(result).toEqual({
@@ -73,6 +74,7 @@ describe("synchronizeAssignedBranch", () => {
       synchronizeAssignedBranch({
         cwd: workspace,
         assignedBranch: "feat/assigned",
+        remoteUrl: remote,
       })
     ).rejects.toThrow(
       "refusing to push: worktree is on main, expected assigned branch feat/assigned"
@@ -87,13 +89,14 @@ describe("synchronizeAssignedBranch", () => {
   });
 
   it("reports detached HEAD as an assigned-worktree state error", async () => {
-    const { workspace } = await createGitFixture();
+    const { remote, workspace } = await createGitFixture();
     await git(workspace, "checkout", "--detach");
 
     await expect(
       synchronizeAssignedBranch({
         cwd: workspace,
         assignedBranch: "feat/assigned",
+        remoteUrl: remote,
       })
     ).rejects.toThrow(
       "refusing to push: assigned worktree is in detached HEAD state"
@@ -108,6 +111,7 @@ describe("synchronizeAssignedBranch", () => {
       synchronizeAssignedBranch({
         cwd: root,
         assignedBranch: "feat/assigned",
+        remoteUrl: join(root, "remote.git"),
       })
     ).rejects.toThrow("not a git repository");
   });
@@ -131,11 +135,71 @@ describe("synchronizeAssignedBranch", () => {
     const result = await trySynchronizeAssignedBranch({
       cwd: workspace,
       assignedBranch: "feat/assigned",
+      remoteUrl: join(workspace, "..", "remote.git"),
     });
 
     expect(result).toMatchObject({
       ok: false,
       error: expect.stringContaining("refusing to push feat/assigned"),
+    });
+  });
+
+  it("ignores a child-controlled origin push URL", async () => {
+    const { root, remote, workspace } = await createGitFixture();
+    const attackerRemote = join(root, "attacker.git");
+    await git(root, "init", "--bare", "--initial-branch=main", attackerRemote);
+    await git(
+      workspace,
+      "remote",
+      "set-url",
+      "--push",
+      "origin",
+      attackerRemote
+    );
+    await git(workspace, "commit", "--allow-empty", "-m", "agent commit");
+    const { stdout: expectedHead } = await git(workspace, "rev-parse", "HEAD");
+
+    await synchronizeAssignedBranch({
+      cwd: workspace,
+      assignedBranch: "feat/assigned",
+      remoteUrl: remote,
+    });
+
+    const { stdout: remoteHead } = await git(
+      remote,
+      "rev-parse",
+      "refs/heads/feat/assigned"
+    );
+    expect(remoteHead.trim()).toBe(expectedHead.trim());
+    await expect(
+      git(attackerRemote, "rev-parse", "refs/heads/feat/assigned")
+    ).rejects.toThrow();
+  });
+
+  it("does not execute child-controlled pre-push hooks with host secrets", async () => {
+    const { remote, workspace } = await createGitFixture();
+    const marker = join(workspace, "..", "hook-secret.txt");
+    const hook = join(workspace, ".git", "hooks", "pre-push");
+    await writeFile(
+      hook,
+      '#!/bin/sh\nprintf "%s" "$GITHUB_GRAPHQL_TOKEN" > "$HOOK_MARKER"\n'
+    );
+    await chmod(hook, 0o755);
+    await git(workspace, "commit", "--allow-empty", "-m", "agent commit");
+
+    await synchronizeAssignedBranch({
+      cwd: workspace,
+      assignedBranch: "feat/assigned",
+      remoteUrl: remote,
+      env: {
+        ...process.env,
+        GITHUB_GRAPHQL_TOKEN: "host-secret",
+        HOOK_MARKER: marker,
+      },
+    });
+
+    await expect(readFile(marker, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
     });
   });
 });
