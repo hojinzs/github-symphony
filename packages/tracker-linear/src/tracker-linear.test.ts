@@ -98,7 +98,11 @@ describe("linearTrackerAdapter", () => {
     await expect(
       linearTrackerAdapter.executeAgentTool?.(
         "linear_graphql",
-        { query: "mutation { issueUpdate { success } }" },
+        {
+          query:
+            "mutation UpdateIssue($id: String!) { issueUpdate(id: $id) { success } }",
+          variables: { id: "issue-1" },
+        },
         context
       )
     ).resolves.toEqual({ data: { issueUpdate: { success: true } } });

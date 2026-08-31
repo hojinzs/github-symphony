@@ -58,7 +58,10 @@ describe("GitHub canonical subject adapter hook", () => {
     await expect(
       githubProjectTrackerAdapter.executeAgentTool?.(
         "github_graphql",
-        { query: "query { viewer { login } }" },
+        {
+          query: "query ActiveIssue($id: ID!) { node(id: $id) { id } }",
+          variables: { id: "issue-1" },
+        },
         context
       )
     ).resolves.toMatchObject({ data: { viewer: { login: "octo" } } });

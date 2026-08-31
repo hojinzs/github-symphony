@@ -101,7 +101,10 @@ describe("Codex host dynamic tools", () => {
 
     const response = await executeCodexDynamicToolCall(
       "github_graphql",
-      { query: "query { viewer { login } }" },
+      {
+        query: "query ActiveIssue($id: ID!) { node(id: $id) { id } }",
+        variables: { id: "issue-730" },
+      },
       createTrackerToolContext(env),
       env
     );

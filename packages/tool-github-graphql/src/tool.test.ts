@@ -300,6 +300,40 @@ describe("resolveGitHubGraphQLToken", () => {
 });
 
 describe("executeGitHubGraphQL", () => {
+  it("executes a repository query while carrying host-side issue context", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
+        status: 200,
+      })
+    );
+
+    await expect(
+      executeGitHubGraphQL(
+        { query: "query Viewer { viewer { login } }" },
+        { token: "ghs_static" },
+        fetchImpl as typeof fetch,
+        {
+          issue: {
+            id: "issue-1",
+            identifier: "owner/repo#1",
+            nativeRef: {
+              itemId: "project-item-1",
+              contentType: "Issue",
+              sourceState: "OPEN",
+              linkedPullRequests: [],
+              linkedPullRequestsTruncated: false,
+            },
+          },
+        }
+      )
+    ).resolves.toEqual({ data: { viewer: { login: "octo" } } });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const body = JSON.parse(
+      String(fetchImpl.mock.calls[0]![1]!.body)
+    ) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["query"]);
+  });
+
   afterEach(() => {
     githubGraphQLRateLimitPolicy.reset();
   });

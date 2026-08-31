@@ -54,6 +54,34 @@ describe("validateLinearGraphQLInvocation", () => {
 });
 
 describe("executeLinearGraphQL", () => {
+  it("executes a workspace query while carrying host-side issue context", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { id: "user-1" } } }), {
+        status: 200,
+      })
+    );
+
+    await expect(
+      executeLinearGraphQL(
+        { query: "query Viewer { viewer { id } }" },
+        { apiKey: "lin_api_key" },
+        fetchImpl as typeof fetch,
+        {
+          issue: {
+            id: "issue-1",
+            identifier: "ENG-1",
+            nativeRef: { itemId: "issue-1", projectSlug: "project-a" },
+          },
+        }
+      )
+    ).resolves.toEqual({ data: { viewer: { id: "user-1" } } });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const body = JSON.parse(
+      String(fetchImpl.mock.calls[0]![1]!.body)
+    ) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["query"]);
+  });
+
   it("posts a single operation with runtime-managed Authorization", async () => {
     const fetchImpl = vi
       .fn()

@@ -177,6 +177,9 @@ global.fetch = async (url, options) => {
           SYMPHONY_RUN_ID: "run-worker-claude",
           SYMPHONY_ISSUE_ID: "issue-worker-claude",
           SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
+          SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify({
+            itemId: "item-worker-claude",
+          }),
           SYMPHONY_ISSUE_STATE: "In progress",
           SYMPHONY_MAX_TURNS: "2",
           SYMPHONY_CONTINUATION_GUIDANCE:
@@ -593,7 +596,13 @@ async function createTurnLeaseServer(): Promise<{
     if (request.method === "POST" && request.url === "/api/v1/tracker-state") {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(
-        JSON.stringify({ ok: true, outcome: "confirmed", state: "In progress" })
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "In progress",
+          routable: true,
+          routableReason: null,
+        })
       );
       return;
     }
