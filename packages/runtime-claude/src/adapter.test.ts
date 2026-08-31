@@ -383,6 +383,41 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.LINEAR_AUTHORIZATION).toBeUndefined();
   });
 
+  it("does not expose agent credential broker controls to the Claude child", async () => {
+    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = (_command, _args, options) => {
+      calls.push(options.env as NodeJS.ProcessEnv | undefined);
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        env: {
+          AGENT_CREDENTIAL_BROKER_URL: "https://broker.example/agent",
+          AGENT_CREDENTIAL_BROKER_SECRET: "agent-broker-secret",
+          AGENT_CREDENTIAL_CACHE_PATH: "/runtime/agent-credentials.json",
+        },
+      },
+      { spawnImpl }
+    );
+
+    await adapter.spawnTurn({
+      messages: [],
+      env: { ANTHROPIC_API_KEY: "resolved-provider-credential" },
+    });
+
+    expect(calls[0]?.ANTHROPIC_API_KEY).toBe("resolved-provider-credential");
+    expect(calls[0]?.AGENT_CREDENTIAL_BROKER_URL).toBeUndefined();
+    expect(calls[0]?.AGENT_CREDENTIAL_BROKER_SECRET).toBeUndefined();
+    expect(calls[0]?.AGENT_CREDENTIAL_CACHE_PATH).toBeUndefined();
+  });
+
   it("prepares a private child home with Claude auth but without MCP OAuth", async () => {
     const root = await createTempDir();
     const hostHome = join(root, "host-home");

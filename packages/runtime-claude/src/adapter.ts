@@ -650,7 +650,7 @@ function buildClaudeSpawnEnv(options: {
     stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
     env.HOME = options.childHome;
     env.GH_CONFIG_DIR = join(options.childHome, "gh");
-    removeChildGitCredentialEnvironment(env);
+    removeChildHostCredentialEnvironment(env);
     return env;
   }
 
@@ -667,7 +667,7 @@ function buildClaudeSpawnEnv(options: {
   stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
   env.HOME = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
-  removeChildGitCredentialEnvironment(env);
+  removeChildHostCredentialEnvironment(env);
 
   return env;
 }
@@ -698,8 +698,11 @@ function stripTrackerSecrets(
   }
 }
 
-function removeChildGitCredentialEnvironment(env: NodeJS.ProcessEnv): void {
+function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {
   for (const name of [
+    "AGENT_CREDENTIAL_BROKER_URL",
+    "AGENT_CREDENTIAL_BROKER_SECRET",
+    "AGENT_CREDENTIAL_CACHE_PATH",
     "GITHUB_GIT_HOST",
     "GITHUB_GIT_USERNAME",
     "GIT_CONFIG_COUNT",
