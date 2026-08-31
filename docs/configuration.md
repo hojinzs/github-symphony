@@ -59,6 +59,12 @@ repository does not invoke it through `bash -lc`; shell syntax, expansions, and
 arbitrary executables are rejected as an intentional command-execution
 divergence.
 
+`runtime.isolation.strict_mcp_config` is retained as a compatibility field for
+existing workflows. Claude workers now always launch with
+`--strict-mcp-config` and a host-composed MCP file, regardless of the configured
+boolean, so provider-native MCP auto-discovery cannot expose agent-owned
+subprocesses. Codex workers likewise receive only host-advertised dynamic tools.
+
 `agent.max_failure_retries` is the failed-attempt budget, including the
 initial failed run: once the counter reaches this value, the issue is
 suppressed rather than scheduling another retry. `agent.retry_base_delay_ms`
@@ -438,7 +444,7 @@ target a non-`github.com` host.
 | `GITHUB_TOKEN_BROKER_URL`        | unset            | Worker host tools and Git transport     | User-facing/ops   | Broker endpoint for GitHub tokens. The endpoint is host-only and is not inherited by coding-agent children.                  |
 | `GITHUB_TOKEN_BROKER_SECRET`     | unset            | Worker host tools and Git transport     | User-facing/ops   | Shared secret sent to the GitHub token broker. It is declared as a tracker secret and removed from every coding-agent child. |
 | `GITHUB_TOKEN_CACHE_PATH`        | unset            | Worker host tools and Git transport     | User-facing/ops   | Optional host-side file path for caching brokered GitHub tokens.                                                             |
-| `GITHUB_GIT_HOST`                | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the credential helper, for example `github.example`.                                                     |
+| `GITHUB_GIT_HOST`                | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the credential helper, for example `github.example`; retained at the host boundary.                      |
 | `GITHUB_GIT_USERNAME`            | `x-access-token` | Git credential helper                   | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                |
 | `AGENT_CREDENTIAL_BROKER_URL`    | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Broker endpoint for agent provider credentials such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.                              |
 | `AGENT_CREDENTIAL_BROKER_SECRET` | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Shared secret sent to the agent credential broker. Set with `AGENT_CREDENTIAL_BROKER_URL`.                                   |

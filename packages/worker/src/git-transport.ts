@@ -213,7 +213,7 @@ async function runGit(
   env: NodeJS.ProcessEnv,
   args: string[]
 ): Promise<string> {
-  const safeArgs = ["-c", "core.hooksPath=/dev/null", ...args];
+  const safeArgs = ["-c", `core.hooksPath=${devNull}`, ...args];
   try {
     const { stdout } = await execFileAsync("git", safeArgs, {
       cwd,
@@ -227,11 +227,42 @@ async function runGit(
 }
 
 function createGitError(args: string[], error: unknown): Error {
-  const detail =
+  const rawDetail =
     error && typeof error === "object" && "stderr" in error
       ? String(error.stderr).trim()
       : error instanceof Error
         ? error.message
         : String(error);
-  return new Error(`git ${args.join(" ")} failed: ${detail}`);
+  const sensitiveUrls = args.flatMap((arg) => {
+    try {
+      const url = new URL(arg);
+      return url.username || url.password ? [url] : [];
+    } catch {
+      return [];
+    }
+  });
+  const displayArgs = args.map((arg) => redactUrlCredentials(arg));
+  const detail = sensitiveUrls.reduce((value, url) => {
+    let redacted = value.replaceAll(url.href, redactUrlCredentials(url.href));
+    for (const credential of [url.username, url.password]) {
+      if (!credential) continue;
+      redacted = redacted
+        .replaceAll(credential, "[REDACTED]")
+        .replaceAll(decodeURIComponent(credential), "[REDACTED]");
+    }
+    return redacted;
+  }, rawDetail);
+  return new Error(`git ${displayArgs.join(" ")} failed: ${detail}`);
+}
+
+function redactUrlCredentials(value: string): string {
+  try {
+    const url = new URL(value);
+    if (!url.username && !url.password) return value;
+    url.username = "";
+    url.password = "";
+    return url.href;
+  } catch {
+    return value;
+  }
 }

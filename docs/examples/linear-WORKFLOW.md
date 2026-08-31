@@ -38,7 +38,7 @@ runtime:
     - app-server
   isolation:
     bare: false
-    strict_mcp_config: false
+    strict_mcp_config: false # compatibility-only; Claude strict MCP isolation is always enforced
   timeouts:
     read_timeout_ms: 5000
     turn_timeout_ms: 3600000
