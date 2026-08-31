@@ -34,9 +34,10 @@ gh-symphony --version
 ```
 
 The package includes internal `dist/mcp-server.js` and
-`dist/git-credential-helper.js` executables. Worker runtimes select one built-in
-MCP implementation with `--server github` or `--server linear`; these entry
-points are not standalone user-facing commands.
+`dist/git-credential-helper.js` executables for host-side compatibility paths.
+Coding-agent children do not launch these provider MCP or Git credential
+subprocesses; provider tools and authenticated Git transport execute in the
+worker host. These entry points are not standalone user-facing commands.
 
 Validate the machine and repo prerequisites before first use:
 

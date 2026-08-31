@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createClaudePrintRuntimeAdapter } from "@gh-symphony/runtime-claude";
 import type { AgentEvent } from "@gh-symphony/core";
@@ -31,11 +32,19 @@ type Invocation = {
     }>;
     error?: { code: number; message: string };
   } | null;
+  childBoundary: {
+    home: string | null;
+    ghConfigDir: string | null;
+    gitConfigCount: boolean;
+    gitCredentialHelper: boolean;
+  };
   trackerCredentialEnvironment: {
     githubGraphqlToken: boolean;
     githubToken: boolean;
     ghToken: boolean;
     githubTokenBrokerSecret: boolean;
+    linearApiKey: boolean;
+    linearAuthorization: boolean;
   };
 };
 
@@ -51,6 +60,7 @@ const repoRoot = resolve(__dirname, "../../..");
 const stubPath = resolve(repoRoot, "test/e2e/stubs/claude.sh");
 const stubWrapperPath = resolve(repoRoot, "test/e2e/stubs/claude");
 const createdRoots: string[] = [];
+const execFileAsync = promisify(execFile);
 
 beforeAll(async () => {
   await chmodExecutable(stubPath);
@@ -117,6 +127,15 @@ Worker prompt.
 `,
       "utf8"
     );
+    const remote = join(root, "remote.git");
+    await runGit(root, "init", "--bare", remote);
+    await runGit(workspace, "init", "-b", "feat/assigned");
+    await runGit(workspace, "config", "user.name", "Symphony E2E");
+    await runGit(workspace, "config", "user.email", "e2e@example.com");
+    await runGit(workspace, "add", "WORKFLOW.md");
+    await runGit(workspace, "commit", "-m", "test: seed Claude workspace");
+    await runGit(workspace, "remote", "add", "origin", remote);
+    await runGit(workspace, "push", "origin", "feat/assigned");
     const fetchMockPath = join(root, "host-mcp-fetch-mock.cjs");
     await writeFile(
       fetchMockPath,
@@ -164,10 +183,15 @@ global.fetch = async (url, options) => {
           GH_TOKEN: "stub-gh-token",
           GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
           GITHUB_TOKEN_BROKER_SECRET: "stub-broker-secret",
+          LINEAR_API_KEY: "stub-linear-api-key",
+          LINEAR_AUTHORIZATION: "Bearer stub-linear-authorization",
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
             "GITHUB_GRAPHQL_TOKEN",
             "GITHUB_TOKEN",
             "GH_TOKEN",
+            "GITHUB_TOKEN_BROKER_SECRET",
+            "LINEAR_API_KEY",
+            "LINEAR_AUTHORIZATION",
           ]),
           GITHUB_PROJECT_ID: "stub-project",
           WORKING_DIRECTORY: workspace,
@@ -213,7 +237,15 @@ global.fetch = async (url, options) => {
       githubGraphqlToken: false,
       githubToken: false,
       ghToken: false,
-      githubTokenBrokerSecret: true,
+      githubTokenBrokerSecret: false,
+      linearApiKey: false,
+      linearAuthorization: false,
+    });
+    expect(invocations.at(-1)?.childBoundary).toEqual({
+      home: join(runtimeRoot, "child-home"),
+      ghConfigDir: join(runtimeRoot, "child-home", "gh"),
+      gitConfigCount: false,
+      gitCredentialHelper: false,
     });
     expect(invocations.at(-1)?.hostMcp).toMatchObject({
       url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/),
@@ -246,6 +278,7 @@ global.fetch = async (url, options) => {
     );
     expect(result.stderr).toContain("host MCP server started");
     expect(result.stderr).toContain("host MCP server stopped");
+    expect(result.stderr).toContain("host Git transport pushed feat/assigned");
   });
 
   it("keeps --resume within an intra-run continuation without --fork-session", async () => {
@@ -542,6 +575,10 @@ async function readOptional(path: string): Promise<string> {
     }
     throw error;
   }
+}
+
+async function runGit(cwd: string, ...args: string[]) {
+  return await execFileAsync("git", args, { cwd });
 }
 
 function runWorkerProcess(options: {

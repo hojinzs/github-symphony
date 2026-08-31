@@ -572,14 +572,6 @@ async function startAssignedRun() {
       activeStates: workflow.lifecycle.activeStates,
     });
     runtimeState.runPhase = "launching_agent";
-    if (shouldWarnAboutBrokerlessTrackerCredential(launcherEnv)) {
-      const warning =
-        launcherEnv.SYMPHONY_TRACKER_KIND === "linear"
-          ? "[warn] linear tracker credential is passed to the coding-agent child; no Linear broker exists yet — removed in #700\n"
-          : "[warn] github tracker credential is passed to the coding-agent child; configure the token broker or wait for #700\n";
-      process.stderr.write(warning);
-    }
-
     if (route === "runtime-adapter") {
       await runNonCodexRuntimeAdapterLifecycle(workflow, launcherEnv);
       return;
@@ -668,30 +660,6 @@ async function startAssignedRun() {
     }
     process.stderr.write(`[worker] startup failed: ${message}\n`);
     await persistSessionTokenUsageArtifact(launcherEnv);
-  }
-}
-
-function shouldWarnAboutBrokerlessTrackerCredential(
-  env: NodeJS.ProcessEnv
-): boolean {
-  const trackerIsLinear = env.SYMPHONY_TRACKER_KIND === "linear";
-  if (
-    !trackerIsLinear &&
-    env.GITHUB_TOKEN_BROKER_URL &&
-    env.GITHUB_TOKEN_BROKER_SECRET
-  ) {
-    return false;
-  }
-  try {
-    const names = JSON.parse(
-      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
-    );
-    return (
-      Array.isArray(names) &&
-      names.some((name) => typeof name === "string" && Boolean(env[name]))
-    );
-  } catch {
-    return false;
   }
 }
 

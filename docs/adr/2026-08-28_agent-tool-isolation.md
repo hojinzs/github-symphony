@@ -196,8 +196,8 @@ tracked as a divergence, not an alternative architecture.
   execution semantics remain the same.
 - Host lifecycle code owns session capability generation, loopback server
   teardown, structured tool failures, and tool-call observability.
-- Phase 1 temporarily removes agent access to provider-native MCP tools; #673
-  restores that access through the host-owned transport.
+- Provider-native tools remain available through #673's host-owned transports
+  while agent-owned MCP subprocess exposure is disabled.
 
 ## Upstream conformance and divergence
 
@@ -212,8 +212,8 @@ Linear is added for Linear-tracked projects, and each call is routed to its
 owning adapter with the worker's resolved host environment. The Docker
 host-tool and Claude HTTP-MCP black-box tests verify query, comment, and
 Project-state mutation calls while the child receives only tool results and the
-provider credential remains host-side. Brokerless Codex credential inheritance
-remains the explicit temporary #700 compatibility divergence. The per-provider
+provider credential remains host-side. Brokerless and brokered sessions now use
+the same child credential boundary; the temporary #700 divergence is closed. The per-provider
 contracts are recorded in [GitHub tracker tools](../trackers/github.md) and
 [Linear tracker tools](../trackers/linear.md). This closes the host-transport
 portion of #673 without editing the upstream specification.
@@ -225,12 +225,13 @@ in the per-tool contracts and must be replaced by provider-level target
 enforcement before treating arbitrary mutations as a complete §15.5 scope
 boundary.
 
-Before #673 shipped, the agent-started MCP subprocess model was an
-intentional, documented repository-local divergence. #672 removes raw tracker
-and broker values from coding-agent environments and `mcp.json`, isolates the
-child home/configuration directory, replaces child-authenticated Git transport
-with a host operation, and disables the agent-owned MCP path; it does not claim
-that the subprocess arrangement is conformant.
+Before #673 and #700 shipped, the agent-started MCP subprocess and
+child-authenticated Git models were intentional, documented repository-local
+divergences. #700 closes them: raw tracker and broker values are removed from
+Codex and Claude child environments, child HOME/GH configuration is isolated,
+provider tools use the host transports delivered by #673, and the worker owns
+post-run authenticated Git fetch/push. This boundary conforms to the upstream
+§10.5, §15.3, and §17.5 requirements without modifying the upstream spec.
 
 ## README security-posture draft for #675
 
