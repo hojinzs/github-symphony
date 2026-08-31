@@ -55,6 +55,7 @@ import {
 } from "./runtime-routing.js";
 import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
+import { synchronizeAssignedBranch } from "./git-transport.js";
 import {
   findCwdBoundaryViolation,
   formatEventCwdSuffix,
@@ -78,9 +79,7 @@ import {
   createTrackerToolContext,
   executeCodexDynamicToolCall,
 } from "./codex-dynamic-tools.js";
-import {
-  extractToolRateLimitPayload,
-} from "./tool-rate-limit.js";
+import { extractToolRateLimitPayload } from "./tool-rate-limit.js";
 import { executeRateLimitedCodexDynamicToolCall } from "./host-dynamic-tool-call.js";
 import {
   buildCodexDynamicToolsParams,
@@ -849,6 +848,15 @@ async function runNonCodexRuntimeAdapterLifecycle(
       if (turnCount === maxTurns) maxTurnsReached = true;
     }
 
+    if (!terminalFailure) {
+      const transport = await synchronizeAssignedBranch({
+        cwd: env.WORKING_DIRECTORY!,
+        env,
+      });
+      process.stderr.write(
+        `[worker] host Git transport pushed ${transport.branch} at ${transport.head}\n`
+      );
+    }
     runtimeState.status = terminalFailure ? "failed" : "completed";
     runtimeState.runPhase = terminalFailure
       ? isNonCodexTimeoutFailure(terminalFailure)
@@ -1534,7 +1542,8 @@ async function runCodexClientProtocol(
       );
       void executeRateLimitedCodexDynamicToolCall({
         toolName,
-        rateLimits: runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits,
+        rateLimits:
+          runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits,
         execute: () =>
           executeCodexDynamicToolCall(
             toolName,
@@ -1991,6 +2000,19 @@ async function runCodexClientProtocol(
       `[worker] multi-turn loop complete after ${turnCount} turn(s) — exiting worker\n`
     );
     runtimeState.runPhase = "finishing";
+    if (
+      !userInputRequired &&
+      !turnTerminalFailurePhase &&
+      !convergenceDetected
+    ) {
+      const transport = await synchronizeAssignedBranch({
+        cwd: plan.cwd,
+        env,
+      });
+      process.stderr.write(
+        `[worker] host Git transport pushed ${transport.branch} at ${transport.head}\n`
+      );
+    }
     runtimeState.status =
       userInputRequired || turnTerminalFailurePhase ? "failed" : "completed";
     runtimeState.runPhase = convergenceDetected
