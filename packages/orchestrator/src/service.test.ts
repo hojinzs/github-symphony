@@ -92,7 +92,12 @@ describe("state-read routability", () => {
 
   it("reports an active issue missing a required label as unroutable", () => {
     expect(
-      applyStateReadRoutability(confirmed, issue({ labels: [] }), null, lifecycle)
+      applyStateReadRoutability(
+        confirmed,
+        issue({ labels: [] }),
+        null,
+        lifecycle
+      )
     ).toMatchObject({
       state: "In progress",
       routable: false,
@@ -102,7 +107,12 @@ describe("state-read routability", () => {
 
   it("treats a filtered snapshot as a clean routing stop", () => {
     expect(
-      applyStateReadRoutability(confirmed, undefined, { remaining: 7 }, lifecycle)
+      applyStateReadRoutability(
+        confirmed,
+        undefined,
+        { remaining: 7 },
+        lifecycle
+      )
     ).toMatchObject({
       ok: true,
       outcome: "confirmed",
@@ -1333,7 +1343,10 @@ describe("OrchestratorService", () => {
       usedLastKnownGood: false,
     } as WorkflowResolution);
     await expect(
-      service.requestTrackerState({ runId: "run-1", request: { type: "state-read" } })
+      service.requestTrackerState({
+        runId: "run-1",
+        request: { type: "state-read" },
+      })
     ).resolves.toMatchObject({
       ok: false,
       outcome: "failed",
@@ -4269,6 +4282,107 @@ Retry inconclusive work.
     });
   });
 
+  it("retains a terminal issue workspace whose latest run has an unpublished Git transport failure", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-transport-retention-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const workspaceKey = deriveIssueWorkspaceKey(
+      { adapter: "github-project", issueSubjectId: "issue-1" },
+      "acme/platform#1"
+    );
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "unpublished-commit.txt");
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "retain me", "utf8");
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:07.000Z",
+      },
+    ]);
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:07.000Z",
+      lastError: null,
+    });
+    await store.saveRun({
+      runId: "run-transport-failed",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Done",
+      repository,
+      status: "suppressed",
+      attempt: 2,
+      processId: null,
+      port: null,
+      workingDirectory: repositoryPath,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir: join(tempRoot, "run-transport-failed", "workspace"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:07.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:00:07.000Z",
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+      nextRetryAt: null,
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "Done")
+        )
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "Done")
+        ) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4103,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:08.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    await expect(readFile(sentinelPath, "utf8")).resolves.toBe("retain me");
+    await expect(
+      store.loadIssueWorkspace("tenant-1", workspaceKey)
+    ).resolves.toMatchObject({ status: "active" });
+  });
+
   it("logs and ignores before_remove hook failures during startup cleanup", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
@@ -6358,7 +6472,8 @@ Prefer focused changes.
       status: "suppressed",
       nextRetryAt: null,
       runPhase: "canceled_by_reconciliation",
-      lastError: "Retry canceled because the tracker issue is no longer actionable.",
+      lastError:
+        "Retry canceled because the tracker issue is no longer actionable.",
     });
 
     const missingIssueRun = await store.loadRun("run-1");
@@ -6421,7 +6536,8 @@ Prefer focused changes.
       status: "suppressed",
       nextRetryAt: null,
       runPhase: "canceled_by_reconciliation",
-      lastError: "Retry canceled because the tracker issue is no longer actionable.",
+      lastError:
+        "Retry canceled because the tracker issue is no longer actionable.",
     });
   });
 
@@ -9410,6 +9526,7 @@ Prefer focused changes.
   async function createSuccessfulFinalizationFixture(
     trackerState: string | null | Error
   ) {
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-successful-finalization-")
@@ -9496,16 +9613,25 @@ Prefer focused changes.
       ...trackerAdapter,
       fetchIssueStatesByIds,
     });
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4105,
+      unref: vi.fn(),
+    });
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
-      spawnImpl: vi.fn().mockReturnValue({
-        pid: 4105,
-        unref: vi.fn(),
-      }) as never,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      spawnImpl: spawnImpl as never,
+      now: () => currentTime,
     });
 
-    return { store, service, fetchIssueStatesByIds };
+    return {
+      store,
+      service,
+      fetchIssueStatesByIds,
+      spawnImpl,
+      advanceToRetryDue: () => {
+        currentTime = new Date("2026-03-08T00:00:07.000Z");
+      },
+    };
   }
 
   it("classifies an active tracker state and schedules continuation after a successful worker exit", async () => {
@@ -9685,6 +9811,42 @@ Prefer focused changes.
       failureRetryCount: 1,
     });
   });
+
+  it.each(["Done", "In review"])(
+    "retains an unpublished transport failure and workspace when a %s issue reaches its retry due time",
+    async (trackerState) => {
+      const { store, service, advanceToRetryDue, spawnImpl } =
+        await createSuccessfulFinalizationFixture(trackerState);
+      const run = await store.loadRun("run-1");
+      expect(run).toBeTruthy();
+      await store.saveRun({
+        ...run!,
+        workerExitCode: 1,
+        runPhase: "failed",
+        lastError: "git_transport_failed: refusing to push feat/assigned",
+      });
+
+      await service.runOnce();
+      expect(await store.loadRun("run-1")).toMatchObject({
+        status: "retrying",
+        retryKind: "failure",
+        lastError: "git_transport_failed: refusing to push feat/assigned",
+      });
+
+      advanceToRetryDue();
+      await service.runOnce();
+
+      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(await store.loadRun("run-1")).toMatchObject({
+        status: "suppressed",
+        runPhase: "failed",
+        lastError: "git_transport_failed: refusing to push feat/assigned",
+      });
+      expect(
+        (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+      ).toMatchObject({ state: "released", currentRunId: null });
+    }
+  );
 
   it("recovers a transient unknown finalization read and later succeeds", async () => {
     const { store, service, fetchIssueStatesByIds } =

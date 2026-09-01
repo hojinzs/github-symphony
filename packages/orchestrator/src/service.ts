@@ -1991,8 +1991,8 @@ export class OrchestratorService {
             : recovery
               ? "Run suppressed with recoverable incomplete-turn dirty workspace."
               : terminalState
-              ? "Run suppressed because the tracker issue moved to a terminal state."
-              : "Run suppressed because the tracker state is no longer actionable.",
+                ? "Run suppressed because the tracker issue moved to a terminal state."
+                : "Run suppressed because the tracker state is no longer actionable.",
         };
         await this.store.saveRun(suppressedRun);
         this.logVerbose(
@@ -3498,7 +3498,11 @@ export class OrchestratorService {
         );
       }
       if (retryAction.action === "release") {
-        if (retryAction.issue && retryAction.terminal) {
+        if (
+          retryAction.issue &&
+          retryAction.terminal &&
+          !isGitTransportFailure(runWithTokens)
+        ) {
           try {
             await this.cleanupTerminalIssueWorkspace(
               tenant,
@@ -3543,8 +3547,7 @@ export class OrchestratorService {
 
     await this.runAfterRunHook(tenant, run);
 
-    const gitTransportFailed =
-      runWithTokens.lastError?.startsWith("git_transport_failed:") === true;
+    const gitTransportFailed = isGitTransportFailure(runWithTokens);
     const currentTrackerProgress =
       runWithTokens.runPhase === "succeeded" &&
       !gitTransportFailed &&
@@ -5076,6 +5079,7 @@ export class OrchestratorService {
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
   }> {
+    const gitTransportFailed = isGitTransportFailure(run);
     const suppressedRun: OrchestratorRunRecord = {
       ...run,
       status: "suppressed",
@@ -5083,10 +5087,11 @@ export class OrchestratorService {
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
       nextRetryAt: null,
-      runPhase: "canceled_by_reconciliation",
-      lastError:
-        reason ??
-        "Retry canceled because the tracker issue is no longer actionable.",
+      runPhase: gitTransportFailed ? "failed" : "canceled_by_reconciliation",
+      lastError: gitTransportFailed
+        ? run.lastError
+        : (reason ??
+          "Retry canceled because the tracker issue is no longer actionable."),
     };
     await this.store.saveRun(suppressedRun);
     this.logVerbose(
@@ -5612,6 +5617,15 @@ export class OrchestratorService {
       return;
     }
 
+    if (
+      await this.hasUnpublishedGitTransportFailure(tenant.projectId, issue.id)
+    ) {
+      this.logVerbose(
+        `[workspace-cleanup-deferred] ${issue.identifier} reason=git_transport_failed`
+      );
+      return;
+    }
+
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
       adapter: issue.tracker.adapter,
@@ -5717,6 +5731,16 @@ export class OrchestratorService {
       lastError: null,
     };
     await this.store.saveIssueWorkspace(removedRecord);
+  }
+
+  private async hasUnpublishedGitTransportFailure(
+    projectId: string,
+    issueId: string
+  ): Promise<boolean> {
+    const latestRun = (await this.store.loadAllRuns())
+      .filter((run) => run.projectId === projectId && run.issueId === issueId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+    return latestRun ? isGitTransportFailure(latestRun) : false;
   }
 
   private resolveFailureRetryCount(
@@ -6397,6 +6421,10 @@ function createProjectItemsCache(): ProjectItemsCache {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isGitTransportFailure(run: OrchestratorRunRecord): boolean {
+  return run.lastError?.startsWith("git_transport_failed:") === true;
 }
 
 function createRunId(

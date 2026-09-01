@@ -469,12 +469,14 @@ uses them during setup and doctor checks where applicable.
 | `ANTHROPIC_API_KEY` | unset   | CLI setup/doctor, Claude preflight/runtime | User-facing          | Direct Claude credential. Required for bare Claude runtimes unless an agent credential broker supplies it.                               |
 | `CODEX_HOME`        | unset   | Codex runtime launcher                     | User-facing/advanced | Host-side source for Codex `auth.json`. The child always receives a workspace-contained `CODEX_HOME`; host configuration is not exposed. |
 
-When a direct provider API key is absent, non-bare runtimes copy only the
-provider login needed by the selected agent into the private child home. Codex
-stages `auth.json`; Claude stages only `claudeAiOauth` from
-`.claude/.credentials.json` and excludes `mcpOAuth`. The child `HOME`,
-`CODEX_HOME`, and `GH_CONFIG_DIR` stay inside the workspace runtime directory,
-with no host `gh` configuration or tracker credential files.
+When a direct provider API key is absent, the non-bare Codex and Claude
+runtimes copy only the provider login needed by the selected agent into a
+private child home. Codex stages `auth.json`; Claude stages only
+`claudeAiOauth` from `.claude/.credentials.json` and excludes `mcpOAuth`. For
+those two runtimes, child `HOME`, `CODEX_HOME`, and `GH_CONFIG_DIR` stay inside
+the workspace runtime directory, with no host `gh` configuration or tracker
+credential files. Custom runtimes retain the host environment and HOME under
+the compatibility exception tracked by #778.
 
 ## CLI And Repository Runtime
 

@@ -134,7 +134,7 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
     expect(adapter).toBeInstanceOf(CustomCommandWorkerRuntimeAdapter);
   });
 
-  it("retains custom runtime credentials until the Phase 1b Git transport", () => {
+  it("retains custom runtime credentials under the #778 compatibility exception", () => {
     const adapter = createWorkerNonCodexRuntimeAdapter(
       workflowWithRuntime("custom", "agent", ["--flag"]),
       {

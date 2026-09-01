@@ -221,9 +221,10 @@ Linear is added for Linear-tracked projects, and each call is routed to its
 owning adapter with the worker's resolved host environment. The Docker
 host-tool and Claude HTTP-MCP black-box tests verify query, comment, and
 Project-state mutation calls while the child receives only tool results and the
-provider credential remains host-side. Brokerless and brokered sessions now use
-the same child credential boundary; the temporary #700 divergence is closed. The per-provider
-contracts are recorded in [GitHub tracker tools](../trackers/github.md) and
+provider credential remains host-side. Brokerless and brokered Codex and Claude
+sessions now use the same child credential boundary; the temporary divergence
+for those supported provider adapters is closed. The per-provider contracts are
+recorded in [GitHub tracker tools](../trackers/github.md) and
 [Linear tracker tools](../trackers/linear.md). This closes the host-transport
 portion of #673 without editing the upstream specification.
 
@@ -242,10 +243,12 @@ provider tools use the host transports delivered by #673, and the worker owns
 post-run authenticated Git fetch/push. This boundary conforms to the upstream
 §10.5, §15.3, and §17.5 requirements without modifying the upstream spec.
 
-This completed boundary is scoped to the Codex and Claude adapters.
-`runtime.kind: custom` remains a compatibility exception that receives the full
-worker environment and host HOME; [#778](https://github.com/hojinzs/github-symphony/issues/778)
-owns its explicit credential and HOME isolation contract.
+This completed conformant boundary is scoped to the Codex and Claude adapters.
+`runtime.kind: custom` remains an intentional repository-local divergence: it
+receives the full worker environment and host HOME rather than satisfying the
+same §10.5, §15.3, and §17.5 isolation boundary.
+[#778](https://github.com/hojinzs/github-symphony/issues/778) owns its explicit
+credential and HOME isolation contract.
 
 ## README security-posture draft for #675
 

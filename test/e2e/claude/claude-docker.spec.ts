@@ -165,51 +165,53 @@ global.fetch = async (url, options) => {
       "utf8"
     );
 
+    const workerEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${resolve(repoRoot, "test/e2e/stubs")}:${process.env.PATH ?? ""}`,
+      CLAUDE_STUB_LOG_DIR: logDir,
+      CLAUDE_STUB_SCENARIO: "success",
+      CLAUDE_STUB_CALL_HOST_MCP: "true",
+      NODE_OPTIONS: `--require ${fetchMockPath}`,
+      ANTHROPIC_API_KEY: "stub-anthropic-key",
+      GITHUB_GRAPHQL_TOKEN: "stub-token",
+      GITHUB_TOKEN: "stub-github-token",
+      GH_TOKEN: "stub-gh-token",
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+      GITHUB_TOKEN_BROKER_SECRET: "stub-broker-secret",
+      LINEAR_API_KEY: "stub-linear-api-key",
+      LINEAR_AUTHORIZATION: "Bearer stub-linear-authorization",
+      SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+        "GITHUB_GRAPHQL_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "GITHUB_TOKEN_BROKER_SECRET",
+        "LINEAR_API_KEY",
+        "LINEAR_AUTHORIZATION",
+      ]),
+      GITHUB_PROJECT_ID: "stub-project",
+      WORKING_DIRECTORY: workspace,
+      SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
+      TARGET_REPOSITORY_CLONE_URL: remote,
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+      SYMPHONY_WORKFLOW_PATH: workflowPath,
+      SYMPHONY_RENDERED_PROMPT: "Handle worker runtime adapter issue.",
+      SYMPHONY_RUN_ID: "run-worker-claude",
+      SYMPHONY_ISSUE_ID: "issue-worker-claude",
+      SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
+      SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify({
+        itemId: "item-worker-claude",
+      }),
+      SYMPHONY_ISSUE_STATE: "In progress",
+      SYMPHONY_MAX_TURNS: "2",
+      SYMPHONY_CONTINUATION_GUIDANCE: "Continue with the same Claude session.",
+    };
     const leaseServer = await createTurnLeaseServer();
     let result: Awaited<ReturnType<typeof runWorkerProcess>>;
     try {
       result = await runWorkerProcess({
         cwd: repoRoot,
         env: {
-          ...process.env,
-          PATH: `${resolve(repoRoot, "test/e2e/stubs")}:${process.env.PATH ?? ""}`,
-          CLAUDE_STUB_LOG_DIR: logDir,
-          CLAUDE_STUB_SCENARIO: "success",
-          CLAUDE_STUB_CALL_HOST_MCP: "true",
-          NODE_OPTIONS: `--require ${fetchMockPath}`,
-          ANTHROPIC_API_KEY: "stub-anthropic-key",
-          GITHUB_GRAPHQL_TOKEN: "stub-token",
-          GITHUB_TOKEN: "stub-github-token",
-          GH_TOKEN: "stub-gh-token",
-          GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
-          GITHUB_TOKEN_BROKER_SECRET: "stub-broker-secret",
-          LINEAR_API_KEY: "stub-linear-api-key",
-          LINEAR_AUTHORIZATION: "Bearer stub-linear-authorization",
-          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
-            "GITHUB_GRAPHQL_TOKEN",
-            "GITHUB_TOKEN",
-            "GH_TOKEN",
-            "GITHUB_TOKEN_BROKER_SECRET",
-            "LINEAR_API_KEY",
-            "LINEAR_AUTHORIZATION",
-          ]),
-          GITHUB_PROJECT_ID: "stub-project",
-          WORKING_DIRECTORY: workspace,
-          SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
-          TARGET_REPOSITORY_CLONE_URL: remote,
-          WORKSPACE_RUNTIME_DIR: runtimeRoot,
-          SYMPHONY_WORKFLOW_PATH: workflowPath,
-          SYMPHONY_RENDERED_PROMPT: "Handle worker runtime adapter issue.",
-          SYMPHONY_RUN_ID: "run-worker-claude",
-          SYMPHONY_ISSUE_ID: "issue-worker-claude",
-          SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
-          SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify({
-            itemId: "item-worker-claude",
-          }),
-          SYMPHONY_ISSUE_STATE: "In progress",
-          SYMPHONY_MAX_TURNS: "2",
-          SYMPHONY_CONTINUATION_GUIDANCE:
-            "Continue with the same Claude session.",
+          ...workerEnv,
           SYMPHONY_ORCHESTRATOR_URL: leaseServer.url,
           SYMPHONY_ORCHESTRATOR_TOKEN: "stub-orchestrator-token",
         },
@@ -281,6 +283,147 @@ global.fetch = async (url, options) => {
     expect(result.stderr).toContain("host MCP server started");
     expect(result.stderr).toContain("host MCP server stopped");
     expect(result.stderr).toContain("host Git transport pushed feat/assigned");
+
+    const competing = join(root, "competing");
+    await runGit(root, "clone", remote, competing);
+    await runGit(competing, "switch", "feat/assigned");
+    await runGit(competing, "config", "user.name", "Symphony E2E");
+    await runGit(competing, "config", "user.email", "e2e@example.com");
+    await runGit(competing, "commit", "--allow-empty", "-m", "remote race");
+    await runGit(competing, "push", "origin", "feat/assigned");
+    await runGit(workspace, "commit", "--allow-empty", "-m", "agent commit");
+
+    const failureLeaseServer = await createTurnLeaseServer();
+    let failureResult: Awaited<ReturnType<typeof runWorkerProcess>>;
+    try {
+      failureResult = await runWorkerProcess({
+        cwd: repoRoot,
+        env: {
+          ...workerEnv,
+          CLAUDE_STUB_CALL_HOST_MCP: "false",
+          SYMPHONY_RUN_ID: "run-worker-claude-transport-failure",
+          SYMPHONY_MAX_TURNS: "1",
+          SYMPHONY_ORCHESTRATOR_URL: failureLeaseServer.url,
+          SYMPHONY_ORCHESTRATOR_TOKEN: "stub-orchestrator-token",
+        },
+      });
+    } finally {
+      await failureLeaseServer.close();
+    }
+
+    expect(failureResult.exitCode).toBe(1);
+    expect(failureResult.stderr).toContain(
+      '"runPhase":"failed","lastError":"git_transport_failed:'
+    );
+    expect(failureResult.stderr).toContain(
+      "origin/feat/assigned is not an ancestor"
+    );
+  });
+
+  it("fails the Codex worker lifecycle when post-run Git transport cannot publish", async () => {
+    const root = await mkdtemp(join(tmpdir(), "worker-codex-transport-e2e-"));
+    createdRoots.push(root);
+    const workspace = join(root, "workspace");
+    const runtimeRoot = join(root, "runtime");
+    const binDir = join(root, "bin");
+    const workflowPath = join(workspace, "WORKFLOW.md");
+    await mkdir(workspace, { recursive: true });
+    await mkdir(runtimeRoot, { recursive: true });
+    await mkdir(binDir, { recursive: true });
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  command: codex app-server
+agent:
+  max_turns: 1
+---
+Worker prompt.
+`,
+      "utf8"
+    );
+    const codexStub = join(binDir, "codex");
+    await writeFile(
+      codexStub,
+      `#!/usr/bin/env node
+const readline = require("node:readline");
+const lines = readline.createInterface({ input: process.stdin });
+const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: { serverInfo: { name: "codex-stub", version: "1" } } });
+  } else if (message.method === "thread/start") {
+    send({ jsonrpc: "2.0", id: message.id, result: { thread: { id: "thread-stub" } } });
+  } else if (message.method === "turn/start") {
+    send({ jsonrpc: "2.0", id: message.id, result: { turn: { id: "turn-stub" } } });
+    setTimeout(() => send({ jsonrpc: "2.0", method: "turn/completed", params: {} }), 10);
+  }
+});
+`,
+      "utf8"
+    );
+    await chmodExecutable(codexStub);
+
+    const remote = join(root, "remote.git");
+    await runGit(root, "init", "--bare", remote);
+    await runGit(workspace, "init", "-b", "feat/assigned");
+    await runGit(workspace, "config", "user.name", "Symphony E2E");
+    await runGit(workspace, "config", "user.email", "e2e@example.com");
+    await runGit(workspace, "add", "WORKFLOW.md");
+    await runGit(workspace, "commit", "-m", "test: seed Codex workspace");
+    await runGit(workspace, "remote", "add", "origin", remote);
+    await runGit(workspace, "push", "origin", "feat/assigned");
+    const competing = join(root, "competing");
+    await runGit(root, "clone", remote, competing);
+    await runGit(competing, "switch", "feat/assigned");
+    await runGit(competing, "config", "user.name", "Symphony E2E");
+    await runGit(competing, "config", "user.email", "e2e@example.com");
+    await runGit(competing, "commit", "--allow-empty", "-m", "remote race");
+    await runGit(competing, "push", "origin", "feat/assigned");
+    await runGit(workspace, "commit", "--allow-empty", "-m", "agent commit");
+
+    const leaseServer = await createTurnLeaseServer();
+    let result: Awaited<ReturnType<typeof runWorkerProcess>>;
+    try {
+      result = await runWorkerProcess({
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          CODEX_PROJECT_ID: "e2e-project",
+          OPENAI_API_KEY: "stub-openai-key",
+          WORKING_DIRECTORY: workspace,
+          SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
+          TARGET_REPOSITORY_CLONE_URL: remote,
+          WORKSPACE_RUNTIME_DIR: runtimeRoot,
+          SYMPHONY_WORKFLOW_PATH: workflowPath,
+          SYMPHONY_RENDERED_PROMPT: "Handle worker Codex issue.",
+          SYMPHONY_RUN_ID: "run-worker-codex-transport-failure",
+          SYMPHONY_ISSUE_ID: "issue-worker-codex",
+          SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#700",
+          SYMPHONY_ISSUE_STATE: "In progress",
+          SYMPHONY_MAX_TURNS: "1",
+          SYMPHONY_APPROVAL_POLICY: "never",
+          SYMPHONY_THREAD_SANDBOX: "workspace-write",
+          SYMPHONY_TURN_SANDBOX_POLICY: "dangerFullAccess",
+          SYMPHONY_ORCHESTRATOR_URL: leaseServer.url,
+          SYMPHONY_ORCHESTRATOR_TOKEN: "stub-orchestrator-token",
+        },
+      });
+    } finally {
+      await leaseServer.close();
+    }
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("sending codex initialize");
+    expect(result.stderr).toContain(
+      '"runPhase":"failed","lastError":"git_transport_failed:'
+    );
+    expect(result.stderr).toContain("origin/feat/assigned is not an ancestor");
   });
 
   it("keeps --resume within an intra-run continuation without --fork-session", async () => {
