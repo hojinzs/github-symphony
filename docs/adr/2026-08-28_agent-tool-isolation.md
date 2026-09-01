@@ -242,6 +242,11 @@ provider tools use the host transports delivered by #673, and the worker owns
 post-run authenticated Git fetch/push. This boundary conforms to the upstream
 §10.5, §15.3, and §17.5 requirements without modifying the upstream spec.
 
+This completed boundary is scoped to the Codex and Claude adapters.
+`runtime.kind: custom` remains a compatibility exception that receives the full
+worker environment and host HOME; [#778](https://github.com/hojinzs/github-symphony/issues/778)
+owns its explicit credential and HOME isolation contract.
+
 ## README security-posture draft for #675
 
 The §15.1 posture text now lives in [README.md](../../README.md#security-posture)

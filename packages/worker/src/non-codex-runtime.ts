@@ -229,9 +229,9 @@ export function createWorkerNonCodexRuntimeAdapter(
           workingDirectory: context.workingDirectory,
           command: runtime.command,
           args: runtime.args,
-          // Phase 1a keeps custom runtime credentials untouched: this route
-          // has no shared broker-backed Git helper yet. #700 replaces it with
-          // host-owned Git transport alongside the remaining isolation work.
+          // #700 moves Git transport to the host but intentionally leaves the
+          // custom child environment unchanged. #778 owns the explicit custom
+          // runtime credential and HOME isolation contract.
           env: context.env,
           authEnvKey: runtime.auth.env ?? undefined,
           onSpawned: context.onSpawned,
