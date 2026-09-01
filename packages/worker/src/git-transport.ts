@@ -3,6 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import type {
+  RunAttemptPhase,
+  SessionExitClassification,
+} from "@gh-symphony/core";
 import { createGitCredentialHelperEnvironment } from "@gh-symphony/runtime-codex";
 
 const execFileAsync = promisify(execFile);
@@ -16,6 +20,34 @@ export type GitTransportResult = {
 export type GitTransportAttempt =
   | { ok: true; result: GitTransportResult }
   | { ok: false; error: string };
+
+export type GitTransportLifecycleState = {
+  status: "idle" | "starting" | "running" | "failed" | "completed";
+  runPhase: RunAttemptPhase | null;
+  lastError: string | null;
+  exitClassification: SessionExitClassification | null;
+};
+
+export function applyGitTransportAttempt(
+  state: GitTransportLifecycleState,
+  attempt: GitTransportAttempt,
+  writeStderr: (message: string) => void = (message) =>
+    process.stderr.write(message)
+): 0 | 1 {
+  if (attempt.ok) {
+    writeStderr(
+      `[worker] host Git transport pushed ${attempt.result.branch} at ${attempt.result.head}\n`
+    );
+    return 0;
+  }
+
+  state.status = "failed";
+  state.runPhase = "failed";
+  state.lastError = `git_transport_failed: ${attempt.error}`;
+  state.exitClassification = "error";
+  writeStderr(`[worker] host Git transport failed: ${attempt.error}\n`);
+  return 1;
+}
 
 export async function synchronizeAssignedBranch(options: {
   cwd: string;

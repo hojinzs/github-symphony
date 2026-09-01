@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  applyGitTransportAttempt,
   buildHostGitEnvironment,
   shouldSynchronizeAssignedBranch,
   synchronizeAssignedBranch,
@@ -32,6 +33,29 @@ afterEach(async () => {
 });
 
 describe("synchronizeAssignedBranch", () => {
+  it("marks a failed host transport as a terminal worker failure", () => {
+    const state = {
+      status: "completed" as const,
+      runPhase: "succeeded" as const,
+      lastError: null as string | null,
+      exitClassification: "completed" as const,
+    };
+
+    const exitCode = applyGitTransportAttempt(
+      state,
+      { ok: false, error: "refusing to push feat/assigned" },
+      () => undefined
+    );
+
+    expect(state).toEqual({
+      status: "failed",
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+      exitClassification: "error",
+    });
+    expect(exitCode).toBe(1);
+  });
+
   it("fetches and pushes an agent-local commit to the assigned branch", async () => {
     const root = await mkdtemp(join(tmpdir(), "worker-git-transport-"));
     tempRoots.push(root);

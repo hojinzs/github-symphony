@@ -56,6 +56,7 @@ import {
 import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
 import {
+  applyGitTransportAttempt,
   shouldSynchronizeAssignedBranch,
   trySynchronizeAssignedBranch,
   type GitTransportAttempt,
@@ -2018,7 +2019,7 @@ async function runCodexClientProtocol(
 
     // Brief delay so orchestrator log capture can flush before exit.
     setTimeout(() => {
-      process.exit(userInputRequired || turnTerminalFailurePhase ? 1 : 0);
+      process.exit(runtimeState.status === "completed" ? 0 : 1);
     }, 1500);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -2085,20 +2086,26 @@ async function runCodexClientProtocol(
   }
 }
 
-function recordGitTransportAttempt(attempt: GitTransportAttempt): void {
-  if (attempt.ok) {
-    process.stderr.write(
-      `[worker] host Git transport pushed ${attempt.result.branch} at ${attempt.result.head}\n`
-    );
-    return;
-  }
-  const error = `git_transport_failed: ${attempt.error}`;
-  process.stderr.write(
-    `[worker] host Git transport failed: ${attempt.error}\n`
-  );
+function recordGitTransportAttempt(attempt: GitTransportAttempt): 0 | 1 {
+  const transportState = {
+    status: runtimeState.status,
+    runPhase:
+      runtimeState.runPhase === "succeeded" ||
+      runtimeState.runPhase === "failed"
+        ? runtimeState.runPhase
+        : null,
+    lastError: runtimeState.run?.lastError ?? null,
+    exitClassification: runtimeState.sessionInfo.exitClassification,
+  };
+  const exitCode = applyGitTransportAttempt(transportState, attempt);
+  runtimeState.status = transportState.status;
+  runtimeState.runPhase = transportState.runPhase;
+  runtimeState.sessionInfo.exitClassification =
+    transportState.exitClassification;
   if (runtimeState.run) {
-    runtimeState.run.lastError = error;
+    runtimeState.run.lastError = transportState.lastError;
   }
+  return exitCode;
 }
 
 function applyTokenUsageUpdate(

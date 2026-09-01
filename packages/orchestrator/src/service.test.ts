@@ -9658,6 +9658,34 @@ Prefer focused changes.
     ).toMatchObject({ state: "released", currentRunId: null });
   });
 
+  it("preserves a host Git transport failure when the tracker is non-actionable", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Done");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      workerExitCode: 0,
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      workerExitCode: 0,
+      runPhase: "succeeded",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: 1,
+    });
+  });
+
   it("recovers a transient unknown finalization read and later succeeds", async () => {
     const { store, service, fetchIssueStatesByIds } =
       await createSuccessfulFinalizationFixture(null);

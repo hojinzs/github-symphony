@@ -3543,8 +3543,11 @@ export class OrchestratorService {
 
     await this.runAfterRunHook(tenant, run);
 
+    const gitTransportFailed =
+      runWithTokens.lastError?.startsWith("git_transport_failed:") === true;
     const currentTrackerProgress =
       runWithTokens.runPhase === "succeeded" &&
+      !gitTransportFailed &&
       runWithTokens.trackerProgressConfirmedAt
         ? await this.classifyCurrentTrackerProgress(
             tenant,
@@ -3661,8 +3664,9 @@ export class OrchestratorService {
       workerInfo.exitClassification === "user-input-required";
     const abnormalWorkerExit =
       !userInputRequired &&
-      ((runWithTokens.workerExitCode != null &&
-        runWithTokens.workerExitCode !== 0) ||
+      (gitTransportFailed ||
+        (runWithTokens.workerExitCode != null &&
+          runWithTokens.workerExitCode !== 0) ||
         runWithTokens.workerExitSignal != null ||
         runWithTokens.runPhase === "failed");
     const retryKind =
