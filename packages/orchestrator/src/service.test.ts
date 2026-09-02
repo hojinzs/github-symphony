@@ -8945,6 +8945,7 @@ Prefer focused changes.
         workspaceKey: "acme_platform_1",
         completedOnce: false,
         failureRetryCount: 3,
+        failureRetrySuppressedState: "Todo",
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -9179,7 +9180,7 @@ Prefer focused changes.
     });
   });
 
-  it("keeps an exhausted budget suppressed when no prior run proves a state change", async () => {
+  it("rearms a run-less exhausted budget after the tracker state changes", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-failure-retry-reactivation-")
@@ -9204,12 +9205,39 @@ Prefer focused changes.
         workspaceKey: "acme_platform_1",
         completedOnce: false,
         failureRetryCount: 3,
+        failureRetrySuppressedState: "Ready",
         state: "released",
         currentRunId: null,
         retryEntry: null,
         updatedAt: "2026-03-08T00:05:00.000Z",
       },
     ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Ready",
+      repository,
+      status: "completed",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "completed-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "completed-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:01:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:01:00.000Z",
+      lastError: null,
+      nextRetryAt: null,
+      runPhase: "completed",
+    });
 
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(
@@ -9228,12 +9256,12 @@ Prefer focused changes.
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
     expect(result.summary.dispatched).toBe(0);
-    expect(startRun).not.toHaveBeenCalled();
+    expect(startRun).toHaveBeenCalledTimes(1);
     expect(issueRecords[0]).toMatchObject({
-      state: "released",
-      failureRetryCount: 3,
+      state: "retry_queued",
+      failureRetryCount: 1,
       currentRunId: null,
-      retryEntry: null,
+      retryEntry: expect.objectContaining({ attempt: 1 }),
     });
   });
 
@@ -10241,6 +10269,23 @@ Prefer focused changes.
       ).toMatchObject({ state: "released", currentRunId: null });
     }
   );
+
+  it("clears the failure retry budget after a successful terminal run", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Done");
+    const [record] = await store.loadProjectIssueOrchestrations("tenant-1");
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      { ...record!, failureRetryCount: 2 },
+    ]);
+
+    await service.runOnce();
+
+    expect(
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    ).toMatchObject([
+      { state: "released", currentRunId: null, failureRetryCount: 0 },
+    ]);
+  });
 
   it("recovers a transient unknown finalization read and later succeeds", async () => {
     const { store, service, fetchIssueStatesByIds } =

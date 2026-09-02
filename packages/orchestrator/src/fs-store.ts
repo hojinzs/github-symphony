@@ -116,6 +116,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
         ...issue,
         completedOnce: issue.completedOnce ?? false,
         failureRetryCount: issue.failureRetryCount ?? 0,
+        failureRetrySuppressedState: issue.failureRetrySuppressedState ?? null,
       }));
     }
 
@@ -155,6 +156,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
         ),
         completedOnce: false,
         failureRetryCount: 0,
+        failureRetrySuppressedState: null,
         state: lease.status === "active" ? "claimed" : "released",
         currentRunId: lease.status === "active" ? lease.runId : null,
         retryEntry: null,

@@ -64,8 +64,44 @@ export type IssueOrchestrationRecord = {
   workspaceKey: string;
   completedOnce: boolean;
   failureRetryCount: number;
+  /** Tracker state at which the failure retry budget was exhausted. */
+  failureRetrySuppressedState?: string | null;
   state: IssueOrchestrationState;
   currentRunId: string | null;
   retryEntry: IssueRetryEntry | null;
   updatedAt: string;
 };
+
+/** Machine-readable failure reason retained in run diagnostics. */
+export const MAX_FAILURE_RETRIES_EXCEEDED_REASON =
+  "max_failure_retries_exceeded";
+
+/** Operator guidance shared by retry suppression and dispatch diagnostics. */
+export const FAILURE_RETRY_REARM_HINT =
+  "Manual intervention required: change the tracker state to re-arm retries.";
+
+/**
+ * Returns whether a persisted failure budget suppresses the supplied tracker
+ * state. `legacySuppressedState` keeps pre-field persisted run records
+ * re-armable while all new suppressions record the state on the issue itself.
+ */
+export function isFailureRetrySuppressedForState(
+  record: IssueOrchestrationRecord,
+  state: string,
+  legacySuppressedState: string | null = null
+): boolean {
+  return (
+    (record.failureRetrySuppressedState ?? legacySuppressedState) === state
+  );
+}
+
+/** Returns whether a known exhausted failure budget has entered a new state. */
+export function isFailureRetryRearmedForState(
+  record: IssueOrchestrationRecord,
+  state: string,
+  legacySuppressedState: string | null = null
+): boolean {
+  const suppressedState =
+    record.failureRetrySuppressedState ?? legacySuppressedState;
+  return suppressedState !== null && suppressedState !== state;
+}

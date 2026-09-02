@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MAX_FAILURE_RETRIES,
   DEFAULT_WORKFLOW_LIFECYCLE,
+  FAILURE_RETRY_REARM_HINT,
+  MAX_FAILURE_RETRIES_EXCEEDED_REASON,
   NonRetryableTrackerAdapterError,
   TrackerRateLimitError,
   assertIssueOrchestrationTransition,
@@ -24,6 +26,7 @@ import {
   isStateTerminal,
   issueRoutable,
   isMatchingIssueRun,
+  isFailureRetryRearmedForState,
   matchesWorkflowState,
   normalizeWorkflowState,
   isOrchestratorChannelEvent,
@@ -104,7 +107,6 @@ const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
 const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
 const MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT = 50;
-const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
 const LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX =
   "gh-symphony:linked-pr-active-while-issue-inactive";
 const INHERITED_ENV_ALLOWLIST = new Set([
@@ -1649,6 +1651,11 @@ export class OrchestratorService {
             });
           }
         }
+        const failureRetryRearmed = this.isFailureRetryRearmedIssue(
+          issue,
+          existingIssueRecord ?? null,
+          latestRun
+        );
         issueRecords = upsertIssueOrchestration(issueRecords, {
           issueId: issue.id,
           identifier: issue.identifier,
@@ -1657,9 +1664,12 @@ export class OrchestratorService {
             existingIssueRecord?.state === "retry_queued"
               ? "retry_queued"
               : "claimed",
-          failureRetryCount: this.isFailureRetryRearmedIssue(issue, latestRun)
+          failureRetryCount: failureRetryRearmed
             ? 0
             : (existingIssueRecord?.failureRetryCount ?? 0),
+          failureRetrySuppressedState: failureRetryRearmed
+            ? null
+            : (existingIssueRecord?.failureRetrySuppressedState ?? null),
           currentRunId: null,
           retryEntry: null,
           updatedAt: now.toISOString(),
@@ -1757,6 +1767,9 @@ export class OrchestratorService {
             workspaceKey: selectedWorkspaceKey,
             state: retrySuppressed ? "released" : "retry_queued",
             failureRetryCount,
+            failureRetrySuppressedState: retrySuppressed
+              ? issue.state
+              : (existingIssueRecord?.failureRetrySuppressedState ?? null),
             currentRunId: null,
             retryEntry: retryDueAt
               ? {
@@ -3611,7 +3624,8 @@ export class OrchestratorService {
         issueRecords: await this.releaseRunIssueOrchestration(
           issueRecords,
           run,
-          now
+          now,
+          { resetFailureRetryBudget: true }
         ),
         recovered: false,
       };
@@ -3736,6 +3750,7 @@ export class OrchestratorService {
             ),
           state: "released",
           failureRetryCount,
+          failureRetrySuppressedState: run.issueState,
           currentRunId: null,
           retryEntry: null,
           updatedAt: now.toISOString(),
@@ -5037,6 +5052,9 @@ export class OrchestratorService {
         ),
       state: retrySuppressed ? "released" : "retry_queued",
       failureRetryCount,
+      failureRetrySuppressedState: retrySuppressed
+        ? run.issueState
+        : (existingIssueRecord?.failureRetrySuppressedState ?? null),
       currentRunId: null,
       retryEntry: retryDueAt
         ? { attempt: retryAttempt, dueAt: retryDueAt, error: errorMessage }
@@ -5220,6 +5238,9 @@ export class OrchestratorService {
           ),
         state: suppressed ? "released" : "retry_queued",
         failureRetryCount,
+        failureRetrySuppressedState: suppressed
+          ? run.issueState
+          : (issueRecord?.failureRetrySuppressedState ?? null),
         currentRunId: suppressed ? null : run.runId,
         retryEntry: dueAt ? { attempt, dueAt, error } : null,
         updatedAt: now.toISOString(),
@@ -5558,13 +5579,19 @@ export class OrchestratorService {
   private async releaseRunIssueOrchestration(
     issueRecords: IssueOrchestrationRecord[],
     run: OrchestratorRunRecord,
-    now: Date
+    now: Date,
+    options: { resetFailureRetryBudget?: boolean } = {}
   ): Promise<IssueOrchestrationRecord[]> {
     if (this.isRunProtectedByLiveOwner(run)) {
       await this.recordOwnershipSkip(run, "claim-release");
       return issueRecords;
     }
-    return releaseIssueOrchestration(issueRecords, run.issueId, now);
+    return releaseIssueOrchestration(
+      issueRecords,
+      run.issueId,
+      now,
+      options.resetFailureRetryBudget
+    );
   }
 
   private sendSignal(processId: number, signal: NodeJS.Signals): void {
@@ -5810,19 +5837,30 @@ export class OrchestratorService {
       return false;
     }
 
-    return !this.isFailureRetryRearmedIssue(issue, latestRun);
+    return !this.isFailureRetryRearmedIssue(issue, issueRecord, latestRun);
   }
 
   private isFailureRetryRearmedIssue(
     issue: TrackedIssue,
+    issueRecord: IssueOrchestrationRecord | null,
     latestRun: OrchestratorRunRecord | null
   ): boolean {
-    return (
-      latestRun?.status === "suppressed" &&
-      latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON) ===
-        true &&
-      latestRun.issueState !== issue.state
+    if (!issueRecord) return false;
+    return isFailureRetryRearmedForState(
+      issueRecord,
+      issue.state,
+      this.legacyFailureRetrySuppressedState(latestRun)
     );
+  }
+
+  private legacyFailureRetrySuppressedState(
+    latestRun: OrchestratorRunRecord | null
+  ): string | null {
+    return latestRun?.status === "suppressed" &&
+      latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON) ===
+        true
+      ? latestRun.issueState
+      : null;
   }
 
   private async loadMaxFailureRetries(
@@ -6543,7 +6581,8 @@ function upsertIssueOrchestration(
 function releaseIssueOrchestration(
   issueRecords: IssueOrchestrationRecord[],
   issueId: string,
-  now: Date
+  now: Date,
+  resetFailureRetryBudget = false
 ): IssueOrchestrationRecord[] {
   const record = issueRecords.find(
     (candidate) => candidate.issueId === issueId
@@ -6554,6 +6593,10 @@ function releaseIssueOrchestration(
   return upsertIssueOrchestration(issueRecords, {
     ...record,
     state: "released",
+    failureRetryCount: resetFailureRetryBudget ? 0 : record.failureRetryCount,
+    failureRetrySuppressedState: resetFailureRetryBudget
+      ? null
+      : (record.failureRetrySuppressedState ?? null),
     currentRunId: null,
     retryEntry: null,
     updatedAt: now.toISOString(),

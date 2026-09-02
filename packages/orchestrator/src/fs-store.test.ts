@@ -626,7 +626,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
 });
 
 describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
-  it("defaults completedOnce to false for legacy persisted issue records", async () => {
+  it("defaults retry metadata for legacy persisted issue records", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
     await mkdir(store.projectDir("project-1"), { recursive: true });
@@ -655,6 +655,7 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
         workspaceKey: "acme_repo_1",
         completedOnce: false,
         failureRetryCount: 0,
+        failureRetrySuppressedState: null,
         state: "released",
         currentRunId: null,
         retryEntry: null,
