@@ -12,6 +12,7 @@ import {
   resolveAgentChildHome,
   shouldReuseAgentCredentialCache,
   stageJsonCredentialFile,
+  stageGitUserIdentity,
   writeAgentCredentialCache,
   collectMcpSecretEnvironmentNames,
   type AgentRuntimeAdapter,
@@ -664,6 +665,7 @@ export function buildCodexRuntimePlan(
   ])) {
     delete plan.env[name];
   }
+  removeChildHostGitCredentialEnvironment(plan.env);
 
   return plan;
 }
@@ -714,6 +716,10 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
       agentEnv,
     });
     await prepareAgentChildHome(this.plan.env.HOME!);
+    await stageGitUserIdentity({
+      sourceHome: resolveHostHome(this.config),
+      destination: join(this.plan.env.HOME!, ".gitconfig"),
+    });
     if (!this.plan.env.OPENAI_API_KEY) {
       await stageJsonCredentialFile({
         source: join(resolveHostCodexHome(this.config), "auth.json"),
@@ -782,8 +788,41 @@ function resolveHostCodexHome(config: CodexRuntimeConfig): string {
   return (
     config.extraEnv?.CODEX_HOME ??
     process.env.CODEX_HOME ??
-    join(config.extraEnv?.HOME ?? process.env.HOME ?? homedir(), ".codex")
+    join(resolveHostHome(config), ".codex")
   );
+}
+
+function resolveHostHome(config: CodexRuntimeConfig): string {
+  return config.extraEnv?.HOME ?? process.env.HOME ?? homedir();
+}
+
+function removeChildHostGitCredentialEnvironment(env: NodeJS.ProcessEnv): void {
+  for (const name of [
+    "GIT_ASKPASS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_DIR",
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_WORK_TREE",
+    "SSH_AGENT_PID",
+    "SSH_ASKPASS",
+    "SSH_AUTH_SOCK",
+    "XDG_CONFIG_HOME",
+  ]) {
+    delete env[name];
+  }
+  for (const name of Object.keys(env)) {
+    if (
+      name.startsWith("GIT_CONFIG_KEY_") ||
+      name.startsWith("GIT_CONFIG_VALUE_")
+    ) {
+      delete env[name];
+    }
+  }
+  env.GIT_TERMINAL_PROMPT = "0";
 }
 
 export function createCodexRuntimeAdapter(

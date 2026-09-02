@@ -16,6 +16,45 @@ export async function prepareAgentChildHome(childHome: string): Promise<void> {
   await mkdir(join(childHome, "gh"), { recursive: true, mode: 0o700 });
 }
 
+/** Stages only the non-secret Git author identity for an isolated child HOME. */
+export async function stageGitUserIdentity(options: {
+  sourceHome: string;
+  destination: string;
+}): Promise<boolean> {
+  if (await pathExists(options.destination)) {
+    return false;
+  }
+
+  let source: string;
+  try {
+    source = await readFile(join(options.sourceHome, ".gitconfig"), "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+
+  const identity = parseGitUserIdentity(source);
+  if (!identity.name && !identity.email) {
+    return false;
+  }
+
+  const lines = ["[user]"];
+  if (identity.name) {
+    lines.push(`\tname = ${identity.name}`);
+  }
+  if (identity.email) {
+    lines.push(`\temail = ${identity.email}`);
+  }
+  await writeFile(options.destination, `${lines.join("\n")}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+    mode: 0o600,
+  });
+  return true;
+}
+
 export async function stageJsonCredentialFile(options: {
   source: string;
   destination: string;
@@ -79,6 +118,39 @@ async function pathExists(path: string): Promise<boolean> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseGitUserIdentity(source: string): {
+  name: string | null;
+  email: string | null;
+} {
+  let inUserSection = false;
+  let name: string | null = null;
+  let email: string | null = null;
+  for (const line of source.split(/\r?\n/)) {
+    const section = line.match(/^\s*\[\s*([^\s\]]+)\s*\]\s*$/);
+    if (section) {
+      inUserSection = section[1]?.toLowerCase() === "user";
+      continue;
+    }
+    if (!inUserSection) {
+      continue;
+    }
+    const assignment = line.match(/^\s*(name|email)\s*=\s*(.*?)\s*$/i);
+    if (!assignment) {
+      continue;
+    }
+    const value = assignment[2]?.trim();
+    if (!value || value.includes("\n") || value.includes("\r")) {
+      continue;
+    }
+    if (assignment[1]?.toLowerCase() === "name") {
+      name = value;
+    } else {
+      email = value;
+    }
+  }
+  return { name, email };
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

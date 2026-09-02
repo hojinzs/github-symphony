@@ -179,6 +179,11 @@ describe("buildCodexRuntimePlan", () => {
         HOME: "/Users/operator",
         GH_CONFIG_DIR: "/Users/operator/.config/gh",
         WORKSPACE_RUNTIME_DIR: "/tmp/runtime-123",
+        SSH_AUTH_SOCK: "/tmp/operator-ssh-agent.sock",
+        GIT_ASKPASS: "/tmp/operator-git-askpass",
+        SSH_ASKPASS: "/tmp/operator-ssh-askpass",
+        GIT_CONFIG_GLOBAL: "/tmp/operator.gitconfig",
+        XDG_CONFIG_HOME: "/tmp/operator-config",
       },
     });
 
@@ -199,6 +204,11 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
     expect(plan.env.LINEAR_API_KEY).toBeUndefined();
     expect(plan.env.LINEAR_AUTHORIZATION).toBeUndefined();
+    expect(plan.env.SSH_AUTH_SOCK).toBeUndefined();
+    expect(plan.env.GIT_ASKPASS).toBeUndefined();
+    expect(plan.env.SSH_ASKPASS).toBeUndefined();
+    expect(plan.env.GIT_CONFIG_GLOBAL).toBeUndefined();
+    expect(plan.env.XDG_CONFIG_HOME).toBeUndefined();
   });
 
   it("removes direct Git credentials without a broker", () => {
@@ -1019,6 +1029,10 @@ describe("createCodexRuntimeAdapter", () => {
       join(hostCodexHome, "config.toml"),
       "[mcp_servers.github]\n"
     );
+    await writeFile(
+      join(hostHome, ".gitconfig"),
+      "[user]\n\tname = Symphony Operator\n\temail = operator@example.test\n[credential]\n\thelper = host-only-helper\n"
+    );
 
     try {
       const adapter = createCodexRuntimeAdapter(
@@ -1055,6 +1069,11 @@ describe("createCodexRuntimeAdapter", () => {
       ).rejects.toMatchObject({
         code: "ENOENT",
       });
+      await expect(
+        readFile(join(runtimeDirectory, "child-home", ".gitconfig"), "utf8")
+      ).resolves.toBe(
+        "[user]\n\tname = Symphony Operator\n\temail = operator@example.test\n"
+      );
       expect(
         (await stat(join(runtimeDirectory, "child-home"))).mode & 0o777
       ).toBe(0o700);

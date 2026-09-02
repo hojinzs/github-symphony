@@ -659,6 +659,97 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it("preserves a previous transport marker when worker-start exhaustion suppresses a prepared run", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const now = new Date("2026-03-08T00:00:00.000Z");
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-dispatch-transport-exhaustion-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxFailureRetries: 2 }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "retry_queued",
+        currentRunId: null,
+        retryEntry: {
+          attempt: 1,
+          dueAt: now.toISOString(),
+          error: "git_transport_failed: refusing to push feat/assigned",
+        },
+        updatedAt: now.toISOString(),
+      },
+    ]);
+    const previousRun = {
+      runId: "run-transport",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "failed",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      startedAt: now.toISOString(),
+      completedAt: now.toISOString(),
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+      nextRetryAt: null,
+    } as OrchestratorRunRecord;
+    await store.saveRun(previousRun);
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      now: () => now,
+    });
+    vi.spyOn(service as never, "startRun").mockImplementation(
+      async (
+        _tenant: OrchestratorProjectConfig,
+        _issue: TrackedIssue,
+        options: {
+          onPrepared?: (candidate: OrchestratorRunRecord) => Promise<void>;
+        }
+      ) => {
+        await options.onPrepared?.({
+          ...previousRun,
+          runId: "run-prepared",
+          status: "running",
+          lastError: null,
+        });
+        throw new Error("spawn bash ENOENT");
+      }
+    );
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-prepared")).toMatchObject({
+      status: "suppressed",
+      lastError: expect.stringMatching(
+        /^git_transport_failed: refusing to push feat\/assigned .*max_failure_retries_exceeded/
+      ),
+    });
+  });
+
   it("queues a non-exhausted restart failure and dispatches healthy candidates", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -4399,7 +4490,7 @@ Retry inconclusive work.
     });
   });
 
-  it("retains a terminal issue workspace whose latest run has an unpublished Git transport failure", async () => {
+  it("retains a terminal issue workspace with unpublished transport state after a later non-transport run", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-startup-transport-retention-")
@@ -4448,7 +4539,7 @@ Retry inconclusive work.
       status: "active",
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:00:07.000Z",
-      lastError: null,
+      lastError: "git_transport_failed: refusing to push feat/assigned",
     });
     await store.saveRun({
       runId: "run-transport-failed",
@@ -4474,6 +4565,36 @@ Retry inconclusive work.
       completedAt: "2026-03-08T00:00:07.000Z",
       runPhase: "failed",
       lastError: "git_transport_failed: refusing to push feat/assigned",
+      nextRetryAt: null,
+    });
+    await store.saveRun({
+      runId: "run-later-agent-failure",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Done",
+      repository,
+      status: "failed",
+      attempt: 3,
+      processId: null,
+      port: null,
+      workingDirectory: repositoryPath,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir: join(
+        tempRoot,
+        "run-later-agent-failure",
+        "workspace"
+      ),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:08.000Z",
+      updatedAt: "2026-03-08T00:00:09.000Z",
+      startedAt: "2026-03-08T00:00:08.000Z",
+      completedAt: "2026-03-08T00:00:09.000Z",
+      runPhase: "failed",
+      lastError: "agent failed before a subsequent transport attempt",
       nextRetryAt: null,
     });
     const service = new OrchestratorService(store, projectConfig, {

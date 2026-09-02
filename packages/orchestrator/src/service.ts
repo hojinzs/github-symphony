@@ -1722,12 +1722,12 @@ export class OrchestratorService {
               ? maxFailureRetries
               : priorFailureRetryCount + 1;
           const retrySuppressed = failureRetryCount >= maxFailureRetries;
-          const suppressionError = [
-            `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-            `failureRetryCount=${failureRetryCount}.`,
-            `maxFailureRetries=${maxFailureRetries}.`,
-            errorMessage,
-          ].join(" ");
+          const suppressionError = formatMaxFailureRetrySuppression(
+            previousRun,
+            failureRetryCount,
+            maxFailureRetries,
+            errorMessage
+          );
           if (failedPreparedRun) {
             await this.store.saveRun({
               ...failedPreparedRun,
@@ -3548,6 +3548,7 @@ export class OrchestratorService {
     await this.runAfterRunHook(tenant, run);
 
     const gitTransportFailed = isGitTransportFailure(runWithTokens);
+    await this.recordGitTransportWorkspaceState(tenant, runWithTokens, now);
     const currentTrackerProgress =
       runWithTokens.runPhase === "succeeded" &&
       !gitTransportFailed &&
@@ -5737,10 +5738,45 @@ export class OrchestratorService {
     projectId: string,
     issueId: string
   ): Promise<boolean> {
-    const latestRun = (await this.store.loadAllRuns())
-      .filter((run) => run.projectId === projectId && run.issueId === issueId)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-    return latestRun ? isGitTransportFailure(latestRun) : false;
+    const workspace = (await this.store.loadIssueWorkspaces(projectId)).find(
+      (record) => record.issueSubjectId === issueId
+    );
+    if (workspace) {
+      return isGitTransportFailureError(workspace.lastError);
+    }
+    return (await this.store.loadAllRuns()).some(
+      (run) =>
+        run.projectId === projectId &&
+        run.issueId === issueId &&
+        isGitTransportFailure(run)
+    );
+  }
+
+  private async recordGitTransportWorkspaceState(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    now: Date
+  ): Promise<void> {
+    const workspace = await this.loadWorkspaceForIssue(
+      tenant.projectId,
+      tenant.tracker.adapter,
+      run.issueSubjectId,
+      run.issueIdentifier
+    );
+    if (!workspace || workspace.status === "removed") {
+      return;
+    }
+    const transportError = isGitTransportFailure(run) ? run.lastError : null;
+    const transportSucceeded =
+      run.runPhase === "succeeded" && run.lastError === null;
+    if (!transportError && !transportSucceeded) {
+      return;
+    }
+    await this.store.saveIssueWorkspace({
+      ...workspace,
+      updatedAt: now.toISOString(),
+      lastError: transportError,
+    });
   }
 
   private resolveFailureRetryCount(
@@ -6424,11 +6460,15 @@ function wait(ms: number): Promise<void> {
 }
 
 function isGitTransportFailure(run: OrchestratorRunRecord): boolean {
-  return run.lastError?.startsWith("git_transport_failed:") === true;
+  return isGitTransportFailureError(run.lastError);
+}
+
+function isGitTransportFailureError(error: string | null | undefined): boolean {
+  return error?.startsWith("git_transport_failed:") === true;
 }
 
 function formatMaxFailureRetrySuppression(
-  run: OrchestratorRunRecord,
+  run: OrchestratorRunRecord | null,
   failureRetryCount: number,
   maxFailureRetries: number,
   detail?: string
@@ -6441,7 +6481,7 @@ function formatMaxFailureRetrySuppression(
   ]
     .filter((part): part is string => part !== undefined)
     .join(" ");
-  return isGitTransportFailure(run)
+  return run && isGitTransportFailure(run)
     ? `${run.lastError} (${suppressionDetail})`
     : suppressionDetail;
 }

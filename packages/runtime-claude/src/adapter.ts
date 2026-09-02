@@ -18,6 +18,7 @@ import {
   extractEnvForClaude,
   prepareAgentChildHome,
   resolveAgentChildHome,
+  stageGitUserIdentity,
   stageJsonCredentialFile,
 } from "@gh-symphony/core";
 import {
@@ -449,6 +450,11 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
   private async prepareChildHome(): Promise<void> {
     const childHome = this.resolveChildHome();
     await prepareAgentChildHome(childHome);
+    const hostHome = this.config.env?.HOME ?? process.env.HOME ?? homedir();
+    await stageGitUserIdentity({
+      sourceHome: hostHome,
+      destination: join(childHome, ".gitconfig"),
+    });
     if (
       this.config.isolation?.bare === true ||
       this.config.env?.ANTHROPIC_API_KEY
@@ -456,7 +462,6 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
       return;
     }
 
-    const hostHome = this.config.env?.HOME ?? process.env.HOME ?? homedir();
     await stageJsonCredentialFile({
       source: join(hostHome, ".claude", ".credentials.json"),
       destination: join(childHome, ".claude", ".credentials.json"),
@@ -710,8 +715,29 @@ function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {
     "GIT_CONFIG_VALUE_0",
     "GITHUB_TOKEN_BROKER_URL",
     "GITHUB_TOKEN_CACHE_PATH",
+    "GIT_ASKPASS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_DIR",
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_WORK_TREE",
+    "SSH_AGENT_PID",
+    "SSH_ASKPASS",
+    "SSH_AUTH_SOCK",
+    "XDG_CONFIG_HOME",
   ]) {
     delete env[name];
+  }
+  for (const name of Object.keys(env)) {
+    if (
+      name.startsWith("GIT_CONFIG_KEY_") ||
+      name.startsWith("GIT_CONFIG_VALUE_")
+    ) {
+      delete env[name];
+    }
   }
   env.GIT_TERMINAL_PROMPT = "0";
 }

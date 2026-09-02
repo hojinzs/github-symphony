@@ -359,6 +359,11 @@ describe("ClaudePrintRuntimeAdapter", () => {
           GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
           LINEAR_API_KEY: "lin-api-key",
           LINEAR_AUTHORIZATION: "Bearer lin-authorization",
+          SSH_AUTH_SOCK: "/tmp/operator-ssh-agent.sock",
+          GIT_ASKPASS: "/tmp/operator-git-askpass",
+          SSH_ASKPASS: "/tmp/operator-ssh-askpass",
+          GIT_CONFIG_GLOBAL: "/tmp/operator.gitconfig",
+          XDG_CONFIG_HOME: "/tmp/operator-config",
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
             "GITHUB_TOKEN_BROKER_SECRET",
             "LINEAR_API_KEY",
@@ -381,6 +386,11 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
     expect(calls[0]?.LINEAR_API_KEY).toBeUndefined();
     expect(calls[0]?.LINEAR_AUTHORIZATION).toBeUndefined();
+    expect(calls[0]?.SSH_AUTH_SOCK).toBeUndefined();
+    expect(calls[0]?.GIT_ASKPASS).toBeUndefined();
+    expect(calls[0]?.SSH_ASKPASS).toBeUndefined();
+    expect(calls[0]?.GIT_CONFIG_GLOBAL).toBeUndefined();
+    expect(calls[0]?.XDG_CONFIG_HOME).toBeUndefined();
   });
 
   it("does not expose agent credential broker controls to the Claude child", async () => {
@@ -431,6 +441,10 @@ describe("ClaudePrintRuntimeAdapter", () => {
         mcpOAuth: { github: "must-not-be-staged" },
       })
     );
+    await writeFile(
+      join(hostHome, ".gitconfig"),
+      "[user]\n\tname = Symphony Operator\n\temail = operator@example.test\n[credential]\n\thelper = host-only-helper\n"
+    );
     const adapter = new ClaudePrintRuntimeAdapter({
       workingDirectory: root,
       runtimeDirectory,
@@ -449,6 +463,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
     expect((await stat(childHome)).mode & 0o777).toBe(0o700);
     expect((await stat(join(childHome, "gh"))).mode & 0o777).toBe(0o700);
+    await expect(readFile(join(childHome, ".gitconfig"), "utf8")).resolves.toBe(
+      "[user]\n\tname = Symphony Operator\n\temail = operator@example.test\n"
+    );
   });
 
   it("uses configured args and strict mcp isolation for spawned argv", async () => {
