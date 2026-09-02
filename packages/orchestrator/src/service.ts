@@ -13,6 +13,7 @@ import {
   NonRetryableTrackerAdapterError,
   TrackerRateLimitError,
   assertIssueOrchestrationTransition,
+  assertIssueWorkspaceRootOutsideRepository,
   attributeDirtyWorkToIssue,
   buildHookEnv,
   buildIssueIdentityHeader,
@@ -315,6 +316,22 @@ function trackerItemId(
   return adapter.getTrackerItemId?.(issue) ?? legacyItemId ?? null;
 }
 
+function assertIssueWorkspaceRootIsOutsideRepository(
+  projectConfig: OrchestratorProjectConfig
+): void {
+  const repositoryDir =
+    projectConfig.repositoryDir ?? projectConfig.repository?.path;
+  if (!repositoryDir) {
+    return;
+  }
+
+  assertIssueWorkspaceRootOutsideRepository(
+    projectConfig.projectId,
+    projectConfig.workspaceDir,
+    repositoryDir
+  );
+}
+
 class RestartRunFailure extends Error {
   constructor(
     readonly originalError: unknown,
@@ -428,6 +445,7 @@ export class OrchestratorService {
       ownerToken?: string;
     } = {}
   ) {
+    assertIssueWorkspaceRootIsOutsideRepository(projectConfig);
     this.ownerToken = dependencies.ownerToken ?? null;
   }
 

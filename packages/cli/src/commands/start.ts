@@ -34,7 +34,11 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
-import { parseWorkflowMarkdown, type ParsedWorkflow } from "@gh-symphony/core";
+import {
+  assertDispatchableOrchestratorProjectConfig,
+  parseWorkflowMarkdown,
+  type ParsedWorkflow,
+} from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -1019,6 +1023,7 @@ const handler = async (
     process.exitCode = 1;
     return;
   }
+  assertDispatchableOrchestratorProjectConfig(projectConfig);
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;

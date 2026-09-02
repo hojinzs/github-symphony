@@ -520,6 +520,33 @@ Handle {{issue.identifier}}.\n`,
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
+  it("rejects legacy repo metadata before constructing the orchestrator", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    const repositoryPath = join(configDir, "legacy-repository");
+    project.repository.path = repositoryPath;
+    project.workspaceDir = repositoryPath;
+    project.workflowSource = { type: "repo" };
+    delete project.repositoryDir;
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+
+    await expect(
+      startModule.default([], baseOptions(configDir))
+    ).rejects.toThrow(
+      "Stop the daemon and run 'gh-symphony repo init' again before starting it."
+    );
+
+    expect(acquireProjectLock).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(serviceProjectConfigs).toHaveLength(0);
+  });
+
   it("reports the env token source when GitHub auth resolves from GITHUB_GRAPHQL_TOKEN", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",

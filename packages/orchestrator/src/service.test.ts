@@ -9,6 +9,7 @@ import {
   readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -15057,6 +15058,47 @@ Workspace prompt.
       join(workspaceRoot, workspaceRecord!.workspaceKey)
     );
     expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
+  });
+
+  it("rejects issue-workspace roots that equal or contain the checkout", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-unsafe-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+
+    for (const workspaceRoot of [repository.path, tempRoot]) {
+      const projectConfig = {
+        ...createProjectConfig(tempRoot, repository, workspaceRoot),
+        repositoryDir: repository.path,
+      };
+
+      expect(
+        () =>
+          new OrchestratorService(
+            new OrchestratorFsStore(tempRoot),
+            projectConfig
+          )
+      ).toThrow("workspace.root");
+    }
+
+    const symlinkedWorkspaceRoot = join(tempRoot, "workspace-root-link");
+    await symlink(tempRoot, symlinkedWorkspaceRoot);
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository, symlinkedWorkspaceRoot),
+      repositoryDir: repository.path,
+    };
+
+    expect(
+      () =>
+        new OrchestratorService(
+          new OrchestratorFsStore(tempRoot),
+          projectConfig
+        )
+    ).toThrow("workspace.root");
   });
 
   it("uses workspaceDir for repo-embedded configs without repositoryDir", async () => {
