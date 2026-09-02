@@ -184,6 +184,18 @@ export function shouldRecordConfirmedTrackerProgress(
   );
 }
 
+export function resolveDirtyWorkAttributionBranches(
+  trackerAdapter: OrchestratorTrackerAdapter,
+  issue: TrackedIssue
+): string[] {
+  const branches = trackerAdapter.resolveAttributableBranches?.(issue);
+  if (branches) {
+    return branches;
+  }
+  const checkoutTarget = trackerAdapter.resolveBranchCheckoutTarget?.(issue);
+  return checkoutTarget ? [checkoutTarget.headRefName] : [];
+}
+
 /**
  * Replaces the initial state-read with facts from one freshly normalized
  * snapshot so a worker never combines an old lifecycle state with new label
@@ -2839,6 +2851,10 @@ export class OrchestratorService {
     }
     const pullRequestBranch =
       trackerAdapter.resolveBranchCheckoutTarget?.(issue) ?? null;
+    const attributableBranches = resolveDirtyWorkAttributionBranches(
+      trackerAdapter,
+      issue
+    );
 
     // #507: dirty recovery may only reuse the workspace when the dirty state
     // is attributable to this run's issue. Otherwise quarantine the workspace
@@ -2856,9 +2872,7 @@ export class OrchestratorService {
         issueIdentifier: issue.identifier,
         currentBranch,
         dirtyFiles: recovery.dirtyFiles,
-        expectedBranches: pullRequestBranch
-          ? [pullRequestBranch.headRefName]
-          : [],
+        expectedBranches: attributableBranches,
       });
       if (!attribution.attributed) {
         const quarantinePath = await quarantineIssueWorkspace(

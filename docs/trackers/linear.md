@@ -48,7 +48,7 @@ errors rather than a normalized category.
 | Invalid provider keys or unsupported scope keys | `invalid_tracker_config` | `WorkflowValidationError`              |
 | No resolved Linear credential                   | `missing_tracker_secret` | Adapter initialization/configure error |
 
-## Orchestrator state reads and checkout targets
+## Orchestrator state reads and dirty-workspace attribution
 
 For a `state-read`, the adapter queries the current Linear issue by its opaque
 item ID and returns a confirmed provider state. The orchestration service then
@@ -60,9 +60,10 @@ uses its fresh normalized issue snapshot to derive `routable` and
 worker-owned `linear_graphql` operations.
 
 When a Linear issue provides `branchName`,
-`resolveBranchCheckoutTarget()` returns it as `headRefName`. The orchestrator
-uses that adapter-owned value when attributing a dirty workspace or selecting a
-checkout base. Missing or blank branch names produce no checkout target.
+`resolveAttributableBranches()` returns it as dirty-workspace attribution
+evidence. Linear branch names are suggestions and are never used as checkout
+targets, because the corresponding remote ref may not exist yet. Missing or
+blank branch names produce no attribution evidence.
 
 ## Native tool
 

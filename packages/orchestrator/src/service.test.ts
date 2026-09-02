@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
+  attributeDirtyWorkToIssue,
   type IssueOrchestrationRecord,
   type OrchestratorProjectConfig,
   type OrchestratorRunRecord,
@@ -35,6 +36,7 @@ import {
   applyStateReadRoutability,
   clampPollInterval,
   OrchestratorService,
+  resolveDirtyWorkAttributionBranches,
   shouldAwaitTrackerProgressExit,
   shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
@@ -121,6 +123,48 @@ describe("state-read routability", () => {
       routableReason: "tracker_issue_snapshot_missing",
       error: null,
     });
+  });
+});
+
+describe("dirty-workspace attribution branches", () => {
+  it("passes Linear branch evidence to dirty-workspace attribution without selecting a checkout ref", () => {
+    const trackedIssue = {
+      id: "issue-123",
+      identifier: "ENG-123",
+      title: "Per-turn reads",
+      description: null,
+      priority: null,
+      state: "Todo",
+      branchName: "eng-123-per-turn-reads",
+      url: null,
+      labels: [],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: null,
+      updatedAt: null,
+      repository: { owner: "acme", name: "platform" },
+      tracker: { adapter: "linear", bindingId: "project" },
+      metadata: {},
+    } as TrackedIssue;
+    const adapter = {
+      resolveAttributableBranches: () => ["eng-123-per-turn-reads"],
+    };
+
+    const expectedBranches = resolveDirtyWorkAttributionBranches(
+      adapter,
+      trackedIssue
+    );
+
+    expect(expectedBranches).toEqual(["eng-123-per-turn-reads"]);
+    expect(
+      attributeDirtyWorkToIssue({
+        issueIdentifier: trackedIssue.identifier,
+        currentBranch: "eng-123-per-turn-reads",
+        dirtyFiles: ["partial.txt"],
+        expectedBranches,
+      })
+    ).toMatchObject({ attributed: true });
   });
 });
 

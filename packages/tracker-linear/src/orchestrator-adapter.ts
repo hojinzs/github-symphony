@@ -203,6 +203,26 @@ const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
   }
 `;
 
+const LINEAR_ISSUE_STATE_QUERY = /* GraphQL */ `
+  query SymphonyLinearIssueState($filter: IssueFilter!) {
+    issues(first: 1, filter: $filter) {
+      nodes {
+        id
+        state {
+          name
+        }
+      }
+    }
+  }
+`;
+
+type LinearIssueStateResponse = {
+  issues?: LinearConnection<{
+    id?: string | null;
+    state?: { name?: string | null } | null;
+  }> | null;
+};
+
 export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   validateProviderConfig(provider, context) {
     const errors: WorkflowValidationError[] = [];
@@ -375,9 +395,9 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     return typeof itemId === "string" ? itemId : null;
   },
 
-  resolveBranchCheckoutTarget(issue) {
-    const headRefName = issue.branchName?.trim();
-    return headRefName ? { headRefName } : null;
+  resolveAttributableBranches(issue) {
+    const branchName = issue.branchName?.trim();
+    return branchName ? [branchName] : [];
   },
 
   async requestState(project, input, dependencies = {}) {
@@ -394,31 +414,41 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       };
     }
 
-    const issues = await listLinearIssues(project, undefined, dependencies, [
-      input.itemId,
-    ]);
-    const issue = issues.find((candidate) => candidate.id === input.itemId);
+    const config = resolveLinearTrackerConfig(project, dependencies);
+    const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
+    const response = await client<LinearIssueStateResponse>(
+      LINEAR_ISSUE_STATE_QUERY,
+      {
+        filter: buildLinearIssueFilter({
+          projectSlug: config.projectSlug,
+          issueIds: [input.itemId],
+        }),
+      }
+    );
+    const issue = response.data.issues?.nodes?.find(
+      (candidate) => candidate.id === input.itemId
+    );
     if (!issue) {
       return {
-        ok: false,
-        outcome: "failed" as const,
-        state: null,
+        ok: true,
+        outcome: "confirmed" as const,
+        state: "Missing",
         expectedState: null,
         targetState: null,
         reason: null,
-        rateLimits: issues.rateLimits ?? null,
-        error: `linear_issue_not_found: ${input.itemId}`,
+        rateLimits: response.rateLimits,
+        error: null,
       };
     }
 
     return {
       ok: true,
       outcome: "confirmed" as const,
-      state: issue.state,
+      state: requireString(issue.state?.name, "Linear issue state name"),
       expectedState: null,
       targetState: null,
       reason: null,
-      rateLimits: issues.rateLimits ?? null,
+      rateLimits: response.rateLimits,
       error: null,
     };
   },

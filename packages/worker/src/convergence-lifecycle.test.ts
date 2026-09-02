@@ -95,6 +95,50 @@ async function runTurnBoundary(response: Response) {
 }
 
 describe("convergence threshold lifecycle", () => {
+  it("keeps healthy confirmed per-turn refreshes active after dirty work", async () => {
+    const healthyLinearRefresh = () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "In Progress",
+          routable: true,
+        })
+      );
+
+    await expect(runTurnBoundary(healthyLinearRefresh())).resolves.toEqual({
+      action: "continue",
+      executionPhase: "implementation",
+    });
+    await expect(runTurnBoundary(healthyLinearRefresh())).resolves.toEqual({
+      action: "continue",
+      executionPhase: "implementation",
+    });
+    await expect(runTurnBoundary(healthyLinearRefresh())).resolves.toEqual({
+      action: "continue",
+      executionPhase: "implementation",
+    });
+  });
+
+  it("maps a confirmed missing Linear issue to a non-actionable stop", async () => {
+    await expect(
+      runTurnBoundary(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            outcome: "confirmed",
+            state: "Missing",
+            routable: false,
+            routableReason: "tracker_issue_snapshot_missing",
+          })
+        )
+      )
+    ).resolves.toEqual({
+      action: "complete",
+      executionPhase: "awaiting-merge",
+    });
+  });
+
   it("accepts local convergence when tracker reads are permanently unsupported", async () => {
     const unsupported = new Response(
       JSON.stringify({

@@ -159,6 +159,7 @@ describe("linearTrackerAdapter", () => {
     });
 
     const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      query: string;
       variables: Record<string, unknown>;
     };
     expect(request.variables).toMatchObject({
@@ -166,6 +167,41 @@ describe("linearTrackerAdapter", () => {
         project: { slugId: { eq: "symphony-0c79b11b75ea" } },
         id: { in: ["issue-123"] },
       },
+    });
+    expect(request.query).not.toContain("viewer");
+  });
+
+  it("confirms a missing Linear issue as a non-actionable state", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.requestState!(
+        makeProject(),
+        {
+          issueSubjectId: "issue-removed",
+          itemId: "issue-removed",
+          request: { type: "state-read" },
+        },
+        { fetchImpl, token: "linear-token" }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      outcome: "confirmed",
+      state: "Missing",
+      expectedState: null,
+      targetState: null,
+      reason: null,
+      rateLimits: null,
+      error: null,
     });
   });
 
@@ -200,7 +236,7 @@ describe("linearTrackerAdapter", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("uses a Linear issue branch name as the checkout target", () => {
+  it("exposes a Linear issue branch name for dirty-workspace attribution without a checkout target", () => {
     const issue = normalizeLinearIssue(
       makeProject(),
       "project-slug",
@@ -210,9 +246,10 @@ describe("linearTrackerAdapter", () => {
     );
 
     expect(issue.branchName).toBe("eng-123-per-turn-state-read");
-    expect(linearTrackerAdapter.resolveBranchCheckoutTarget?.(issue)).toEqual({
-      headRefName: "eng-123-per-turn-state-read",
-    });
+    expect(linearTrackerAdapter.resolveBranchCheckoutTarget).toBeUndefined();
+    expect(linearTrackerAdapter.resolveAttributableBranches?.(issue)).toEqual([
+      "eng-123-per-turn-state-read",
+    ]);
   });
 
   it("normalizes labels and timestamps and maps priority zero to null", () => {
