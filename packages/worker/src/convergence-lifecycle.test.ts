@@ -69,18 +69,22 @@ async function runConvergenceThreshold(response: Response) {
   };
 }
 
-async function runTurnBoundary(response: Response) {
+async function runTurnBoundary(
+  response: Response,
+  currentCount = 0,
+  activeStates = ["Ready", "In progress", "Land"]
+) {
   const trackerRefresh = await refreshTrackerState(
     {
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
       SYMPHONY_ORCHESTRATOR_TOKEN: "worker-token",
       SYMPHONY_RUN_ID: "run-1",
     },
-    ["Ready", "In progress", "Land"],
+    activeStates,
     vi.fn().mockResolvedValue(response)
   );
   const trackerState = trackerRefresh.state;
-  const refreshGate = resolveTrackerRefreshGate(trackerState, 0, 3);
+  const refreshGate = resolveTrackerRefreshGate(trackerState, currentCount, 3);
 
   return refreshGate.action === "complete"
     ? {
@@ -91,10 +95,62 @@ async function runTurnBoundary(response: Response) {
           userInputRequired: false,
         }),
       }
-    : { action: "continue", executionPhase: "implementation" };
+    : {
+        action: "continue",
+        executionPhase: "implementation",
+        count: refreshGate.count,
+      };
 }
 
 describe("convergence threshold lifecycle", () => {
+  it("keeps healthy confirmed per-turn refreshes active after dirty work", async () => {
+    const healthyLinearRefresh = () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "In Progress",
+          routable: true,
+        })
+      );
+
+    let currentCount = 0;
+    for (let turn = 1; turn <= 4; turn += 1) {
+      const result = await runTurnBoundary(
+        healthyLinearRefresh(),
+        currentCount
+      );
+
+      expect(result).toEqual({
+        action: "continue",
+        executionPhase: "implementation",
+        count: 0,
+      });
+      currentCount = result.count;
+    }
+  });
+
+  it("maps a confirmed missing Linear issue to a non-actionable stop", async () => {
+    await expect(
+      runTurnBoundary(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            outcome: "confirmed",
+            state: "Missing",
+            routable: false,
+            routableReason: "tracker_issue_snapshot_missing",
+          })
+        )
+      ),
+      0,
+      ["Missing"]
+    ).resolves.toEqual({
+      action: "complete",
+      executionPhase: "awaiting-merge",
+    });
+  });
+
   it("accepts local convergence when tracker reads are permanently unsupported", async () => {
     const unsupported = new Response(
       JSON.stringify({
@@ -108,6 +164,7 @@ describe("convergence threshold lifecycle", () => {
     await expect(runTurnBoundary(unsupported.clone())).resolves.toEqual({
       action: "continue",
       executionPhase: "implementation",
+      count: 0,
     });
     await expect(runConvergenceThreshold(unsupported)).resolves.toEqual({
       runPhase: "failed",

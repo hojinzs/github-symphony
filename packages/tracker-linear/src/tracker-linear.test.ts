@@ -124,6 +124,134 @@ describe("linearTrackerAdapter", () => {
     ).rejects.toThrow("Unknown Linear agent tool");
   });
 
+  it("confirms a fresh Linear issue state read", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [linearIssueNode("ENG-123", [], { id: "issue-123" })],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+          viewer: { id: "viewer-1" },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.requestState!(
+        makeProject(),
+        {
+          issueSubjectId: "issue-123",
+          itemId: "issue-123",
+          request: { type: "state-read" },
+        },
+        { fetchImpl, token: "linear-token" }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      outcome: "confirmed",
+      state: "Todo",
+      expectedState: null,
+      targetState: null,
+      reason: null,
+      rateLimits: null,
+      error: null,
+    });
+
+    const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      query: string;
+      variables: Record<string, unknown>;
+    };
+    expect(request.variables).toMatchObject({
+      filter: {
+        project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+        id: { in: ["issue-123"] },
+      },
+    });
+    expect(request.query).not.toContain("viewer");
+  });
+
+  it("confirms a missing Linear issue as a non-actionable state", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.requestState!(
+        makeProject(),
+        {
+          issueSubjectId: "issue-removed",
+          itemId: "issue-removed",
+          request: { type: "state-read" },
+        },
+        { fetchImpl, token: "linear-token" }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      outcome: "confirmed",
+      state: "Missing",
+      expectedState: null,
+      targetState: null,
+      reason: null,
+      rateLimits: null,
+      error: null,
+    });
+  });
+
+  it("rejects unsupported Linear state transitions without querying Linear", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      linearTrackerAdapter.requestState!(
+        makeProject(),
+        {
+          issueSubjectId: "issue-123",
+          itemId: "issue-123",
+          request: {
+            type: "transition-request",
+            expectedState: "Todo",
+            targetState: "Done",
+            reason: "complete implementation",
+          },
+        },
+        { fetchImpl, token: "linear-token" }
+      )
+    ).resolves.toEqual({
+      ok: false,
+      outcome: "rejected",
+      state: null,
+      expectedState: "Todo",
+      targetState: "Done",
+      reason: "complete implementation",
+      rateLimits: null,
+      error: "linear_state_transitions_unsupported",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("exposes a Linear issue branch name for dirty-workspace attribution without a checkout target", () => {
+    const issue = normalizeLinearIssue(
+      makeProject(),
+      "project-slug",
+      linearIssueNode("ENG-123", [], {
+        branchName: "  eng-123-per-turn-state-read  ",
+      })
+    );
+
+    expect(issue.branchName).toBe("eng-123-per-turn-state-read");
+    expect(linearTrackerAdapter.resolveBranchCheckoutTarget).toBeUndefined();
+    expect(linearTrackerAdapter.resolveAttributableBranches?.(issue)).toEqual([
+      "eng-123-per-turn-state-read",
+    ]);
+  });
+
   it("normalizes labels and timestamps and maps priority zero to null", () => {
     const issue = normalizeLinearIssue(
       makeProject(),

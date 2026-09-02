@@ -59,6 +59,7 @@ type LinearIssueNode = {
   title?: string | null;
   description?: string | null;
   priority?: number | null;
+  branchName?: string | null;
   url?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -111,6 +112,7 @@ const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
     title
     description
     priority
+    branchName
     url
     createdAt
     updatedAt
@@ -200,6 +202,26 @@ const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+const LINEAR_ISSUE_STATE_QUERY = /* GraphQL */ `
+  query SymphonyLinearIssueState($filter: IssueFilter!) {
+    issues(first: 1, filter: $filter) {
+      nodes {
+        id
+        state {
+          name
+        }
+      }
+    }
+  }
+`;
+
+type LinearIssueStateResponse = {
+  issues?: LinearConnection<{
+    id?: string | null;
+    state?: { name?: string | null } | null;
+  }> | null;
+};
 
 export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   validateProviderConfig(provider, context) {
@@ -371,6 +393,67 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   getTrackerItemId(issue) {
     const itemId = issue.nativeRef?.itemId;
     return typeof itemId === "string" ? itemId : null;
+  },
+
+  resolveAttributableBranches(issue) {
+    const branchName = issue.branchName?.trim();
+    return branchName ? [branchName] : [];
+  },
+
+  async requestState(project, input, dependencies = {}) {
+    if (input.request.type === "transition-request") {
+      return {
+        ok: false,
+        outcome: "rejected" as const,
+        state: null,
+        expectedState: input.request.expectedState,
+        targetState: input.request.targetState,
+        reason: input.request.reason,
+        rateLimits: null,
+        error: "linear_state_transitions_unsupported",
+      };
+    }
+
+    const config = resolveLinearTrackerConfig(project, dependencies);
+    const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
+    const response = await client<LinearIssueStateResponse>(
+      LINEAR_ISSUE_STATE_QUERY,
+      {
+        filter: buildLinearIssueFilter({
+          projectSlug: config.projectSlug,
+          issueIds: [input.itemId],
+        }),
+      }
+    );
+    const issue = response.data.issues?.nodes?.find(
+      (candidate) => candidate.id === input.itemId
+    );
+    if (!issue) {
+      // This is a sentinel rather than a Linear workflow state. The worker
+      // requires a string state for confirmed reads; routability is derived
+      // from the missing normalized snapshot and keeps this non-actionable.
+      return {
+        ok: true,
+        outcome: "confirmed" as const,
+        state: "Missing",
+        expectedState: null,
+        targetState: null,
+        reason: null,
+        rateLimits: response.rateLimits,
+        error: null,
+      };
+    }
+
+    return {
+      ok: true,
+      outcome: "confirmed" as const,
+      state: requireString(issue.state?.name, "Linear issue state name"),
+      expectedState: null,
+      targetState: null,
+      reason: null,
+      rateLimits: response.rateLimits,
+      error: null,
+    };
   },
 
   buildStructuredEventMetadata(project) {
@@ -662,7 +745,7 @@ export function normalizeLinearIssue(
         ? issue.priority
         : null,
     state,
-    branchName: null,
+    branchName: normalizeLinearBranchName(issue.branchName),
     url: issue.url ?? null,
     labels: normalizeLabels(
       (issue.labels?.nodes ?? []).map((label) => label.name)
@@ -693,6 +776,13 @@ export function normalizeLinearIssue(
     metadata: {},
     rateLimits: options.rateLimits ?? null,
   };
+}
+
+function normalizeLinearBranchName(
+  value: string | null | undefined
+): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function trackerPaginationError(input: Record<string, unknown>): Error {

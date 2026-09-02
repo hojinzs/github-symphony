@@ -23,12 +23,12 @@ provider throttling because the adapter does not impose a separate scheduler.
 
 ## Normalized issue contract
 
-| Field or condition                  | Linear mapping                                                                                                                                                                                                                                                                                                                                                            |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id` and `native_ref`               | `id` is the Linear issue ID. `native_ref` contains that `itemId` and the configured `projectSlug`.                                                                                                                                                                                                                                                                        |
-| State, labels, priority, timestamps | State is the Linear workflow-state name. Labels are trimmed, lowercased, and deduplicated. Priority `0` (No priority) becomes `null`; other Linear values are retained. Timestamps parse to canonical RFC 3339/ISO 8601 or `null`.                                                                                                                                        |
-| `dispatchable`                      | Candidate polling includes unassigned issues. With `--assigned-only`, only the authenticated viewer's assigned issues are dispatchable; configured non-terminal blockers also make an item non-dispatchable with a reason. `pickup_labels` instead filters label-ineligible candidates from the list (a documented repository divergence from GitHub's retained records). |
-| Malformed and optional fields       | Malformed required data (`id`, `identifier`, or state name) aborts the whole listing in both candidate polling and ID refresh; there is no per-record skip. Optional labels, assignee, timestamps, priority, and relations normalize to empty collections or `null`.                                                                                                      |
+| Field or condition                          | Linear mapping                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id` and `native_ref`                       | `id` is the Linear issue ID. `native_ref` contains that `itemId` and the configured `projectSlug`.                                                                                                                                                                                                                                                                        |
+| State, branch, labels, priority, timestamps | State is the Linear workflow-state name. `branchName` is trimmed and exposed as dirty-workspace attribution evidence when present; it is never a checkout target. Labels are trimmed, lowercased, and deduplicated. Priority `0` (No priority) becomes `null`; other Linear values are retained. Timestamps parse to canonical RFC 3339/ISO 8601 or `null`.               |
+| `dispatchable`                              | Candidate polling includes unassigned issues. With `--assigned-only`, only the authenticated viewer's assigned issues are dispatchable; configured non-terminal blockers also make an item non-dispatchable with a reason. `pickup_labels` instead filters label-ineligible candidates from the list (a documented repository divergence from GitHub's retained records). |
+| Malformed and optional fields               | Malformed required data (`id`, `identifier`, or state name) aborts the whole listing in both candidate polling and ID refresh; there is no per-record skip. Optional labels, assignee, timestamps, priority, and relations normalize to empty collections or `null`.                                                                                                      |
 
 ## Error-category mapping
 
@@ -47,6 +47,23 @@ errors rather than a normalized category.
 | Linear throttle / `Retry-After` response        | `tracker_rate_limited`   | Native HTTP/GraphQL error              |
 | Invalid provider keys or unsupported scope keys | `invalid_tracker_config` | `WorkflowValidationError`              |
 | No resolved Linear credential                   | `missing_tracker_secret` | Adapter initialization/configure error |
+
+## Orchestrator state reads and dirty-workspace attribution
+
+For a `state-read`, the adapter queries the current Linear issue by its opaque
+item ID and returns a confirmed provider state. The orchestration service then
+uses its fresh normalized issue snapshot to derive `routable` and
+`routableReason`; this keeps Linear-specific GraphQL fields out of the core.
+
+`transition-request` is deliberately rejected with
+`linear_state_transitions_unsupported`. Linear lifecycle mutations remain
+worker-owned `linear_graphql` operations.
+
+When a Linear issue provides `branchName`,
+`resolveAttributableBranches()` returns it as dirty-workspace attribution
+evidence. Linear branch names are suggestions and are never used as checkout
+targets, because the corresponding remote ref may not exist yet. Missing or
+blank branch names produce no attribution evidence.
 
 ## Native tool
 
