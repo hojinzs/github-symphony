@@ -41,16 +41,13 @@ export function buildIssueIdentityHeader(
 
 /**
  * Extract the numeric issue number from a canonical issue identifier such as
- * `owner/repo#507`, `#507`, `507`, or `TEAM-507`. Returns null when the
- * identifier is not a supported canonical shape.
+ * `owner/repo#507`, `#507`, or `507`. Tracker-native identifiers such as
+ * `TEAM-507` remain opaque here so legacy numeric consumers stay fail-closed.
  */
 export function extractIssueNumberFromIdentifier(
   identifier: string
 ): number | null {
-  const normalized = identifier.trim();
-  const match =
-    normalized.match(/(?:^|#|\/)(\d{1,9})$/) ??
-    normalized.match(/^[A-Za-z][A-Za-z0-9]*-(\d{1,9})$/);
+  const match = identifier.trim().match(/(?:^|#|\/)(\d{1,9})$/);
   if (!match) {
     return null;
   }
@@ -76,6 +73,14 @@ export function extractIssueNumbersFromBranch(branch: string): number[] {
 
 const WORKPAD_FILE_PATTERN = /(?:^|\/)\.gh-symphony\/workpads\/([^/]+)\.md$/;
 const TRACKER_IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9]*-\d{1,9}$/;
+const VERSION_LIKE_TRACKER_KEYS = new Set([
+  "GO",
+  "JAVA",
+  "NODE",
+  "PHP",
+  "PYTHON",
+  "RUBY",
+]);
 
 function normalizeTrackerIdentifier(identifier: string): string | null {
   const normalized = identifier.trim();
@@ -84,12 +89,20 @@ function normalizeTrackerIdentifier(identifier: string): string | null {
     : null;
 }
 
+function isVersionLikeTrackerIdentifier(identifier: string): boolean {
+  const teamKey = identifier.split("-", 1)[0]!;
+  return VERSION_LIKE_TRACKER_KEYS.has(teamKey) || /^V\d+$/.test(teamKey);
+}
+
 function extractTrackerIdentifiersFromBranch(branch: string): string[] {
   const identifiers = new Set<string>();
   for (const match of branch.matchAll(
     /(?:^|\/)([A-Za-z][A-Za-z0-9]*-\d{1,9})(?=[-_/]|$)/g
   )) {
-    identifiers.add(match[1]!.toUpperCase());
+    const identifier = match[1]!.toUpperCase();
+    if (!isVersionLikeTrackerIdentifier(identifier)) {
+      identifiers.add(identifier);
+    }
   }
 
   return [...identifiers];
@@ -123,7 +136,7 @@ export function extractIssueNumbersFromWorkpadFiles(
     if (!match) {
       continue;
     }
-    const numeric = match[1]!.match(/(\d{1,9})/);
+    const numeric = match[1]!.match(/^(?:[A-Za-z][A-Za-z0-9]*-)?(\d{1,9})$/);
     if (numeric) {
       numbers.add(Number.parseInt(numeric[1]!, 10));
     }
@@ -168,11 +181,9 @@ export function attributeDirtyWorkToIssue(
     input.dirtyFiles
   );
 
-  const foreignBranchIdentifiers = trackerIdentifier
-    ? branchTrackerIdentifiers.filter(
-        (identifier) => identifier !== trackerIdentifier
-      )
-    : [];
+  const foreignBranchIdentifiers = branchTrackerIdentifiers.filter(
+    (identifier) => identifier !== trackerIdentifier
+  );
   if (foreignBranchIdentifiers.length > 0) {
     return {
       attributed: false,
@@ -180,11 +191,9 @@ export function attributeDirtyWorkToIssue(
     };
   }
 
-  const foreignWorkpadIdentifiers = trackerIdentifier
-    ? workpadTrackerIdentifiers.filter(
-        (identifier) => identifier !== trackerIdentifier
-      )
-    : [];
+  const foreignWorkpadIdentifiers = workpadTrackerIdentifiers.filter(
+    (identifier) => identifier !== trackerIdentifier
+  );
   if (foreignWorkpadIdentifiers.length > 0) {
     return {
       attributed: false,
@@ -192,24 +201,26 @@ export function attributeDirtyWorkToIssue(
     };
   }
 
-  const foreignBranchNumbers = branchNumbers.filter(
-    (number) => number !== issueNumber
-  );
-  if (foreignBranchNumbers.length > 0) {
-    return {
-      attributed: false,
-      reason: `current branch '${branch}' references issue #${foreignBranchNumbers[0]} instead of ${input.issueIdentifier}`,
-    };
-  }
+  if (!trackerIdentifier) {
+    const foreignBranchNumbers = branchNumbers.filter(
+      (number) => number !== issueNumber
+    );
+    if (foreignBranchNumbers.length > 0) {
+      return {
+        attributed: false,
+        reason: `current branch '${branch}' references issue #${foreignBranchNumbers[0]} instead of ${input.issueIdentifier}`,
+      };
+    }
 
-  const foreignWorkpadNumbers = workpadNumbers.filter(
-    (number) => number !== issueNumber
-  );
-  if (foreignWorkpadNumbers.length > 0) {
-    return {
-      attributed: false,
-      reason: `dirty workpad references issue #${foreignWorkpadNumbers[0]} instead of ${input.issueIdentifier}`,
-    };
+    const foreignWorkpadNumbers = workpadNumbers.filter(
+      (number) => number !== issueNumber
+    );
+    if (foreignWorkpadNumbers.length > 0) {
+      return {
+        attributed: false,
+        reason: `dirty workpad references issue #${foreignWorkpadNumbers[0]} instead of ${input.issueIdentifier}`,
+      };
+    }
   }
 
   if (branch && input.expectedBranches?.includes(branch)) {
@@ -239,14 +250,22 @@ export function attributeDirtyWorkToIssue(
     };
   }
 
-  if (issueNumber !== null && branchNumbers.includes(issueNumber)) {
+  if (
+    !trackerIdentifier &&
+    issueNumber !== null &&
+    branchNumbers.includes(issueNumber)
+  ) {
     return {
       attributed: true,
       reason: `current branch '${branch}' references ${input.issueIdentifier}`,
     };
   }
 
-  if (issueNumber !== null && workpadNumbers.includes(issueNumber)) {
+  if (
+    !trackerIdentifier &&
+    issueNumber !== null &&
+    workpadNumbers.includes(issueNumber)
+  ) {
     return {
       attributed: true,
       reason: `dirty workpad belongs to ${input.issueIdentifier}`,

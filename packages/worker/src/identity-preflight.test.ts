@@ -100,6 +100,23 @@ describe("evaluateWorkerIdentityPreflight", () => {
     }
   });
 
+  it("fails closed for a bare numeric branch that collides with a Linear issue", () => {
+    const result = evaluateWorkerIdentityPreflight({
+      env: {
+        ...baseEnv,
+        SYMPHONY_ISSUE_IDENTIFIER: "DEV-54",
+        SYMPHONY_ISSUE_WORKSPACE_KEY: deriveIssueWorkspaceKey(
+          { adapter: "linear", issueSubjectId: "DEV-54" },
+          "DEV-54"
+        ),
+      },
+      originUrl: "https://github.com/acme/platform.git",
+      currentBranch: "feat/54-unrelated",
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
   it("accepts neutral branches and missing git metadata", () => {
     expect(
       evaluateWorkerIdentityPreflight({

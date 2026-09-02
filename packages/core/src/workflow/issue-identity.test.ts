@@ -37,7 +37,7 @@ describe("extractIssueNumberFromIdentifier", () => {
     expect(extractIssueNumberFromIdentifier("acme/platform#507")).toBe(507);
     expect(extractIssueNumberFromIdentifier("#173")).toBe(173);
     expect(extractIssueNumberFromIdentifier("173")).toBe(173);
-    expect(extractIssueNumberFromIdentifier("ACME-42")).toBe(42);
+    expect(extractIssueNumberFromIdentifier("ACME-42")).toBeNull();
     expect(extractIssueNumberFromIdentifier("no-number")).toBeNull();
   });
 });
@@ -63,10 +63,11 @@ describe("extractIssueNumbersFromWorkpadFiles", () => {
     expect(
       extractIssueNumbersFromWorkpadFiles([
         ".gh-symphony/workpads/172.md",
+        ".gh-symphony/workpads/DEV2-54.md",
         "src/index.ts",
         "docs/172-notes.md",
       ])
-    ).toEqual([172]);
+    ).toEqual([172, 54]);
   });
 });
 
@@ -111,6 +112,55 @@ describe("attributeDirtyWorkToIssue", () => {
 
     expect(result.attributed).toBe(false);
     expect(result.reason).toContain("ENG-54");
+  });
+
+  it("attributes a digit-bearing Linear team key from its own workpad", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV2-54",
+      currentBranch: "main",
+      dirtyFiles: [".gh-symphony/workpads/DEV2-54.md"],
+    });
+
+    expect(result.attributed).toBe(true);
+  });
+
+  it("fails closed for bare numeric artifacts on a Linear issue", () => {
+    const branch = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "feat/54-other",
+      dirtyFiles: ["src/other.ts"],
+    });
+    const workpad = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "main",
+      dirtyFiles: [".gh-symphony/workpads/54.md"],
+    });
+
+    expect(branch.attributed).toBe(false);
+    expect(branch.reason).toContain("no dirty artifact");
+    expect(workpad.attributed).toBe(false);
+    expect(workpad.reason).toContain("no dirty artifact");
+  });
+
+  it("denies a foreign Linear branch for a GitHub issue", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "acme/platform#173",
+      currentBranch: "dev-54-fix",
+      dirtyFiles: [".gh-symphony/workpads/173.md"],
+    });
+
+    expect(result.attributed).toBe(false);
+    expect(result.reason).toContain("DEV-54");
+  });
+
+  it("does not treat version-like branch fragments as foreign tracker evidence", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "chore/node-24",
+      dirtyFiles: [".gh-symphony/workpads/DEV-54.md"],
+    });
+
+    expect(result.attributed).toBe(true);
   });
 
   it("denies attribution when the branch belongs to another issue", () => {
