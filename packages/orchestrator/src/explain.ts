@@ -1,10 +1,14 @@
 import {
+  DEFAULT_MAX_FAILURE_RETRIES,
   isStateActive,
   isStateTerminal,
   normalizeWorkflowState,
   issueRoutable,
   deriveLegacyWorkspaceKey,
+  FAILURE_RETRY_REARM_HINT,
   isRecoveryWorkspaceActionable,
+  isFailureRetrySuppressedForState,
+  MAX_FAILURE_RETRIES_EXCEEDED_REASON,
   type IssueWorkspaceRecord,
   type IssueOrchestrationRecord,
   type OrchestratorRunRecord,
@@ -61,13 +65,12 @@ export type ExplainDispatchInput = {
   activeRunCount: number;
   maxConcurrentAgents: number;
   maxConcurrentAgentsByState: Readonly<Record<string, number>>;
+  maxFailureRetries?: number;
   convergenceLock?: {
     now?: Date;
     ttlMs?: number;
   };
 };
-
-const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
 
 export function explainIssueDispatch(
   input: ExplainDispatchInput
@@ -115,7 +118,8 @@ export function explainIssueDispatch(
       input.issueRecords,
       input.runs,
       input.issueWorkspaces ?? [],
-      input.convergenceLock
+      input.convergenceLock,
+      input.maxFailureRetries ?? DEFAULT_MAX_FAILURE_RETRIES
     )
   );
   checks.push(
@@ -430,7 +434,8 @@ function explainRuntimeOwnership(
   convergenceLockOptions: {
     now?: Date;
     ttlMs?: number;
-  } = {}
+  } = {},
+  maxFailureRetries: number
 ): DispatchExplainCheck {
   const record = issueRecords.find(
     (candidate) =>
@@ -495,35 +500,32 @@ function explainRuntimeOwnership(
     };
   }
 
+  const legacyFailureRetrySuppressedState =
+    latestRun?.status === "suppressed" &&
+    latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
+      ? latestRun.issueState
+      : null;
   if (
     record &&
-    record.failureRetryCount > 0 &&
-    latestRun?.status === "suppressed" &&
-    latestRun.issueState === issue.state &&
-    latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
+    record.failureRetryCount >= maxFailureRetries &&
+    isFailureRetrySuppressedForState(
+      record,
+      issue.state,
+      legacyFailureRetrySuppressedState
+    )
   ) {
-    const issueUpdatedAtMs = parseTimestampMs(issue.updatedAt);
-    const suppressedAtMs = parseTimestampMs(
-      latestRun.completedAt ?? latestRun.updatedAt
-    );
-    if (
-      issueUpdatedAtMs === null ||
-      suppressedAtMs === null ||
-      issueUpdatedAtMs <= suppressedAtMs
-    ) {
-      return {
-        id: "runtime_ownership",
-        status: "block",
-        message:
-          "Failure retry limit has suppressed redispatch for the current tracker state.",
-        details: {
-          failureRetryCount: record.failureRetryCount,
-          runId: latestRun.runId,
-          lastError: latestRun.lastError,
-        },
-        hint: "Fix the underlying failure and update the GitHub Project item or issue to create a newer tracker timestamp.",
-      };
-    }
+    return {
+      id: "runtime_ownership",
+      status: "block",
+      message:
+        "Failure retry limit has suppressed redispatch for the current tracker state.",
+      details: {
+        failureRetryCount: record.failureRetryCount,
+        runId: latestRun?.runId ?? null,
+        lastError: latestRun?.lastError ?? null,
+      },
+      hint: FAILURE_RETRY_REARM_HINT,
+    };
   }
 
   if (

@@ -168,4 +168,140 @@ describe("dispatch limit explanation", () => {
       })
     );
   });
+
+  it("blocks a failure-suppressed issue after a same-state tracker update", () => {
+    const issue: TrackedIssue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Candidate",
+      description: null,
+      priority: null,
+      state: "Todo",
+      branchName: null,
+      url: null,
+      labels: [],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: null,
+      updatedAt: "2026-08-05T00:02:00.000Z",
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-1",
+        itemId: "item-1",
+      },
+      metadata: {},
+    };
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository: { owner: "acme", name: "platform" },
+      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+      issueRecords: [
+        {
+          issueId: issue.id,
+          identifier: issue.identifier,
+          workspaceKey: "acme_platform_1",
+          completedOnce: false,
+          failureRetryCount: 3,
+          failureRetrySuppressedState: "Todo",
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-08-05T00:01:00.000Z",
+        },
+      ],
+      runs: [
+        {
+          ...convergenceRun("2026-08-05T00:01:00.000Z"),
+          status: "suppressed",
+          lastError:
+            "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3.",
+        },
+      ],
+      activeRunCount: 0,
+      maxConcurrentAgents: 2,
+      maxConcurrentAgentsByState: {},
+      maxFailureRetries: 3,
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "runtime_ownership",
+        status: "block",
+        hint: expect.stringContaining("change the tracker state"),
+      })
+    );
+  });
+
+  it("does not block a sub-cap failure count carrying stale suppression state", () => {
+    const issue: TrackedIssue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Candidate",
+      description: null,
+      priority: null,
+      state: "Todo",
+      branchName: null,
+      url: null,
+      labels: [],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: null,
+      updatedAt: "2026-08-05T00:02:00.000Z",
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-1",
+        itemId: "item-1",
+      },
+      metadata: {},
+    };
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository: { owner: "acme", name: "platform" },
+      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+      issueRecords: [
+        {
+          issueId: issue.id,
+          identifier: issue.identifier,
+          workspaceKey: "acme_platform_1",
+          completedOnce: false,
+          failureRetryCount: 1,
+          failureRetrySuppressedState: "Todo",
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-08-05T00:01:00.000Z",
+        },
+      ],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 2,
+      maxConcurrentAgentsByState: {},
+      maxFailureRetries: 3,
+    });
+
+    expect(report.checks).not.toContainEqual(
+      expect.objectContaining({
+        id: "runtime_ownership",
+        message:
+          "Failure retry limit has suppressed redispatch for the current tracker state.",
+      })
+    );
+  });
 });

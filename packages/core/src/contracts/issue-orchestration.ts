@@ -64,8 +64,57 @@ export type IssueOrchestrationRecord = {
   workspaceKey: string;
   completedOnce: boolean;
   failureRetryCount: number;
+  /** Tracker state at which the failure retry budget was exhausted. */
+  failureRetrySuppressedState?: string | null;
   state: IssueOrchestrationState;
   currentRunId: string | null;
   retryEntry: IssueRetryEntry | null;
   updatedAt: string;
 };
+
+/** Machine-readable failure reason retained in run diagnostics. */
+export const MAX_FAILURE_RETRIES_EXCEEDED_REASON =
+  "max_failure_retries_exceeded";
+
+/** Operator guidance shared by retry suppression and dispatch diagnostics. */
+export const FAILURE_RETRY_REARM_HINT =
+  "Manual intervention required: change the tracker state to re-arm retries.";
+
+/**
+ * Returns whether a persisted failure budget suppresses the supplied tracker
+ * state. An absent field uses the legacy run fallback; explicit null records a
+ * successful or state-change clear and must remain re-armable.
+ */
+export function isFailureRetrySuppressedForState(
+  record: IssueOrchestrationRecord,
+  state: string,
+  legacySuppressedState: string | null = null
+): boolean {
+  return (
+    resolveFailureRetrySuppressedState(record, legacySuppressedState) === state
+  );
+}
+
+/** Returns whether the failure budget is no longer suppressed for this state. */
+export function isFailureRetryRearmedForState(
+  record: IssueOrchestrationRecord,
+  state: string,
+  legacySuppressedState: string | null = null
+): boolean {
+  return !isFailureRetrySuppressedForState(
+    record,
+    state,
+    legacySuppressedState
+  );
+}
+
+function resolveFailureRetrySuppressedState(
+  record: IssueOrchestrationRecord,
+  legacySuppressedState: string | null
+): string | null {
+  // Missing is a pre-field persisted record. Null is an explicit clear, so it
+  // must not revive a stale state from a legacy suppressed run.
+  return record.failureRetrySuppressedState === undefined
+    ? legacySuppressedState
+    : record.failureRetrySuppressedState;
+}

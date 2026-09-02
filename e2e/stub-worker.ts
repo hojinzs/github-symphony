@@ -8,6 +8,7 @@
  *   slow            — starting(2s) → running(30s) → completed, exit 0
  *   prompt-phase    — validates the rendered planning phase, then completes
  *   retry-attempt   — validates attempt=1 on the continuation dispatch, then completes
+ *   recovery-fail   — dirties the workspace and fails until the recovery budget suppresses it
  *   transition-race — requests Ready → In review, then stalls for reconciliation
  *   api-progress    — requests Ready → Done, confirms readback, then completes
  *   api-progress-unknown — confirms Done, removes the canonical item, then completes
@@ -39,6 +40,7 @@ type Scenario =
   | "slow"
   | "prompt-phase"
   | "retry-attempt"
+  | "recovery-fail"
   | "transition-race"
   | "api-progress"
   | "api-progress-unknown"
@@ -51,6 +53,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "slow",
   "prompt-phase",
   "retry-attempt",
+  "recovery-fail",
   "transition-race",
   "api-progress",
   "api-progress-unknown",
@@ -75,6 +78,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     slow: { startMs: 2000, runMs: 30000 },
     "prompt-phase": { startMs: 2000, runMs: 1000 },
     "retry-attempt": { startMs: 100, runMs: 100 },
+    "recovery-fail": { startMs: 100, runMs: 100 },
     "transition-race": { startMs: 2000, runMs: Infinity },
     "api-progress": { startMs: 2000, runMs: 1000 },
     "api-progress-unknown": { startMs: 2000, runMs: 1000 },
@@ -481,10 +485,17 @@ async function run() {
   if (SCENARIO === "linear-dirty-recovery") {
     await exerciseLinearDirtyRecovery();
   }
+  if (SCENARIO === "recovery-fail") {
+    await writeFile(
+      join(process.env.WORKING_DIRECTORY ?? process.cwd(), "recovery-loop.txt"),
+      `dirty recovery run ${RUN_ID}\n`,
+      "utf8"
+    );
+  }
   await sleep(durations.runMs);
 
   // Terminal phase
-  if (SCENARIO === "fail") {
+  if (SCENARIO === "fail" || SCENARIO === "recovery-fail") {
     status = "failed";
     lastEventAt = new Date().toISOString();
     console.error(`[stub-worker] status=failed`);

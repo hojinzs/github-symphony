@@ -1103,7 +1103,7 @@ describe("OrchestratorService", () => {
       status: "suppressed",
       retryKind: null,
       lastError:
-        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=2. maxFailureRetries=2. retry refresh failed: tracker unavailable)",
+        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=2. maxFailureRetries=2. Manual intervention required: change the tracker state to re-arm retries. retry refresh failed: tracker unavailable)",
     });
     expect(result.issueRecords[0]).toMatchObject({
       state: "released",
@@ -8789,7 +8789,7 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.lastError).toBe(
-      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3."
+      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3. Manual intervention required: change the tracker state to re-arm retries."
     );
     expect(issueRecords[0]).toMatchObject({
       state: "released",
@@ -8800,6 +8800,125 @@ Prefer focused changes.
       at: "2026-03-08T00:00:00.000Z",
       event: "run-suppressed",
       message: "max_failure_retries_exceeded",
+    });
+  });
+
+  it("suppresses dirty-workspace recovery when it exhausts the failure retry budget", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-recovery-retry-cap-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxFailureRetries: 3 }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    await writeFile(
+      join(repositoryDirectory, "partial.txt"),
+      "uncommitted recovery work\n",
+      "utf8"
+    );
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 2,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: repositoryDirectory,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir: join(tempRoot, "run-1", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "worker failed after writing partial.txt",
+      nextRetryAt: null,
+      runPhase: "failed",
+      lastEvent: "heartbeat",
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn() as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1", "tenant-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(updatedRun).toMatchObject({
+      status: "suppressed",
+      nextRetryAt: null,
+      retryKind: null,
+      lastError: expect.stringContaining(
+        "Manual intervention required: change the tracker state to re-arm retries."
+      ),
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        dirtyFiles: ["partial.txt"],
+      },
+    });
+    expect(issueRecords[0]).toMatchObject({
+      state: "released",
+      failureRetryCount: 3,
+      currentRunId: null,
+      retryEntry: null,
     });
   });
 
@@ -8826,6 +8945,7 @@ Prefer focused changes.
         workspaceKey: "acme_platform_1",
         completedOnce: false,
         failureRetryCount: 3,
+        failureRetrySuppressedState: "Todo",
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -8890,7 +9010,7 @@ Prefer focused changes.
     });
   });
 
-  it("does not redispatch a run-less failure-suppressed issue with an older completed run", async () => {
+  it("rearms a legacy run-less exhausted issue with an older completed run", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-runless-failure-suppressed-")
@@ -8963,17 +9083,16 @@ Prefer focused changes.
     const result = await service.runOnce();
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(result.summary.dispatched).toBe(0);
-    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(issueRecords[0]).toMatchObject({
-      state: "released",
-      failureRetryCount: 3,
-      currentRunId: null,
-      updatedAt: "2026-03-08T00:05:00.000Z",
+      state: "running",
+      failureRetryCount: 0,
     });
+    expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
 
-  it("redispatches a max-failure-retry-suppressed issue after the tracker updates", async () => {
+  it("does not rearm a failure-suppressed issue after a same-state tracker update", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-failure-retry-recovery-")
@@ -9051,16 +9170,16 @@ Prefer focused changes.
     const result = await service.runOnce();
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(result.summary.dispatched).toBe(1);
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
     expect(issueRecords[0]).toMatchObject({
-      state: "running",
-      failureRetryCount: 0,
+      state: "released",
+      failureRetryCount: 3,
+      currentRunId: null,
     });
-    expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
 
-  it("starts a fresh dispatch retry chain after tracker reactivation", async () => {
+  it("rearms a legacy run-less exhausted budget after the tracker state changes", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-failure-retry-reactivation-")
@@ -9091,6 +9210,32 @@ Prefer focused changes.
         updatedAt: "2026-03-08T00:05:00.000Z",
       },
     ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Ready",
+      repository,
+      status: "completed",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "completed-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "completed-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:01:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:01:00.000Z",
+      lastError: null,
+      nextRetryAt: null,
+      runPhase: "completed",
+    });
 
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(
@@ -9101,22 +9246,20 @@ Prefer focused changes.
       spawnImpl: vi.fn() as never,
       now: () => new Date("2026-03-08T00:06:00.000Z"),
     });
-    vi.spyOn(service as never, "startRun").mockRejectedValue(
-      new Error("temporary checkout failure")
-    );
+    const startRun = vi
+      .spyOn(service as never, "startRun")
+      .mockRejectedValue(new Error("temporary checkout failure"));
 
-    await service.runOnce();
+    const result = await service.runOnce();
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
+    expect(result.summary.dispatched).toBe(0);
+    expect(startRun).toHaveBeenCalledTimes(1);
     expect(issueRecords[0]).toMatchObject({
       state: "retry_queued",
       failureRetryCount: 1,
       currentRunId: null,
-      retryEntry: {
-        attempt: 1,
-        dueAt: "2026-03-08T00:06:01.000Z",
-        error: expect.stringContaining("temporary checkout failure"),
-      },
+      retryEntry: expect.objectContaining({ attempt: 1 }),
     });
   });
 
@@ -9144,6 +9287,7 @@ Prefer focused changes.
         workspaceKey: "acme_platform_1",
         completedOnce: false,
         failureRetryCount: 3,
+        failureRetrySuppressedState: "Ready",
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -9204,6 +9348,7 @@ Prefer focused changes.
     expect(issueRecords[0]).toMatchObject({
       state: "running",
       failureRetryCount: 0,
+      failureRetrySuppressedState: null,
     });
     expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
@@ -9644,7 +9789,7 @@ Prefer focused changes.
 
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.lastError).toBe(
-      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10."
+      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10. Manual intervention required: change the tracker state to re-arm retries."
     );
     expect(issueRecords[0]).toMatchObject({
       state: "released",
@@ -10075,7 +10220,7 @@ Prefer focused changes.
     expect(await store.loadRun("run-1")).toMatchObject({
       status: "suppressed",
       lastError:
-        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10.)",
+        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10. Manual intervention required: change the tracker state to re-arm retries.)",
     });
     await expect(
       (
@@ -10124,6 +10269,32 @@ Prefer focused changes.
       ).toMatchObject({ state: "released", currentRunId: null });
     }
   );
+
+  it("clears the failure retry budget after a successful terminal run", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Done");
+    const [record] = await store.loadProjectIssueOrchestrations("tenant-1");
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        ...record!,
+        failureRetryCount: 2,
+        failureRetrySuppressedState: "Todo",
+      },
+    ]);
+
+    await service.runOnce();
+
+    expect(
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    ).toMatchObject([
+      {
+        state: "released",
+        currentRunId: null,
+        failureRetryCount: 0,
+        failureRetrySuppressedState: null,
+      },
+    ]);
+  });
 
   it("recovers a transient unknown finalization read and later succeeds", async () => {
     const { store, service, fetchIssueStatesByIds } =

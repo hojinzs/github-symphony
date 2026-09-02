@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, non-dispatchable, required-label-missing, required-label-removed, linear-dirty-recovery
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, recovery-fail, non-dispatchable, required-label-missing, required-label-removed, linear-dirty-recovery
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -29,6 +29,12 @@ orch_curl() {
 unauthenticated_orch_curl() {
   "${COMPOSE[@]}" exec -T symphony-e2e curl "$@"
 }
+write_empty_issues() {
+  local fixture_copy
+  fixture_copy=$(mktemp e2e/fixtures/issues.json.tmp.XXXXXX)
+  printf '[]\n' > "$fixture_copy"
+  mv "$fixture_copy" e2e/fixtures/issues.json
+}
 
 cleanup() {
   log "Cleaning up..."
@@ -39,7 +45,7 @@ cleanup() {
   ' 2>/dev/null || true
   "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 2>/dev/null || true
   remove_e2e_compose_image
-  echo "[]" > e2e/fixtures/issues.json 2>/dev/null || true
+  write_empty_issues 2>/dev/null || true
   rm -f e2e/fixtures/required-label-removed.signal
 }
 # ── Setup ─────────────────────────────────────────────────────
@@ -49,17 +55,21 @@ log "Compose project: ${COMPOSE_PROJECT_NAME}"
 
 assert_e2e_project_is_available docker-compose.e2e.yml
 
-echo "[]" > e2e/fixtures/issues.json
+write_empty_issues
 rm -f e2e/fixtures/required-label-removed.signal
 trap cleanup EXIT
 
 # Set scenario in environment
 export STUB_SCENARIO="$SCENARIO"
 E2E_REQUIRED_LABELS=""
+E2E_MAX_FAILURE_RETRIES=""
 if [ "$SCENARIO" = "required-label-missing" ] || [ "$SCENARIO" = "required-label-removed" ]; then
   E2E_REQUIRED_LABELS="agent"
 fi
-E2E_REQUIRED_LABELS="$E2E_REQUIRED_LABELS" STUB_SCENARIO="$SCENARIO" "${COMPOSE[@]}" up -d --build 2>&1 | tail -1
+if [ "$SCENARIO" = "recovery-fail" ]; then
+  E2E_MAX_FAILURE_RETRIES="3"
+fi
+E2E_REQUIRED_LABELS="$E2E_REQUIRED_LABELS" E2E_MAX_FAILURE_RETRIES="$E2E_MAX_FAILURE_RETRIES" STUB_SCENARIO="$SCENARIO" "${COMPOSE[@]}" up -d --build 2>&1 | tail -1
 
 log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
@@ -265,8 +275,8 @@ assert any(
   if [ "$RUN_STATUS" = "retrying" ]; then
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
-    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ] && [ "$SCENARIO" != "retry-attempt" ] && [ "$SCENARIO" != "linear-dirty-recovery" ]; then
-      echo "[]" > e2e/fixtures/issues.json
+    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ] && [ "$SCENARIO" != "retry-attempt" ] && [ "$SCENARIO" != "recovery-fail" ] && [ "$SCENARIO" != "linear-dirty-recovery" ]; then
+      write_empty_issues
     fi
   fi
 
@@ -483,6 +493,50 @@ if [ "$SCENARIO" = "api-progress-unknown" ]; then
   log "  Canonical tracker readback: unknown after confirmed progress"
   log "  Persisted deferrals:        3 (bounded)"
   log "  Final deferral exhausted:   YES"
+  echo ""
+  log "PASSED"
+  exit 0
+fi
+
+if [ "$SCENARIO" = "recovery-fail" ]; then
+  if [ "$SAW_RUNNING" != true ] || [ "$SAW_RETRY" != true ]; then
+    fail "Recovery circuit-breaker scenario did not observe running and retrying states"
+    exit 1
+  fi
+  "${COMPOSE[@]}" exec -T symphony-e2e node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { execFileSync } from "node:child_process";
+    const stateDir = "/e2e/work/test-repo/.runtime/orchestrator/projects/repository";
+    const issues = JSON.parse(readFileSync(`${stateDir}/issues.json`, "utf8"));
+    const issue = issues.find((candidate) => candidate.issueId === "issue-happy-1");
+    if (!issue || issue.state !== "released" || issue.failureRetryCount !== 3 || issue.retryEntry !== null) {
+      throw new Error(`unexpected_issue_circuit_breaker:${JSON.stringify(issue)}`);
+    }
+    const paths = execFileSync("find", [stateDir, "-path", "*/runs/*/run.json"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    const runs = paths.map((path) => JSON.parse(readFileSync(path, "utf8")));
+    const suppressed = runs.find((run) => run.status === "suppressed");
+    if (runs.length !== 3 || !suppressed) {
+      throw new Error(`unexpected_recovery_run_count:${JSON.stringify(runs.map((run) => ({runId: run.runId, status: run.status})))}`);
+    }
+    if (!suppressed.lastError?.includes("Manual intervention required") || !suppressed.recovery?.dirtyFiles?.includes("recovery-loop.txt")) {
+      throw new Error(`missing_manual_recovery_context:${JSON.stringify(suppressed)}`);
+    }
+  '
+  RUN_COUNT_BEFORE=$("${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator/projects/repository -path "*/runs/*/run.json" | wc -l | tr -d " "')
+  orch_curl -sf -X POST http://localhost:4680/api/v1/refresh >/dev/null
+  sleep 2
+  orch_curl -sf -X POST http://localhost:4680/api/v1/refresh >/dev/null
+  sleep 2
+  RUN_COUNT_AFTER=$("${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator/projects/repository -path "*/runs/*/run.json" | wc -l | tr -d " "')
+  if [ "$RUN_COUNT_AFTER" != "$RUN_COUNT_BEFORE" ]; then
+    fail "Suppressed recovery issue redispatched after later refreshes"
+    exit 1
+  fi
+  log "=== Result ==="
+  log "  Dirty recovery failures:    3"
+  log "  Final outcome:              suppressed/manual intervention"
+  log "  Claim released:             YES"
+  log "  Later refresh redispatch:   NO"
   echo ""
   log "PASSED"
   exit 0

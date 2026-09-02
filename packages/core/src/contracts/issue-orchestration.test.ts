@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
   assertIssueOrchestrationTransition,
+  isFailureRetryRearmedForState,
+  isFailureRetrySuppressedForState,
   ISSUE_ORCHESTRATION_INITIAL_STATES,
   ISSUE_ORCHESTRATION_TRANSITIONS,
   type IssueOrchestrationState,
 } from "./issue-orchestration.js";
+
+const exhaustedIssueRecord = {
+  issueId: "issue-1",
+  identifier: "acme/repo#1",
+  workspaceKey: "acme_repo_1",
+  completedOnce: false,
+  failureRetryCount: 3,
+  state: "released" as const,
+  currentRunId: null,
+  retryEntry: null,
+  updatedAt: "2026-09-02T00:00:00.000Z",
+};
 
 describe("issue orchestration transitions", () => {
   it("accepts every declared transition", () => {
@@ -51,5 +65,37 @@ describe("issue orchestration transitions", () => {
         "running"
       )
     ).toThrow("Unknown issue orchestration state: unknown");
+  });
+
+  it("treats a legacy missing suppression state as re-armable", () => {
+    expect(isFailureRetrySuppressedForState(exhaustedIssueRecord, "Todo")).toBe(
+      false
+    );
+    expect(isFailureRetryRearmedForState(exhaustedIssueRecord, "Todo")).toBe(
+      true
+    );
+  });
+
+  it("keeps a recorded suppression state blocked until it changes", () => {
+    const record = {
+      ...exhaustedIssueRecord,
+      failureRetrySuppressedState: "Todo",
+    };
+
+    expect(isFailureRetrySuppressedForState(record, "Todo")).toBe(true);
+    expect(isFailureRetryRearmedForState(record, "Todo")).toBe(false);
+    expect(isFailureRetryRearmedForState(record, "In progress")).toBe(true);
+  });
+
+  it("treats an explicit suppression-state clear as re-armable", () => {
+    const record = {
+      ...exhaustedIssueRecord,
+      failureRetrySuppressedState: null,
+    };
+
+    expect(isFailureRetrySuppressedForState(record, "Todo", "Todo")).toBe(
+      false
+    );
+    expect(isFailureRetryRearmedForState(record, "Todo", "Todo")).toBe(true);
   });
 });
