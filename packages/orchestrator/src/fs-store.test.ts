@@ -655,7 +655,6 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
         workspaceKey: "acme_repo_1",
         completedOnce: false,
         failureRetryCount: 0,
-        failureRetrySuppressedState: null,
         state: "released",
         currentRunId: null,
         retryEntry: null,

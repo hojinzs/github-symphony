@@ -210,6 +210,7 @@ const handler = async (
     activeRunCount,
     maxConcurrentAgents: workflow.maxConcurrentAgents,
     maxConcurrentAgentsByState: workflow.maxConcurrentAgentsByState,
+    maxFailureRetries: workflow.maxFailureRetries,
     convergenceLock: {
       now: new Date(),
       ttlMs: resolveConvergenceLockTtlMs(process.env),
@@ -241,6 +242,7 @@ type ExplainWorkflowSettings = {
   tracker: Pick<WorkflowTrackerConfig, "blockerCheckStates" | "terminalStates">;
   maxConcurrentAgents: number;
   maxConcurrentAgentsByState: Record<string, number>;
+  maxFailureRetries: number;
 };
 
 class RepoExplainWorkflowError extends Error {
@@ -277,6 +279,7 @@ async function loadExplainWorkflow(input: {
         maxConcurrentAgents: resolution.workflow.agent.maxConcurrentAgents,
         maxConcurrentAgentsByState:
           resolution.workflow.agent.maxConcurrentAgentsByState,
+        maxFailureRetries: resolution.workflow.agent.maxFailureRetries,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

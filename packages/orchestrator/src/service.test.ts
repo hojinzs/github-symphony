@@ -9287,6 +9287,7 @@ Prefer focused changes.
         workspaceKey: "acme_platform_1",
         completedOnce: false,
         failureRetryCount: 3,
+        failureRetrySuppressedState: "Ready",
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -9347,6 +9348,7 @@ Prefer focused changes.
     expect(issueRecords[0]).toMatchObject({
       state: "running",
       failureRetryCount: 0,
+      failureRetrySuppressedState: null,
     });
     expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
@@ -10273,7 +10275,11 @@ Prefer focused changes.
       await createSuccessfulFinalizationFixture("Done");
     const [record] = await store.loadProjectIssueOrchestrations("tenant-1");
     await store.saveProjectIssueOrchestrations("tenant-1", [
-      { ...record!, failureRetryCount: 2 },
+      {
+        ...record!,
+        failureRetryCount: 2,
+        failureRetrySuppressedState: "Todo",
+      },
     ]);
 
     await service.runOnce();
@@ -10281,7 +10287,12 @@ Prefer focused changes.
     expect(
       await store.loadProjectIssueOrchestrations("tenant-1")
     ).toMatchObject([
-      { state: "released", currentRunId: null, failureRetryCount: 0 },
+      {
+        state: "released",
+        currentRunId: null,
+        failureRetryCount: 0,
+        failureRetrySuppressedState: null,
+      },
     ]);
   });
 

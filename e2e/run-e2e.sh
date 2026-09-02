@@ -29,6 +29,12 @@ orch_curl() {
 unauthenticated_orch_curl() {
   "${COMPOSE[@]}" exec -T symphony-e2e curl "$@"
 }
+write_empty_issues() {
+  local fixture_copy
+  fixture_copy=$(mktemp e2e/fixtures/issues.json.tmp.XXXXXX)
+  printf '[]\n' > "$fixture_copy"
+  mv "$fixture_copy" e2e/fixtures/issues.json
+}
 
 cleanup() {
   log "Cleaning up..."
@@ -39,7 +45,7 @@ cleanup() {
   ' 2>/dev/null || true
   "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 2>/dev/null || true
   remove_e2e_compose_image
-  echo "[]" > e2e/fixtures/issues.json 2>/dev/null || true
+  write_empty_issues 2>/dev/null || true
   rm -f e2e/fixtures/required-label-removed.signal
 }
 # ── Setup ─────────────────────────────────────────────────────
@@ -49,7 +55,7 @@ log "Compose project: ${COMPOSE_PROJECT_NAME}"
 
 assert_e2e_project_is_available docker-compose.e2e.yml
 
-echo "[]" > e2e/fixtures/issues.json
+write_empty_issues
 rm -f e2e/fixtures/required-label-removed.signal
 trap cleanup EXIT
 
@@ -272,7 +278,7 @@ assert any(
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
     if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ] && [ "$SCENARIO" != "retry-attempt" ] && [ "$SCENARIO" != "recovery-fail" ] && [ "$SCENARIO" != "linear-dirty-recovery" ]; then
-      echo "[]" > e2e/fixtures/issues.json
+      write_empty_issues
     fi
   fi
 

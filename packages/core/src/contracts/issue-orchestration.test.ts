@@ -86,4 +86,16 @@ describe("issue orchestration transitions", () => {
     expect(isFailureRetryRearmedForState(record, "Todo")).toBe(false);
     expect(isFailureRetryRearmedForState(record, "In progress")).toBe(true);
   });
+
+  it("treats an explicit suppression-state clear as re-armable", () => {
+    const record = {
+      ...exhaustedIssueRecord,
+      failureRetrySuppressedState: null,
+    };
+
+    expect(isFailureRetrySuppressedForState(record, "Todo", "Todo")).toBe(
+      false
+    );
+    expect(isFailureRetryRearmedForState(record, "Todo", "Todo")).toBe(true);
+  });
 });

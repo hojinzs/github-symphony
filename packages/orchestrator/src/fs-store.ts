@@ -116,7 +116,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
         ...issue,
         completedOnce: issue.completedOnce ?? false,
         failureRetryCount: issue.failureRetryCount ?? 0,
-        failureRetrySuppressedState: issue.failureRetrySuppressedState ?? null,
+        failureRetrySuppressedState: issue.failureRetrySuppressedState,
       }));
     }
 

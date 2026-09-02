@@ -82,8 +82,8 @@ export const FAILURE_RETRY_REARM_HINT =
 
 /**
  * Returns whether a persisted failure budget suppresses the supplied tracker
- * state. `legacySuppressedState` keeps pre-field persisted run records
- * re-armable while all new suppressions record the state on the issue itself.
+ * state. An absent field uses the legacy run fallback; explicit null records a
+ * successful or state-change clear and must remain re-armable.
  */
 export function isFailureRetrySuppressedForState(
   record: IssueOrchestrationRecord,
@@ -95,27 +95,26 @@ export function isFailureRetrySuppressedForState(
   );
 }
 
-/** Returns whether a known exhausted failure budget has entered a new state. */
+/** Returns whether the failure budget is no longer suppressed for this state. */
 export function isFailureRetryRearmedForState(
   record: IssueOrchestrationRecord,
   state: string,
   legacySuppressedState: string | null = null
 ): boolean {
-  const suppressedState = resolveFailureRetrySuppressedState(
+  return !isFailureRetrySuppressedForState(
     record,
+    state,
     legacySuppressedState
   );
-  return suppressedState === null || suppressedState !== state;
 }
 
 function resolveFailureRetrySuppressedState(
   record: IssueOrchestrationRecord,
   legacySuppressedState: string | null
 ): string | null {
-  // Missing is a pre-field persisted record and must fail safe as re-armable
-  // when no legacy suppressed run supplies its originating state. Null is an
-  // explicit current-record clear but may still use a legacy run fallback.
+  // Missing is a pre-field persisted record. Null is an explicit clear, so it
+  // must not revive a stale state from a legacy suppressed run.
   return record.failureRetrySuppressedState === undefined
     ? legacySuppressedState
-    : (record.failureRetrySuppressedState ?? legacySuppressedState);
+    : record.failureRetrySuppressedState;
 }

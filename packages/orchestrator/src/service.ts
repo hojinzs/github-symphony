@@ -6572,9 +6572,9 @@ function upsertIssueOrchestration(
     failureRetryCount:
       nextRecord.failureRetryCount ?? existingRecord?.failureRetryCount ?? 0,
     failureRetrySuppressedState:
-      nextRecord.failureRetrySuppressedState ??
-      existingRecord?.failureRetrySuppressedState ??
-      null,
+      nextRecord.failureRetrySuppressedState === undefined
+        ? (existingRecord?.failureRetrySuppressedState ?? null)
+        : nextRecord.failureRetrySuppressedState,
   };
   return existingRecord
     ? issueRecords.map((candidate) =>
