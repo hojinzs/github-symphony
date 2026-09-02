@@ -8,19 +8,17 @@ configuration.
 
 ## Steps
 
-1. Start the Docker E2E environment with the normal `happy` scenario.
-2. In the container, create a temporary `WORKFLOW.md` that has
-   `tracker.kind: github-project` and a flat `tracker.project_id`.
-3. Run `node /app/packages/cli/dist/index.js workflow validate --file <path>`.
-4. Run `node /app/packages/cli/dist/index.js doctor` against the same
-   workflow when it is selected as the project workflow.
+1. Run `./e2e/run-flat-tracker-keys-e2e.sh`.
+2. The runner starts the Docker E2E image and creates a temporary workflow
+   with `tracker.kind: github-project` and a flat `tracker.project_id`.
+3. It runs `node /app/packages/cli/dist/index.js workflow validate --file <path> --json`.
 
 ## Expected results
 
 - `workflow validate` exits non-zero and emits the typed
   `workflow_deprecated_key` error at `tracker.project_id` with a
   `tracker.provider` migration instruction.
-- Doctor marks the workflow invalid and includes a copyable normalized
-  `tracker.provider` block.
+- Doctor behavior is verified by its isolated CLI suite, including the
+  copyable normalized `tracker.provider` block.
 - The normal provider-form Docker seed continues through the `happy` worker
   lifecycle.
