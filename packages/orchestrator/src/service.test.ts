@@ -9180,7 +9180,7 @@ Prefer focused changes.
     });
   });
 
-  it("rearms a run-less exhausted budget after the tracker state changes", async () => {
+  it("rearms a legacy run-less exhausted budget after the tracker state changes", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-failure-retry-reactivation-")
@@ -9205,7 +9205,6 @@ Prefer focused changes.
         workspaceKey: "acme_platform_1",
         completedOnce: false,
         failureRetryCount: 3,
-        failureRetrySuppressedState: "Ready",
         state: "released",
         currentRunId: null,
         retryEntry: null,

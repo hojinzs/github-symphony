@@ -91,7 +91,7 @@ export function isFailureRetrySuppressedForState(
   legacySuppressedState: string | null = null
 ): boolean {
   return (
-    (record.failureRetrySuppressedState ?? legacySuppressedState) === state
+    resolveFailureRetrySuppressedState(record, legacySuppressedState) === state
   );
 }
 
@@ -101,7 +101,21 @@ export function isFailureRetryRearmedForState(
   state: string,
   legacySuppressedState: string | null = null
 ): boolean {
-  const suppressedState =
-    record.failureRetrySuppressedState ?? legacySuppressedState;
-  return suppressedState !== null && suppressedState !== state;
+  const suppressedState = resolveFailureRetrySuppressedState(
+    record,
+    legacySuppressedState
+  );
+  return suppressedState === null || suppressedState !== state;
+}
+
+function resolveFailureRetrySuppressedState(
+  record: IssueOrchestrationRecord,
+  legacySuppressedState: string | null
+): string | null {
+  // Missing is a pre-field persisted record and must fail safe as re-armable
+  // when no legacy suppressed run supplies its originating state. Null is an
+  // explicit current-record clear but may still use a legacy run fallback.
+  return record.failureRetrySuppressedState === undefined
+    ? legacySuppressedState
+    : (record.failureRetrySuppressedState ?? legacySuppressedState);
 }

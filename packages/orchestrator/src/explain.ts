@@ -501,6 +501,8 @@ function explainRuntimeOwnership(
     latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
       ? latestRun.issueState
       : null;
+  // Suppression state is written only by exhaustion paths, so a positive count
+  // is sufficient here even though the configured retry cap is unavailable.
   if (
     record &&
     record.failureRetryCount > 0 &&
