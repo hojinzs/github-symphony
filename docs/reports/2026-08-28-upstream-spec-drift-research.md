@@ -1,7 +1,7 @@
 # Upstream Spec Drift Research (2026-08-28)
 
 Date: 2026-08-28
-Status: Research complete — findings tracked in Epic #651 (sub-issues #652–#679); the spec sync itself (S0/#652) ships in PR #650 alongside this report. Documentation follow-up for C1–C13 and D1–D8: [#675](https://github.com/hojinzs/github-symphony/issues/675)
+Status: Complete — every tracked closeout issue for the A/B findings, C1–C13 divergences, D1–D8 documentation corrections, and E-class defects is closed under Epic #651. The spec sync itself (S0/#652) shipped in PR #650 alongside this report; the final closeout audit completed on 2026-09-02.
 Symphony Layers: Configuration, Coordination, Execution, Integration, Observability
 
 Baselines:
