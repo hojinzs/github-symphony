@@ -11,6 +11,10 @@ import type {
 } from "@gh-symphony/core";
 import { filterIssuesByPickupLabels } from "@gh-symphony/core";
 
+// Docker bind mounts can expose a host-side fixture replacement as a brief
+// truncated read. Retry exactly once without masking persistent corruption.
+const TRANSIENT_ISSUES_READ_RETRY_DELAY_MS = 100;
+
 function requireTrackerSetting(
   project: OrchestratorProjectConfig,
   key: string
@@ -75,6 +79,23 @@ async function readIssueEntries(
   );
 }
 
+async function readIssueEntriesWithTransientRetry(
+  issuesPath: string
+): Promise<Record<string, unknown>[]> {
+  try {
+    return await readIssueEntries(issuesPath);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, TRANSIENT_ISSUES_READ_RETRY_DELAY_MS);
+    });
+    return readIssueEntries(issuesPath);
+  }
+}
+
 async function writeIssueEntries(
   issuesPath: string,
   entries: readonly Record<string, unknown>[]
@@ -87,7 +108,7 @@ async function readValidIssues(
 ): Promise<TrackedIssue[]> {
   const issuesPath = requireTrackerSetting(project, "issuesPath");
   try {
-    const entries = await readIssueEntries(issuesPath);
+    const entries = await readIssueEntriesWithTransientRetry(issuesPath);
     const valid: TrackedIssue[] = [];
     for (let i = 0; i < entries.length; i++) {
       if (isValidIssueShape(entries[i])) {

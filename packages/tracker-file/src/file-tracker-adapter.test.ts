@@ -202,6 +202,25 @@ describe("fileTrackerAdapter", () => {
       );
     });
 
+    it("retries a transient truncated E2E fixture read once", async () => {
+      const issuesPath = join(testDir, "transient-truncated.json");
+      await writeFile(issuesPath, '[{"id":');
+
+      const replaceFixture = new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          writeFile(issuesPath, JSON.stringify([sampleIssue])).then(
+            () => resolve(),
+            reject
+          );
+        }, 10);
+      });
+
+      await expect(
+        fileTrackerAdapter.listIssues(makeProject(issuesPath))
+      ).resolves.toMatchObject([{ id: "issue-1" }]);
+      await replaceFixture;
+    });
+
     it("throws when file contains non-array JSON", async () => {
       const issuesPath = join(testDir, "bad.json");
       await writeFile(issuesPath, JSON.stringify({ not: "an array" }));
