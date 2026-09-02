@@ -20,6 +20,7 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
+set +e
 output=$("${COMPOSE[@]}" exec -T symphony-e2e sh -lc '
   workflow=/tmp/flat-tracker-WORKFLOW.md
   printf "%s\\n" \
@@ -31,11 +32,20 @@ output=$("${COMPOSE[@]}" exec -T symphony-e2e sh -lc '
     "  command: fake-agent" \
     "---" \
     "Prompt" > "$workflow"
-  if node /app/packages/cli/dist/index.js workflow validate --file "$workflow" --json; then
-    exit 1
+  node /app/packages/cli/dist/index.js workflow validate --file "$workflow" --json
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    echo "Expected workflow validation to reject a flat tracker key." >&2
+    exit 64
   fi
+  exit 0
 ' 2>&1)
+status=$?
+set -e
 
 printf '%s\n' "$output"
 grep -F '"code": "workflow_deprecated_key"' <<<"$output" >/dev/null
 grep -F '"path": "tracker.project_id"' <<<"$output" >/dev/null
+if [ "$status" -ne 0 ]; then
+  exit "$status"
+fi
