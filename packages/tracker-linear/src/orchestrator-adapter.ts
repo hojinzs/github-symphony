@@ -59,6 +59,7 @@ type LinearIssueNode = {
   title?: string | null;
   description?: string | null;
   priority?: number | null;
+  branchName?: string | null;
   url?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -111,6 +112,7 @@ const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
     title
     description
     priority
+    branchName
     url
     createdAt
     updatedAt
@@ -371,6 +373,57 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   getTrackerItemId(issue) {
     const itemId = issue.nativeRef?.itemId;
     return typeof itemId === "string" ? itemId : null;
+  },
+
+  resolveBranchCheckoutTarget(issue) {
+    const headRefName = issue.branchName?.trim();
+    return headRefName ? { headRefName } : null;
+  },
+
+  async requestState(project, input, dependencies = {}) {
+    if (input.request.type === "transition-request") {
+      return {
+        ok: false,
+        outcome: "rejected" as const,
+        state: null,
+        expectedState: input.request.expectedState,
+        targetState: input.request.targetState,
+        reason: input.request.reason,
+        rateLimits: null,
+        error: "linear_state_transitions_unsupported",
+      };
+    }
+
+    const issues = await listLinearIssues(
+      project,
+      undefined,
+      dependencies,
+      [input.itemId]
+    );
+    const issue = issues.find((candidate) => candidate.id === input.itemId);
+    if (!issue) {
+      return {
+        ok: false,
+        outcome: "failed" as const,
+        state: null,
+        expectedState: null,
+        targetState: null,
+        reason: null,
+        rateLimits: issues.rateLimits ?? null,
+        error: `linear_issue_not_found: ${input.itemId}`,
+      };
+    }
+
+    return {
+      ok: true,
+      outcome: "confirmed" as const,
+      state: issue.state,
+      expectedState: null,
+      targetState: null,
+      reason: null,
+      rateLimits: issues.rateLimits ?? null,
+      error: null,
+    };
   },
 
   buildStructuredEventMetadata(project) {
@@ -662,7 +715,7 @@ export function normalizeLinearIssue(
         ? issue.priority
         : null,
     state,
-    branchName: null,
+    branchName: normalizeLinearBranchName(issue.branchName),
     url: issue.url ?? null,
     labels: normalizeLabels(
       (issue.labels?.nodes ?? []).map((label) => label.name)
@@ -693,6 +746,11 @@ export function normalizeLinearIssue(
     metadata: {},
     rateLimits: options.rateLimits ?? null,
   };
+}
+
+function normalizeLinearBranchName(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function trackerPaginationError(input: Record<string, unknown>): Error {
