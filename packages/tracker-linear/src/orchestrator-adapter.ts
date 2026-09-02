@@ -394,12 +394,9 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       };
     }
 
-    const issues = await listLinearIssues(
-      project,
-      undefined,
-      dependencies,
-      [input.itemId]
-    );
+    const issues = await listLinearIssues(project, undefined, dependencies, [
+      input.itemId,
+    ]);
     const issue = issues.find((candidate) => candidate.id === input.itemId);
     if (!issue) {
       return {
@@ -748,7 +745,9 @@ export function normalizeLinearIssue(
   };
 }
 
-function normalizeLinearBranchName(value: string | null | undefined): string | null {
+function normalizeLinearBranchName(
+  value: string | null | undefined
+): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }

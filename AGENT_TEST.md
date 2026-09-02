@@ -420,7 +420,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/06-worker-failure-lifecycle-regression.md` | Worker failure lifecycle regression verification                                                                          |
 | `e2e/scenarios/07-release-missing-retry.md`               | Release a missing retry queue instead of restarting                                                                       |
 | `e2e/scenarios/08-evidence-permissions.md`                | Verify event-mirror evidence file permissions and cleanup                                                                 |
-| `e2e/scenarios/09-linear-sandbox.md`                      | Verify Linear sandbox `Todo → In Progress → Human Review/Done` and reconciliation edge cases                              |
+| `e2e/scenarios/09-linear-sandbox.md`                      | Verify Linear sandbox lifecycle, confirmed per-turn state reads, branch-based dirty-workspace attribution, and reconciliation edge cases |
 | `e2e/scenarios/10-http-auth-hardening.md`                 | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                            |
 | `e2e/scenarios/10-orchestrator-tracker-state.md`          | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                |
 | `e2e/scenarios/11-stale-run-recovery.md`                  | Verify stale-run ownership and lifecycle recovery                                                                         |
