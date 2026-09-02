@@ -16,15 +16,14 @@ async function runConvergenceThreshold(response: Response) {
     ["Ready", "In progress", "Land"],
     vi.fn().mockResolvedValue(response)
   );
-  const trackerState = trackerRefresh.state;
   const refreshGate = resolveTrackerRefreshGate(
-    trackerState,
+    trackerRefresh.state,
     0,
     1,
     "convergence"
   );
 
-  if (refreshGate.action === "skip") {
+  if (refreshGate.action === "defer") {
     return {
       runPhase: "running",
       executionPhase: "implementation",
@@ -38,7 +37,7 @@ async function runConvergenceThreshold(response: Response) {
       runPhase: "succeeded",
       executionPhase: resolveFinalExecutionPhase({
         currentPhase: "implementation",
-        trackerState,
+        trackerState: "non-actionable",
         userInputRequired: false,
       }),
       exitClassification: classifySessionExit({

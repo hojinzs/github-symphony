@@ -763,9 +763,8 @@ async function runNonCodexRuntimeAdapterLifecycle(
           "tracker state refresh",
           unsupportedRefreshWarningLogged
         );
-        const trackerState = trackerRefresh.state;
         const refreshGate = resolveTrackerRefreshGate(
-          trackerState,
+          trackerRefresh.state,
           consecutiveRefreshFailures,
           resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD)
         );
@@ -1949,7 +1948,10 @@ async function runCodexClientProtocol(
           "convergence"
         );
         consecutiveRefreshFailures = refreshGate.count;
-        if (refreshGate.action === "converge") {
+        if (
+          refreshGate.action === "converge" &&
+          trackerRefresh.state === "unsupported"
+        ) {
           process.stderr.write(
             "[worker] convergence tracker confirmation unavailable (capability unsupported) — accepting local convergence signal\n"
           );
@@ -1974,7 +1976,7 @@ async function runCodexClientProtocol(
           );
           throw new Error("orchestrator_unavailable");
         }
-        if (trackerState === "unknown") {
+        if (refreshGate.action === "defer") {
           process.stderr.write(
             "[worker] convergence deferred because canonical tracker state is unavailable\n"
           );

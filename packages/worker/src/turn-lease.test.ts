@@ -138,6 +138,24 @@ describe("tracker refresh fail-closed threshold", () => {
     });
   });
 
+  it("uses the convergence action for a confirmed active tracker read", () => {
+    expect(
+      resolveTrackerRefreshGate("active", 1, 3, "convergence")
+    ).toEqual({
+      action: "converge",
+      count: 0,
+    });
+  });
+
+  it("defers convergence when a transient tracker read is below the threshold", () => {
+    expect(
+      resolveTrackerRefreshGate("unknown", 1, 3, "convergence")
+    ).toEqual({
+      action: "defer",
+      count: 2,
+    });
+  });
+
   it("logs unsupported capability diagnostics on every read but warns once", () => {
     const messages: string[] = [];
     const result = {
@@ -165,6 +183,9 @@ describe("tracker refresh fail-closed threshold", () => {
     expect(
       messages.filter((message) => message.includes("capability unavailable"))
     ).toHaveLength(1);
+    expect(messages).toContain(
+      "[worker] warning: tracker state refresh capability unavailable; skipping tracker gates and using local convergence signals\n"
+    );
     expect(
       messages.filter((message) => message.includes("HTTP 403"))
     ).toHaveLength(2);

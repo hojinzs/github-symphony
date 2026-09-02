@@ -55,6 +55,7 @@ export function updateRefreshFailureCount(
 
 export type TrackerRefreshGateAction =
   | "continue"
+  | "defer"
   | "converge"
   | "complete"
   | "fail-closed"
@@ -81,6 +82,16 @@ export function resolveTrackerRefreshGate(
       action: context === "convergence" ? "converge" : "skip",
       count: refreshFailures.count,
     };
+  }
+  if (state === "active" && context === "convergence") {
+    return { action: "converge", count: refreshFailures.count };
+  }
+  if (
+    state === "unknown" &&
+    context === "convergence" &&
+    !refreshFailures.failClosed
+  ) {
+    return { action: "defer", count: refreshFailures.count };
   }
   return {
     action: refreshFailures.failClosed ? "fail-closed" : "continue",
@@ -234,7 +245,7 @@ export function reportTrackerRefresh(
   }
 
   write(
-    "[worker] warning: tracker state refresh capability unavailable; skipping between-turn tracker gates\n"
+    "[worker] warning: tracker state refresh capability unavailable; skipping tracker gates and using local convergence signals\n"
   );
   return true;
 }
