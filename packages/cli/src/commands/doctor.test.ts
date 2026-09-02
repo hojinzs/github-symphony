@@ -254,7 +254,7 @@ async function createLinearWorkflowFixture(
   const fixture = await createWorkflowFixture(command);
   await writeFile(
     join(fixture.repoDir, "WORKFLOW.md"),
-    `---\ntracker:\n  kind: linear\n${apiKeyReference ? `  api_key: ${apiKeyReference}\n` : ""}  project_slug: symphony-0c79b11b75ea\n  active_states:\n    - Todo\n    - In Progress\n  pickup_labels:\n    include:\n      - agent\n      - dev-ready\n    exclude:\n      - no-agent\ncodex:\n  command: ${command}\n---\nPrompt body\n`,
+    `---\ntracker:\n  kind: linear\n  provider:\n${apiKeyReference ? `    api_key: ${apiKeyReference}\n` : ""}    project_slug: symphony-0c79b11b75ea\n    pickup_labels:\n      include:\n        - agent\n        - dev-ready\n      exclude:\n        - no-agent\n  active_states:\n    - Todo\n    - In Progress\ncodex:\n  command: ${command}\n---\nPrompt body\n`,
     "utf8"
   );
   return fixture;
@@ -658,7 +658,7 @@ Prompt body
       \`\`\`",
         },
         "id": "provider_deprecation",
-        "remediation": "Move them under tracker.provider (flat aliases will be removed in the next major release):
+        "remediation": "Move them under tracker.provider:
 
       \`\`\`yaml
       tracker:
@@ -671,8 +671,8 @@ Prompt body
               - "blocked"
       \`\`\`",
         "required": true,
-        "status": "warn",
-        "summary": "Flat tracker key(s) project_id, pickup_labels are deprecated and remain supported for compatibility.",
+        "status": "fail",
+        "summary": "Flat tracker key(s) project_id, pickup_labels are rejected in this major release.",
         "title": "Deprecated tracker provider keys",
       }
     `);
@@ -3338,7 +3338,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\n  priority_field: Priority\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "---\ntracker:\n  kind: github-project\n  provider:\n    priority_field: Priority\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
       "utf8"
     );
 
@@ -3374,7 +3374,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\n  priority_field: Priority\n  priority:\n    source: disabled\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "---\ntracker:\n  kind: github-project\n  provider:\n    priority_field: Priority\n    priority:\n      source: disabled\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
       "utf8"
     );
 
@@ -3454,7 +3454,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\n  priority:\n    source: project-field\n    field: Priority\n    values:\n      High: 1\n      Missing: 2\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "---\ntracker:\n  kind: github-project\n  provider:\n    priority:\n      source: project-field\n      field: Priority\n      values:\n        High: 1\n        Missing: 2\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
       "utf8"
     );
 
@@ -3518,7 +3518,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\n  priority:\n    source: project-field\n    field: Priority\n    values:\n      High: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "---\ntracker:\n  kind: github-project\n  provider:\n    priority:\n      source: project-field\n      field: Priority\n      values:\n        High: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
       "utf8"
     );
 
@@ -3565,7 +3565,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\n      P9: 9\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "---\ntracker:\n  kind: github-project\n  provider:\n    priority:\n      source: labels\n      labels:\n        P0: 0\n        P1: 1\n        P9: 9\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
       "utf8"
     );
 
@@ -3626,7 +3626,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "---\ntracker:\n  kind: github-project\n  provider:\n    priority:\n      source: labels\n      labels:\n        P0: 0\n        P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
       "utf8"
     );
 
@@ -3692,7 +3692,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "---\ntracker:\n  kind: github-project\n  provider:\n    priority:\n      source: labels\n      labels:\n        P0: 0\n        P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
       "utf8"
     );
 

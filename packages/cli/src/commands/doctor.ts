@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import {
   normalizeLabels,
   parseWorkflowMarkdown,
+  parseWorkflowMarkdownForMigration,
   WorkflowValidationError,
   redactObservabilitySecrets,
   redactObservabilityText,
@@ -180,6 +181,7 @@ type WorkflowCheckState =
       remediation: string;
       workflowPath: string;
       error?: string;
+      migration?: ParsedWorkflow;
     };
 
 type PathState = {
@@ -734,19 +736,36 @@ async function checkWorkflow(
       workflow: parsed,
     };
   } catch (error) {
+    let migration: ParsedWorkflow | undefined;
+    if (
+      error instanceof WorkflowValidationError &&
+      error.code === "workflow_deprecated_key"
+    ) {
+      try {
+        migration = parseWorkflowMarkdownForMigration(markdown, environment, {
+          supportedTrackerKinds: getSupportedTrackerKinds(),
+          resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
+          workflowPath,
+        });
+      } catch {
+        // The original typed parse error remains the actionable diagnostic.
+      }
+    }
     return {
       status: "fail",
       reason: "invalid",
       workflowPath,
       summary: "WORKFLOW.md could not be parsed.",
-      remediation:
-        "Fix the WORKFLOW.md front matter or re-run 'gh-symphony workflow init' to regenerate it.",
+      remediation: migration
+        ? "Move the rejected flat tracker keys into tracker.provider; the copyable provider block is included below."
+        : "Fix the WORKFLOW.md front matter or re-run 'gh-symphony workflow init' to regenerate it.",
       error:
         error instanceof WorkflowValidationError
           ? `${error.code} (${error.path}): ${error.message}`
           : error instanceof Error
             ? error.message
             : "Unknown workflow parse error.",
+      ...(migration ? { migration } : {}),
     };
   }
 }
@@ -2365,14 +2384,14 @@ export async function runDoctorDiagnostics(
   }
 
   checks.push(
-    ...(workflow.status === "pass"
-      ? buildProviderDeprecationDiagnostics(workflow.workflow).map(
+    ...(workflow.status === "fail" && workflow.migration
+      ? buildProviderDeprecationDiagnostics(workflow.migration).map(
           (diagnostic) =>
-            warnCheck(
+            failCheck(
               "provider_deprecation",
               diagnostic.title,
               diagnostic.summary,
-              diagnostic.remediation,
+              diagnostic.remediation ?? "Move the flat keys into tracker.provider.",
               diagnostic.details
             )
         )

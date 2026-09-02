@@ -30,7 +30,6 @@ import {
 import type { GlobalOptions } from "../index.js";
 import { writeCliError } from "../cli-error.js";
 import {
-  buildProviderDeprecationDiagnostics,
   buildPriorityConfigDiagnostics,
   buildStateConcurrencyDiagnostics,
   type PriorityDiagnostic,
@@ -855,7 +854,6 @@ function validateWorkflow(
       continuationGuidance: continuationGuidanceStatus,
     },
     warnings: [
-      ...buildProviderDeprecationDiagnostics(workflow),
       ...buildPriorityConfigDiagnostics(workflow),
       ...buildStateConcurrencyDiagnostics(workflow),
     ],

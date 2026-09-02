@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
+import {
+  parseWorkflowMarkdown,
+  parseWorkflowMarkdownForMigration,
+} from "@gh-symphony/core";
 import {
   buildProviderDeprecationDiagnostics,
   buildStateConcurrencyDiagnostics,
@@ -7,7 +10,7 @@ import {
 
 describe("buildProviderDeprecationDiagnostics", () => {
   it("keeps environment references out of migration guidance", () => {
-    const workflow = parseWorkflowMarkdown(
+    const workflow = parseWorkflowMarkdownForMigration(
       `---
 tracker:
   kind: github-project

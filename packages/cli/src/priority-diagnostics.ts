@@ -69,7 +69,7 @@ export function buildPriorityConfigDiagnostics(
   return diagnostics;
 }
 
-/** Migration guidance for flat tracker keys promoted by the core parser. */
+/** Copyable migration guidance for doctor-only legacy workflow parsing. */
 export function buildProviderDeprecationDiagnostics(
   workflow: ParsedWorkflow
 ): PriorityDiagnostic[] {
@@ -101,8 +101,8 @@ export function buildProviderDeprecationDiagnostics(
   return [
     {
       title: "Deprecated tracker provider keys",
-      summary: `Flat tracker key(s) ${migrated.join(", ")} are deprecated and remain supported for compatibility.`,
-      remediation: `Move them under tracker.provider (flat aliases will be removed in the next major release):\n\n${providerBlock}`,
+      summary: `Flat tracker key(s) ${migrated.join(", ")} are rejected in this major release.`,
+      remediation: `Move them under tracker.provider:\n\n${providerBlock}`,
       details: { deprecatedKeys: migrated, providerBlock },
     },
   ];

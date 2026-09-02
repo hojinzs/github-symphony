@@ -67,6 +67,7 @@ export type WorkflowConfigTrackerAdapter = {
 export type WorkflowValidationErrorCode =
   | "workflow_parse_error"
   | "workflow_front_matter_not_a_map"
+  | "workflow_deprecated_key"
   | "workflow_validation_error";
 
 /** A stable, machine-readable error raised while reading WORKFLOW.md. */
@@ -109,10 +110,36 @@ export function parseWorkflowMarkdown(
   }
 }
 
+/**
+ * Parses a legacy workflow only to render an operator migration. Runtime and
+ * validation callers must use parseWorkflowMarkdown, which rejects flat keys.
+ */
+export function parseWorkflowMarkdownForMigration(
+  markdown: string,
+  env: NodeJS.ProcessEnv = process.env,
+  options: ParseWorkflowOptions = {}
+): ParsedWorkflow {
+  try {
+    return parseWorkflowMarkdownInternal(markdown, env, options, true);
+  } catch (error) {
+    if (error instanceof WorkflowValidationError) {
+      throw error;
+    }
+    const message =
+      error instanceof Error ? error.message : "Invalid workflow definition.";
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      "front_matter",
+      message
+    );
+  }
+}
+
 function parseWorkflowMarkdownInternal(
   markdown: string,
   env: NodeJS.ProcessEnv,
-  options: ParseWorkflowOptions
+  options: ParseWorkflowOptions,
+  allowDeprecatedTrackerKeys = false
 ): ParsedWorkflow {
   const compatibilityMode = options.compatibilityMode ?? "strict";
   const frontMatterMatch = markdown.match(
@@ -133,7 +160,13 @@ function parseWorkflowMarkdownInternal(
     ) {
       return parseLegacyWorkflowMarkdown(markdown);
     }
-    return parseWorkflowConfig({}, markdown.trim(), env, options);
+    return parseWorkflowConfig(
+      {},
+      markdown.trim(),
+      env,
+      options,
+      allowDeprecatedTrackerKeys
+    );
   }
 
   const [, rawFrontMatter = "", rawPromptTemplate = ""] = frontMatterMatch;
@@ -142,7 +175,8 @@ function parseWorkflowMarkdownInternal(
     frontMatter,
     rawPromptTemplate.trim(),
     env,
-    options
+    options,
+    allowDeprecatedTrackerKeys
   );
 }
 
@@ -150,7 +184,8 @@ function parseWorkflowConfig(
   frontMatter: Record<string, WorkflowFrontMatterNode>,
   promptTemplate: string,
   env: NodeJS.ProcessEnv,
-  options: ParseWorkflowOptions
+  options: ParseWorkflowOptions,
+  allowDeprecatedTrackerKeys: boolean
 ): ParsedWorkflow {
   const tracker = readObject(frontMatter, "tracker");
   const polling = readObject(frontMatter, "polling");
@@ -175,9 +210,15 @@ function parseWorkflowConfig(
   const trackerAdapter = trackerKind
     ? (options.resolveTrackerAdapter?.(trackerKind) ?? options.trackerAdapter)
     : options.trackerAdapter;
+  const deprecatedKeys = findDeprecatedTrackerKeys(tracker);
+  if (deprecatedKeys.length > 0 && !allowDeprecatedTrackerKeys) {
+    throwDeprecatedTrackerKeysError(deprecatedKeys);
+  }
   const provider = readProviderConfig(tracker);
   const explicitProviderKeys = new Set(Object.keys(provider));
-  const deprecatedKeys = promoteDeprecatedTrackerKeys(tracker, provider);
+  if (allowDeprecatedTrackerKeys) {
+    promoteDeprecatedTrackerKeys(tracker, provider);
+  }
   const resolvedProvider = resolveProviderEnvironmentValues(
     provider,
     env,
@@ -481,7 +522,7 @@ function resolveProviderEnvironmentValues(
   );
 }
 
-const DEPRECATED_TRACKER_PROVIDER_KEYS = [
+export const DEPRECATED_TRACKER_PROVIDER_KEYS = [
   "api_key",
   "project_slug",
   "project_id",
@@ -508,21 +549,35 @@ function readProviderConfig(
   return { ...tracker.provider };
 }
 
+function findDeprecatedTrackerKeys(
+  tracker: Record<string, WorkflowFrontMatterNode>
+): string[] {
+  return DEPRECATED_TRACKER_PROVIDER_KEYS.filter(
+    (key) => tracker[key] !== undefined && tracker[key] !== null
+  );
+}
+
+function throwDeprecatedTrackerKeysError(keys: readonly string[]): never {
+  const paths = keys.map((key) => `tracker.${key}`);
+  throw new WorkflowValidationError(
+    "workflow_deprecated_key",
+    paths[0] ?? "tracker",
+    `Deprecated workflow key(s) ${paths.join(", ")} are not supported in this major release. Move them under tracker.provider. Run 'gh-symphony doctor' for a copyable provider block.`
+  );
+}
+
 function promoteDeprecatedTrackerKeys(
   tracker: Record<string, WorkflowFrontMatterNode>,
   provider: Record<string, unknown>
-): string[] {
-  const deprecatedKeys: string[] = [];
+): void {
   for (const key of DEPRECATED_TRACKER_PROVIDER_KEYS) {
     if (tracker[key] === undefined || tracker[key] === null) {
       continue;
     }
-    deprecatedKeys.push(key);
     if (!(key in provider)) {
       provider[key] = tracker[key];
     }
   }
-  return deprecatedKeys;
 }
 
 function readProviderOptionalString(

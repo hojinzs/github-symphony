@@ -1,5 +1,9 @@
 # ADR: Retain flat tracker keys as deprecated provider aliases
 
+> **Superseded (2026-09-02):** The next-major removal tracked by #679 is
+> complete. Flat tracker keys now fail with `workflow_deprecated_key`.
+> `gh-symphony doctor` retains a copyable `tracker.provider` migration block.
+
 - **Date**: 2026-08-29
 - **Status**: Accepted
 - **Related Issues**: #669, #679, #710

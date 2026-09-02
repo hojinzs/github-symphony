@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkflowConfigStore } from "./workflow/loader.js";
 import {
-  parseWorkflowMarkdown as parseWorkflowMarkdownStrict,
+  parseWorkflowMarkdown as parseProductionWorkflowMarkdown,
+  parseWorkflowMarkdownForMigration,
   WorkflowValidationError,
 } from "./workflow/parser.js";
 import { isStateActive } from "./workflow/lifecycle.js";
@@ -26,12 +27,14 @@ const testAdapter = {
   }),
 };
 
+const parseWorkflowMarkdownStrict = parseWorkflowMarkdownForMigration;
+
 function parseWorkflowMarkdown(
   markdown: string,
   env?: NodeJS.ProcessEnv,
-  options: Parameters<typeof parseWorkflowMarkdownStrict>[2] = {}
+  options: Parameters<typeof parseProductionWorkflowMarkdown>[2] = {}
 ) {
-  return parseWorkflowMarkdownStrict(markdown, env, {
+  return parseWorkflowMarkdownForMigration(markdown, env, {
     ...options,
     trackerAdapter: options.trackerAdapter ?? testAdapter,
   });
@@ -49,9 +52,10 @@ const SAMPLE_WORKFLOW = `---
 continuation_guidance: Continue from the latest state. Previous summary: {{lastTurnSummary}}
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
-  priority_field: Priority
+  provider:
+    project_id: project-123
+    state_field: Status
+    priority_field: Priority
   active_states:
     - Todo
     - In Progress
@@ -84,6 +88,33 @@ Prefer focused changes.
 `;
 
 describe("parseWorkflowMarkdown", () => {
+  it("rejects every removed flat tracker key with migration guidance", () => {
+    expect(() =>
+      parseProductionWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  api_key: $TRACKER_TOKEN
+  project_slug: platform
+  project_id: PVT_test
+  endpoint: https://example.test/graphql
+  state_field: Status
+  priority:
+    source: disabled
+  priority_field: Priority
+  pickup_labels: { include: [agent] }
+  blocker_check_states: [Ready]
+  planning_states: [Plan]
+---
+Prompt`)
+    ).toThrow(
+      expect.objectContaining({
+        code: "workflow_deprecated_key",
+        path: "tracker.api_key",
+        message: expect.stringContaining("tracker.provider"),
+      })
+    );
+  });
+
   it("treats a front-matter-free workflow as its prompt with default config", () => {
     const workflow = parseWorkflowMarkdown(
       "\r\n# Agent instructions\r\n\r\nWork carefully.\r\n"
