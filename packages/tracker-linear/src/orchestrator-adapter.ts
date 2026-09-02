@@ -429,6 +429,9 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       (candidate) => candidate.id === input.itemId
     );
     if (!issue) {
+      // This is a sentinel rather than a Linear workflow state. The worker
+      // requires a string state for confirmed reads; routability is derived
+      // from the missing normalized snapshot and keeps this non-actionable.
       return {
         ok: true,
         outcome: "confirmed" as const,
