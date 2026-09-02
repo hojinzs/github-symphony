@@ -27,14 +27,12 @@ const testAdapter = {
   }),
 };
 
-const parseWorkflowMarkdownStrict = parseWorkflowMarkdownForMigration;
-
 function parseWorkflowMarkdown(
   markdown: string,
   env?: NodeJS.ProcessEnv,
   options: Parameters<typeof parseProductionWorkflowMarkdown>[2] = {}
 ) {
-  return parseWorkflowMarkdownForMigration(markdown, env, {
+  return parseProductionWorkflowMarkdown(markdown, env, {
     ...options,
     trackerAdapter: options.trackerAdapter ?? testAdapter,
   });
@@ -182,7 +180,8 @@ Prompt`,
         `---
 tracker:
   kind: github-project
-  api_key: env:missing_token
+  provider:
+    api_key: env:missing_token
 ---
 Prompt`,
         {}
@@ -192,7 +191,7 @@ Prompt`,
     }
     expect(thrown).toMatchObject({
       code: "workflow_validation_error",
-      path: "tracker.api_key",
+      path: "tracker.provider.api_key",
     });
   });
 
@@ -327,7 +326,7 @@ Prompt`,
 
   it("preserves provider-owned keys and delegates validation to the selected adapter", () => {
     const validateProviderConfig = vi.fn(() => []);
-    const workflow = parseWorkflowMarkdownStrict(
+    const workflow = parseWorkflowMarkdown(
       `---
 tracker:
   kind: custom-tracker
@@ -335,11 +334,11 @@ tracker:
     tenant: acme
     nested:
       enabled: true
+    state_field: Workflow
   active_states:
     - Queued
   terminal_states:
     - Closed
-  state_field: Workflow
 codex:
   command: codex
 ---
@@ -364,7 +363,7 @@ Prompt`,
 
   it("resolves provider values before adapter validation", () => {
     const validateProviderConfig = vi.fn(() => []);
-    parseWorkflowMarkdownStrict(
+    parseWorkflowMarkdown(
       `---
 tracker:
   kind: custom-tracker
@@ -411,7 +410,7 @@ Prompt`,
       kind === "custom-tracker" ? selectedAdapter : undefined
     );
 
-    const workflow = parseWorkflowMarkdownStrict(
+    const workflow = parseWorkflowMarkdownForMigration(
       `---
 tracker:
   kind: custom-tracker
@@ -445,7 +444,7 @@ Prompt`,
   });
 
   it("promotes flat tracker keys while retaining provider-owned values", () => {
-    const workflow = parseWorkflowMarkdown(
+    const workflow = parseWorkflowMarkdownForMigration(
       `---
 tracker:
   kind: github-project
@@ -494,7 +493,7 @@ tracker:
     project_id: project-123
     api_key: $TRACKER_TOKEN
     endpoint: https://provider.example.test/graphql
-  state_field: Status
+    state_field: Status
   active_states: [Ready]
   terminal_states: [Done]
 codex:
@@ -513,13 +512,13 @@ Prompt`,
 
   it("keeps resolved provider secrets private and resolves them once", () => {
     const validateProviderConfig = vi.fn(() => []);
-    const workflow = parseWorkflowMarkdownStrict(
+    const workflow = parseWorkflowMarkdown(
       `---
 tracker:
   kind: custom-tracker
   provider:
     api_key: env:TRACKER_TOKEN
-  state_field: Cost $USD
+    state_field: Cost $USD
 codex:
   command: codex
 ---
@@ -552,7 +551,7 @@ Prompt`,
   });
 
   it("uses provider values consistently when deprecated flat keys coexist", () => {
-    const workflow = parseWorkflowMarkdownStrict(`---
+    const workflow = parseWorkflowMarkdownForMigration(`---
 tracker:
   kind: linear
   project_id: flat-project
@@ -581,7 +580,7 @@ Prompt`);
   });
 
   it("projects provider lifecycle and policy aliases", () => {
-    const workflow = parseWorkflowMarkdownStrict(`---
+    const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
   provider:
@@ -616,7 +615,7 @@ Prompt`);
   });
 
   it("keeps provider-only lifecycle configuration usable without an adapter", () => {
-    const workflow = parseWorkflowMarkdownStrict(`---
+    const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
   provider:
@@ -645,13 +644,14 @@ Prompt`);
       ),
     ];
     expect(() =>
-      parseWorkflowMarkdownStrict(
+      parseWorkflowMarkdown(
         `---
 tracker:
   kind: github-project
   active_states: [Ready]
   terminal_states: [Done]
-  state_field: Status
+  provider:
+    state_field: Status
 codex:
   command: codex
 ---
@@ -669,7 +669,7 @@ Prompt`,
       new URL("../../../docs/examples/linear-WORKFLOW.md", import.meta.url),
       "utf8"
     );
-    const workflow = parseWorkflowMarkdownStrict(markdown, {
+    const workflow = parseWorkflowMarkdown(markdown, {
       LINEAR_API_KEY: "test-key",
     } as NodeJS.ProcessEnv);
 
@@ -678,7 +678,7 @@ Prompt`,
   });
 
   it("preserves lifecycle defaults until adapters provide their own", () => {
-    const workflow = parseWorkflowMarkdownStrict(`---
+    const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
 codex:
@@ -694,7 +694,7 @@ Prompt`);
   });
 
   it("uses lifecycle defaults for legacy sectioned workflows", () => {
-    const workflow = parseWorkflowMarkdownStrict(
+    const workflow = parseWorkflowMarkdown(
       "## Prompt Guidelines\n\nPrompt",
       process.env,
       {
@@ -719,9 +719,10 @@ Prompt`);
         parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
+  provider:
+    state_field: Status
   active_states: ${Array.isArray(activeStates) ? "[Ready]" : activeStates}
   terminal_states: ${Array.isArray(terminalStates) ? "[Done]" : terminalStates}
-  state_field: Status
 codex:
   command: codex
 ---
@@ -733,7 +734,7 @@ Prompt`)
   it("keeps validation errors on the flat alias source path", () => {
     let thrown: unknown;
     try {
-      parseWorkflowMarkdownStrict(
+      parseWorkflowMarkdownForMigration(
         `---
 tracker:
   kind: linear
@@ -901,8 +902,9 @@ tracker:
     - In Progress
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
+  provider:
+    blocker_check_states:
+      - Todo
 codex:
   command: codex app-server
 ---
@@ -914,7 +916,7 @@ Prompt body.
   });
 
   it("defaults blocker checks to the first configured active state", () => {
-    const workflow = parseWorkflowMarkdownStrict(`---
+    const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
   active_states:
@@ -941,9 +943,10 @@ tracker:
     - In Progress
   terminal_states:
     - Done
-  blocker_check_states: []
-  planning_states:
-    - Todo
+  provider:
+    blocker_check_states: []
+    planning_states:
+      - Todo
 codex:
   command: codex app-server
 ---
@@ -958,13 +961,14 @@ Prompt body.
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  priority:
-    source: project-field
-    field: Priority
-    values:
-      Urgent: 0
-      High: 1
-      Later: -1
+  provider:
+    priority:
+      source: project-field
+      field: Priority
+      values:
+        Urgent: 0
+        High: 1
+        Later: -1
 codex:
   command: codex app-server
 ---
@@ -986,11 +990,12 @@ Prompt body.
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  priority:
-    source: labels
-    labels:
-      P0: 0
-      P1: 1
+  provider:
+    priority:
+      source: labels
+      labels:
+        P0: 0
+        P1: 1
 codex:
   command: codex app-server
 ---
@@ -1011,11 +1016,12 @@ Prompt body.
 tracker:
   kind: github-project
   # Priority is explicit. Numbers below are editable policy.
-  priority:
-    source: labels
-    labels:
-      "priority: p0": 0
-      "priority: p1": 1
+  provider:
+    priority:
+      source: labels
+      labels:
+        "priority: p0": 0
+        "priority: p1": 1
 codex:
   command: codex app-server
 ---
@@ -1035,8 +1041,9 @@ Prompt body.
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  project_id: PVT_kwHOAPiKdM4BYPVD # Moncher Stack (hojinzs/projects/14)
-  state_field: Status # Project single-select field
+  provider:
+    project_id: PVT_kwHOAPiKdM4BYPVD # Moncher Stack (hojinzs/projects/14)
+    state_field: Status # Project single-select field
   active_states:
     - Ready # dispatchable
     - In progress
@@ -1057,8 +1064,9 @@ Prompt body.
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  project_id: "PVT_kwHOAPiKdM4BYPVD # quoted project marker" # trailing comment
-  state_field: Status#not-a-comment
+  provider:
+    project_id: "PVT_kwHOAPiKdM4BYPVD # quoted project marker" # trailing comment
+    state_field: Status#not-a-comment
 codex:
   command: 'codex # app-server'
 ---
@@ -1076,13 +1084,14 @@ Prompt body.
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  priority:
-    source: project-field
-    field: "Priority \\"dispatch\\" \\\\ team"
-    values:
-      "label \\"p0\\"": 0
-      "path \\\\ p1": 1
-      'single '' quote': 2
+  provider:
+    priority:
+      source: project-field
+      field: "Priority \\"dispatch\\" \\\\ team"
+      values:
+        "label \\"p0\\"": 0
+        "path \\\\ p1": 1
+        'single '' quote': 2
 codex:
   command: codex app-server
 ---
@@ -1104,9 +1113,10 @@ Prompt body.
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  priority_field: Priority
-  priority:
-    source: disabled
+  provider:
+    priority_field: Priority
+    priority:
+      source: disabled
 codex:
   command: codex app-server
 ---
@@ -1120,59 +1130,66 @@ Prompt body.
   it.each([
     [
       "project-field without field",
-      `priority:
-    source: project-field
-    values:
-      P0: 0`,
+      `provider:
+    priority:
+      source: project-field
+      values:
+        P0: 0`,
       'Workflow front matter field "field" is required.',
     ],
     [
       "project-field without values",
-      `priority:
-    source: project-field
-    field: Priority`,
+      `provider:
+    priority:
+      source: project-field
+      field: Priority`,
       'Workflow front matter field "tracker.priority.values" must be a non-empty object for tracker.priority.source "project-field".',
     ],
     [
       "labels without labels",
-      `priority:
-    source: labels`,
+      `provider:
+    priority:
+      source: labels`,
       'Workflow front matter field "tracker.priority.labels" must be a non-empty object for tracker.priority.source "labels".',
     ],
     [
       "project-field with labels",
-      `priority:
-    source: project-field
-    field: Priority
-    values:
-      P0: 0
-    labels:
-      P1: 1`,
+      `provider:
+    priority:
+      source: project-field
+      field: Priority
+      values:
+        P0: 0
+      labels:
+        P1: 1`,
       'Workflow front matter field "tracker.priority.labels" is not supported for tracker.priority.source "project-field".',
     ],
     [
       "labels with field",
-      `priority:
-    source: labels
-    field: Priority
-    labels:
-      P0: 0`,
+      `provider:
+    priority:
+      source: labels
+      field: Priority
+      labels:
+        P0: 0`,
       'Workflow front matter field "tracker.priority.field" is not supported for tracker.priority.source "labels".',
     ],
     [
       "disabled with values",
-      `priority:
-    source: disabled
-    values:
-      P0: 0`,
+      `provider:
+    priority:
+      source: disabled
+      values:
+        P0: 0`,
       'Workflow front matter field "tracker.priority.values" is not supported for tracker.priority.source "disabled".',
     ],
     [
       "unknown source",
-      `priority:
-    source: project-labels
-    labels:
-      P0: 0`,
+      `provider:
+    priority:
+      source: project-labels
+      labels:
+        P0: 0`,
       'Unsupported workflow tracker.priority.source "project-labels". Supported values: project-field, labels, disabled.',
     ],
   ])("rejects invalid priority config: %s", (_name, priorityYaml, message) => {
@@ -1207,8 +1224,9 @@ Prompt body.
       `---
 tracker:
   kind: linear
-  project_slug: symphony-0c79b11b75ea
-  api_key: $LINEAR_API_KEY
+  provider:
+    project_slug: symphony-0c79b11b75ea
+    api_key: $LINEAR_API_KEY
   active_states:
     - Todo
     - In Progress
@@ -1232,17 +1250,18 @@ Prompt body.
       `---
 tracker:
   kind: linear
-  project_slug: symphony-0c79b11b75ea
-  pickup_labels:
-    include:
-      - " Agent "
-      - dev-ready
-      - agent
-      - " "
-    exclude:
-      - " NO-AGENT "
-      - needs-spec
-      - no-agent
+  provider:
+    project_slug: symphony-0c79b11b75ea
+    pickup_labels:
+      include:
+        - " Agent "
+        - dev-ready
+        - agent
+        - " "
+      exclude:
+        - " NO-AGENT "
+        - needs-spec
+        - no-agent
 codex:
   command: codex app-server
 ---
@@ -1263,9 +1282,10 @@ tracker:
   required_labels:
     - " Ready "
     - ""
-  pickup_labels:
-    include:
-      - " Agent "
+  provider:
+    pickup_labels:
+      include:
+        - " Agent "
 codex:
   command: codex app-server
 ---
@@ -1313,7 +1333,7 @@ Prompt body.
       "project_slug is required by this adapter."
     );
     expect(() =>
-      parseWorkflowMarkdownStrict(
+      parseWorkflowMarkdown(
         `---
 tracker:
   kind: linear
@@ -1321,7 +1341,8 @@ tracker:
     - Todo
   terminal_states:
     - Done
-  state_field: Status
+  provider:
+    state_field: Status
 codex:
   command: codex app-server
 ---
@@ -1699,16 +1720,18 @@ Prompt body.
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  project_id: PVT_kwHOAPiKdM4BYPVD
-  state_field: Status
+  provider:
+    project_id: PVT_kwHOAPiKdM4BYPVD
+    state_field: Status
   active_states:
     - Ready
     - In progress
     - Land
   terminal_states:
     - Done
-  blocker_check_states:
-    - Ready
+  provider:
+    blocker_check_states:
+      - Ready
 codex:
   command: codex app-server
 ---
