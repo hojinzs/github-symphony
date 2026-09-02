@@ -1,7 +1,7 @@
 # Upstream Spec Drift Research (2026-08-28)
 
 Date: 2026-08-28
-Status: Complete — every tracked closeout issue for the A/B findings, C1–C13 divergences, D1–D8 documentation corrections, and E-class defects is closed under Epic #651. The spec sync itself (S0/#652) shipped in PR #650 alongside this report; the final closeout audit completed on 2026-09-02.
+Status: Complete (Epic #651 scope) — every closeout issue tracked under Epic #651 for the applicable A/B findings, C1–C13 divergences, and D1–D8 documentation corrections is closed; the spec sync itself (S0/#652) shipped in PR #650 alongside this report; final closeout audit 2026-09-02. Carve-outs: B20 (Claude token accounting) moved to Epic #645; A20 is out of scope (MAY, nothing required); E5–E11 were never given tracked issues — E11 (silent poll-interval clamp) is still present. The tracked sub-issue range is #652–#679; documentation follow-up C1–C13/D1–D8 shipped in [#675](https://github.com/hojinzs/github-symphony/issues/675).
 Symphony Layers: Configuration, Coordination, Execution, Integration, Observability
 
 Baselines:

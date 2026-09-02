@@ -29,12 +29,12 @@ mapping, not a change to the upstream specification. It applies to the values
 already supplied to the dispatch sorter; this ADR does not introduce a new
 priority configuration format or change tracker-adapter behavior.
 
-## Pending implementation
+## Adapter normalization
 
-Linear priority value `0` ("No priority") will be normalized to `null` rather
-than treated as the highest priority. The Linear adapter currently passes `0`
-through, so it currently sorts before positive values; adapter adoption is
-tracked in #660-B.
+Linear priority value `0` ("No priority") is normalized to `null` rather than
+treated as the highest priority. The Linear adapter ships this behavior in
+[#660](https://github.com/hojinzs/github-symphony/issues/660), so `0` sorts
+with absent priority after numeric values.
 
 ## Consequences
 
