@@ -168,9 +168,9 @@ adapter behavior is unchanged.
 For dispatch priority, see [ADR 2026-08-28](adr/2026-08-28_priority-mapping-documented-different-mapping.md).
 The repository intentionally keeps numeric priorities, including non-integers,
 in ascending order and places `null` last, a documented different mapping under
-Symphony specification §8.2 and §11.3. Linear priority `0` currently passes
-through the adapter and sorts before positive values; normalization to `null`
-is pending adapter work in #660-B.
+Symphony specification §8.2 and §11.3. Linear priority `0` ("No priority") is
+normalized to `null` by the adapter, so it sorts after numeric priorities; this
+adapter normalization shipped in [#660](https://github.com/hojinzs/github-symphony/issues/660).
 
 ## Workflow Lifecycle Policy
 
