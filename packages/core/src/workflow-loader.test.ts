@@ -113,6 +113,25 @@ Prompt`)
     );
   });
 
+  it("rejects an explicitly null removed flat tracker key", () => {
+    expect(() =>
+      parseProductionWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  state_field: null
+  provider:
+    project_id: PVT_test
+    state_field: Status
+---
+Prompt`)
+    ).toThrow(
+      expect.objectContaining({
+        code: "workflow_deprecated_key",
+        path: "tracker.state_field",
+      })
+    );
+  });
+
   it("treats a front-matter-free workflow as its prompt with default config", () => {
     const workflow = parseWorkflowMarkdown(
       "\r\n# Agent instructions\r\n\r\nWork carefully.\r\n"

@@ -517,7 +517,7 @@ function findDeprecatedTrackerKeys(
   tracker: Record<string, WorkflowFrontMatterNode>
 ): string[] {
   return DEPRECATED_TRACKER_PROVIDER_KEYS.filter(
-    (key) => tracker[key] !== undefined && tracker[key] !== null
+    (key) => key in tracker
   );
 }
 
