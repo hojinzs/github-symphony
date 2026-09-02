@@ -8,7 +8,7 @@ import {
 } from "./turn-lease.js";
 
 async function runConvergenceThreshold(response: Response) {
-  const trackerState = await refreshTrackerState(
+  const trackerRefresh = await refreshTrackerState(
     {
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
       SYMPHONY_ORCHESTRATOR_TOKEN: "worker-token",
@@ -17,6 +17,16 @@ async function runConvergenceThreshold(response: Response) {
     ["Ready", "In progress", "Land"],
     vi.fn().mockResolvedValue(response)
   );
+  const trackerState = trackerRefresh.state;
+
+  if (trackerState === "unsupported") {
+    return {
+      runPhase: "running",
+      executionPhase: "implementation",
+      exitClassification: null,
+      lastError: null,
+    };
+  }
 
   if (resolveConvergenceThresholdAction(trackerState) === "complete") {
     return {
@@ -59,7 +69,7 @@ async function runConvergenceThreshold(response: Response) {
 }
 
 async function runTurnBoundary(response: Response) {
-  const trackerState = await refreshTrackerState(
+  const trackerRefresh = await refreshTrackerState(
     {
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
       SYMPHONY_ORCHESTRATOR_TOKEN: "worker-token",
@@ -68,6 +78,7 @@ async function runTurnBoundary(response: Response) {
     ["Ready", "In progress", "Land"],
     vi.fn().mockResolvedValue(response)
   );
+  const trackerState = trackerRefresh.state;
 
   return trackerState === "non-actionable"
     ? {
@@ -82,6 +93,28 @@ async function runTurnBoundary(response: Response) {
 }
 
 describe("convergence threshold lifecycle", () => {
+  it("continues turns when tracker state reads are permanently unsupported", async () => {
+    const unsupported = new Response(
+      JSON.stringify({
+        ok: false,
+        outcome: "rejected",
+        error: "tracker_state_requests_unsupported",
+      }),
+      { status: 403 }
+    );
+
+    await expect(runTurnBoundary(unsupported.clone())).resolves.toEqual({
+      action: "continue",
+      executionPhase: "implementation",
+    });
+    await expect(runConvergenceThreshold(unsupported)).resolves.toEqual({
+      runPhase: "running",
+      executionPhase: "implementation",
+      exitClassification: null,
+      lastError: null,
+    });
+  });
+
   it("completes at the next turn boundary after canonical lifecycle progress", async () => {
     await expect(
       runTurnBoundary(

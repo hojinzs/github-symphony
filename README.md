@@ -599,6 +599,8 @@ GitHub and Linear workflows may configure `tracker.provider.pickup_labels.includ
 
 Linear orchestration is polling-only. There is intentionally no Linear webhook setup command; state transitions, workpad comments, and PR handoff policy belong in `WORKFLOW.md`. See `docs/examples/linear-WORKFLOW.md` for a complete example.
 
+Workers log structured diagnostics when a between-turn tracker refresh fails, including the HTTP status, provider error, or exception message. Transient failures retain the configured consecutive-failure threshold. If an adapter permanently rejects state reads with `tracker_state_requests_unsupported`, the worker emits one capability warning and continues turns without the unavailable tracker gate.
+
 ### Configuration
 
 ```bash

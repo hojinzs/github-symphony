@@ -69,6 +69,7 @@ import { resolveMaxTurns } from "./turn-limits.js";
 import {
   acquireTurnLease,
   refreshTrackerState,
+  reportTrackerRefresh,
   resolveRefreshFailureThreshold,
   updateRefreshFailureCount,
 } from "./turn-lease.js";
@@ -712,6 +713,8 @@ async function runNonCodexRuntimeAdapterLifecycle(
   runtimeAdapter = adapter as AgentRuntimeAdapter;
 
   let terminalFailure: string | null = null;
+  let consecutiveRefreshFailures = 0;
+  let unsupportedRefreshWarningLogged = false;
   const unsubscribe = adapter.onEvent((event) => {
     const agentEvent = event as AgentEvent;
     handleNonCodexRuntimeEvent(agentEvent);
@@ -752,18 +755,29 @@ async function runNonCodexRuntimeAdapterLifecycle(
       terminalFailure = null;
       const turnCount = turn + 1;
       if (turn > 0) {
-        const trackerState = await refreshTrackerState(
+        const trackerRefresh = await refreshTrackerState(
           env,
           workflow.lifecycle.activeStates
         );
-        process.stderr.write(
-          `[worker] tracker state refresh: ${trackerState}\n`
+        unsupportedRefreshWarningLogged = reportTrackerRefresh(
+          trackerRefresh,
+          "tracker state refresh",
+          unsupportedRefreshWarningLogged
         );
+        const trackerState = trackerRefresh.state;
         if (trackerState === "non-actionable") break;
-        if (trackerState === "unknown") {
-          throw new Error(
-            "orchestrator_unavailable: tracker state refresh failed"
+        const refreshFailures = updateRefreshFailureCount(
+          trackerState,
+          consecutiveRefreshFailures,
+          resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD)
+        );
+        consecutiveRefreshFailures = refreshFailures.count;
+        if (refreshFailures.failClosed) {
+          failWorkerTurnGate(
+            "orchestrator_unavailable",
+            `tracker refresh failed ${consecutiveRefreshFailures} consecutive times`
           );
+          throw new Error("orchestrator_unavailable");
         }
       }
 
@@ -1174,6 +1188,7 @@ async function runCodexClientProtocol(
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
   let consecutiveNonProductiveTurns = 0;
   let consecutiveRefreshFailures = 0;
+  let unsupportedRefreshWarningLogged = false;
   let convergenceDetected = false;
   let terminationRequested = false;
   let resetTurnTimeout: (() => void) | null = null;
@@ -1742,13 +1757,16 @@ async function runCodexClientProtocol(
       const isFirstTurn = turn === 0;
 
       if (!isFirstTurn) {
-        const trackerState = await refreshTrackerState(
+        const trackerRefresh = await refreshTrackerState(
           env,
           options.activeStates
         );
-        process.stderr.write(
-          `[worker] tracker state refresh: ${trackerState}\n`
+        unsupportedRefreshWarningLogged = reportTrackerRefresh(
+          trackerRefresh,
+          "tracker state refresh",
+          unsupportedRefreshWarningLogged
         );
+        const trackerState = trackerRefresh.state;
 
         if (trackerState === "non-actionable") {
           runtimeState.runPhase = "finishing";
@@ -1918,13 +1936,22 @@ async function runCodexClientProtocol(
       }
 
       if (consecutiveNonProductiveTurns >= maxNonProductiveTurns) {
-        const trackerState = await refreshTrackerState(
+        const trackerRefresh = await refreshTrackerState(
           env,
           options.activeStates
         );
-        process.stderr.write(
-          `[worker] convergence threshold tracker confirmation: ${trackerState}\n`
+        unsupportedRefreshWarningLogged = reportTrackerRefresh(
+          trackerRefresh,
+          "convergence threshold tracker confirmation",
+          unsupportedRefreshWarningLogged
         );
+        const trackerState = trackerRefresh.state;
+        if (trackerState === "unsupported") {
+          process.stderr.write(
+            "[worker] convergence tracker gate skipped because state refresh is unsupported\n"
+          );
+          continue;
+        }
         if (resolveConvergenceThresholdAction(trackerState) === "complete") {
           runtimeState.runPhase = "finishing";
           runtimeState.executionPhase = resolveFinalExecutionPhase({

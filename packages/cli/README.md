@@ -148,6 +148,11 @@ available to the prompt as `{{ execution_phase }}`, but does not itself prevent
 implementation: the `WORKFLOW.md` prompt policy must branch on that variable
 when a plan-only posture is required.
 
+Between-turn tracker refresh failures include HTTP, provider, or exception
+diagnostics in worker logs. Transient failures keep the configured consecutive
+failure threshold; an adapter response of `tracker_state_requests_unsupported`
+produces one capability warning and lets the worker continue without that gate.
+
 > Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
 
 For a local non-bare login, the worker copies only the selected provider's
