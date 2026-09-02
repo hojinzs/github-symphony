@@ -3693,11 +3693,14 @@ export class OrchestratorService {
       !recovery &&
       failureRetryCount >= maxFailureRetries
     ) {
-      const lastError = [
+      const suppressionDetail = [
         `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
         `failureRetryCount=${failureRetryCount}.`,
         `maxFailureRetries=${maxFailureRetries}.`,
       ].join(" ");
+      const lastError = isGitTransportFailure(runWithTokens)
+        ? `${runWithTokens.lastError} (${suppressionDetail})`
+        : suppressionDetail;
       const suppressedRun: OrchestratorRunRecord = {
         ...runWithTokens,
         finalizationDeferralCount: 0,

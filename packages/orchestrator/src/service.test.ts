@@ -9812,6 +9812,45 @@ Prefer focused changes.
     });
   });
 
+  it("retains an unpublished transport failure after max retry suppression", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Todo");
+    const run = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+    expect(run).toBeTruthy();
+    expect(issueRecords).toHaveLength(1);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        ...issueRecords[0]!,
+        failureRetryCount: 9,
+      },
+    ]);
+    await store.saveRun({
+      ...run!,
+      workerExitCode: 1,
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "suppressed",
+      lastError:
+        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10.)",
+    });
+    await expect(
+      (
+        service as unknown as {
+          hasUnpublishedGitTransportFailure(
+            projectId: string,
+            issueId: string
+          ): Promise<boolean>;
+        }
+      ).hasUnpublishedGitTransportFailure("tenant-1", "issue-1")
+    ).resolves.toBe(true);
+  });
+
   it.each(["Done", "In review"])(
     "retains an unpublished transport failure and workspace when a %s issue reaches its retry due time",
     async (trackerState) => {
