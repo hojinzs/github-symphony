@@ -1,10 +1,9 @@
 import { classifySessionExit } from "@gh-symphony/core";
 import { describe, expect, it, vi } from "vitest";
-import { resolveConvergenceThresholdAction } from "./convergence-detection.js";
 import { resolveFinalExecutionPhase } from "./execution-phase.js";
 import {
   refreshTrackerState,
-  updateRefreshFailureCount,
+  resolveTrackerRefreshGate,
 } from "./turn-lease.js";
 
 async function runConvergenceThreshold(response: Response) {
@@ -18,8 +17,9 @@ async function runConvergenceThreshold(response: Response) {
     vi.fn().mockResolvedValue(response)
   );
   const trackerState = trackerRefresh.state;
+  const refreshGate = resolveTrackerRefreshGate(trackerState, 0, 1);
 
-  if (trackerState === "unsupported") {
+  if (refreshGate.action === "skip") {
     return {
       runPhase: "running",
       executionPhase: "implementation",
@@ -28,7 +28,7 @@ async function runConvergenceThreshold(response: Response) {
     };
   }
 
-  if (resolveConvergenceThresholdAction(trackerState) === "complete") {
+  if (refreshGate.action === "complete") {
     return {
       runPhase: "succeeded",
       executionPhase: resolveFinalExecutionPhase({
@@ -47,11 +47,8 @@ async function runConvergenceThreshold(response: Response) {
     };
   }
 
-  if (trackerState === "unknown") {
-    const refreshFailures = updateRefreshFailureCount(trackerState, 0, 1);
-    if (refreshFailures.failClosed) {
-      throw new Error("orchestrator_unavailable");
-    }
+  if (refreshGate.action === "fail-closed") {
+    throw new Error("orchestrator_unavailable");
   }
 
   return {
@@ -79,8 +76,9 @@ async function runTurnBoundary(response: Response) {
     vi.fn().mockResolvedValue(response)
   );
   const trackerState = trackerRefresh.state;
+  const refreshGate = resolveTrackerRefreshGate(trackerState, 0, 3);
 
-  return trackerState === "non-actionable"
+  return refreshGate.action === "complete"
     ? {
         action: "complete",
         executionPhase: resolveFinalExecutionPhase({

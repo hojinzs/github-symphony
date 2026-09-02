@@ -39,7 +39,6 @@ import { launchCodexWithValidatedPolicy } from "./codex-startup.js";
 import {
   captureTurnBoundarySnapshot,
   evaluateTurnProgress,
-  resolveConvergenceThresholdAction,
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
 import {
@@ -71,7 +70,7 @@ import {
   refreshTrackerState,
   reportTrackerRefresh,
   resolveRefreshFailureThreshold,
-  updateRefreshFailureCount,
+  resolveTrackerRefreshGate,
 } from "./turn-lease.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
 import {
@@ -765,14 +764,14 @@ async function runNonCodexRuntimeAdapterLifecycle(
           unsupportedRefreshWarningLogged
         );
         const trackerState = trackerRefresh.state;
-        if (trackerState === "non-actionable") break;
-        const refreshFailures = updateRefreshFailureCount(
+        const refreshGate = resolveTrackerRefreshGate(
           trackerState,
           consecutiveRefreshFailures,
           resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD)
         );
-        consecutiveRefreshFailures = refreshFailures.count;
-        if (refreshFailures.failClosed) {
+        consecutiveRefreshFailures = refreshGate.count;
+        if (refreshGate.action === "complete") break;
+        if (refreshGate.action === "fail-closed") {
           failWorkerTurnGate(
             "orchestrator_unavailable",
             `tracker refresh failed ${consecutiveRefreshFailures} consecutive times`
@@ -1768,11 +1767,17 @@ async function runCodexClientProtocol(
         );
         const trackerState = trackerRefresh.state;
 
-        if (trackerState === "non-actionable") {
+        const refreshGate = resolveTrackerRefreshGate(
+          trackerState,
+          consecutiveRefreshFailures,
+          resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD)
+        );
+        consecutiveRefreshFailures = refreshGate.count;
+        if (refreshGate.action === "complete") {
           runtimeState.runPhase = "finishing";
           runtimeState.executionPhase = resolveFinalExecutionPhase({
             currentPhase: runtimeState.executionPhase,
-            trackerState,
+            trackerState: "non-actionable",
             userInputRequired: false,
           });
           process.stderr.write(
@@ -1781,16 +1786,7 @@ async function runCodexClientProtocol(
           break;
         }
 
-        const refreshFailureThreshold = resolveRefreshFailureThreshold(
-          env.SYMPHONY_REFRESH_FAILURE_THRESHOLD
-        );
-        const refreshFailures = updateRefreshFailureCount(
-          trackerState,
-          consecutiveRefreshFailures,
-          refreshFailureThreshold
-        );
-        consecutiveRefreshFailures = refreshFailures.count;
-        if (refreshFailures.failClosed) {
+        if (refreshGate.action === "fail-closed") {
           failWorkerTurnGate(
             "orchestrator_unavailable",
             `tracker refresh failed ${consecutiveRefreshFailures} consecutive times`
@@ -1946,17 +1942,23 @@ async function runCodexClientProtocol(
           unsupportedRefreshWarningLogged
         );
         const trackerState = trackerRefresh.state;
-        if (trackerState === "unsupported") {
+        const refreshGate = resolveTrackerRefreshGate(
+          trackerState,
+          consecutiveRefreshFailures,
+          resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD)
+        );
+        consecutiveRefreshFailures = refreshGate.count;
+        if (refreshGate.action === "skip") {
           process.stderr.write(
             "[worker] convergence tracker gate skipped because state refresh is unsupported\n"
           );
           continue;
         }
-        if (resolveConvergenceThresholdAction(trackerState) === "complete") {
+        if (refreshGate.action === "complete") {
           runtimeState.runPhase = "finishing";
           runtimeState.executionPhase = resolveFinalExecutionPhase({
             currentPhase: runtimeState.executionPhase,
-            trackerState,
+            trackerState: "non-actionable",
             userInputRequired: false,
           });
           process.stderr.write(
@@ -1965,23 +1967,14 @@ async function runCodexClientProtocol(
           break;
         }
 
+        if (refreshGate.action === "fail-closed") {
+          failWorkerTurnGate(
+            "orchestrator_unavailable",
+            `tracker refresh failed ${consecutiveRefreshFailures} consecutive times`
+          );
+          throw new Error("orchestrator_unavailable");
+        }
         if (trackerState === "unknown") {
-          const refreshFailureThreshold = resolveRefreshFailureThreshold(
-            env.SYMPHONY_REFRESH_FAILURE_THRESHOLD
-          );
-          const refreshFailures = updateRefreshFailureCount(
-            trackerState,
-            consecutiveRefreshFailures,
-            refreshFailureThreshold
-          );
-          consecutiveRefreshFailures = refreshFailures.count;
-          if (refreshFailures.failClosed) {
-            failWorkerTurnGate(
-              "orchestrator_unavailable",
-              `tracker refresh failed ${consecutiveRefreshFailures} consecutive times`
-            );
-            throw new Error("orchestrator_unavailable");
-          }
           process.stderr.write(
             "[worker] convergence deferred because canonical tracker state is unavailable\n"
           );

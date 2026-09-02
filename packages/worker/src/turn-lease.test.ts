@@ -4,6 +4,7 @@ import {
   refreshTrackerState,
   reportTrackerRefresh,
   resolveRefreshFailureThreshold,
+  resolveTrackerRefreshGate,
   updateRefreshFailureCount,
 } from "./turn-lease.js";
 
@@ -105,6 +106,29 @@ describe("worker turn lease", () => {
 });
 
 describe("tracker refresh fail-closed threshold", () => {
+  it("uses one production gate decision for transient thresholds and unsupported reads", () => {
+    expect(resolveTrackerRefreshGate("unknown", 0, 2)).toEqual({
+      action: "continue",
+      count: 1,
+    });
+    expect(resolveTrackerRefreshGate("unknown", 1, 2)).toEqual({
+      action: "fail-closed",
+      count: 2,
+    });
+    expect(resolveTrackerRefreshGate("unsupported", 1, 2)).toEqual({
+      action: "skip",
+      count: 0,
+    });
+    expect(resolveTrackerRefreshGate("non-actionable", 1, 2)).toEqual({
+      action: "complete",
+      count: 0,
+    });
+    expect(resolveTrackerRefreshGate("active", 1, 2)).toEqual({
+      action: "continue",
+      count: 0,
+    });
+  });
+
   it("logs unsupported capability diagnostics on every read but warns once", () => {
     const messages: string[] = [];
     const result = {

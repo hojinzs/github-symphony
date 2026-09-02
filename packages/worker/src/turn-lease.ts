@@ -48,6 +48,34 @@ export function updateRefreshFailureCount(
   return { count, failClosed: count >= threshold };
 }
 
+export type TrackerRefreshGateAction =
+  | "continue"
+  | "complete"
+  | "fail-closed"
+  | "skip";
+
+export function resolveTrackerRefreshGate(
+  state: TrackerRefreshState,
+  currentCount: number,
+  threshold: number
+): { action: TrackerRefreshGateAction; count: number } {
+  const refreshFailures = updateRefreshFailureCount(
+    state,
+    currentCount,
+    threshold
+  );
+  if (state === "non-actionable") {
+    return { action: "complete", count: refreshFailures.count };
+  }
+  if (state === "unsupported") {
+    return { action: "skip", count: refreshFailures.count };
+  }
+  return {
+    action: refreshFailures.failClosed ? "fail-closed" : "continue",
+    count: refreshFailures.count,
+  };
+}
+
 export async function refreshTrackerState(
   env: NodeJS.ProcessEnv,
   activeStates: readonly string[],
