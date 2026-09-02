@@ -1456,6 +1456,7 @@ Prompt body.
         bare: true,
         strictMcpConfig: true,
         trustRepoConfig: false,
+        inheritEnvironment: false,
       },
       auth: {
         env: "ANTHROPIC_API_KEY",
@@ -1510,6 +1511,25 @@ Prompt body.
     });
     expect(workflow.codex.command).toBe("codex app-server");
     expect(workflow.agentCommand).toBe("node worker.js --flag");
+  });
+
+  it("parses explicit custom runtime environment compatibility opt-in", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  isolation:
+    inherit_environment: true
+---
+Prompt body.
+`);
+
+    expect(
+      (workflow.runtime?.isolation as Record<string, unknown>)
+        .inheritEnvironment
+    ).toBe(true);
   });
 
   it("parses quoted inline array entries containing commas", () => {

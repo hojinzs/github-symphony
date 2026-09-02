@@ -986,9 +986,9 @@ pnpm build
 ## Security posture
 
 GitHub Symphony is intended for trusted, operator-controlled environments.
-Codex and Claude coding-agent children receive no raw GitHub or Linear tracker
-credential and no token-broker secret, including in brokerless deployments.
-Their runtime-owned `HOME` and `GH_CONFIG_DIR` do not expose the operator's
+Codex, Claude, and default custom coding-agent children receive no raw GitHub
+or Linear tracker credential and no token-broker secret, including in
+brokerless deployments. Their runtime-owned `HOME` and `GH_CONFIG_DIR` do not expose the operator's
 `gh auth` store or credential-helper configuration. Codex provider tools execute
 through host dynamic tools; Claude's generated MCP configuration contains only
 the worker-owned loopback endpoint and its per-run capability. The host-owned
@@ -997,7 +997,12 @@ transport is described in
 When no direct provider API key is configured, a non-bare runtime stages only
 the provider login into this private home: Codex `auth.json`, or Claude's
 `claudeAiOauth` entry without `mcpOAuth`. Host agent configuration and GitHub
-CLI credentials remain outside the child boundary.
+CLI credentials remain outside the child boundary. A custom command can receive
+only the provider key named by `runtime.auth.env`. The documented
+`runtime.isolation.inherit_environment: true` migration escape hatch instead
+forwards the full worker environment (including raw credentials), so it is an
+intentional repository-local divergence from the upstream child-isolation
+requirements and should be removed after compatibility work.
 
 Codex supports only `approval_policy: never` and uses the
 `danger-full-access` thread sandbox; Claude uses `bypassPermissions`.

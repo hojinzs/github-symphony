@@ -243,12 +243,14 @@ provider tools use the host transports delivered by #673, and the worker owns
 post-run authenticated Git fetch/push. This boundary conforms to the upstream
 §10.5, §15.3, and §17.5 requirements without modifying the upstream spec.
 
-This completed conformant boundary is scoped to the Codex and Claude adapters.
-`runtime.kind: custom` remains an intentional repository-local divergence: it
-receives the full worker environment and host HOME rather than satisfying the
-same §10.5, §15.3, and §17.5 isolation boundary.
-[#778](https://github.com/hojinzs/github-symphony/issues/778) owns its explicit
-credential and HOME isolation contract.
+This completed conformant boundary now includes default custom adapters. They
+receive a private child home and only the portable execution environment plus
+the authentication key explicitly declared by `runtime.auth.env`; raw tracker
+and broker credentials remain host-side. `runtime.isolation.inherit_environment:
+true` is a custom-only, explicitly documented repository-local divergence: it
+restores raw worker credentials for legacy commands while retaining the child
+home and Git-helper isolation. It is a migration escape hatch, not a compliant
+default.
 
 ## README security-posture draft for #675
 

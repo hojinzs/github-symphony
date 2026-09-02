@@ -229,43 +229,30 @@ function parseWorkflowConfig(
   // owns its lifecycle defaults; adapter-provided defaults still take precedence.
   const legacyLifecycle = DEFAULT_WORKFLOW_LIFECYCLE;
   const activeStates =
-    readProviderStringList(
-      provider,
-      "active_states",
-      { rejectCommaString: true }
-    ) ??
+    readProviderStringList(provider, "active_states", {
+      rejectCommaString: true,
+    }) ??
     readStringList(tracker, "active_states", { rejectCommaString: true }) ??
     defaultLifecycle?.activeStates ??
     legacyLifecycle.activeStates;
   const terminalStates =
-    readProviderStringList(
-      provider,
-      "terminal_states",
-      { rejectCommaString: true }
-    ) ??
+    readProviderStringList(provider, "terminal_states", {
+      rejectCommaString: true,
+    }) ??
     readStringList(tracker, "terminal_states", { rejectCommaString: true }) ??
     defaultLifecycle?.terminalStates ??
     legacyLifecycle.terminalStates;
   const blockerCheckStates =
-    readNormalizedStringList(
-      provider,
-      "blocker_check_states"
-    ) ?? (activeStates[0] ? [activeStates[0]] : []);
+    readNormalizedStringList(provider, "blocker_check_states") ??
+    (activeStates[0] ? [activeStates[0]] : []);
   const planningStates =
-    readNormalizedStringList(
-      provider,
-      "planning_states"
-    ) ??
+    readNormalizedStringList(provider, "planning_states") ??
     defaultLifecycle?.planningStates ??
     DEFAULT_WORKFLOW_TRACKER.planningStates;
   const requiredLabels =
     readRequiredLabelList(tracker) ?? DEFAULT_WORKFLOW_TRACKER.requiredLabels;
   const stateFieldName =
-    readNormalizedOptionalString(
-      provider,
-      "state_field",
-      env
-    ) ??
+    readNormalizedOptionalString(provider, "state_field", env) ??
     defaultLifecycle?.stateFieldName ??
     legacyLifecycle.stateFieldName;
   throwProviderValidationErrors(
@@ -337,30 +324,15 @@ function parseWorkflowConfig(
       provider,
       deprecatedKeys,
       endpoint:
-        readNormalizedOptionalString(
-          provider,
-          "endpoint",
-          env
-        ) ?? (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
-      apiKey: readNormalizedOptionalSecret(
-        provider,
-        "api_key",
-        env
-      ),
-      projectSlug: readNormalizedOptionalString(
-        provider,
-        "project_slug",
-        env
-      ),
+        readNormalizedOptionalString(provider, "endpoint", env) ??
+        (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
+      apiKey: readNormalizedOptionalSecret(provider, "api_key", env),
+      projectSlug: readNormalizedOptionalString(provider, "project_slug", env),
       pickupLabels: readPickupLabelsConfig(provider),
       requiredLabels,
       activeStates,
       terminalStates,
-      projectId: readNormalizedOptionalString(
-        provider,
-        "project_id",
-        env
-      ),
+      projectId: readNormalizedOptionalString(provider, "project_id", env),
       stateFieldName,
       priority: readPriorityConfig(provider),
       priorityFieldName: readNormalizedOptionalString(
@@ -435,11 +407,7 @@ function parseWorkflowConfig(
       requiredLabels,
     },
     format: "front-matter",
-    githubProjectId: readNormalizedOptionalString(
-      provider,
-      "project_id",
-      env
-    ),
+    githubProjectId: readNormalizedOptionalString(provider, "project_id", env),
     agentCommand,
     hookPath: readOptionalString(hooks, "after_create"),
     maxConcurrentByState: stateConcurrency.limits,
@@ -516,9 +484,7 @@ function readProviderConfig(
 function findDeprecatedTrackerKeys(
   tracker: Record<string, WorkflowFrontMatterNode>
 ): string[] {
-  return DEPRECATED_TRACKER_PROVIDER_KEYS.filter(
-    (key) => key in tracker
-  );
+  return DEPRECATED_TRACKER_PROVIDER_KEYS.filter((key) => key in tracker);
 }
 
 function throwDeprecatedTrackerKeysError(keys: readonly string[]): never {
@@ -687,7 +653,7 @@ function readRequiredLabelList(
 }
 
 function readPriorityConfig(
-  provider: Record<string, unknown>,
+  provider: Record<string, unknown>
 ): WorkflowPriorityConfig | null {
   const priorityValue = provider.priority;
   if (priorityValue === undefined || priorityValue === null) {
@@ -1129,6 +1095,12 @@ function parseRuntimeConfig(
           isolation,
           "trust_repo_config",
           "runtime.isolation.trust_repo_config"
+        ) ?? false,
+      inheritEnvironment:
+        readOptionalBoolean(
+          isolation,
+          "inherit_environment",
+          "runtime.isolation.inherit_environment"
         ) ?? false,
     },
     auth: {
