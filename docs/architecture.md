@@ -24,6 +24,29 @@ answers "where is it now".
 Each slice points at the current sources of truth for that layer. When a PR
 touches a layer, check that its slice (and the linked documents) still holds.
 
+### Cross-layer Linear recovery safeguards
+
+The Linear recovery fixes span several layers rather than belonging solely to
+the tracker adapter:
+
+- **Coordination:** `packages/orchestrator/src/service.ts` consumes the durable
+  retry budget for dirty-workspace recovery, preserves recovery context on
+  exhaustion, releases the claim, and requires an explicit tracker state change
+  before redispatch. Docker coverage: [bounded recovery circuit breaker](../e2e/scenarios/20-bounded-recovery-circuit-breaker.md).
+- **Execution:** `packages/worker/src/turn-lease.ts` distinguishes permanent
+  unsupported state reads from transient provider failures and retains
+  diagnostics for the latter. This capability behavior is focused-test coverage
+  because the Docker file tracker implements state reads.
+- **Core and coordination:** `packages/core/src/workflow/issue-identity.ts`
+  recognizes normalized `TEAM-123` branch and workpad evidence for safe
+  dirty-workspace attribution; `packages/orchestrator/src/service.ts` consumes
+  that evidence. Docker coverage: [Linear dirty-workspace recovery](../e2e/scenarios/21-linear-dirty-workspace-recovery.md).
+- **Configuration and integration:** `packages/cli/src/commands/doctor.ts`
+  selects the Linear adapter for standalone `doctor --smoke` reads without a
+  GitHub Project binding. This provider selection is focused-test coverage;
+  [the Linear sandbox guide](../e2e/scenarios/09-linear-sandbox.md) is the
+  separate live-provider acceptance procedure.
+
 ### 1. Policy — defined by the repo/project
 
 - `WORKFLOW.md` (repository root or standalone project folder) — prompt body and team rules
@@ -99,7 +122,6 @@ touches a layer, check that its slice (and the linked documents) still holds.
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason.
 - Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract, serves adapter-native CLI smoke reads (`listIssues` / `fetchIssueStatesByIds`) for standalone projects, confirms per-turn `state-read` requests from a fresh issue query, and exposes normalized Linear `branchName` values for dirty-workspace attribution without treating them as checkout refs. Its pickup labels instead filter label-ineligible candidates from the list before dispatch, so they are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records. Linear transition requests are explicitly rejected because state mutation remains worker-owned through `linear_graphql`.
-- Linear recovery safeguards are end-to-end: worker refresh diagnostics distinguish unsupported capability reads from transient provider failures; native `TEAM-123` branch/workpad evidence retains attributable dirty work; recovery failures consume the durable retry budget and preserve manual-intervention context on exhaustion; and standalone `doctor --smoke` reads Linear issues without a GitHub Project binding. The authoritative regression map is the worker lifecycle table in `AGENT_TEST.md`, with Docker coverage in TC-20 and TC-21 and live-provider acceptance guidance in TC-09.
 - File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
 - Compact adapter profiles: [GitHub Project](trackers/github-project.md),
