@@ -117,7 +117,7 @@ describe("tracker refresh fail-closed threshold", () => {
     });
     expect(resolveTrackerRefreshGate("unsupported", 1, 2)).toEqual({
       action: "skip",
-      count: 0,
+      count: 1,
     });
     expect(resolveTrackerRefreshGate("non-actionable", 1, 2)).toEqual({
       action: "complete",
@@ -126,6 +126,15 @@ describe("tracker refresh fail-closed threshold", () => {
     expect(resolveTrackerRefreshGate("active", 1, 2)).toEqual({
       action: "continue",
       count: 0,
+    });
+  });
+
+  it("accepts local convergence when a tracker read is permanently unsupported", () => {
+    expect(
+      resolveTrackerRefreshGate("unsupported", 2, 3, "convergence")
+    ).toEqual({
+      action: "converge",
+      count: 2,
     });
   });
 
@@ -168,7 +177,7 @@ describe("tracker refresh fail-closed threshold", () => {
     });
   });
 
-  it("classifies unsupported tracker state requests without fail-closing", async () => {
+  it("classifies unsupported tracker state requests without fail-closing or resetting the transient streak", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -199,7 +208,7 @@ describe("tracker refresh fail-closed threshold", () => {
       },
     });
     expect(updateRefreshFailureCount(result.state, 2, 3)).toEqual({
-      count: 0,
+      count: 2,
       failClosed: false,
     });
   });

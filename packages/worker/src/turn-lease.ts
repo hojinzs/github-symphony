@@ -44,20 +44,29 @@ export function updateRefreshFailureCount(
   currentCount: number,
   threshold: number
 ): { count: number; failClosed: boolean } {
-  const count = state === "unknown" ? currentCount + 1 : 0;
+  const count =
+    state === "unsupported"
+      ? currentCount
+      : state === "unknown"
+        ? currentCount + 1
+        : 0;
   return { count, failClosed: count >= threshold };
 }
 
 export type TrackerRefreshGateAction =
   | "continue"
+  | "converge"
   | "complete"
   | "fail-closed"
   | "skip";
 
+export type TrackerRefreshGateContext = "between-turn" | "convergence";
+
 export function resolveTrackerRefreshGate(
   state: TrackerRefreshState,
   currentCount: number,
-  threshold: number
+  threshold: number,
+  context: TrackerRefreshGateContext = "between-turn"
 ): { action: TrackerRefreshGateAction; count: number } {
   const refreshFailures = updateRefreshFailureCount(
     state,
@@ -68,7 +77,10 @@ export function resolveTrackerRefreshGate(
     return { action: "complete", count: refreshFailures.count };
   }
   if (state === "unsupported") {
-    return { action: "skip", count: refreshFailures.count };
+    return {
+      action: context === "convergence" ? "converge" : "skip",
+      count: refreshFailures.count,
+    };
   }
   return {
     action: refreshFailures.failClosed ? "fail-closed" : "continue",

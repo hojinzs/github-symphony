@@ -1945,14 +1945,14 @@ async function runCodexClientProtocol(
         const refreshGate = resolveTrackerRefreshGate(
           trackerState,
           consecutiveRefreshFailures,
-          resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD)
+          resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD),
+          "convergence"
         );
         consecutiveRefreshFailures = refreshGate.count;
-        if (refreshGate.action === "skip") {
+        if (refreshGate.action === "converge") {
           process.stderr.write(
-            "[worker] convergence tracker gate skipped because state refresh is unsupported\n"
+            "[worker] convergence tracker confirmation unavailable (capability unsupported) — accepting local convergence signal\n"
           );
-          continue;
         }
         if (refreshGate.action === "complete") {
           runtimeState.runPhase = "finishing";

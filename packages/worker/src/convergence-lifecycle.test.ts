@@ -17,7 +17,12 @@ async function runConvergenceThreshold(response: Response) {
     vi.fn().mockResolvedValue(response)
   );
   const trackerState = trackerRefresh.state;
-  const refreshGate = resolveTrackerRefreshGate(trackerState, 0, 1);
+  const refreshGate = resolveTrackerRefreshGate(
+    trackerState,
+    0,
+    1,
+    "convergence"
+  );
 
   if (refreshGate.action === "skip") {
     return {
@@ -91,7 +96,7 @@ async function runTurnBoundary(response: Response) {
 }
 
 describe("convergence threshold lifecycle", () => {
-  it("continues turns when tracker state reads are permanently unsupported", async () => {
+  it("accepts local convergence when tracker reads are permanently unsupported", async () => {
     const unsupported = new Response(
       JSON.stringify({
         ok: false,
@@ -106,10 +111,10 @@ describe("convergence threshold lifecycle", () => {
       executionPhase: "implementation",
     });
     await expect(runConvergenceThreshold(unsupported)).resolves.toEqual({
-      runPhase: "running",
+      runPhase: "failed",
       executionPhase: "implementation",
-      exitClassification: null,
-      lastError: null,
+      exitClassification: "convergence-detected",
+      lastError: "convergence_detected: workspace unchanged",
     });
   });
 
