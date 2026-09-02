@@ -2068,6 +2068,42 @@ Prompt body
     });
   });
 
+  it("reports unsupported tracker adapters as smoke diagnostics", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createFileWorkflowFixture();
+    const projectConfig = createFileProjectConfig(workspaceDir);
+    projectConfig.tracker.adapter = "jira" as never;
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke"], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved" as const,
+          projectId: "tenant-a",
+          projectConfig,
+        }),
+        resolveTrackerAdapter: vi.fn(() => {
+          throw new Error("Unsupported tracker adapter: jira");
+        }),
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining('does not support the "jira"'),
+      details: expect.objectContaining({
+        adapter: "jira",
+        error: "Unsupported tracker adapter: jira",
+      }),
+    });
+  });
+
   it("reports a missing repository mapping for non-GitHub smoke checks", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

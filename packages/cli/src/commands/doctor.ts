@@ -1443,6 +1443,8 @@ async function buildDoctorSmokeChecks(input: {
     projectDetail: ProjectDetail;
   } | null = null;
   if (trackerKind === "github-project") {
+    // Earlier diagnostics return a failure check for these missing values.
+    // Keep this guard to preserve TypeScript's narrowed GitHub-only state.
     if (!input.auth || !input.projectBindingId || !input.projectDetail) {
       return checks;
     }
@@ -1475,9 +1477,23 @@ async function buildDoctorSmokeChecks(input: {
       return checks;
     }
 
-    const trackerAdapter = input.deps.resolveTrackerAdapter(
-      input.selection.projectConfig.tracker
-    );
+    let trackerAdapter: ReturnType<typeof resolveTrackerAdapter>;
+    try {
+      trackerAdapter = input.deps.resolveTrackerAdapter(
+        input.selection.projectConfig.tracker
+      );
+    } catch (error) {
+      checks.push(
+        failCheck(
+          "smoke_issue",
+          "Smoke target issue",
+          `Smoke check does not support the "${trackerKind}" tracker adapter.`,
+          "Upgrade gh-symphony, or configure a tracker adapter this CLI supports, then re-run the smoke check.",
+          { adapter: trackerKind, error: formatSmokeError(error) }
+        )
+      );
+      return checks;
+    }
     const trackerDependencies = {
       token:
         trackerKind === "linear"
