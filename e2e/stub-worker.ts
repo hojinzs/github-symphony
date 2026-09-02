@@ -16,6 +16,8 @@
  *                            refresh prevents turn two after its label is removed
  *   linear-dirty-recovery — leaves DEV-54 dirty mid-turn, then verifies the
  *                           same Linear workspace is reused on recovery
+ *   dirty-unpublished-worktree — simulates a successful host branch push
+ *                           while tracked and untracked workspace edits remain
  */
 
 import { existsSync } from "node:fs";
@@ -45,7 +47,8 @@ type Scenario =
   | "api-progress"
   | "api-progress-unknown"
   | "required-label-removed"
-  | "linear-dirty-recovery";
+  | "linear-dirty-recovery"
+  | "dirty-unpublished-worktree";
 const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "happy",
   "fail",
@@ -59,6 +62,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "api-progress-unknown",
   "required-label-removed",
   "linear-dirty-recovery",
+  "dirty-unpublished-worktree",
 ]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
@@ -84,6 +88,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     "api-progress-unknown": { startMs: 2000, runMs: 1000 },
     "required-label-removed": { startMs: 2000, runMs: 1000 },
     "linear-dirty-recovery": { startMs: 100, runMs: 100 },
+    "dirty-unpublished-worktree": { startMs: 100, runMs: 100 },
   };
 
 function resolveCoreModuleUrl(): string {
@@ -163,7 +168,12 @@ function emitOrchestratorEvent(event: string): void {
             : status === "completed"
               ? "succeeded"
               : null,
-      lastError: status === "failed" ? "Stub worker simulated failure" : null,
+      lastError:
+        status === "failed"
+          ? "Stub worker simulated failure"
+          : SCENARIO === "dirty-unpublished-worktree" && status === "completed"
+            ? "git_unpublished_worktree: committed_transport_succeeded branch=feat/assigned head=stubbed tracked=[ M tracked.txt] untracked=[untracked/notes.txt]"
+            : null,
     })
   );
 }
@@ -404,6 +414,34 @@ async function exerciseLinearDirtyRecovery(): Promise<void> {
   await requestAndConfirmApiProgress();
 }
 
+async function prepareDirtyUnpublishedWorktree(): Promise<void> {
+  const repositoryDirectory = process.env.WORKING_DIRECTORY ?? process.cwd();
+  const trackedPath = join(repositoryDirectory, "tracked.txt");
+  const untrackedPath = join(repositoryDirectory, "untracked", "notes.txt");
+  execFileSync("git", ["config", "user.name", "Symphony E2E"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["config", "user.email", "e2e@example.test"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  await writeFile(trackedPath, "committed branch content\n", "utf8");
+  execFileSync("git", ["add", "tracked.txt"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["commit", "-m", "stub committed branch work"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  await writeFile(trackedPath, "unpublished tracked edit\n", "utf8");
+  await mkdir(dirname(untrackedPath), { recursive: true });
+  await writeFile(untrackedPath, "unpublished untracked edit\n", "utf8");
+  console.error("[stub-worker] dirty unpublished worktree prepared");
+  await requestAndConfirmApiProgress();
+}
+
 async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
@@ -484,6 +522,9 @@ async function run() {
   }
   if (SCENARIO === "linear-dirty-recovery") {
     await exerciseLinearDirtyRecovery();
+  }
+  if (SCENARIO === "dirty-unpublished-worktree") {
+    await prepareDirtyUnpublishedWorktree();
   }
   if (SCENARIO === "recovery-fail") {
     await writeFile(

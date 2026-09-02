@@ -15,6 +15,10 @@ export type GitTransportResult = {
   branch: string;
   pushed: boolean;
   head: string;
+  unpublishedWorktreeChanges: {
+    tracked: string[];
+    untracked: string[];
+  } | null;
 };
 
 export type GitTransportAttempt =
@@ -35,6 +39,14 @@ export function applyGitTransportAttempt(
     process.stderr.write(message)
 ): 0 | 1 {
   if (attempt.ok) {
+    const unpublished = attempt.result.unpublishedWorktreeChanges;
+    if (unpublished) {
+      state.lastError = formatUnpublishedWorktreeError(attempt.result);
+      writeStderr(
+        `[worker] host Git transport pushed ${attempt.result.branch} at ${attempt.result.head}, but tracked or untracked work remains unpublished\n`
+      );
+      return 0;
+    }
     writeStderr(
       `[worker] host Git transport pushed ${attempt.result.branch} at ${attempt.result.head}\n`
     );
@@ -136,10 +148,40 @@ export async function synchronizeAssignedBranch(options: {
       remoteUrl,
       `${localRef}:refs/heads/${branch}`,
     ]);
-    return { branch, pushed: true, head };
+    const unpublishedWorktreeChanges = await readUnpublishedWorktreeChanges(
+      options.cwd,
+      workspaceEnv
+    );
+    return {
+      branch,
+      pushed: true,
+      head,
+      unpublishedWorktreeChanges,
+    };
   } finally {
     await rm(transportDirectory, { recursive: true, force: true });
   }
+}
+
+export function formatUnpublishedWorktreeError(
+  result: Pick<
+    GitTransportResult,
+    "branch" | "head" | "unpublishedWorktreeChanges"
+  >
+): string {
+  const changes = result.unpublishedWorktreeChanges;
+  if (!changes) {
+    throw new Error(
+      "cannot format an unpublished-worktree error without changes"
+    );
+  }
+  return [
+    "git_unpublished_worktree: committed_transport_succeeded",
+    `branch=${result.branch}`,
+    `head=${result.head}`,
+    `tracked=[${changes.tracked.join(", ")}]`,
+    `untracked=[${changes.untracked.join(", ")}]`,
+  ].join(" ");
 }
 
 export async function trySynchronizeAssignedBranch(options: {
@@ -242,6 +284,38 @@ async function readCurrentBranch(
     }
     throw createGitError(args, error);
   }
+}
+
+async function readUnpublishedWorktreeChanges(
+  cwd: string,
+  env: NodeJS.ProcessEnv
+): Promise<GitTransportResult["unpublishedWorktreeChanges"]> {
+  const output = await runGit(cwd, env, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+  ]);
+  const tracked: string[] = [];
+  const untracked: string[] = [];
+  const records = output.split("\0");
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record) continue;
+    const status = record.slice(0, 2);
+    const path = record.slice(3);
+    if (status === "??") {
+      untracked.push(path);
+      continue;
+    }
+    tracked.push(`${status} ${path}`);
+    if (status.includes("R") || status.includes("C")) {
+      index += 1;
+    }
+  }
+  return tracked.length === 0 && untracked.length === 0
+    ? null
+    : { tracked, untracked };
 }
 
 async function runGit(

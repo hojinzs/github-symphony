@@ -4538,136 +4538,152 @@ Retry inconclusive work.
     });
   });
 
-  it("retains a terminal issue workspace with unpublished transport state after a later non-transport run", async () => {
-    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-startup-transport-retention-")
-    );
-    const repository = await createRepositoryFixture(
-      tempRoot,
-      "acme",
-      "platform"
-    );
-    const store = new OrchestratorFsStore(tempRoot);
-    const projectConfig = createProjectConfig(tempRoot, repository);
-    await store.saveProjectConfig(projectConfig);
-    const workspaceKey = deriveIssueWorkspaceKey(
-      { adapter: "github-project", issueSubjectId: "issue-1" },
-      "acme/platform#1"
-    );
-    const workspacePath = resolveIssueWorkspaceDirectory(
-      store.projectDir(projectConfig.projectId),
-      workspaceKey
-    );
-    const repositoryPath = join(workspacePath, "repository");
-    const sentinelPath = join(workspacePath, "unpublished-commit.txt");
-    await mkdir(repositoryPath, { recursive: true });
-    await writeFile(sentinelPath, "retain me", "utf8");
-    await store.saveProjectIssueOrchestrations("tenant-1", [
-      {
-        issueId: "issue-1",
-        identifier: "acme/platform#1",
-        workspaceKey,
-        completedOnce: false,
-        failureRetryCount: 1,
-        state: "released",
-        currentRunId: null,
-        retryEntry: null,
-        updatedAt: "2026-03-08T00:00:07.000Z",
-      },
-    ]);
-    await store.saveIssueWorkspace({
-      workspaceKey,
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-      issueIdentifier: "acme/platform#1",
-      workspacePath,
-      repositoryPath,
-      status: "active",
-      createdAt: "2026-03-08T00:00:00.000Z",
-      updatedAt: "2026-03-08T00:00:07.000Z",
-      lastError: "git_transport_failed: refusing to push feat/assigned",
-    });
-    await store.saveRun({
-      runId: "run-transport-failed",
-      projectId: "tenant-1",
-      projectSlug: "tenant-1",
-      issueId: "issue-1",
-      issueSubjectId: "issue-1",
-      issueIdentifier: "acme/platform#1",
-      issueState: "Done",
-      repository,
-      status: "suppressed",
-      attempt: 2,
-      processId: null,
-      port: null,
-      workingDirectory: repositoryPath,
-      issueWorkspaceKey: workspaceKey,
-      workspaceRuntimeDir: join(tempRoot, "run-transport-failed", "workspace"),
-      workflowPath: null,
-      retryKind: null,
-      createdAt: "2026-03-08T00:00:00.000Z",
-      updatedAt: "2026-03-08T00:00:07.000Z",
-      startedAt: "2026-03-08T00:00:00.000Z",
-      completedAt: "2026-03-08T00:00:07.000Z",
-      runPhase: "failed",
-      lastError: "git_transport_failed: refusing to push feat/assigned",
-      nextRetryAt: null,
-    });
-    await store.saveRun({
-      runId: "run-later-agent-failure",
-      projectId: "tenant-1",
-      projectSlug: "tenant-1",
-      issueId: "issue-1",
-      issueSubjectId: "issue-1",
-      issueIdentifier: "acme/platform#1",
-      issueState: "Done",
-      repository,
-      status: "failed",
-      attempt: 3,
-      processId: null,
-      port: null,
-      workingDirectory: repositoryPath,
-      issueWorkspaceKey: workspaceKey,
-      workspaceRuntimeDir: join(
+  it.each([
+    [
+      "a transport failure",
+      "git_transport_failed: refusing to push feat/assigned",
+    ],
+    [
+      "a dirty worktree after committed transport",
+      "git_unpublished_worktree: committed_transport_succeeded branch=feat/assigned head=deadbeef tracked=[ M tracked.txt] untracked=[untracked/notes.txt]",
+    ],
+  ])(
+    "retains a terminal issue workspace with %s after a later non-transport run",
+    async (_description, unpublishedError) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-startup-transport-retention-")
+      );
+      const repository = await createRepositoryFixture(
         tempRoot,
-        "run-later-agent-failure",
-        "workspace"
-      ),
-      workflowPath: null,
-      retryKind: null,
-      createdAt: "2026-03-08T00:00:08.000Z",
-      updatedAt: "2026-03-08T00:00:09.000Z",
-      startedAt: "2026-03-08T00:00:08.000Z",
-      completedAt: "2026-03-08T00:00:09.000Z",
-      runPhase: "failed",
-      lastError: "agent failed before a subsequent transport attempt",
-      nextRetryAt: null,
-    });
-    const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValueOnce(
-          createTrackerResponseWithState(repository, "Done")
-        )
-        .mockResolvedValueOnce(
-          createTrackerResponseWithState(repository, "Done")
-        ) as never,
-      spawnImpl: vi.fn().mockReturnValue({
-        pid: 4103,
-        unref: vi.fn(),
-      }) as never,
-      now: () => new Date("2026-03-08T00:00:08.000Z"),
-    });
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      const workspaceKey = deriveIssueWorkspaceKey(
+        { adapter: "github-project", issueSubjectId: "issue-1" },
+        "acme/platform#1"
+      );
+      const workspacePath = resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey
+      );
+      const repositoryPath = join(workspacePath, "repository");
+      const sentinelPath = join(workspacePath, "unpublished-commit.txt");
+      await mkdir(repositoryPath, { recursive: true });
+      await writeFile(sentinelPath, "retain me", "utf8");
+      await store.saveProjectIssueOrchestrations("tenant-1", [
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey,
+          completedOnce: false,
+          failureRetryCount: 1,
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-03-08T00:00:07.000Z",
+        },
+      ]);
+      await store.saveIssueWorkspace({
+        workspaceKey,
+        projectId: "tenant-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        workspacePath,
+        repositoryPath,
+        status: "active",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:07.000Z",
+        lastError: unpublishedError,
+      });
+      await store.saveRun({
+        runId: "run-transport-failed",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueState: "Done",
+        repository,
+        status: "suppressed",
+        attempt: 2,
+        processId: null,
+        port: null,
+        workingDirectory: repositoryPath,
+        issueWorkspaceKey: workspaceKey,
+        workspaceRuntimeDir: join(
+          tempRoot,
+          "run-transport-failed",
+          "workspace"
+        ),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:07.000Z",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        completedAt: "2026-03-08T00:00:07.000Z",
+        runPhase: "failed",
+        lastError: unpublishedError,
+        nextRetryAt: null,
+      });
+      await store.saveRun({
+        runId: "run-later-agent-failure",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueState: "Done",
+        repository,
+        status: "failed",
+        attempt: 3,
+        processId: null,
+        port: null,
+        workingDirectory: repositoryPath,
+        issueWorkspaceKey: workspaceKey,
+        workspaceRuntimeDir: join(
+          tempRoot,
+          "run-later-agent-failure",
+          "workspace"
+        ),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-08T00:00:08.000Z",
+        updatedAt: "2026-03-08T00:00:09.000Z",
+        startedAt: "2026-03-08T00:00:08.000Z",
+        completedAt: "2026-03-08T00:00:09.000Z",
+        runPhase: "failed",
+        lastError: "agent failed before a subsequent transport attempt",
+        nextRetryAt: null,
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValueOnce(
+            createTrackerResponseWithState(repository, "Done")
+          )
+          .mockResolvedValueOnce(
+            createTrackerResponseWithState(repository, "Done")
+          ) as never,
+        spawnImpl: vi.fn().mockReturnValue({
+          pid: 4103,
+          unref: vi.fn(),
+        }) as never,
+        now: () => new Date("2026-03-08T00:00:08.000Z"),
+      });
 
-    await service.run({ once: true });
+      await service.run({ once: true });
 
-    await expect(readFile(sentinelPath, "utf8")).resolves.toBe("retain me");
-    await expect(
-      store.loadIssueWorkspace("tenant-1", workspaceKey)
-    ).resolves.toMatchObject({ status: "active" });
-  });
+      await expect(readFile(sentinelPath, "utf8")).resolves.toBe("retain me");
+      await expect(
+        store.loadIssueWorkspace("tenant-1", workspaceKey)
+      ).resolves.toMatchObject({ status: "active" });
+    }
+  );
 
   it("logs and ignores before_remove hook failures during startup cleanup", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
@@ -16969,7 +16985,7 @@ async function writeWorkflowFixture(
 ): Promise<void> {
   const content = normalizeTrackerProviderFixture(
     options.rawWorkflow ??
-    `---
+      `---
 tracker:
   kind: github-project
   provider:
@@ -17036,15 +17052,14 @@ function normalizeTrackerProviderFixture(content: string): string {
     const key = trackerLines[index]?.match(/^[ ]{2}([a-z_]+):/)?.[1];
     let next = index + 1;
     while (
-      next < trackerLines.length && !/^[ ]{2}\S/.test(trackerLines[next]!)
+      next < trackerLines.length &&
+      !/^[ ]{2}\S/.test(trackerLines[next]!)
     ) {
       next += 1;
     }
     const block = trackerLines.slice(index, next);
     if (key && flatKeys.has(key)) {
-      providerLines.push(
-        ...block.map((line) => `  ${line}`)
-      );
+      providerLines.push(...block.map((line) => `  ${line}`));
     } else {
       remaining.push(...block);
     }
