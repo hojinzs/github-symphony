@@ -1581,12 +1581,13 @@ export class OrchestratorService {
             continue;
           }
         }
+        const latestRun = latestRunsByIssueId.get(issue.id) ?? null;
         if (
           await this.isFailureRetrySuppressedIssue(
             tenant,
             issue,
             issueRecords,
-            latestRunsByIssueId.get(issue.id) ?? null
+            latestRun
           )
         ) {
           continue;
@@ -1618,7 +1619,7 @@ export class OrchestratorService {
           existingWorkspace?.workspaceKey ??
           existingIssueRecord?.workspaceKey ??
           preferredWorkspaceKey;
-        const previousRun = latestRunsByIssueId.get(issue.id) ?? null;
+        const previousRun = latestRun;
         const recoveryContext = await this.resolveIncompleteTurnRecoveryContext(
           tenant,
           issue,
@@ -1656,9 +1657,9 @@ export class OrchestratorService {
             existingIssueRecord?.state === "retry_queued"
               ? "retry_queued"
               : "claimed",
-          failureRetryCount: existingIssueRecord?.retryEntry
-            ? existingIssueRecord.failureRetryCount
-            : 0,
+          failureRetryCount: this.isFailureRetryRearmedIssue(issue, latestRun)
+            ? 0
+            : (existingIssueRecord?.failureRetryCount ?? 0),
           currentRunId: null,
           retryEntry: null,
           updatedAt: now.toISOString(),
@@ -3682,18 +3683,14 @@ export class OrchestratorService {
     const persistedRetryKind = recovery ? "recovery" : retryKind;
 
     const failureRetryCount =
-      retryKind === "failure" && !recovery
+      retryKind === "failure"
         ? (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0) + 1
         : (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0);
     const maxFailureRetries = await this.loadMaxFailureRetries(
       tenant,
       run.repository
     );
-    if (
-      retryKind === "failure" &&
-      !recovery &&
-      failureRetryCount >= maxFailureRetries
-    ) {
+    if (retryKind === "failure" && failureRetryCount >= maxFailureRetries) {
       const lastError = formatMaxFailureRetrySuppression(
         runWithTokens,
         failureRetryCount,
@@ -5812,28 +5809,19 @@ export class OrchestratorService {
       return false;
     }
 
-    const suppressedAt =
+    return !this.isFailureRetryRearmedIssue(issue, latestRun);
+  }
+
+  private isFailureRetryRearmedIssue(
+    issue: TrackedIssue,
+    latestRun: OrchestratorRunRecord | null
+  ): boolean {
+    return (
       latestRun?.status === "suppressed" &&
-      latestRun.issueState === issue.state &&
-      latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
-        ? (latestRun.completedAt ?? latestRun.updatedAt)
-        : issueRecord.retryEntry === null &&
-            (latestRun === null ||
-              (parseTimestampMs(issueRecord.updatedAt) ?? 0) >
-                (parseTimestampMs(
-                  latestRun.completedAt ?? latestRun.updatedAt
-                ) ?? 0))
-          ? issueRecord.updatedAt
-          : null;
-    if (suppressedAt === null) return false;
-
-    const issueUpdatedAtMs = parseTimestampMs(issue.updatedAt);
-    const suppressedAtMs = parseTimestampMs(suppressedAt);
-    if (issueUpdatedAtMs === null || suppressedAtMs === null) {
-      return true;
-    }
-
-    return issueUpdatedAtMs <= suppressedAtMs;
+      latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON) ===
+        true &&
+      latestRun.issueState !== issue.state
+    );
   }
 
   private async loadMaxFailureRetries(

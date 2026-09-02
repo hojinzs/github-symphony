@@ -8803,6 +8803,118 @@ Prefer focused changes.
     });
   });
 
+  it("suppresses dirty-workspace recovery when it exhausts the failure retry budget", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-recovery-retry-cap-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxFailureRetries: 3 }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    await writeFile(
+      join(repositoryDirectory, "partial.txt"),
+      "uncommitted recovery work\n",
+      "utf8"
+    );
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 2,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: repositoryDirectory,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir: join(tempRoot, "run-1", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "worker failed after writing partial.txt",
+      nextRetryAt: null,
+      runPhase: "failed",
+      lastEvent: "heartbeat",
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn() as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1", "tenant-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(updatedRun).toMatchObject({
+      status: "suppressed",
+      nextRetryAt: null,
+      retryKind: null,
+    });
+    expect(issueRecords[0]).toMatchObject({
+      state: "released",
+      failureRetryCount: 3,
+      currentRunId: null,
+      retryEntry: null,
+    });
+  });
+
   it("does not redispatch a max-failure-retry-suppressed issue until the tracker changes", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -8973,7 +9085,7 @@ Prefer focused changes.
     });
   });
 
-  it("redispatches a max-failure-retry-suppressed issue after the tracker updates", async () => {
+  it("does not rearm a failure-suppressed issue after a same-state tracker update", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-failure-retry-recovery-")
@@ -9051,16 +9163,16 @@ Prefer focused changes.
     const result = await service.runOnce();
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(result.summary.dispatched).toBe(1);
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
     expect(issueRecords[0]).toMatchObject({
-      state: "running",
-      failureRetryCount: 0,
+      state: "released",
+      failureRetryCount: 3,
+      currentRunId: null,
     });
-    expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
 
-  it("starts a fresh dispatch retry chain after tracker reactivation", async () => {
+  it("keeps an exhausted budget suppressed when no prior run proves a state change", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-failure-retry-reactivation-")
@@ -9101,22 +9213,20 @@ Prefer focused changes.
       spawnImpl: vi.fn() as never,
       now: () => new Date("2026-03-08T00:06:00.000Z"),
     });
-    vi.spyOn(service as never, "startRun").mockRejectedValue(
-      new Error("temporary checkout failure")
-    );
+    const startRun = vi
+      .spyOn(service as never, "startRun")
+      .mockRejectedValue(new Error("temporary checkout failure"));
 
-    await service.runOnce();
+    const result = await service.runOnce();
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
+    expect(result.summary.dispatched).toBe(0);
+    expect(startRun).not.toHaveBeenCalled();
     expect(issueRecords[0]).toMatchObject({
-      state: "retry_queued",
-      failureRetryCount: 1,
+      state: "released",
+      failureRetryCount: 3,
       currentRunId: null,
-      retryEntry: {
-        attempt: 1,
-        dueAt: "2026-03-08T00:06:01.000Z",
-        error: expect.stringContaining("temporary checkout failure"),
-      },
+      retryEntry: null,
     });
   });
 
