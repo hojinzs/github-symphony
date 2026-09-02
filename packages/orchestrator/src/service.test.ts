@@ -9010,7 +9010,7 @@ Prefer focused changes.
     });
   });
 
-  it("does not redispatch a run-less failure-suppressed issue with an older completed run", async () => {
+  it("rearms a legacy run-less exhausted issue with an older completed run", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-runless-failure-suppressed-")
@@ -9083,14 +9083,13 @@ Prefer focused changes.
     const result = await service.runOnce();
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(result.summary.dispatched).toBe(0);
-    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(issueRecords[0]).toMatchObject({
-      state: "released",
-      failureRetryCount: 3,
-      currentRunId: null,
-      updatedAt: "2026-03-08T00:05:00.000Z",
+      state: "running",
+      failureRetryCount: 0,
     });
+    expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
 
   it("does not rearm a failure-suppressed issue after a same-state tracker update", async () => {

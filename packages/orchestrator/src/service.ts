@@ -6504,6 +6504,7 @@ function formatMaxFailureRetrySuppression(
     `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
     `failureRetryCount=${failureRetryCount}.`,
     `maxFailureRetries=${maxFailureRetries}.`,
+    FAILURE_RETRY_REARM_HINT,
     detail,
   ]
     .filter((part): part is string => part !== undefined)
