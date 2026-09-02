@@ -8789,7 +8789,7 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.lastError).toBe(
-      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3."
+      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3. Manual intervention required: change the tracker state to re-arm retries."
     );
     expect(issueRecords[0]).toMatchObject({
       state: "released",
@@ -8906,6 +8906,13 @@ Prefer focused changes.
       status: "suppressed",
       nextRetryAt: null,
       retryKind: null,
+      lastError: expect.stringContaining(
+        "Manual intervention required: change the tracker state to re-arm retries."
+      ),
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        dirtyFiles: ["partial.txt"],
+      },
     });
     expect(issueRecords[0]).toMatchObject({
       state: "released",
@@ -9754,7 +9761,7 @@ Prefer focused changes.
 
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.lastError).toBe(
-      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10."
+      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10. Manual intervention required: change the tracker state to re-arm retries."
     );
     expect(issueRecords[0]).toMatchObject({
       state: "released",

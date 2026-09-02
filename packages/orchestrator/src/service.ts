@@ -3707,6 +3707,7 @@ export class OrchestratorService {
         retryKind: null,
         runPhase: runWithTokens.runPhase ?? "failed",
         lastError,
+        recovery,
       };
       await this.store.saveRun(suppressedRun);
       await this.store.appendRunEvent(run.runId, {

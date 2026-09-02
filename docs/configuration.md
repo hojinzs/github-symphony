@@ -66,9 +66,14 @@ boolean, so provider-native MCP auto-discovery cannot expose agent-owned
 subprocesses. Codex workers likewise receive only host-advertised dynamic tools.
 
 `agent.max_failure_retries` is the failed-attempt budget, including the
-initial failed run: once the counter reaches this value, the issue is
-suppressed rather than scheduling another retry. `agent.retry_base_delay_ms`
-is the initial retry delay; later delays use exponential backoff bounded by
+initial failed run and abnormal exits that retain dirty-workspace recovery
+context. Once the counter reaches this value, the issue is released and
+suppressed with a manual-intervention diagnostic rather than scheduling
+another retry. That suppression and its counter survive fresh tracker polls,
+daemon restarts, claim releases, and same-state tracker updates; an explicit
+tracker state change re-arms the issue. Healthy continuation retries do not
+consume this failure budget. `agent.retry_base_delay_ms` is the initial retry
+delay; later delays use exponential backoff bounded by
 `agent.max_retry_backoff_ms`.
 
 `codex.stall_timeout_ms` detects inactivity when positive. When it is zero or

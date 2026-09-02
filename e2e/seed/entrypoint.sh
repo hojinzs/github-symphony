@@ -22,6 +22,18 @@ if [ -n "${E2E_REQUIRED_LABELS:-}" ]; then
   mv /tmp/e2e-workflow.md "$WORK_DIR/WORKFLOW.md"
 fi
 
+if [ -n "${E2E_MAX_FAILURE_RETRIES:-}" ]; then
+  awk -v retries="$E2E_MAX_FAILURE_RETRIES" '
+    /^  max_concurrent_agents:/ {
+      print
+      print "  max_failure_retries: " retries
+      next
+    }
+    { print }
+  ' "$WORK_DIR/WORKFLOW.md" > /tmp/e2e-workflow.md
+  mv /tmp/e2e-workflow.md "$WORK_DIR/WORKFLOW.md"
+fi
+
 # GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH is intentionally limited to the
 # file-tracker E2E workflow so repo init can bind the mounted fixture file.
 cd "$WORK_DIR"

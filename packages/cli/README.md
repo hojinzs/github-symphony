@@ -335,6 +335,13 @@ The command checks project repository linkage, GitHub Project item presence,
 run / retry / convergence ownership, and project or per-state concurrency
 limits.
 
+An issue whose worker has exhausted `agent.max_failure_retries` remains
+suppressed even if later polls list it again or automation updates it without
+changing its tracker state. The persisted run diagnostic reports that manual
+intervention is required. After resolving the underlying failure, explicitly
+change the issue's tracker state to re-arm dispatch; healthy continuation
+retries do not consume this budget.
+
 If the project has no previous local run snapshot and the repository path is
 not stored in the managed project config, pass `--workflow` so the command
 does not guess from the current shell directory.

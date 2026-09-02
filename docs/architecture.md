@@ -63,6 +63,14 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - This reservation behavior is an intentional repository-local scheduler
   divergence. After a confirmed transition out of an active state, the worker
   also receives a fixed 30-second clean-exit grace before reconciliation acts.
+- Failed runs with dirty-workspace recovery consume the same durable
+  `max_failure_retries` budget as other worker failures. Exhaustion preserves
+  the recovery context, releases the claim, and suppresses redispatch until an
+  explicit tracker state change re-arms the issue; fresh polls and same-state
+  tracker writes cannot silently reset the counter. Healthy continuation
+  retries remain outside this circuit breaker. This bounded failure handling
+  conforms to the upstream retry-safety model; its restart-persistent storage
+  follows the repository-local persistence divergence documented below.
 - Project workflow and polling policy load before tracker candidates are fetched. The scheduler then applies only the normalized `TrackedIssue.dispatchable` gate before loading issue-specific workflow or starting a worker. It does not encode provider assignment, repository-scope, label, or fork rules; each tracker adapter derives those rules and supplies an explainable `dispatchReason` with non-dispatchable candidates.
 - Initial prompt rendering receives the execution phase derived from the configured planning and active states.
 - Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. An unavailable final read persists a warning-level `run-finalization-deferred` event with a discriminated cause and defers classification for up to three consecutive reconciliation ticks; the third unknown read enters the existing failure-retry path so the run cannot remain pinned. The tick counter intentionally follows reconciliation opportunities rather than wall-clock time, so adaptive polling can stretch the elapsed grace window by up to the configured 10× poll multiplier while preserving a deterministic provider-read budget. A known active or non-actionable result resets the streak. This failure-retry treatment after a successful worker exit intentionally diverges from the upstream specification's normal-exit continuation retry: the repository prioritizes bounded finalization and eventual suppression when canonical state cannot be established, and retains the tracker cause in retry diagnostics instead of reporting a worker failure. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.

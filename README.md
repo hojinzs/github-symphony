@@ -961,6 +961,13 @@ Runtime state lives under `.runtime/orchestrator/`:
 | `runs/<run-id>/run.json`      | Run snapshot, retry state, worker assignment |
 | `runs/<run-id>/events.ndjson` | Structured orchestration events              |
 
+Failed workers, including failures that retain dirty-workspace recovery
+context, consume `agent.max_failure_retries`. When that budget is exhausted,
+the claim is released and the issue remains suppressed across restarts,
+fresh polls, and same-state tracker writes. Change the issue's tracker state
+explicitly when an operator has resolved the failure and wants to re-arm it.
+Healthy continuation retries do not consume the failure budget.
+
 Read orchestration state via the status API (`/api/v1/state`) rather than reading status files directly.
 
 Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony repo start --once` is the first production-like run: it validates the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--port [port]` when you want the JSON status API available; `--http [port]` remains a supported alias. With `--once --port`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`. `server.port` in `WORKFLOW.md` enables the same API when no CLI port is supplied. Add `--web` instead when you want the browser dashboard at `/` plus the JSON API.
