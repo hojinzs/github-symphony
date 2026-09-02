@@ -1,14 +1,13 @@
 import { classifySessionExit } from "@gh-symphony/core";
 import { describe, expect, it, vi } from "vitest";
-import { resolveConvergenceThresholdAction } from "./convergence-detection.js";
 import { resolveFinalExecutionPhase } from "./execution-phase.js";
 import {
   refreshTrackerState,
-  updateRefreshFailureCount,
+  resolveTrackerRefreshGate,
 } from "./turn-lease.js";
 
 async function runConvergenceThreshold(response: Response) {
-  const trackerState = await refreshTrackerState(
+  const trackerRefresh = await refreshTrackerState(
     {
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
       SYMPHONY_ORCHESTRATOR_TOKEN: "worker-token",
@@ -17,13 +16,28 @@ async function runConvergenceThreshold(response: Response) {
     ["Ready", "In progress", "Land"],
     vi.fn().mockResolvedValue(response)
   );
+  const refreshGate = resolveTrackerRefreshGate(
+    trackerRefresh.state,
+    0,
+    1,
+    "convergence"
+  );
 
-  if (resolveConvergenceThresholdAction(trackerState) === "complete") {
+  if (refreshGate.action === "defer") {
+    return {
+      runPhase: "running",
+      executionPhase: "implementation",
+      exitClassification: null,
+      lastError: null,
+    };
+  }
+
+  if (refreshGate.action === "complete") {
     return {
       runPhase: "succeeded",
       executionPhase: resolveFinalExecutionPhase({
         currentPhase: "implementation",
-        trackerState,
+        trackerState: "non-actionable",
         userInputRequired: false,
       }),
       exitClassification: classifySessionExit({
@@ -37,11 +51,8 @@ async function runConvergenceThreshold(response: Response) {
     };
   }
 
-  if (trackerState === "unknown") {
-    const refreshFailures = updateRefreshFailureCount(trackerState, 0, 1);
-    if (refreshFailures.failClosed) {
-      throw new Error("orchestrator_unavailable");
-    }
+  if (refreshGate.action === "fail-closed") {
+    throw new Error("orchestrator_unavailable");
   }
 
   return {
@@ -59,7 +70,7 @@ async function runConvergenceThreshold(response: Response) {
 }
 
 async function runTurnBoundary(response: Response) {
-  const trackerState = await refreshTrackerState(
+  const trackerRefresh = await refreshTrackerState(
     {
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
       SYMPHONY_ORCHESTRATOR_TOKEN: "worker-token",
@@ -68,8 +79,10 @@ async function runTurnBoundary(response: Response) {
     ["Ready", "In progress", "Land"],
     vi.fn().mockResolvedValue(response)
   );
+  const trackerState = trackerRefresh.state;
+  const refreshGate = resolveTrackerRefreshGate(trackerState, 0, 3);
 
-  return trackerState === "non-actionable"
+  return refreshGate.action === "complete"
     ? {
         action: "complete",
         executionPhase: resolveFinalExecutionPhase({
@@ -82,6 +95,28 @@ async function runTurnBoundary(response: Response) {
 }
 
 describe("convergence threshold lifecycle", () => {
+  it("accepts local convergence when tracker reads are permanently unsupported", async () => {
+    const unsupported = new Response(
+      JSON.stringify({
+        ok: false,
+        outcome: "rejected",
+        error: "tracker_state_requests_unsupported",
+      }),
+      { status: 403 }
+    );
+
+    await expect(runTurnBoundary(unsupported.clone())).resolves.toEqual({
+      action: "continue",
+      executionPhase: "implementation",
+    });
+    await expect(runConvergenceThreshold(unsupported)).resolves.toEqual({
+      runPhase: "failed",
+      executionPhase: "implementation",
+      exitClassification: "convergence-detected",
+      lastError: "convergence_detected: workspace unchanged",
+    });
+  });
+
   it("completes at the next turn boundary after canonical lifecycle progress", async () => {
     await expect(
       runTurnBoundary(

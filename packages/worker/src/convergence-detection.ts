@@ -1,6 +1,4 @@
 import { spawnSync } from "node:child_process";
-import type { TrackerRefreshState } from "./turn-lease.js";
-
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 
 export type TurnWorkspaceSnapshot = {
@@ -28,20 +26,12 @@ export type TurnProgressEvaluation = {
   fingerprintUnchanged: boolean;
 };
 
-export type ConvergenceThresholdAction = "complete" | "fail";
-
 export function resolveMaxNonProductiveTurns(env: NodeJS.ProcessEnv): number {
   const rawValue = env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS;
   const parsed = Number(rawValue);
   return Number.isInteger(parsed) && parsed > 0
     ? parsed
     : DEFAULT_MAX_NONPRODUCTIVE_TURNS;
-}
-
-export function resolveConvergenceThresholdAction(
-  trackerState: TrackerRefreshState
-): ConvergenceThresholdAction {
-  return trackerState === "non-actionable" ? "complete" : "fail";
 }
 
 export function captureTurnWorkspaceSnapshot(

@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   acquireTurnLease,
   refreshTrackerState,
+  reportTrackerRefresh,
   resolveRefreshFailureThreshold,
+  resolveTrackerRefreshGate,
   updateRefreshFailureCount,
 } from "./turn-lease.js";
 
@@ -104,19 +106,199 @@ describe("worker turn lease", () => {
 });
 
 describe("tracker refresh fail-closed threshold", () => {
+  it("uses one production gate decision for transient thresholds and unsupported reads", () => {
+    expect(resolveTrackerRefreshGate("unknown", 0, 2)).toEqual({
+      action: "continue",
+      count: 1,
+    });
+    expect(resolveTrackerRefreshGate("unknown", 1, 2)).toEqual({
+      action: "fail-closed",
+      count: 2,
+    });
+    expect(resolveTrackerRefreshGate("unsupported", 1, 2)).toEqual({
+      action: "skip",
+      count: 1,
+    });
+    expect(resolveTrackerRefreshGate("non-actionable", 1, 2)).toEqual({
+      action: "complete",
+      count: 0,
+    });
+    expect(resolveTrackerRefreshGate("active", 1, 2)).toEqual({
+      action: "continue",
+      count: 0,
+    });
+  });
+
+  it("accepts local convergence when a tracker read is permanently unsupported", () => {
+    expect(
+      resolveTrackerRefreshGate("unsupported", 2, 3, "convergence")
+    ).toEqual({
+      action: "converge",
+      count: 2,
+    });
+  });
+
+  it("uses the convergence action for a confirmed active tracker read", () => {
+    expect(
+      resolveTrackerRefreshGate("active", 1, 3, "convergence")
+    ).toEqual({
+      action: "converge",
+      count: 0,
+    });
+  });
+
+  it("defers convergence when a transient tracker read is below the threshold", () => {
+    expect(
+      resolveTrackerRefreshGate("unknown", 1, 3, "convergence")
+    ).toEqual({
+      action: "defer",
+      count: 2,
+    });
+  });
+
+  it("logs unsupported capability diagnostics on every read but warns once", () => {
+    const messages: string[] = [];
+    const result = {
+      state: "unsupported" as const,
+      diagnostic: {
+        message: "tracker state requests unsupported",
+        httpStatus: 403,
+        providerError: "tracker_state_requests_unsupported",
+      },
+    };
+    let warningLogged = reportTrackerRefresh(
+      result,
+      "tracker state refresh",
+      false,
+      (message) => messages.push(message)
+    );
+    warningLogged = reportTrackerRefresh(
+      result,
+      "tracker state refresh",
+      warningLogged,
+      (message) => messages.push(message)
+    );
+
+    expect(warningLogged).toBe(true);
+    expect(
+      messages.filter((message) => message.includes("capability unavailable"))
+    ).toHaveLength(1);
+    expect(messages).toContain(
+      "[worker] warning: tracker state refresh capability unavailable; skipping tracker gates and using local convergence signals\n"
+    );
+    expect(
+      messages.filter((message) => message.includes("HTTP 403"))
+    ).toHaveLength(2);
+  });
+
+  it("returns a distinct diagnostic when the orchestrator endpoint is missing", async () => {
+    await expect(refreshTrackerState({}, ["Ready"])).resolves.toEqual({
+      state: "unknown",
+      diagnostic: { message: "orchestrator endpoint not configured" },
+    });
+  });
+
+  it("classifies unsupported tracker state requests without fail-closing or resetting the transient streak", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          outcome: "rejected",
+          error: "tracker_state_requests_unsupported",
+        }),
+        { status: 403 }
+      )
+    );
+
+    const result = await refreshTrackerState(
+      {
+        SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+        SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+        SYMPHONY_RUN_ID: "run-1",
+      },
+      ["Ready"],
+      fetchImpl
+    );
+
+    expect(result).toEqual({
+      state: "unsupported",
+      diagnostic: {
+        message: "tracker state requests unsupported",
+        httpStatus: 403,
+        providerError: "tracker_state_requests_unsupported",
+      },
+    });
+    expect(updateRefreshFailureCount(result.state, 2, 3)).toEqual({
+      count: 2,
+      failClosed: false,
+    });
+  });
+
+  it("preserves HTTP and provider diagnostics for transient failures", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          outcome: "failed",
+          error: "provider unavailable",
+        }),
+        { status: 503 }
+      )
+    );
+
+    await expect(
+      refreshTrackerState(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        ["Ready"],
+        fetchImpl
+      )
+    ).resolves.toEqual({
+      state: "unknown",
+      diagnostic: {
+        message: "tracker state request failed",
+        httpStatus: 503,
+        providerError: "provider unavailable",
+      },
+    });
+  });
+
+  it("preserves exception diagnostics for transient failures", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error("request timed out"));
+
+    await expect(
+      refreshTrackerState(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        ["Ready"],
+        fetchImpl
+      )
+    ).resolves.toEqual({
+      state: "unknown",
+      diagnostic: {
+        message: "tracker state request failed",
+        exceptionMessage: "request timed out",
+      },
+    });
+  });
+
   it("checks canonical tracker state through the authenticated endpoint", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            outcome: "confirmed",
-            state: "LAND",
-            routable: true,
-          })
-        )
-      );
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "LAND",
+          routable: true,
+        })
+      )
+    );
 
     await expect(
       refreshTrackerState(
@@ -128,7 +310,7 @@ describe("tracker refresh fail-closed threshold", () => {
         ["Ready", "Land"],
         fetchImpl
       )
-    ).resolves.toBe("active");
+    ).resolves.toEqual({ state: "active", diagnostic: null });
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://localhost:4680/api/v1/tracker-state",
       expect.objectContaining({
@@ -143,18 +325,16 @@ describe("tracker refresh fail-closed threshold", () => {
   });
 
   it("returns non-actionable only for a confirmed state outside active states", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            outcome: "confirmed",
-            state: "Done",
-            routable: true,
-          })
-        )
-      );
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          outcome: "confirmed",
+          state: "Done",
+          routable: true,
+        })
+      )
+    );
 
     await expect(
       refreshTrackerState(
@@ -166,7 +346,7 @@ describe("tracker refresh fail-closed threshold", () => {
         ["Ready", "In progress", "Land"],
         fetchImpl
       )
-    ).resolves.toBe("non-actionable");
+    ).resolves.toEqual({ state: "non-actionable", diagnostic: null });
   });
 
   it("fails closed when the canonical tracker response is unconfirmed", async () => {
@@ -186,7 +366,13 @@ describe("tracker refresh fail-closed threshold", () => {
         ["Ready"],
         fetchImpl
       )
-    ).resolves.toBe("unknown");
+    ).resolves.toEqual({
+      state: "unknown",
+      diagnostic: {
+        message: "invalid tracker state response",
+        httpStatus: 200,
+      },
+    });
   });
 
   it("returns non-actionable when a refreshed active issue is not routable", async () => {
@@ -213,7 +399,7 @@ describe("tracker refresh fail-closed threshold", () => {
         ["Ready", "In progress", "Land"],
         fetchImpl
       )
-    ).resolves.toBe("non-actionable");
+    ).resolves.toEqual({ state: "non-actionable", diagnostic: null });
     expect(errorSpy).toHaveBeenCalledWith(
       '[worker] issue no longer routable: Issue is missing required labels ("agent").'
     );
@@ -241,7 +427,13 @@ describe("tracker refresh fail-closed threshold", () => {
         ["Ready", "In progress", "Land"],
         fetchImpl
       )
-    ).resolves.toBe("unknown");
+    ).resolves.toEqual({
+      state: "unknown",
+      diagnostic: {
+        message: "invalid tracker state response",
+        httpStatus: 200,
+      },
+    });
   });
 
   it("returns unknown on transport failure for threshold accounting", async () => {
@@ -256,7 +448,13 @@ describe("tracker refresh fail-closed threshold", () => {
         ["Ready"],
         fetchImpl
       )
-    ).resolves.toBe("unknown");
+    ).resolves.toEqual({
+      state: "unknown",
+      diagnostic: {
+        message: "tracker state request failed",
+        exceptionMessage: "network error",
+      },
+    });
   });
 
   it("uses a positive configured threshold and rejects unsafe values", () => {
