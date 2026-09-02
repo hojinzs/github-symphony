@@ -24,6 +24,29 @@ answers "where is it now".
 Each slice points at the current sources of truth for that layer. When a PR
 touches a layer, check that its slice (and the linked documents) still holds.
 
+### Cross-layer Linear recovery safeguards
+
+The Linear recovery fixes span several layers rather than belonging solely to
+the tracker adapter:
+
+- **Coordination:** `packages/orchestrator/src/service.ts` consumes the durable
+  retry budget for dirty-workspace recovery, preserves recovery context on
+  exhaustion, releases the claim, and requires an explicit tracker state change
+  before redispatch. Docker coverage: [bounded recovery circuit breaker](../e2e/scenarios/20-bounded-recovery-circuit-breaker.md).
+- **Execution:** `packages/worker/src/turn-lease.ts` distinguishes permanent
+  unsupported state reads from transient provider failures and retains
+  diagnostics for the latter. This capability behavior is focused-test coverage
+  because the Docker file tracker implements state reads.
+- **Core and coordination:** `packages/core/src/workflow/issue-identity.ts`
+  recognizes normalized `TEAM-123` branch and workpad evidence for safe
+  dirty-workspace attribution; `packages/orchestrator/src/service.ts` consumes
+  that evidence. Docker coverage: [Linear dirty-workspace recovery](../e2e/scenarios/21-linear-dirty-workspace-recovery.md).
+- **Configuration and integration:** `packages/cli/src/commands/doctor.ts`
+  selects the Linear adapter for standalone `doctor --smoke` reads without a
+  GitHub Project binding. This provider selection is focused-test coverage;
+  [the Linear sandbox guide](../e2e/scenarios/09-linear-sandbox.md) is the
+  separate live-provider acceptance procedure.
+
 ### 1. Policy — defined by the repo/project
 
 - `WORKFLOW.md` (repository root or standalone project folder) — prompt body and team rules
