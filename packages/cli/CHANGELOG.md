@@ -1,5 +1,35 @@
 # @gh-symphony/cli
 
+## 1.0.0
+
+### Major Changes
+
+- [#793](https://github.com/hojinzs/github-symphony/pull/793) [`0253a70`](https://github.com/hojinzs/github-symphony/commit/0253a70563c11986ef0ca6e11de5388886c10458) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject removed flat `tracker.*` provider keys with the typed
+  `workflow_deprecated_key` error. Move tracker-provider settings into
+  `tracker.provider`; `gh-symphony doctor` supplies a copyable migration block.
+
+### Minor Changes
+
+- [#776](https://github.com/hojinzs/github-symphony/pull/776) [`12317f5`](https://github.com/hojinzs/github-symphony/commit/12317f530c67d38cc1a3b6ab6671b3ddb8dd3050) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Complete the Phase 1 agent-isolation boundary for [#700](https://github.com/hojinzs/github-symphony/issues/700) by keeping MCP subprocesses and tracker credentials host-side, isolating child HOME configuration, and pushing assigned branches through the worker after successful runs.
+
+- [#791](https://github.com/hojinzs/github-symphony/pull/791) [`c1511e2`](https://github.com/hojinzs/github-symphony/commit/c1511e20cf720470f046560df5ffa9a60d76c9fc) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Confirm Linear tracker state between worker turns and use Linear issue branch names for dirty-workspace attribution. ([#781](https://github.com/hojinzs/github-symphony/issues/781))
+
+### Patch Changes
+
+- [#788](https://github.com/hojinzs/github-symphony/pull/788) [`f351084`](https://github.com/hojinzs/github-symphony/commit/f3510841e36b21d29fe5a459295d138bcea914cf) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Bound dirty-workspace recovery failures by the persisted failure retry budget and require an explicit tracker state change to re-arm exhausted issues ([#783](https://github.com/hojinzs/github-symphony/issues/783)).
+
+- [#785](https://github.com/hojinzs/github-symphony/pull/785) [`74d5ede`](https://github.com/hojinzs/github-symphony/commit/74d5edec2642cea27ebf346242cf7c2d349b931f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Preserve dirty recovery workspaces attributed by normalized `TEAM-123` branch or workpad identifiers for [#782](https://github.com/hojinzs/github-symphony/issues/782).
+
+- [#795](https://github.com/hojinzs/github-symphony/pull/795) [`771179e`](https://github.com/hojinzs/github-symphony/commit/771179e08e863b1a3ba972a4a4c8073bc5f7123e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject legacy embedded repository runtime metadata at `repo start` before it can create issue workspaces in the checkout ([#790](https://github.com/hojinzs/github-symphony/issues/790)).
+
+- [#775](https://github.com/hojinzs/github-symphony/pull/775) [`b9f676d`](https://github.com/hojinzs/github-symphony/commit/b9f676db21b0b26ee87eebc2257b3fafc503d899) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Run tracker tools through host-owned runtime integrations with normalized issue context and frozen per-session contracts for [#673](https://github.com/hojinzs/github-symphony/issues/673).
+
+- [#787](https://github.com/hojinzs/github-symphony/pull/787) [`2d341da`](https://github.com/hojinzs/github-symphony/commit/2d341da1624c66ca311e6c94a1a1695e8d82922f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#784](https://github.com/hojinzs/github-symphony/issues/784) by routing `doctor --smoke` through the configured Linear tracker adapter without requiring a GitHub Project binding, including support for explicit identifiers such as `DEV-54`.
+
+- [#786](https://github.com/hojinzs/github-symphony/pull/786) [`36a7afa`](https://github.com/hojinzs/github-symphony/commit/36a7afaaf201f3932c61fb50447f0e9218233576) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Preserve worker tracker-refresh diagnostics and keep turns running when state reads are permanently unsupported ([#780](https://github.com/hojinzs/github-symphony/issues/780)).
+
+- [#771](https://github.com/hojinzs/github-symphony/pull/771) [`a9d32e7`](https://github.com/hojinzs/github-symphony/commit/a9d32e74b849724b50ce8813c3007a12f8dbce0e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Stop a worker before its next turn when a refreshed tracker snapshot shows the issue is no longer dispatchable or no longer satisfies `required_labels` ([#722](https://github.com/hojinzs/github-symphony/issues/722)).
+
 ## 0.17.0
 
 ### Minor Changes
