@@ -33,11 +33,12 @@ export type ClaudeMcpCompositionResult = {
   finalPath: string;
   extraArgv: string[];
   cleanupPath?: string;
+  excludedServerNames?: string[];
 };
 
 export async function composeClaudeMcpConfig(
   workspaceRoot: string,
-  strictMode: boolean,
+  _strictMode: boolean,
   symphonyTokenEnv: ClaudeMcpTokenEnvironment = {}
 ): Promise<ClaudeMcpCompositionResult> {
   const finalPath = resolveRuntimeMcpConfigPath(
@@ -46,13 +47,26 @@ export async function composeClaudeMcpConfig(
   );
   const trustRepoConfig =
     symphonyTokenEnv.SYMPHONY_TRUST_REPO_CONFIG === "true";
+  const builtins = createSymphonyMcpServers(symphonyTokenEnv);
   let mcpServers = composeMcpServers({
     repositoryDir: workspaceRoot,
     projectDir: symphonyTokenEnv.SYMPHONY_PROJECT_DIR,
     trustRepoConfig,
     env: symphonyTokenEnv,
-    builtins: createSymphonyMcpServers(symphonyTokenEnv),
+    builtins,
   });
+  // The child may connect only to Symphony's worker-owned loopback Streamable
+  // HTTP endpoint. Repository/project/user HTTP, SSE, and subprocess
+  // declarations are not exposed to the child.
+  const builtinNames = new Set(Object.keys(builtins));
+  const excludedServerNames = Object.keys(mcpServers)
+    .filter((name) => !builtinNames.has(name))
+    .sort();
+  const symphonyServer = builtins.symphony;
+  mcpServers =
+    symphonyServer?.type === "http" && typeof symphonyServer.url === "string"
+      ? { symphony: symphonyServer }
+      : {};
   if (symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear") {
     delete mcpServers.linear_graphql;
   }
@@ -88,11 +102,9 @@ export async function composeClaudeMcpConfig(
 
   return {
     finalPath,
-    extraArgv:
-      strictMode || !trustRepoConfig
-        ? ["--strict-mcp-config", "--mcp-config", finalPath]
-        : ["--mcp-config", finalPath],
+    extraArgv: ["--strict-mcp-config", "--mcp-config", finalPath],
     cleanupPath: finalPath,
+    ...(excludedServerNames.length > 0 ? { excludedServerNames } : {}),
   };
 }
 

@@ -123,6 +123,9 @@ if [[ "${CLAUDE_STUB_CALL_HOST_MCP:-false}" == "true" && -n "$mcp_config_path" ]
 const fs = require("fs");
 const config = JSON.parse(fs.readFileSync(process.env.MCP_CONFIG_PATH, "utf8"));
 const server = config.mcpServers && config.mcpServers.symphony;
+if (Object.keys(config.mcpServers || {}).join(",") !== "symphony") {
+  throw new Error("child MCP configuration must expose only symphony HTTP");
+}
 if (!server || typeof server.url !== "string" || !server.headers) {
   throw new Error("host MCP configuration is missing symphony");
 }
@@ -191,11 +194,19 @@ const record = {
   forkSession: process.env.FORK_SESSION === "true",
   resultSessionId: process.env.RESULT_SESSION_ID,
   hostMcp: JSON.parse(process.env.HOST_MCP_JSON || "null"),
+  childBoundary: {
+    home: process.env.HOME || null,
+    ghConfigDir: process.env.GH_CONFIG_DIR || null,
+    gitConfigCount: Boolean(process.env.GIT_CONFIG_COUNT),
+    gitCredentialHelper: Boolean(process.env.GIT_CONFIG_VALUE_0),
+  },
   trackerCredentialEnvironment: {
     githubGraphqlToken: Boolean(process.env.GITHUB_GRAPHQL_TOKEN),
     githubToken: Boolean(process.env.GITHUB_TOKEN),
     ghToken: Boolean(process.env.GH_TOKEN),
     githubTokenBrokerSecret: Boolean(process.env.GITHUB_TOKEN_BROKER_SECRET),
+    linearApiKey: Boolean(process.env.LINEAR_API_KEY),
+    linearAuthorization: Boolean(process.env.LINEAR_AUTHORIZATION),
   },
 };
 fs.appendFileSync(process.env.INVOCATIONS_FILE, JSON.stringify(record) + "\n");

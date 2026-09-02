@@ -39,16 +39,20 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
     expect(config.projectId).toBe("workspace-fallback");
   });
 
-  it("preserves CODEX_HOME provided through the launcher environment", () => {
+  it("preserves host and runtime paths for isolated credential staging", () => {
     const config = resolveLocalRuntimeLaunchConfig({
       PROJECT_ID: "workspace-local",
       WORKING_DIRECTORY: "/tmp/workspace-local",
+      HOME: "/Users/operator",
       CODEX_HOME: "/tmp/launcher-codex-home",
+      WORKSPACE_RUNTIME_DIR: "/tmp/runtime-run",
       OPENAI_API_KEY: "sk-direct-runtime",
     });
 
     expect(config.extraEnv).toEqual({
+      HOME: "/Users/operator",
       CODEX_HOME: "/tmp/launcher-codex-home",
+      WORKSPACE_RUNTIME_DIR: "/tmp/runtime-run",
     });
     expect(config.agentEnv).toEqual({
       OPENAI_API_KEY: "sk-direct-runtime",

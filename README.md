@@ -975,13 +975,18 @@ pnpm build
 ## Security posture
 
 GitHub Symphony is intended for trusted, operator-controlled environments.
-With a configured GitHub token broker, Phase 1a keeps raw GitHub tracker-token
-aliases out of Codex and Claude coding-agent children, and Claude's generated
-MCP configuration does not store literal tracker tokens. Brokerless GitHub and
-Linear deployments temporarily retain raw tracker credentials so Git and MCP
-workflows continue; workers warn operators to configure the broker or wait for
-#700. The host-owned transport is described in
+Codex and Claude coding-agent children receive no raw GitHub or Linear tracker
+credential and no token-broker secret, including in brokerless deployments.
+Their runtime-owned `HOME` and `GH_CONFIG_DIR` do not expose the operator's
+`gh auth` store or credential-helper configuration. Codex provider tools execute
+through host dynamic tools; Claude's generated MCP configuration contains only
+the worker-owned loopback endpoint and its per-run capability. The host-owned
+transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
+When no direct provider API key is configured, a non-bare runtime stages only
+the provider login into this private home: Codex `auth.json`, or Claude's
+`claudeAiOauth` entry without `mcpOAuth`. Host agent configuration and GitHub
+CLI credentials remain outside the child boundary.
 
 Codex supports only `approval_policy: never` and uses the
 `danger-full-access` thread sandbox; Claude uses `bypassPermissions`.
@@ -992,7 +997,11 @@ appropriate to their environment. The target transport keeps credentials in the 
 or a host-side broker, returns only bounded issue-aware tool results to agents,
 uses loopback-only local services with scoped session capabilities, and gives
 the child an isolated home/configuration directory rather than a host `gh auth`
-store. Authenticated Git transport is performed by the host.
+store. After a successful agent run, the worker copies the assigned ref into a
+temporary host-owned bare repository, fetches and fast-forward checks the
+orchestrator-owned target URL, and performs the authenticated push with
+repository hooks disabled. Child changes to `origin`, Git hooks, or repository
+Git configuration cannot redirect or extend that credential-bearing operation.
 
 This trust posture is an intentional repository-local divergence: Codex defaults
 to `approval_policy: never` with `danger-full-access`, Claude defaults to

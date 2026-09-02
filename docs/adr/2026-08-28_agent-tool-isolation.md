@@ -120,10 +120,12 @@ translated into a second protocol.
 #### Claude transport
 
 For Claude, the worker or orchestrator starts an MCP server as a host-owned
-per-run service and exposes it over HTTP/SSE (or the then-supported HTTP MCP
-transport). It binds to loopback by default on an ephemeral port. The generated
-`mcp.json` contains only that URL and a worker-issued, high-entropy session
-capability token; it never contains an adapter credential.
+per-run service and exposes it over the supported Streamable HTTP transport. It
+binds to loopback by default on an ephemeral port. The generated `mcp.json`
+contains only that URL and a worker-issued, high-entropy session capability
+token; it never contains an adapter credential. Repository, project, and user
+HTTP, SSE, and subprocess declarations are excluded from the child config and
+reported by name in the worker diagnostic stream.
 
 The capability token is scoped to one run and MCP server, may call only the
 selected adapter's snapshotted tools, is rejected after expiry, and is revoked
@@ -136,7 +138,14 @@ Both phase-2 launchers retain the isolated child home/configuration directory
 from phase 1. Agent preflight must not require `gh auth`, and neither `HOME`,
 `GH_CONFIG_DIR`, nor an inherited credential-helper configuration may expose a
 host GitHub login. The worker performs authenticated Git transport and tool
-calls with its host credential; the child receives only repository state and
+calls with its host credential. It transfers the assigned ref into a temporary
+host-owned bare repository and uses the orchestrator-owned clone URL with Git
+hooks disabled, so child-authored remotes, hooks, and checkout Git configuration
+cannot redirect or execute inside the credential-bearing transport. For
+non-bare local provider authentication, the worker stages only Codex `auth.json`
+or Claude's `claudeAiOauth` entry into the
+private child home; Claude `mcpOAuth`, host agent configuration, and host `gh`
+state are excluded. The child otherwise receives only repository state and
 bounded results.
 
 ### Credential flow
@@ -196,8 +205,8 @@ tracked as a divergence, not an alternative architecture.
   execution semantics remain the same.
 - Host lifecycle code owns session capability generation, loopback server
   teardown, structured tool failures, and tool-call observability.
-- Phase 1 temporarily removes agent access to provider-native MCP tools; #673
-  restores that access through the host-owned transport.
+- Provider-native tools remain available through #673's host-owned transports
+  while agent-owned MCP subprocess exposure is disabled.
 
 ## Upstream conformance and divergence
 
@@ -212,9 +221,10 @@ Linear is added for Linear-tracked projects, and each call is routed to its
 owning adapter with the worker's resolved host environment. The Docker
 host-tool and Claude HTTP-MCP black-box tests verify query, comment, and
 Project-state mutation calls while the child receives only tool results and the
-provider credential remains host-side. Brokerless Codex credential inheritance
-remains the explicit temporary #700 compatibility divergence. The per-provider
-contracts are recorded in [GitHub tracker tools](../trackers/github.md) and
+provider credential remains host-side. Brokerless and brokered Codex and Claude
+sessions now use the same child credential boundary; the temporary divergence
+for those supported provider adapters is closed. The per-provider contracts are
+recorded in [GitHub tracker tools](../trackers/github.md) and
 [Linear tracker tools](../trackers/linear.md). This closes the host-transport
 portion of #673 without editing the upstream specification.
 
@@ -225,12 +235,20 @@ in the per-tool contracts and must be replaced by provider-level target
 enforcement before treating arbitrary mutations as a complete §15.5 scope
 boundary.
 
-Before #673 shipped, the agent-started MCP subprocess model was an
-intentional, documented repository-local divergence. #672 removes raw tracker
-and broker values from coding-agent environments and `mcp.json`, isolates the
-child home/configuration directory, replaces child-authenticated Git transport
-with a host operation, and disables the agent-owned MCP path; it does not claim
-that the subprocess arrangement is conformant.
+Before #673 and #700 shipped, the agent-started MCP subprocess and
+child-authenticated Git models were intentional, documented repository-local
+divergences. #700 closes them: raw tracker and broker values are removed from
+Codex and Claude child environments, child HOME/GH configuration is isolated,
+provider tools use the host transports delivered by #673, and the worker owns
+post-run authenticated Git fetch/push. This boundary conforms to the upstream
+§10.5, §15.3, and §17.5 requirements without modifying the upstream spec.
+
+This completed conformant boundary is scoped to the Codex and Claude adapters.
+`runtime.kind: custom` remains an intentional repository-local divergence: it
+receives the full worker environment and host HOME rather than satisfying the
+same §10.5, §15.3, and §17.5 isolation boundary.
+[#778](https://github.com/hojinzs/github-symphony/issues/778) owns its explicit
+credential and HOME isolation contract.
 
 ## README security-posture draft for #675
 

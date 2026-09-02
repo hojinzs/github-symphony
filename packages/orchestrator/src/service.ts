@@ -1722,12 +1722,12 @@ export class OrchestratorService {
               ? maxFailureRetries
               : priorFailureRetryCount + 1;
           const retrySuppressed = failureRetryCount >= maxFailureRetries;
-          const suppressionError = [
-            `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-            `failureRetryCount=${failureRetryCount}.`,
-            `maxFailureRetries=${maxFailureRetries}.`,
-            errorMessage,
-          ].join(" ");
+          const suppressionError = formatMaxFailureRetrySuppression(
+            previousRun,
+            failureRetryCount,
+            maxFailureRetries,
+            errorMessage
+          );
           if (failedPreparedRun) {
             await this.store.saveRun({
               ...failedPreparedRun,
@@ -1991,8 +1991,8 @@ export class OrchestratorService {
             : recovery
               ? "Run suppressed with recoverable incomplete-turn dirty workspace."
               : terminalState
-              ? "Run suppressed because the tracker issue moved to a terminal state."
-              : "Run suppressed because the tracker state is no longer actionable.",
+                ? "Run suppressed because the tracker issue moved to a terminal state."
+                : "Run suppressed because the tracker state is no longer actionable.",
         };
         await this.store.saveRun(suppressedRun);
         this.logVerbose(
@@ -2925,6 +2925,12 @@ export class OrchestratorService {
       workflowForPopulate.workflow
     );
     await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
+    const assignedBranch = await readGitCurrentBranch(repositoryDirectory);
+    if (!assignedBranch) {
+      throw new Error(
+        `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
+      );
+    }
 
     const shouldSaveWorkspaceRecord =
       !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;
@@ -3105,6 +3111,7 @@ export class OrchestratorService {
           CODEX_PROJECT_ID: tenant.projectId,
           PROJECT_ID: tenant.projectId,
           WORKING_DIRECTORY: repositoryDirectory,
+          SYMPHONY_ASSIGNED_BRANCH: assignedBranch,
           WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
           SYMPHONY_PROJECT_DIR:
             tenant.projectDir ?? this.store.projectDir(tenant.projectId),
@@ -3491,7 +3498,11 @@ export class OrchestratorService {
         );
       }
       if (retryAction.action === "release") {
-        if (retryAction.issue && retryAction.terminal) {
+        if (
+          retryAction.issue &&
+          retryAction.terminal &&
+          !isGitTransportFailure(runWithTokens)
+        ) {
           try {
             await this.cleanupTerminalIssueWorkspace(
               tenant,
@@ -3536,8 +3547,11 @@ export class OrchestratorService {
 
     await this.runAfterRunHook(tenant, run);
 
+    const gitTransportFailed = isGitTransportFailure(runWithTokens);
+    await this.recordGitTransportWorkspaceState(tenant, runWithTokens, now);
     const currentTrackerProgress =
       runWithTokens.runPhase === "succeeded" &&
+      !gitTransportFailed &&
       runWithTokens.trackerProgressConfirmedAt
         ? await this.classifyCurrentTrackerProgress(
             tenant,
@@ -3654,8 +3668,9 @@ export class OrchestratorService {
       workerInfo.exitClassification === "user-input-required";
     const abnormalWorkerExit =
       !userInputRequired &&
-      ((runWithTokens.workerExitCode != null &&
-        runWithTokens.workerExitCode !== 0) ||
+      (gitTransportFailed ||
+        (runWithTokens.workerExitCode != null &&
+          runWithTokens.workerExitCode !== 0) ||
         runWithTokens.workerExitSignal != null ||
         runWithTokens.runPhase === "failed");
     const retryKind =
@@ -3679,11 +3694,11 @@ export class OrchestratorService {
       !recovery &&
       failureRetryCount >= maxFailureRetries
     ) {
-      const lastError = [
-        `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-        `failureRetryCount=${failureRetryCount}.`,
-        `maxFailureRetries=${maxFailureRetries}.`,
-      ].join(" ");
+      const lastError = formatMaxFailureRetrySuppression(
+        runWithTokens,
+        failureRetryCount,
+        maxFailureRetries
+      );
       const suppressedRun: OrchestratorRunRecord = {
         ...runWithTokens,
         finalizationDeferralCount: 0,
@@ -4968,12 +4983,12 @@ export class OrchestratorService {
         ? maxFailureRetries
         : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
     const retrySuppressed = failureRetryCount >= maxFailureRetries;
-    const suppressionError = [
-      `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-      `failureRetryCount=${failureRetryCount}.`,
-      `maxFailureRetries=${maxFailureRetries}.`,
-      errorMessage,
-    ].join(" ");
+    const suppressionError = formatMaxFailureRetrySuppression(
+      run,
+      failureRetryCount,
+      maxFailureRetries,
+      errorMessage
+    );
     if (preparedRun) {
       await this.store.saveRun({
         ...preparedRun,
@@ -5065,6 +5080,7 @@ export class OrchestratorService {
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
   }> {
+    const gitTransportFailed = isGitTransportFailure(run);
     const suppressedRun: OrchestratorRunRecord = {
       ...run,
       status: "suppressed",
@@ -5072,10 +5088,11 @@ export class OrchestratorService {
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
       nextRetryAt: null,
-      runPhase: "canceled_by_reconciliation",
-      lastError:
-        reason ??
-        "Retry canceled because the tracker issue is no longer actionable.",
+      runPhase: gitTransportFailed ? "failed" : "canceled_by_reconciliation",
+      lastError: gitTransportFailed
+        ? run.lastError
+        : (reason ??
+          "Retry canceled because the tracker issue is no longer actionable."),
     };
     await this.store.saveRun(suppressedRun);
     this.logVerbose(
@@ -5163,12 +5180,12 @@ export class OrchestratorService {
             )
         ).toISOString();
     const lastError = suppressed
-      ? [
-          `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-          `failureRetryCount=${failureRetryCount}.`,
-          `maxFailureRetries=${maxFailureRetries}.`,
-          error,
-        ].join(" ")
+      ? formatMaxFailureRetrySuppression(
+          run,
+          failureRetryCount,
+          maxFailureRetries,
+          error
+        )
       : error;
     const sessionEndedAt = run.completedAt ?? now.toISOString();
     await this.store.saveRun({
@@ -5601,6 +5618,15 @@ export class OrchestratorService {
       return;
     }
 
+    if (
+      await this.hasUnpublishedGitTransportFailure(tenant.projectId, issue.id)
+    ) {
+      this.logVerbose(
+        `[workspace-cleanup-deferred] ${issue.identifier} reason=git_transport_failed`
+      );
+      return;
+    }
+
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
       adapter: issue.tracker.adapter,
@@ -5706,6 +5732,51 @@ export class OrchestratorService {
       lastError: null,
     };
     await this.store.saveIssueWorkspace(removedRecord);
+  }
+
+  private async hasUnpublishedGitTransportFailure(
+    projectId: string,
+    issueId: string
+  ): Promise<boolean> {
+    const workspace = (await this.store.loadIssueWorkspaces(projectId)).find(
+      (record) => record.issueSubjectId === issueId
+    );
+    if (workspace) {
+      return isGitTransportFailureError(workspace.lastError);
+    }
+    return (await this.store.loadAllRuns()).some(
+      (run) =>
+        run.projectId === projectId &&
+        run.issueId === issueId &&
+        isGitTransportFailure(run)
+    );
+  }
+
+  private async recordGitTransportWorkspaceState(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    now: Date
+  ): Promise<void> {
+    const workspace = await this.loadWorkspaceForIssue(
+      tenant.projectId,
+      tenant.tracker.adapter,
+      run.issueSubjectId,
+      run.issueIdentifier
+    );
+    if (!workspace || workspace.status === "removed") {
+      return;
+    }
+    const transportError = isGitTransportFailure(run) ? run.lastError : null;
+    const transportSucceeded =
+      run.runPhase === "succeeded" && run.lastError === null;
+    if (!transportError && !transportSucceeded) {
+      return;
+    }
+    await this.store.saveIssueWorkspace({
+      ...workspace,
+      updatedAt: now.toISOString(),
+      lastError: transportError,
+    });
   }
 
   private resolveFailureRetryCount(
@@ -6386,6 +6457,33 @@ function createProjectItemsCache(): ProjectItemsCache {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isGitTransportFailure(run: OrchestratorRunRecord): boolean {
+  return isGitTransportFailureError(run.lastError);
+}
+
+function isGitTransportFailureError(error: string | null | undefined): boolean {
+  return error?.startsWith("git_transport_failed:") === true;
+}
+
+function formatMaxFailureRetrySuppression(
+  run: OrchestratorRunRecord | null,
+  failureRetryCount: number,
+  maxFailureRetries: number,
+  detail?: string
+): string {
+  const suppressionDetail = [
+    `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+    `failureRetryCount=${failureRetryCount}.`,
+    `maxFailureRetries=${maxFailureRetries}.`,
+    detail,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
+  return run && isGitTransportFailure(run)
+    ? `${run.lastError} (${suppressionDetail})`
+    : suppressionDetail;
 }
 
 function createRunId(

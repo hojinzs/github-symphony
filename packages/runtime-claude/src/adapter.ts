@@ -1,8 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   AgentSessionInvalidatedEvent,
   AgentRuntimeAdapter,
@@ -16,8 +16,11 @@ import type {
 import {
   collectMcpSecretEnvironmentNames,
   extractEnvForClaude,
+  prepareAgentChildHome,
+  resolveAgentChildHome,
+  stageGitUserIdentity,
+  stageJsonCredentialFile,
 } from "@gh-symphony/core";
-import { validateGitHubTokenBrokerUrl } from "@gh-symphony/tool-github-graphql";
 import {
   buildClaudePrintArgv,
   type ClaudePrintArgvOptions,
@@ -114,6 +117,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
   async prepare(context: ClaudeRuntimePrepareContext): Promise<void> {
     await this.cleanupPreparedMcpConfig();
     this.pendingEvents.length = 0;
+    await this.prepareChildHome();
     this.preparedSession = await this.prepareSession(context);
     if (this.config.hostMcpContext) {
       this.hostMcpServer = await startClaudeMcpHttpServer({
@@ -135,6 +139,11 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
         hostMcpSessionToken: this.hostMcpServer?.sessionToken,
       })
     );
+    if (this.preparedMcpConfig.excludedServerNames?.length) {
+      process.stderr.write(
+        `[runtime-claude] ignored child MCP declarations: ${this.preparedMcpConfig.excludedServerNames.join(", ")}; only the worker-owned loopback Streamable HTTP endpoint is exposed\n`
+      );
+    }
   }
 
   async spawnTurn(
@@ -393,6 +402,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
     input: ClaudeRuntimeTurnInput,
     argv: string[]
   ): Promise<ClaudeSpawnTurnResult> {
+    const childHome = this.resolveChildHome();
     return await spawnClaudeTurn(
       {
         command: input.command ?? this.config.command,
@@ -403,6 +413,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
           inheritProcessEnv: this.config.inheritProcessEnv === true,
           configEnv: this.config.env,
           inputEnv: input.env,
+          childHome,
         }),
         stdinMessages: input.messages,
         // Claude startup includes CLI initialization, MCP connections, and
@@ -427,6 +438,35 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
         },
       }
     );
+  }
+
+  private resolveChildHome(): string {
+    return resolveAgentChildHome({
+      workingDirectory: this.config.workingDirectory,
+      runtimeDirectory: this.config.runtimeDirectory ?? this.config.runtimeRoot,
+    });
+  }
+
+  private async prepareChildHome(): Promise<void> {
+    const childHome = this.resolveChildHome();
+    await prepareAgentChildHome(childHome);
+    const hostHome = this.config.env?.HOME ?? process.env.HOME ?? homedir();
+    await stageGitUserIdentity({
+      sourceHome: hostHome,
+      destination: join(childHome, ".gitconfig"),
+    });
+    if (
+      this.config.isolation?.bare === true ||
+      this.config.env?.ANTHROPIC_API_KEY
+    ) {
+      return;
+    }
+
+    await stageJsonCredentialFile({
+      source: join(hostHome, ".claude", ".credentials.json"),
+      destination: join(childHome, ".claude", ".credentials.json"),
+      allowedKeys: ["claudeAiOauth"],
+    });
   }
 
   private async persistForkedSessionId(
@@ -604,6 +644,7 @@ function buildClaudeSpawnEnv(options: {
   inheritProcessEnv: boolean;
   configEnv?: NodeJS.ProcessEnv;
   inputEnv?: NodeJS.ProcessEnv;
+  childHome: string;
 }): NodeJS.ProcessEnv {
   if (options.inheritProcessEnv) {
     const env = {
@@ -611,12 +652,10 @@ function buildClaudeSpawnEnv(options: {
       ...options.configEnv,
       ...options.inputEnv,
     };
-    stripTrackerSecretsWhenBrokered(
-      env,
-      options.workingDirectory,
-      options.configEnv
-    );
-    Object.assign(env, createBrokeredGitCredentialHelperEnvironment(env));
+    stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
+    env.HOME = options.childHome;
+    env.GH_CONFIG_DIR = join(options.childHome, "gh");
+    removeChildHostCredentialEnvironment(env);
     return env;
   }
 
@@ -630,28 +669,19 @@ function buildClaudeSpawnEnv(options: {
   }
 
   Object.assign(env, options.configEnv, options.inputEnv);
-  stripTrackerSecretsWhenBrokered(
-    env,
-    options.workingDirectory,
-    options.configEnv
-  );
-  Object.assign(env, createBrokeredGitCredentialHelperEnvironment(env));
+  stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
+  env.HOME = options.childHome;
+  env.GH_CONFIG_DIR = join(options.childHome, "gh");
+  removeChildHostCredentialEnvironment(env);
 
   return env;
 }
 
-function stripTrackerSecretsWhenBrokered(
+function stripTrackerSecrets(
   env: NodeJS.ProcessEnv,
   workingDirectory: string,
   configEnv?: NodeJS.ProcessEnv
 ): void {
-  if (
-    env.SYMPHONY_TRACKER_KIND === "linear" ||
-    !env.GITHUB_TOKEN_BROKER_URL ||
-    !env.GITHUB_TOKEN_BROKER_SECRET
-  ) {
-    return;
-  }
   const declaredNames = readTrackerSecretEnvironmentNames(env);
   for (const name of [
     ...declaredNames,
@@ -661,9 +691,55 @@ function stripTrackerSecretsWhenBrokered(
       trustRepoConfig: configEnv?.SYMPHONY_TRUST_REPO_CONFIG === "true",
       secretEnvironmentNames: declaredNames,
     }),
+    "GH_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_TOKEN",
+    "GITHUB_GRAPHQL_TOKEN",
+    "GITHUB_TOKEN_BROKER_SECRET",
+    "LINEAR_API_KEY",
+    "LINEAR_AUTHORIZATION",
   ]) {
     delete env[name];
   }
+}
+
+function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {
+  for (const name of [
+    "AGENT_CREDENTIAL_BROKER_URL",
+    "AGENT_CREDENTIAL_BROKER_SECRET",
+    "AGENT_CREDENTIAL_CACHE_PATH",
+    "GITHUB_GIT_HOST",
+    "GITHUB_GIT_USERNAME",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0",
+    "GITHUB_TOKEN_BROKER_URL",
+    "GITHUB_TOKEN_CACHE_PATH",
+    "GIT_ASKPASS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_DIR",
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_WORK_TREE",
+    "SSH_AGENT_PID",
+    "SSH_ASKPASS",
+    "SSH_AUTH_SOCK",
+    "XDG_CONFIG_HOME",
+  ]) {
+    delete env[name];
+  }
+  for (const name of Object.keys(env)) {
+    if (
+      name.startsWith("GIT_CONFIG_KEY_") ||
+      name.startsWith("GIT_CONFIG_VALUE_")
+    ) {
+      delete env[name];
+    }
+  }
+  env.GIT_TERMINAL_PROMPT = "0";
 }
 
 type PreparedClaudeSession = {
@@ -784,35 +860,6 @@ function buildClaudeMcpTokenEnvironment(options: {
       options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
     SYMPHONY_CLAUDE_MCP_URL: options.hostMcpUrl,
     SYMPHONY_CLAUDE_MCP_SESSION_TOKEN: options.hostMcpSessionToken,
-  };
-}
-
-function createBrokeredGitCredentialHelperEnvironment(
-  env: NodeJS.ProcessEnv
-): Record<string, string> {
-  if (
-    env.SYMPHONY_TRACKER_KIND === "linear" ||
-    !env.GITHUB_TOKEN_BROKER_URL ||
-    !env.GITHUB_TOKEN_BROKER_SECRET
-  ) {
-    return {};
-  }
-  return {
-    GITHUB_GIT_HOST: "github.com",
-    GITHUB_GIT_USERNAME: "x-access-token",
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: "credential.helper",
-    GIT_CONFIG_VALUE_0: `!node ${fileURLToPath(
-      new URL("./git-credential-helper.js", import.meta.url)
-    )}`,
-    GITHUB_TOKEN_BROKER_URL: validateGitHubTokenBrokerUrl(
-      env.GITHUB_TOKEN_BROKER_URL
-    ),
-    GITHUB_TOKEN_BROKER_SECRET: env.GITHUB_TOKEN_BROKER_SECRET,
-    ...(env.GITHUB_TOKEN_CACHE_PATH
-      ? { GITHUB_TOKEN_CACHE_PATH: env.GITHUB_TOKEN_CACHE_PATH }
-      : {}),
   };
 }
 

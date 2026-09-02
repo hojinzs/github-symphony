@@ -38,7 +38,8 @@ touches a layer, check that its slice (and the linked documents) still holds.
   status-API options: `packages/core/src/workflow/`,
   `packages/cli/src/commands/start.ts`
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
-- Layered MCP composition (`.mcp.json` sidecar): `packages/core/src/runtime/mcp-compose.ts` + each runtime adapter. Claude's worker starts the selected provider tool as a loopback HTTP/SSE MCP service; its generated `mcp.json` contains the service URL and an ephemeral session capability, never adapter credentials.
+- MCP declarations are resolved at the host boundary. Codex advertises adapter tools through dynamic-tool schemas without `config.mcp_servers`; Claude's worker starts a loopback HTTP MCP service and generates an `mcp.json` containing only its URL and ephemeral session capability. Repository/project subprocess entries are not exposed to either coding-agent child.
+- Runtime launchers share the core child-home resolver and prepare a private workspace-contained `HOME`/`GH_CONFIG_DIR`. Non-bare local authentication stages only Codex `auth.json` or Claude `claudeAiOauth`; host agent configuration, Claude MCP OAuth, tracker credentials, and `gh auth` remain outside the child boundary.
 - CLI global/project config, discoverable repo/standalone runtime command options,
   folder-addressed standalone project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
@@ -113,13 +114,13 @@ The rows below are owned by the focused conformance suites rather than a
 single implementation package. They map the upstream test matrix to the
 authoritative tests for repository behavior.
 
-| Spec row                                               | Test mapping                                                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| §17.2 workspace safety and hooks                       | `packages/orchestrator/src/service.test.ts` covers rejecting an existing regular file at the issue workspace path and running `after_create` only for a newly created workspace; `packages/core/src/workspace-safety.test.ts` covers path containment.                                                          |
-| §17.3 empty tracker lookup and malformed refresh       | `packages/tracker-{github,linear,file}/src/*test.ts` assert empty state/ID lookups make no provider call. GitHub and Linear suites assert that malformed requested records fail; GitHub alone covers omission of malformed polling-list items. Linear polling-list omission is a documented implementation gap. |
-| §17.4 reconciliation with no running issues            | `packages/orchestrator/src/service.test.ts` proves reconciliation does not invoke per-run reconciliation when there are no active runs.                                                                                                                                                                         |
-| §17.5 Codex protocol stream and dynamic-tool rejection | `packages/worker/src/codex-dynamic-tools.test.ts` covers structured rejection of unsupported dynamic tools. Stderr isolation from the protocol stream remains a documented implementation gap pending the S21 decision.                                                                                         |
-| §13.7 host, port, and bind lifecycle                   | `packages/cli/src/commands/start.test.ts` covers explicit ports and loopback versus `--bind-all` host selection. §17.7 positional workflow-path behavior remains a documented divergence.                                                                                                                       |
+| Spec row                                         | Test mapping                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| §17.2 workspace safety and hooks                 | `packages/orchestrator/src/service.test.ts` covers rejecting an existing regular file at the issue workspace path and running `after_create` only for a newly created workspace; `packages/core/src/workspace-safety.test.ts` covers path containment.                                                                                                                                     |
+| §17.3 empty tracker lookup and malformed refresh | `packages/tracker-{github,linear,file}/src/*test.ts` assert empty state/ID lookups make no provider call. GitHub and Linear suites assert that malformed requested records fail; GitHub alone covers omission of malformed polling-list items. Linear polling-list omission is a documented implementation gap.                                                                            |
+| §17.4 reconciliation with no running issues      | `packages/orchestrator/src/service.test.ts` proves reconciliation does not invoke per-run reconciliation when there are no active runs.                                                                                                                                                                                                                                                    |
+| §17.5 child credential and tool boundary         | `packages/runtime-{codex,claude}` suites prove provider subprocesses, raw GitHub/Linear tokens, broker secrets, host HOME/GH config, and Git credential helpers are absent from children; `packages/worker/src/codex-dynamic-tools.test.ts` covers structured rejection of unsupported dynamic tools. The Claude Docker black-box repeats the environment and generated-config assertions. |
+| §13.7 host, port, and bind lifecycle             | `packages/cli/src/commands/start.test.ts` covers explicit ports and loopback versus `--bind-all` host selection. §17.7 positional workflow-path behavior remains a documented divergence.                                                                                                                                                                                                  |
 
 ## Package dependency graph
 
@@ -128,7 +129,12 @@ authoritative tests for repository behavior.
 entry, its package build emits `dist/mcp-server.js`, which dispatches exactly one
 built-in GraphQL MCP implementation from an explicit server argument, and
 `dist/git-credential-helper.js`, which supplies runtime-scoped GitHub credentials
-to Git subprocesses.
+only to worker-host Git subprocesses. Successful worker runs transfer the
+checked-out assigned ref into a temporary host-owned bare repository, fetch and
+verify fast-forward ancestry against the orchestrator-owned clone URL, and push
+that exact branch with hooks disabled before reporting success. The
+credential-bearing commands never read the child-controlled checkout's remote
+or hook configuration.
 
 ```
 cli (bundles: orchestrator, worker, control-plane, dashboard, runtime-claude, tracker-github, core)

@@ -1,16 +1,20 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildAgentInputRequiredReason,
   DEFAULT_LINEAR_GRAPHQL_URL,
+  prepareAgentChildHome,
   readAgentCredentialCache,
+  resolveAgentChildHome,
   shouldReuseAgentCredentialCache,
+  stageJsonCredentialFile,
+  stageGitUserIdentity,
   writeAgentCredentialCache,
-  composeMcpServers,
   collectMcpSecretEnvironmentNames,
-  stripMcpServerSecretEnvironmentValues,
   type AgentRuntimeAdapter,
   type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
@@ -599,21 +603,6 @@ export function buildCodexRuntimePlan(
   const builtinTools = [githubTool, linearTool].filter(
     (tool): tool is RuntimeToolDefinition => tool !== undefined
   );
-  const builtins = Object.fromEntries(
-    builtinTools
-      .filter((tool): tool is RuntimeToolDefinition => tool !== undefined)
-      .map((tool) => [tool.name, tool])
-  );
-  const servers = composeMcpServers({
-    repositoryDir: config.workingDirectory,
-    projectDir: config.projectDirectory,
-    trustRepoConfig: config.trustRepoConfig,
-    env: config.extraEnv,
-    builtins,
-  });
-  if (!config.enableLinearGraphqlTool) {
-    delete servers.linear_graphql;
-  }
   const secretEnvironmentNames = [
     ...(config.trackerSecretEnvironmentNames ?? []),
     ...collectMcpSecretEnvironmentNames({
@@ -623,34 +612,9 @@ export function buildCodexRuntimePlan(
       secretEnvironmentNames: config.trackerSecretEnvironmentNames ?? [],
     }),
   ];
-  const brokeredGitHubTracker =
-    usesGitHubTokenBroker && config.trackerKind !== "linear";
-  const tools = Object.entries(
-    brokeredGitHubTracker
-      ? stripMcpServerSecretEnvironmentValues(
-          servers,
-          secretEnvironmentNames,
-          [
-            ...secretEnvironmentNames.map(
-              (name) => config.extraEnv?.[name] ?? process.env[name]
-            ),
-            config.githubToken,
-          ].filter((value): value is string => value !== undefined)
-        )
-      : servers
-  )
-    // Codex app-server accepts stdio definitions on this legacy path. HTTP
-    // entries are valid shared MCP config but belong to the Claude transport.
-    .filter(
-      (entry): entry is [string, { command: string; args?: string[]; env?: Record<string, string> }] =>
-        "command" in entry[1]
-    )
-    .map(
-      ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
-    );
-  const gitCredentialHelper = createGitCredentialHelperEnvironment({
-    ...config,
-    githubToken: usesGitHubTokenBroker ? undefined : config.githubToken,
+  const childHome = resolveAgentChildHome({
+    workingDirectory: config.workingDirectory,
+    runtimeDirectory: config.extraEnv?.WORKSPACE_RUNTIME_DIR,
   });
 
   const agentCommand = parseAgentCommand(
@@ -680,29 +644,28 @@ export function buildCodexRuntimePlan(
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       ...orchestratorRunEnv,
       ...agentEnv,
-      ...gitCredentialHelper,
+      HOME: childHome,
+      GH_CONFIG_DIR: join(childHome, "gh"),
+      CODEX_HOME: join(childHome, ".codex"),
     } as NodeJS.ProcessEnv,
-    tools,
+    tools: [],
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
   };
 
-  // Dynamic-tool credentials execute in the worker host. The brokerless
-  // Git credential helper still needs the GitHub token until #700 moves
-  // authenticated Git transport host-side.
   for (const name of new Set([
-    ...secretEnvironmentNames.filter(
-      (name) => name !== "GITHUB_GRAPHQL_TOKEN"
-    ),
+    ...secretEnvironmentNames,
+    "GH_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_TOKEN",
+    "GITHUB_GRAPHQL_TOKEN",
+    "GITHUB_TOKEN_BROKER_SECRET",
     "LINEAR_API_KEY",
     "LINEAR_AUTHORIZATION",
     "LINEAR_GRAPHQL_URL",
   ])) {
     delete plan.env[name];
   }
-
-  if (usesGitHubTokenBroker) {
-    delete plan.env.GITHUB_GRAPHQL_TOKEN;
-  }
+  removeChildHostGitCredentialEnvironment(plan.env);
 
   return plan;
 }
@@ -752,6 +715,17 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
       ...this.config,
       agentEnv,
     });
+    await prepareAgentChildHome(this.plan.env.HOME!);
+    await stageGitUserIdentity({
+      sourceHome: resolveHostHome(this.config),
+      destination: join(this.plan.env.HOME!, ".gitconfig"),
+    });
+    if (!this.plan.env.OPENAI_API_KEY) {
+      await stageJsonCredentialFile({
+        source: join(resolveHostCodexHome(this.config), "auth.json"),
+        destination: join(this.plan.env.CODEX_HOME!, "auth.json"),
+      });
+    }
   }
 
   async spawnTurn(
@@ -810,6 +784,47 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
   }
 }
 
+function resolveHostCodexHome(config: CodexRuntimeConfig): string {
+  return (
+    config.extraEnv?.CODEX_HOME ??
+    process.env.CODEX_HOME ??
+    join(resolveHostHome(config), ".codex")
+  );
+}
+
+function resolveHostHome(config: CodexRuntimeConfig): string {
+  return config.extraEnv?.HOME ?? process.env.HOME ?? homedir();
+}
+
+function removeChildHostGitCredentialEnvironment(env: NodeJS.ProcessEnv): void {
+  for (const name of [
+    "GIT_ASKPASS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_DIR",
+    "GIT_SSH",
+    "GIT_SSH_COMMAND",
+    "GIT_WORK_TREE",
+    "SSH_AGENT_PID",
+    "SSH_ASKPASS",
+    "SSH_AUTH_SOCK",
+    "XDG_CONFIG_HOME",
+  ]) {
+    delete env[name];
+  }
+  for (const name of Object.keys(env)) {
+    if (
+      name.startsWith("GIT_CONFIG_KEY_") ||
+      name.startsWith("GIT_CONFIG_VALUE_")
+    ) {
+      delete env[name];
+    }
+  }
+  env.GIT_TERMINAL_PROMPT = "0";
+}
+
 export function createCodexRuntimeAdapter(
   config: CodexRuntimeConfig,
   dependencies: CodexRuntimeDependencies = {}
@@ -841,15 +856,19 @@ export function createGitCredentialHelperEnvironment(
     | "githubTokenBrokerUrl"
     | "githubTokenBrokerSecret"
     | "githubTokenCachePath"
-  >
+  > & {
+    gitHost?: string;
+    gitUsername?: string;
+  }
 ): Record<string, string> {
   const githubTokenBrokerUrl = config.githubTokenBrokerUrl
     ? validateGitHubTokenBrokerUrl(config.githubTokenBrokerUrl)
     : undefined;
 
   return {
-    GITHUB_GIT_HOST: DEFAULT_GITHUB_GIT_HOST,
-    GITHUB_GIT_USERNAME: DEFAULT_GITHUB_GIT_USERNAME,
+    GITHUB_GIT_HOST: config.gitHost?.trim() || DEFAULT_GITHUB_GIT_HOST,
+    GITHUB_GIT_USERNAME:
+      config.gitUsername?.trim() || DEFAULT_GITHUB_GIT_USERNAME,
     GIT_TERMINAL_PROMPT: "0",
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "credential.helper",

@@ -56,6 +56,12 @@ import {
 import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
 import {
+  applyGitTransportAttempt,
+  shouldSynchronizeAssignedBranch,
+  trySynchronizeAssignedBranch,
+  type GitTransportAttempt,
+} from "./git-transport.js";
+import {
   findCwdBoundaryViolation,
   formatEventCwdSuffix,
 } from "./workspace-boundary.js";
@@ -78,9 +84,7 @@ import {
   createTrackerToolContext,
   executeCodexDynamicToolCall,
 } from "./codex-dynamic-tools.js";
-import {
-  extractToolRateLimitPayload,
-} from "./tool-rate-limit.js";
+import { extractToolRateLimitPayload } from "./tool-rate-limit.js";
 import { executeRateLimitedCodexDynamicToolCall } from "./host-dynamic-tool-call.js";
 import {
   buildCodexDynamicToolsParams,
@@ -573,14 +577,6 @@ async function startAssignedRun() {
       activeStates: workflow.lifecycle.activeStates,
     });
     runtimeState.runPhase = "launching_agent";
-    if (shouldWarnAboutBrokerlessTrackerCredential(launcherEnv)) {
-      const warning =
-        launcherEnv.SYMPHONY_TRACKER_KIND === "linear"
-          ? "[warn] linear tracker credential is passed to the coding-agent child; no Linear broker exists yet — removed in #700\n"
-          : "[warn] github tracker credential is passed to the coding-agent child; configure the token broker or wait for #700\n";
-      process.stderr.write(warning);
-    }
-
     if (route === "runtime-adapter") {
       await runNonCodexRuntimeAdapterLifecycle(workflow, launcherEnv);
       return;
@@ -669,30 +665,6 @@ async function startAssignedRun() {
     }
     process.stderr.write(`[worker] startup failed: ${message}\n`);
     await persistSessionTokenUsageArtifact(launcherEnv);
-  }
-}
-
-function shouldWarnAboutBrokerlessTrackerCredential(
-  env: NodeJS.ProcessEnv
-): boolean {
-  const trackerIsLinear = env.SYMPHONY_TRACKER_KIND === "linear";
-  if (
-    !trackerIsLinear &&
-    env.GITHUB_TOKEN_BROKER_URL &&
-    env.GITHUB_TOKEN_BROKER_SECRET
-  ) {
-    return false;
-  }
-  try {
-    const names = JSON.parse(
-      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
-    );
-    return (
-      Array.isArray(names) &&
-      names.some((name) => typeof name === "string" && Boolean(env[name]))
-    );
-  } catch {
-    return false;
   }
 }
 
@@ -867,6 +839,23 @@ async function runNonCodexRuntimeAdapterLifecycle(
       convergenceDetected: false,
       maxTurnsReached,
     });
+    if (
+      shouldSynchronizeAssignedBranch({
+        userInputRequired:
+          terminalFailure === DEFAULT_AGENT_INPUT_REQUIRED_REASON ||
+          terminalFailure?.startsWith("turn_input_required:") === true,
+        terminalFailure: terminalFailure !== null,
+      })
+    ) {
+      recordGitTransportAttempt(
+        await trySynchronizeAssignedBranch({
+          cwd: env.WORKING_DIRECTORY!,
+          assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+          remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
+          env,
+        })
+      );
+    }
 
     if (terminalFailure) {
       emitTurnFailedEvent(turnTelemetry, terminalFailure);
@@ -1534,7 +1523,8 @@ async function runCodexClientProtocol(
       );
       void executeRateLimitedCodexDynamicToolCall({
         toolName,
-        rateLimits: runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits,
+        rateLimits:
+          runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits,
         execute: () =>
           executeCodexDynamicToolCall(
             toolName,
@@ -2005,6 +1995,21 @@ async function runCodexClientProtocol(
       convergenceDetected,
       maxTurnsReached,
     });
+    if (
+      shouldSynchronizeAssignedBranch({
+        userInputRequired,
+        terminalFailure: turnTerminalFailurePhase !== null,
+      })
+    ) {
+      recordGitTransportAttempt(
+        await trySynchronizeAssignedBranch({
+          cwd: plan.cwd,
+          assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+          remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
+          env,
+        })
+      );
+    }
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
     await persistSessionTokenUsageArtifact(env);
@@ -2014,7 +2019,7 @@ async function runCodexClientProtocol(
 
     // Brief delay so orchestrator log capture can flush before exit.
     setTimeout(() => {
-      process.exit(userInputRequired || turnTerminalFailurePhase ? 1 : 0);
+      process.exit(runtimeState.status === "completed" ? 0 : 1);
     }, 1500);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -2079,6 +2084,28 @@ async function runCodexClientProtocol(
       process.exit(1);
     }, 1500);
   }
+}
+
+function recordGitTransportAttempt(attempt: GitTransportAttempt): 0 | 1 {
+  const transportState = {
+    status: runtimeState.status,
+    runPhase:
+      runtimeState.runPhase === "succeeded" ||
+      runtimeState.runPhase === "failed"
+        ? runtimeState.runPhase
+        : null,
+    lastError: runtimeState.run?.lastError ?? null,
+    exitClassification: runtimeState.sessionInfo.exitClassification,
+  };
+  const exitCode = applyGitTransportAttempt(transportState, attempt);
+  runtimeState.status = transportState.status;
+  runtimeState.runPhase = transportState.runPhase;
+  runtimeState.sessionInfo.exitClassification =
+    transportState.exitClassification;
+  if (runtimeState.run) {
+    runtimeState.run.lastError = transportState.lastError;
+  }
+  return exitCode;
 }
 
 function applyTokenUsageUpdate(

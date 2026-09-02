@@ -1,5 +1,12 @@
 # ADR: Add `claude -p` runtime support (multi-runtime abstraction)
 
+> **Superseded isolation detail (2026-08-31):**
+> [ADR 2026-08-28](2026-08-28_agent-tool-isolation.md) makes strict MCP
+> isolation unconditional. `runtime.isolation.strict_mcp_config` remains
+> parseable for workflow compatibility, but Claude always receives
+> `--strict-mcp-config` with a host-composed MCP file. The opt-in behavior
+> described below is retained as historical context only.
+
 - **Date**: 2026-04-15
 - **Status**: Proposed
 - **Maintenance note (2026-08-28)**: Historical source line references below

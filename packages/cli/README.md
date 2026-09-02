@@ -34,9 +34,13 @@ gh-symphony --version
 ```
 
 The package includes internal `dist/mcp-server.js` and
-`dist/git-credential-helper.js` executables. Worker runtimes select one built-in
-MCP implementation with `--server github` or `--server linear`; these entry
-points are not standalone user-facing commands.
+`dist/git-credential-helper.js` executables for host-side compatibility paths.
+Coding-agent children do not launch these provider MCP or Git credential
+subprocesses; provider tools and authenticated Git transport execute in the
+worker host. Git transport uses the orchestrator-owned target URL from a
+temporary bare repository with checkout hooks disabled, so child-authored
+remote and hook configuration is outside the credential-bearing path. These
+entry points are not standalone user-facing commands.
 
 Validate the machine and repo prerequisites before first use:
 
@@ -145,6 +149,11 @@ implementation: the `WORKFLOW.md` prompt policy must branch on that variable
 when a plan-only posture is required.
 
 > Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
+
+For a local non-bare login, the worker copies only the selected provider's
+login material into a private, workspace-contained child home. It does not
+expose the host `gh` configuration, Codex configuration, Claude MCP OAuth, or
+tracker credentials to the coding-agent process.
 
 Before dispatch, GitHub candidates are checked against the source issue and linked closing PR state. A closed issue or merged linked PR left in an active Project status is reconciled to the first configured terminal status, suppressed from worker startup, and reported as `tracker-terminal-candidate-reconciled`.
 
