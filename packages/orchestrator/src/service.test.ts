@@ -9,6 +9,7 @@ import {
   readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -15083,6 +15084,21 @@ Workspace prompt.
           )
       ).toThrow("workspace.root");
     }
+
+    const symlinkedWorkspaceRoot = join(tempRoot, "workspace-root-link");
+    await symlink(tempRoot, symlinkedWorkspaceRoot);
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository, symlinkedWorkspaceRoot),
+      repositoryDir: repository.path,
+    };
+
+    expect(
+      () =>
+        new OrchestratorService(
+          new OrchestratorFsStore(tempRoot),
+          projectConfig
+        )
+    ).toThrow("workspace.root");
   });
 
   it("uses workspaceDir for repo-embedded configs without repositoryDir", async () => {

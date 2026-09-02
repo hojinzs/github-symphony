@@ -1,5 +1,6 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
+import { isPathWithinRoot } from "../workspace/path-safety.js";
 import type {
   WorkflowDefinition,
   WorkflowPriorityConfig,
@@ -59,18 +60,11 @@ export function normalizeOrchestratorProjectConfig(
   const workflowSource = normalizeWorkflowSource(config);
   const populateStrategy = normalizePopulateStrategy(config);
   if (workflowSource.type === "repo" && config.repositoryDir) {
-    const workspaceRoot = resolve(config.workspaceDir);
-    const repositoryDir = resolve(config.repositoryDir);
-    const repositoryRelativeToRoot = relative(workspaceRoot, repositoryDir);
-    if (
-      repositoryRelativeToRoot === "" ||
-      (!repositoryRelativeToRoot.startsWith("..") &&
-        !isAbsolute(repositoryRelativeToRoot))
-    ) {
-      throw new Error(
-        `Project ${JSON.stringify(config.projectId)} workspace.root ${JSON.stringify(workspaceRoot)} must not equal or contain the repository checkout ${JSON.stringify(repositoryDir)}.`
-      );
-    }
+    assertIssueWorkspaceRootOutsideRepository(
+      config.projectId,
+      config.workspaceDir,
+      config.repositoryDir
+    );
   }
 
   return {
@@ -78,6 +72,25 @@ export function normalizeOrchestratorProjectConfig(
     workflowSource,
     populateStrategy,
   };
+}
+
+/**
+ * Prevents issue workspaces from being created in the repository checkout.
+ * Paths are resolved through existing filesystem ancestors so symlink aliases
+ * cannot bypass this containment check while still allowing a missing root.
+ */
+export function assertIssueWorkspaceRootOutsideRepository(
+  projectId: string,
+  workspaceDir: string,
+  repositoryDir: string
+): void {
+  if (!isPathWithinRoot(workspaceDir, repositoryDir)) {
+    return;
+  }
+
+  throw new Error(
+    `Project ${JSON.stringify(projectId)} workspace.root ${JSON.stringify(resolve(workspaceDir))} must not equal or contain the repository checkout ${JSON.stringify(resolve(repositoryDir))}.`
+  );
 }
 
 /** Rejects legacy repo metadata on daemon startup without blocking CLI migration commands. */

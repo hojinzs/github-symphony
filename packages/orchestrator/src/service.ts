@@ -2,7 +2,7 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
@@ -13,6 +13,7 @@ import {
   NonRetryableTrackerAdapterError,
   TrackerRateLimitError,
   assertIssueOrchestrationTransition,
+  assertIssueWorkspaceRootOutsideRepository,
   attributeDirtyWorkToIssue,
   buildHookEnv,
   buildIssueIdentityHeader,
@@ -324,20 +325,11 @@ function assertIssueWorkspaceRootIsOutsideRepository(
     return;
   }
 
-  const workspaceRoot = resolve(projectConfig.workspaceDir);
-  const repositoryRelativeToRoot = relative(
-    workspaceRoot,
-    resolve(repositoryDir)
+  assertIssueWorkspaceRootOutsideRepository(
+    projectConfig.projectId,
+    projectConfig.workspaceDir,
+    repositoryDir
   );
-  if (
-    repositoryRelativeToRoot === "" ||
-    (!repositoryRelativeToRoot.startsWith("..") &&
-      !isAbsolute(repositoryRelativeToRoot))
-  ) {
-    throw new Error(
-      `Project ${JSON.stringify(projectConfig.projectId)} workspace.root ${JSON.stringify(workspaceRoot)} must not equal or contain the repository checkout ${JSON.stringify(resolve(repositoryDir))}.`
-    );
-  }
 }
 
 class RestartRunFailure extends Error {
