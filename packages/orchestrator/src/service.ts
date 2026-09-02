@@ -3693,14 +3693,11 @@ export class OrchestratorService {
       !recovery &&
       failureRetryCount >= maxFailureRetries
     ) {
-      const suppressionDetail = [
-        `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-        `failureRetryCount=${failureRetryCount}.`,
-        `maxFailureRetries=${maxFailureRetries}.`,
-      ].join(" ");
-      const lastError = isGitTransportFailure(runWithTokens)
-        ? `${runWithTokens.lastError} (${suppressionDetail})`
-        : suppressionDetail;
+      const lastError = formatMaxFailureRetrySuppression(
+        runWithTokens,
+        failureRetryCount,
+        maxFailureRetries
+      );
       const suppressedRun: OrchestratorRunRecord = {
         ...runWithTokens,
         finalizationDeferralCount: 0,
@@ -4985,12 +4982,12 @@ export class OrchestratorService {
         ? maxFailureRetries
         : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
     const retrySuppressed = failureRetryCount >= maxFailureRetries;
-    const suppressionError = [
-      `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-      `failureRetryCount=${failureRetryCount}.`,
-      `maxFailureRetries=${maxFailureRetries}.`,
-      errorMessage,
-    ].join(" ");
+    const suppressionError = formatMaxFailureRetrySuppression(
+      run,
+      failureRetryCount,
+      maxFailureRetries,
+      errorMessage
+    );
     if (preparedRun) {
       await this.store.saveRun({
         ...preparedRun,
@@ -5182,12 +5179,12 @@ export class OrchestratorService {
             )
         ).toISOString();
     const lastError = suppressed
-      ? [
-          `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-          `failureRetryCount=${failureRetryCount}.`,
-          `maxFailureRetries=${maxFailureRetries}.`,
-          error,
-        ].join(" ")
+      ? formatMaxFailureRetrySuppression(
+          run,
+          failureRetryCount,
+          maxFailureRetries,
+          error
+        )
       : error;
     const sessionEndedAt = run.completedAt ?? now.toISOString();
     await this.store.saveRun({
@@ -6428,6 +6425,25 @@ function wait(ms: number): Promise<void> {
 
 function isGitTransportFailure(run: OrchestratorRunRecord): boolean {
   return run.lastError?.startsWith("git_transport_failed:") === true;
+}
+
+function formatMaxFailureRetrySuppression(
+  run: OrchestratorRunRecord,
+  failureRetryCount: number,
+  maxFailureRetries: number,
+  detail?: string
+): string {
+  const suppressionDetail = [
+    `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+    `failureRetryCount=${failureRetryCount}.`,
+    `maxFailureRetries=${maxFailureRetries}.`,
+    detail,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
+  return isGitTransportFailure(run)
+    ? `${run.lastError} (${suppressionDetail})`
+    : suppressionDetail;
 }
 
 function createRunId(

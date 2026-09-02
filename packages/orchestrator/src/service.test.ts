@@ -927,7 +927,102 @@ describe("OrchestratorService", () => {
     });
   });
 
-  it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
+  it("preserves git transport failure when retry refresh exhaustion suppresses the run", async () => {
+    const now = new Date("2026-03-08T00:00:00.000Z");
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-requeue-transport-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxFailureRetries: 2 }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    const run = {
+      runId: "run-transport",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "retry-issue",
+      issueSubjectId: "retry-issue",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "retry-issue",
+      workspaceRuntimeDir: tempRoot,
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      startedAt: now.toISOString(),
+      completedAt: null,
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+      nextRetryAt: now.toISOString(),
+    } as OrchestratorRunRecord;
+    const issueRecords: IssueOrchestrationRecord[] = [
+      {
+        issueId: run.issueId,
+        identifier: run.issueIdentifier,
+        workspaceKey: run.issueWorkspaceKey,
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "retry_queued",
+        currentRunId: run.runId,
+        retryEntry: {
+          attempt: run.attempt,
+          dueAt: now.toISOString(),
+          error: run.lastError,
+        },
+        updatedAt: now.toISOString(),
+      },
+    ];
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => now,
+    });
+    const requeueRetryingRun = (
+      service as unknown as {
+        requeueRetryingRun: (
+          tenant: OrchestratorProjectConfig,
+          retryRun: OrchestratorRunRecord,
+          records: IssueOrchestrationRecord[],
+          currentTime: Date,
+          error: string
+        ) => Promise<{
+          issueRecords: IssueOrchestrationRecord[];
+          recovered: boolean;
+        }>;
+      }
+    ).requeueRetryingRun.bind(service);
+
+    const result = await requeueRetryingRun(
+      projectConfig,
+      run,
+      issueRecords,
+      now,
+      "retry refresh failed: tracker unavailable"
+    );
+
+    expect(await store.loadRun(run.runId)).toMatchObject({
+      status: "suppressed",
+      retryKind: null,
+      lastError:
+        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=2. maxFailureRetries=2. retry refresh failed: tracker unavailable)",
+    });
+    expect(result.issueRecords[0]).toMatchObject({
+      state: "released",
+      currentRunId: null,
+      failureRetryCount: 2,
+      retryEntry: null,
+    });
+  });
+
+  it("preserves git transport failure across exhausted restart records and dispatches healthy candidates", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-restart-failure-")
@@ -980,7 +1075,7 @@ describe("OrchestratorService", () => {
       updatedAt: "2026-03-08T00:00:00.000Z",
       startedAt: "2026-03-08T00:00:00.000Z",
       completedAt: null,
-      lastError: "Worker process exited unexpectedly.",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
       nextRetryAt: "2026-03-08T00:00:00.000Z",
     });
 
@@ -1066,8 +1161,30 @@ describe("OrchestratorService", () => {
       status: "suppressed",
       nextRetryAt: null,
       retryKind: null,
-      lastError: expect.stringContaining("max_failure_retries_exceeded"),
+      lastError: expect.stringMatching(
+        /^git_transport_failed: refusing to push feat\/assigned .*max_failure_retries_exceeded/
+      ),
     });
+    const retryIssueRuns = (await store.loadAllRuns()).filter(
+      (run) => run.issueId === "retry-issue"
+    );
+    expect(retryIssueRuns).toHaveLength(2);
+    expect(retryIssueRuns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "suppressed",
+          lastError: expect.stringMatching(
+            /^git_transport_failed: refusing to push feat\/assigned .*max_failure_retries_exceeded/
+          ),
+        }),
+        expect.objectContaining({
+          status: "suppressed",
+          lastError: expect.stringMatching(
+            /^git_transport_failed: refusing to push feat\/assigned .*max_failure_retries_exceeded/
+          ),
+        }),
+      ])
+    );
     expect(spawnImpl).toHaveBeenCalledTimes(2);
     expect(issueRecords).toEqual(
       expect.arrayContaining([
