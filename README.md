@@ -140,7 +140,7 @@ gh-symphony doctor --smoke
 gh-symphony repo start --once
 ```
 
-`doctor --smoke` validates the GitHub Project binding, repository workflow, runtime command, workspace root, and hook paths without dispatching a worker. `repo start --once` then performs startup cleanup plus one poll/reconcile/dispatch tick and exits.
+`doctor --smoke` validates the configured tracker, repository workflow, runtime command, workspace root, and hook paths without dispatching a worker. GitHub projects validate their Project binding; Linear projects read through the Linear adapter without requiring one. `repo start --once` then performs startup cleanup plus one poll/reconcile/dispatch tick and exits.
 
 Repo-embedded projects honor `workspace.root` relative to the repository checkout, defaulting to `.runtime/symphony-workspaces`. Their issue worktrees live at `<workspace.root>/<issue-key>`, while orchestrator records remain under `.runtime/orchestrator`; `repo init` creates the root and `doctor` reports it. Existing installations should stop the daemon, archive `.runtime/orchestrator`, run `repo init` again, and restart so worktrees are safely re-populated without stale shared-cache registrations. See [Configuration](docs/configuration.md#repo-embedded-workspace-root-migration).
 
@@ -148,6 +148,7 @@ Use an explicit issue when you want a deterministic preflight:
 
 ```bash
 gh-symphony doctor --smoke --issue owner/repo#123
+# Linear: gh-symphony doctor --smoke --issue DEV-54
 ```
 
 ### 4. Run the Orchestrator
@@ -611,7 +612,7 @@ gh-symphony config edit             # Open config in $EDITOR
 
 ### Diagnostics
 
-`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
+`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, reads a target issue through the configured tracker adapter, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker. GitHub projects additionally require their Project binding and `owner/repo#number` for explicit issues; Linear projects use identifiers such as `DEV-54` and do not require a GitHub Project binding.
 
 When cwd is a standalone project folder whose runtime config was cached by `project start`, `doctor` and live `workflow preview` diagnose that project even if another registry project is active. Explicit `--project-dir <path>` (`doctor`) or `--project-id <projectId>` (`workflow preview`) selection wins over cwd; outside such a standalone folder, diagnostics fall back to the registry's `activeProject`.
 
@@ -620,6 +621,7 @@ Use an explicit issue when you want a deterministic check:
 ```bash
 gh-symphony doctor --smoke --issue owner/repo#123
 gh-symphony doctor --smoke --issue owner/repo#123 --json
+gh-symphony doctor --smoke --issue DEV-54
 ```
 
 Without `--issue`, doctor auto-selects one active live issue from the managed project. If none is suitable, the report explains which active states it expected and suggests re-running with `--issue`.

@@ -83,6 +83,12 @@ function createLinearProjectConfig(
     projectId: "tenant-a",
     slug: "tenant-a",
     workspaceDir,
+    repository: {
+      owner: "acme",
+      name: "widgets",
+      url: "https://github.com/acme/widgets",
+      cloneUrl: "https://github.com/acme/widgets.git",
+    },
     tracker: {
       adapter: "linear",
       bindingId: "symphony-0c79b11b75ea",
@@ -1693,6 +1699,160 @@ Prompt body
         }),
       })
     );
+  });
+
+  it("reads a Linear smoke issue without a GitHub Project binding", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createLinearWorkflowFixture();
+    process.env.LINEAR_API_KEY = "lin_test_token";
+    const linearIssue = createTrackedIssue({
+      id: "linear-issue-54",
+      identifier: "DEV-54",
+      number: 54,
+      state: "In Progress",
+      url: "https://linear.app/acme/issue/DEV-54",
+      tracker: {
+        adapter: "linear",
+        bindingId: "symphony-0c79b11b75ea",
+        itemId: "linear-issue-54",
+      },
+    });
+    const listIssues = vi.fn(async () => [linearIssue]);
+    const resolveTrackerAdapter = vi.fn(() => ({
+      listIssues,
+      listIssuesByStates: vi.fn(),
+      fetchIssueStatesByIds: vi.fn(),
+    }));
+    const getProjectDetail = vi.fn(async () => {
+      throw new Error("GitHub project resolution should be skipped");
+    });
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          projects: {
+            nodes: [
+              {
+                id: "project-1",
+                name: "Symphony",
+                slugId: "symphony-0c79b11b75ea",
+              },
+            ],
+          },
+        },
+      }),
+    }));
+    const dependencies = {
+      ...authDependencies(),
+      inspectManagedProjectSelection: async () => ({
+        kind: "resolved" as const,
+        projectId: "tenant-a",
+        projectConfig: createLinearProjectConfig(workspaceDir),
+      }),
+      getProjectDetail: getProjectDetail as never,
+      resolveTrackerAdapter,
+      fetchImpl: fetchImpl as never,
+      pathEnv,
+    };
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke"], dependencies)
+    );
+
+    expect(report.ok).toBe(true);
+    expect(getProjectDetail).not.toHaveBeenCalled();
+    expect(listIssues).toHaveBeenCalledOnce();
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "pass",
+      summary: expect.stringContaining("DEV-54"),
+      details: expect.objectContaining({ issue: "DEV-54", source: "auto" }),
+    });
+    expect(
+      report.checks.find((check) => check.id === "project_repository_link")
+    ).toBeUndefined();
+  });
+
+  it("accepts a Linear identifier for an explicit smoke issue", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createLinearWorkflowFixture();
+    process.env.LINEAR_API_KEY = "lin_test_token";
+    const linearIssue = createTrackedIssue({
+      id: "linear-issue-54",
+      identifier: "DEV-54",
+      number: 54,
+      state: "In Progress",
+      tracker: {
+        adapter: "linear",
+        bindingId: "symphony-0c79b11b75ea",
+        itemId: "linear-issue-54",
+      },
+    });
+    const fetchIssueStatesByIds = vi.fn(async () => [linearIssue]);
+    const resolveTrackerAdapter = vi.fn(() => ({
+      listIssues: vi.fn(),
+      listIssuesByStates: vi.fn(),
+      fetchIssueStatesByIds,
+    }));
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          projects: {
+            nodes: [
+              {
+                id: "project-1",
+                name: "Symphony",
+                slugId: "symphony-0c79b11b75ea",
+              },
+            ],
+          },
+        },
+      }),
+    }));
+    const projectConfig = createLinearProjectConfig(workspaceDir);
+    const dependencies = {
+      ...authDependencies(),
+      inspectManagedProjectSelection: async () => ({
+        kind: "resolved" as const,
+        projectId: "tenant-a",
+        projectConfig,
+      }),
+      resolveTrackerAdapter,
+      fetchImpl: fetchImpl as never,
+      pathEnv,
+    };
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(
+        baseOptions(configDir),
+        ["--smoke", "--issue", "DEV-54"],
+        dependencies
+      )
+    );
+
+    expect(report.ok).toBe(true);
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "tenant-a",
+        tracker: projectConfig.tracker,
+      }),
+      ["DEV-54"],
+      { token: "lin_test_token", fetchImpl }
+    );
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "pass",
+      details: expect.objectContaining({ issue: "DEV-54", source: "explicit" }),
+    });
   });
 
   it("reports missing LINEAR_API_KEY as a Linear tracker diagnostic", async () => {

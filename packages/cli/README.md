@@ -439,7 +439,7 @@ gh-symphony instances --json
 
 ## Diagnostics
 
-`gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
+`gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, reads a target issue through the configured tracker adapter, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker. GitHub projects additionally require their Project binding and `owner/repo#number` for explicit issues; Linear projects use identifiers such as `DEV-54` and do not require a GitHub Project binding.
 
 For repo-embedded projects, `workspace.root` is resolved relative to the repository checkout, defaults to `.runtime/symphony-workspaces`, and issue worktrees are populated at `<workspace.root>/<issue-key>`. Runtime records remain under `.runtime/orchestrator`, and daemon liveness continues to use the repository checkout. `repo init` creates the root with mode `0700`. After upgrading an existing installation, stop it, archive `.runtime/orchestrator`, run `gh-symphony repo init` again, and restart to re-populate worktrees without stale shared-cache administration.
 
@@ -448,6 +448,7 @@ Use an explicit issue when you want a deterministic check:
 ```bash
 gh-symphony doctor --smoke --issue owner/repo#123
 gh-symphony doctor --smoke --issue owner/repo#123 --json
+gh-symphony doctor --smoke --issue DEV-54
 ```
 
 Without `--issue`, doctor auto-selects one active live issue from the managed project. If none is suitable, the report explains which active states it expected and suggests re-running with `--issue`.

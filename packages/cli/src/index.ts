@@ -482,7 +482,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "--bundle [path]",
         "Export a redacted support bundle for shareable diagnostics"
       )
-      .option("--issue <owner/repo#number>", "Live issue to validate")
+      .option(
+        "--issue <issue>",
+        "Live tracker issue (owner/repo#number or TEAM-123)"
+      )
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {

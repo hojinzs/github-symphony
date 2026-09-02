@@ -8,6 +8,7 @@ import {
   WorkflowValidationError,
   redactObservabilitySecrets,
   redactObservabilityText,
+  type OrchestratorProjectConfig,
   type ParsedWorkflow,
   type TrackedIssue,
 } from "@gh-symphony/core";
@@ -20,6 +21,7 @@ import {
 } from "@gh-symphony/runtime-claude";
 import {
   getSupportedTrackerKinds,
+  resolveTrackerAdapter,
   resolveWorkflowConfigTrackerAdapter,
 } from "@gh-symphony/orchestrator";
 import {
@@ -200,6 +202,7 @@ export type DoctorDependencies = {
   listRepositoryLabels: typeof listRepositoryLabels;
   fetchProjectIssues: typeof fetchGithubProjectIssues;
   fetchProjectIssue: typeof fetchGithubProjectIssueByRepositoryAndNumber;
+  resolveTrackerAdapter: typeof resolveTrackerAdapter;
   readFile: typeof readFile;
   access: typeof access;
   mkdir: typeof mkdir;
@@ -233,6 +236,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   listRepositoryLabels,
   fetchProjectIssues: fetchGithubProjectIssues,
   fetchProjectIssue: fetchGithubProjectIssueByRepositoryAndNumber,
+  resolveTrackerAdapter,
   readFile,
   access,
   mkdir,
@@ -256,7 +260,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
 const MINIMUM_NODE_MAJOR = 24;
 const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
 const DOCTOR_USAGE =
-  "Usage: gh-symphony doctor [--project-id <project-id>] [--project-dir <path>] [--fix] [--smoke] [--issue <owner/repo#number>] [--bundle [path]]";
+  "Usage: gh-symphony doctor [--project-id <project-id>] [--project-dir <path>] [--fix] [--smoke] [--issue <owner/repo#number|TEAM-123>] [--bundle [path]]";
 
 type GitInstallationState =
   | {
@@ -1341,6 +1345,28 @@ function formatSmokeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const LINEAR_ISSUE_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
+
+function parseLinearSmokeIssueIdentifier(value: string): string {
+  const identifier = value.trim();
+  if (!LINEAR_ISSUE_IDENTIFIER_PATTERN.test(identifier)) {
+    throw new Error("Linear issue identifiers must match TEAM-123.");
+  }
+  return identifier;
+}
+
+function buildSmokeTrackerProject(
+  selection: ResolvedManagedProjectSelection
+): OrchestratorProjectConfig {
+  const project = selection.projectConfig;
+  if (!project.repository) {
+    throw new Error(
+      `Managed project "${selection.projectId}" has no repository mapping.`
+    );
+  }
+  return { ...project, repository: project.repository };
+}
+
 async function buildDoctorSmokeChecks(input: {
   auth: ResolvedGitHubAuth | null;
   selection: Awaited<ReturnType<typeof inspectManagedProjectSelection>>;
@@ -1367,7 +1393,9 @@ async function buildDoctorSmokeChecks(input: {
     return checks;
   }
 
-  if (!input.auth) {
+  const trackerKind = input.selection.projectConfig.tracker.adapter;
+
+  if (trackerKind === "github-project" && !input.auth) {
     checks.push(
       failCheck(
         "smoke_issue",
@@ -1393,7 +1421,10 @@ async function buildDoctorSmokeChecks(input: {
     return checks;
   }
 
-  if (!input.projectBindingId || !input.projectDetail) {
+  if (
+    trackerKind === "github-project" &&
+    (!input.projectBindingId || !input.projectDetail)
+  ) {
     checks.push(
       failCheck(
         "smoke_issue",
@@ -1406,15 +1437,131 @@ async function buildDoctorSmokeChecks(input: {
     return checks;
   }
 
-  const trackerConfig = buildGithubTrackerConfig({
-    projectConfig: input.selection,
-    bindingId: input.projectBindingId,
-    token: input.auth.token,
-    workflow: input.workflow.workflow,
-  });
+  const githubTrackerConfig =
+    trackerKind === "github-project"
+      ? buildGithubTrackerConfig({
+          projectConfig: input.selection,
+          bindingId: input.projectBindingId!,
+          token: input.auth!.token,
+          workflow: input.workflow.workflow,
+        })
+      : null;
 
   let issue: TrackedIssue | null = null;
-  if (input.parsedArgs.issue) {
+  if (trackerKind === "linear") {
+    let trackerProject: OrchestratorProjectConfig;
+    try {
+      trackerProject = buildSmokeTrackerProject(input.selection);
+    } catch (error) {
+      checks.push(
+        failCheck(
+          "smoke_issue",
+          "Smoke target issue",
+          "Smoke check could not read Linear issues because the managed project has no repository mapping.",
+          "Add a repository mapping to the standalone project WORKFLOW.md and restart the project before re-running the smoke check.",
+          { error: formatSmokeError(error) }
+        )
+      );
+      return checks;
+    }
+
+    const trackerAdapter = input.deps.resolveTrackerAdapter(
+      input.selection.projectConfig.tracker
+    );
+    const trackerDependencies = {
+      token: input.workflow.workflow.tracker.apiKey ?? undefined,
+      fetchImpl: input.deps.fetchImpl,
+    };
+
+    if (input.parsedArgs.issue) {
+      let identifier: string;
+      try {
+        identifier = parseLinearSmokeIssueIdentifier(input.parsedArgs.issue);
+      } catch (error) {
+        checks.push(
+          failCheck(
+            "smoke_issue",
+            "Smoke target issue",
+            `Smoke check issue reference is invalid: ${input.parsedArgs.issue}.`,
+            "Use the expected '--issue TEAM-123' format and re-run the smoke check.",
+            {
+              issue: input.parsedArgs.issue,
+              expectedFormat: "TEAM-123",
+              error: formatSmokeError(error),
+            }
+          )
+        );
+        return checks;
+      }
+
+      try {
+        [issue] = await trackerAdapter.fetchIssueStatesByIds(
+          trackerProject,
+          [identifier],
+          trackerDependencies
+        );
+      } catch (error) {
+        checks.push(
+          failCheck(
+            "smoke_issue",
+            "Smoke target issue",
+            `Smoke check could not read Linear issue ${identifier}.`,
+            "Confirm Linear credentials, project visibility, and network access, then re-run the smoke check.",
+            { issue: identifier, error: formatSmokeError(error) }
+          )
+        );
+        return checks;
+      }
+
+      if (!issue) {
+        checks.push(
+          failCheck(
+            "smoke_issue",
+            "Smoke target issue",
+            `Linear issue ${identifier} is not in the configured project or is not readable.`,
+            "Confirm the issue belongs to the configured Linear project and the token can read it, then re-run the smoke check.",
+            { issue: identifier }
+          )
+        );
+        return checks;
+      }
+    } else {
+      let issues: TrackedIssue[];
+      try {
+        issues = await trackerAdapter.listIssues(
+          trackerProject,
+          trackerDependencies
+        );
+      } catch (error) {
+        checks.push(
+          failCheck(
+            "smoke_issue",
+            "Smoke target issue",
+            "Smoke check could not read live issues from the configured Linear project.",
+            "Confirm Linear credentials, project visibility, and network access, then re-run the smoke check.",
+            { error: formatSmokeError(error) }
+          )
+        );
+        return checks;
+      }
+
+      issue = selectRepresentativeIssue(issues, input.workflow.workflow);
+      if (!issue) {
+        checks.push(
+          failCheck(
+            "smoke_issue",
+            "Smoke target issue",
+            "No active live issue was found in the configured Linear project.",
+            `Move one issue into an active state (${input.workflow.workflow.lifecycle.activeStates.join(", ")}) or re-run with '--issue TEAM-123'.`,
+            {
+              activeStates: input.workflow.workflow.lifecycle.activeStates,
+            }
+          )
+        );
+        return checks;
+      }
+    }
+  } else if (input.parsedArgs.issue) {
     let issueRef: ReturnType<typeof parseIssueReference>;
     try {
       issueRef = parseIssueReference(input.parsedArgs.issue);
@@ -1436,17 +1583,17 @@ async function buildDoctorSmokeChecks(input: {
     }
 
     if (
-      !findLinkedRepository(input.projectDetail, issueRef.owner, issueRef.name)
+      !findLinkedRepository(input.projectDetail!, issueRef.owner, issueRef.name)
     ) {
       checks.push(
         failCheck(
           "project_repository_link",
           "Project repository link",
-          `Repository ${issueRef.owner}/${issueRef.name} is not linked to GitHub Project "${input.projectDetail.title}".`,
+          `Repository ${issueRef.owner}/${issueRef.name} is not linked to GitHub Project "${input.projectDetail!.title}".`,
           "Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.",
           {
             repository: `${issueRef.owner}/${issueRef.name}`,
-            projectTitle: input.projectDetail.title,
+            projectTitle: input.projectDetail!.title,
           }
         )
       );
@@ -1475,7 +1622,7 @@ async function buildDoctorSmokeChecks(input: {
 
     try {
       issue = await input.deps.fetchProjectIssue(
-        trackerConfig,
+        githubTrackerConfig!,
         { owner: issueRef.owner, name: issueRef.name },
         issueRef.number
       );
@@ -1507,16 +1654,16 @@ async function buildDoctorSmokeChecks(input: {
   } else {
     let issues: TrackedIssue[];
     try {
-      issues = await input.deps.fetchProjectIssues(trackerConfig);
+      issues = await input.deps.fetchProjectIssues(githubTrackerConfig!);
     } catch (error) {
       checks.push(
         failCheck(
           "smoke_issue",
           "Smoke target issue",
-          `Smoke check could not read live issues from GitHub Project "${input.projectDetail.title}".`,
+          `Smoke check could not read live issues from GitHub Project "${input.projectDetail!.title}".`,
           "Confirm GitHub token scopes, project visibility, and network access, then re-run the smoke check.",
           {
-            projectTitle: input.projectDetail.title,
+            projectTitle: input.projectDetail!.title,
             error: formatSmokeError(error),
           }
         )
@@ -1530,10 +1677,10 @@ async function buildDoctorSmokeChecks(input: {
         failCheck(
           "smoke_issue",
           "Smoke target issue",
-          `No active live issue was found in GitHub Project "${input.projectDetail.title}".`,
+          `No active live issue was found in GitHub Project "${input.projectDetail!.title}".`,
           `Move one issue into an active state (${input.workflow.workflow.lifecycle.activeStates.join(", ")}) or re-run with '--issue owner/repo#number'.`,
           {
-            projectTitle: input.projectDetail.title,
+            projectTitle: input.projectDetail!.title,
             activeStates: input.workflow.workflow.lifecycle.activeStates,
           }
         )
@@ -1543,10 +1690,13 @@ async function buildDoctorSmokeChecks(input: {
   }
 
   const repositoryName = `${issue.repository.owner}/${issue.repository.name}`;
-  if (!checks.some((check) => check.id === "project_repository_link")) {
+  if (
+    trackerKind === "github-project" &&
+    !checks.some((check) => check.id === "project_repository_link")
+  ) {
     if (
       !findLinkedRepository(
-        input.projectDetail,
+        input.projectDetail!,
         issue.repository.owner,
         issue.repository.name
       )
@@ -1555,11 +1705,11 @@ async function buildDoctorSmokeChecks(input: {
         failCheck(
           "project_repository_link",
           "Project repository link",
-          `Repository ${repositoryName} is not linked to GitHub Project "${input.projectDetail.title}".`,
+          `Repository ${repositoryName} is not linked to GitHub Project "${input.projectDetail!.title}".`,
           "Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.",
           {
             repository: repositoryName,
-            projectTitle: input.projectDetail.title,
+            projectTitle: input.projectDetail!.title,
           }
         )
       );

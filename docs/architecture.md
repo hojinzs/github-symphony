@@ -43,7 +43,9 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - CLI global/project config, discoverable repo/standalone runtime command options,
   folder-addressed standalone project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
-  `commands/project.ts`; `workspaceDir` is the issue-workspace root in both modes, while
+  `commands/project.ts`; doctor smoke diagnostics route live issue selection through the
+  configured tracker adapter, with GitHub Project binding checks confined to GitHub-backed
+  projects; `workspaceDir` is the issue-workspace root in both modes, while
   repo-embedded configs additionally carry `repositoryDir` for daemon CWD/liveness
 - Cross-runtime instance index and host-level `instances` CLI surface: `packages/cli/src/instances.ts`, `commands/instances.ts`. The index is advisory; lock heartbeat and process identity remain the liveness authority.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
@@ -87,7 +89,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason.
-- Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract. Its pickup labels instead filter the candidate list before dispatch, so label-ineligible Linear items are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records.
+- Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract and serves adapter-native CLI smoke reads (`listIssues` / `fetchIssueStatesByIds`) for standalone projects. Its pickup labels instead filter the candidate list before dispatch, so label-ineligible Linear items are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records.
 - File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
 - Compact adapter profiles: [GitHub Project](trackers/github-project.md),
