@@ -113,17 +113,19 @@ log "Initial state: idle"
 
 # ── Inject issues ─────────────────────────────────────────────
 
+fixture_copy=$(mktemp e2e/fixtures/issues.json.tmp.XXXXXX)
 if [ "$SCENARIO" = "non-dispatchable" ]; then
-  cp e2e/fixtures/non-dispatchable.json e2e/fixtures/issues.json
+  cp e2e/fixtures/non-dispatchable.json "$fixture_copy"
 elif [ "$SCENARIO" = "linear-dirty-recovery" ]; then
-  cp e2e/fixtures/linear-dirty-recovery.json e2e/fixtures/issues.json
+  cp e2e/fixtures/linear-dirty-recovery.json "$fixture_copy"
 elif [ "$SCENARIO" = "required-label-missing" ]; then
-  cp e2e/fixtures/required-label-missing.json e2e/fixtures/issues.json
+  cp e2e/fixtures/required-label-missing.json "$fixture_copy"
 elif [ "$SCENARIO" = "required-label-removed" ]; then
-  cp e2e/fixtures/required-label-active.json e2e/fixtures/issues.json
+  cp e2e/fixtures/required-label-active.json "$fixture_copy"
 else
-  cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
+  cp e2e/fixtures/happy-path.json "$fixture_copy"
 fi
+mv "$fixture_copy" e2e/fixtures/issues.json
 
 INITIAL_LAST_TICK=$(orch_curl -s http://localhost:4680/api/v1/state 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt') or '')" 2>/dev/null || echo '')
 

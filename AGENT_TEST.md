@@ -159,7 +159,7 @@ AI Agent
 └──────────────────────────────────────────────────┘
 ```
 
-- **File Tracker** (`@gh-symphony/tracker-file`): reads issues from a JSON file without the GitHub API
+- **File Tracker** (`@gh-symphony/tracker-file`): reads issues from a JSON file without the GitHub API; it retries one transient JSON syntax failure during fixture replacement, then surfaces persistent malformed JSON
 - **Stub Worker** (`e2e/stub-worker.ts`): simulates worker behavior without the Codex AI
 - **Isolation**: the cloned work repo and repo-local orchestrator state live in the `/e2e/work` tmpfs and are destroyed when the container stops. The local `.runtime/` is unaffected
 - **Compose isolation**: runner scripts derive `COMPOSE_PROJECT_NAME`, `SYMPHONY_E2E_IMAGE`, and `SYMPHONY_E2E_PORT` from the absolute worktree path. Set `SYMPHONY_E2E_PROJECT`, `SYMPHONY_E2E_IMAGE`, or `SYMPHONY_E2E_PORT` to override a derived value. Containers, networks, volumes, images, and runner host ports are isolated across worktrees; manual Compose keeps host port `4680` by default.

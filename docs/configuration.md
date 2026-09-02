@@ -229,6 +229,9 @@ The file adapter is for local and Docker E2E fixtures. `provider.path` is the
 required JSON fixture path unless `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is set
 as the documented compatibility fallback; its defaults are `Ready`/`In Progress` active,
 `Done`/`Cancelled` terminal, `Ready` blocker-check, and no planning states.
+To tolerate a transient partial read while a bind-mounted fixture is being
+replaced, the adapter retries one JSON syntax failure once. A persistently
+malformed fixture still fails loudly rather than being treated as an empty tracker.
 
 ## `GH_SYMPHONY_CONFIG_DIR` and Repository Runtimes
 
