@@ -809,6 +809,7 @@ function resolveDoctorRepositoryFilter(
 
 async function checkLinearTrackerResolution(input: {
   projectConfig: ResolvedManagedProjectSelection;
+  token: string | null;
   deps: DoctorDependencies;
 }): Promise<DoctorCheckResult> {
   const tracker = input.projectConfig.projectConfig.tracker;
@@ -845,13 +846,13 @@ async function checkLinearTrackerResolution(input: {
     );
   }
 
-  const token = process.env.LINEAR_API_KEY?.trim();
+  const token = input.token?.trim();
   if (!token) {
     return failCheck(
       "linear_tracker_resolution",
       "Linear tracker resolution",
-      "Linear tracker resolution could not run because LINEAR_API_KEY is not set.",
-      "Set LINEAR_API_KEY in the environment and re-run 'gh-symphony doctor'.",
+      "Linear tracker resolution could not run because tracker.api_key did not resolve.",
+      "Set the environment variable referenced by WORKFLOW.md field 'tracker.api_key' and re-run 'gh-symphony doctor'.",
       {
         reason: "missing_token" satisfies LinearResolutionReason,
         projectSlug,
@@ -874,7 +875,7 @@ async function checkLinearTrackerResolution(input: {
         "linear_tracker_resolution",
         "Linear tracker resolution",
         `Linear project "${projectSlug}" was not found or is not accessible.`,
-        "Confirm LINEAR_API_KEY can read the configured Linear project, then re-run 'gh-symphony doctor'.",
+        "Confirm the configured Linear API key can read the project, then re-run 'gh-symphony doctor'.",
         {
           reason: "api_error" satisfies LinearResolutionReason,
           projectSlug,
@@ -900,7 +901,7 @@ async function checkLinearTrackerResolution(input: {
       "linear_tracker_resolution",
       "Linear tracker resolution",
       `Failed to resolve configured Linear project "${projectSlug}".`,
-      "Confirm LINEAR_API_KEY, tracker endpoint, project slug, and network access, then re-run 'gh-symphony doctor'.",
+      "Confirm the configured Linear API key, tracker endpoint, project slug, and network access, then re-run 'gh-symphony doctor'.",
       {
         reason: "api_error" satisfies LinearResolutionReason,
         projectSlug,
@@ -1826,6 +1827,7 @@ export async function runDoctorDiagnostics(
     typeof resolveGitHubGraphqlEndpoint
   > | null = null;
   const envToken = deps.getEnvGitHubToken();
+  const runtimeRoot = resolveRuntimeRoot(options.configDir);
 
   const currentNodeVersion = deps.processVersion;
   const currentNodeMajor = parseMajorNodeVersion(currentNodeVersion);
@@ -1951,6 +1953,23 @@ export async function runDoctorDiagnostics(
     );
   }
 
+  const externalWorkflowPath =
+    resolvedProjectConfig.kind === "resolved" &&
+    resolvedProjectConfig.projectConfig.workflowSource?.path
+      ? resolvedProjectConfig.projectConfig.workflowSource.path
+      : null;
+  const workflow = await checkWorkflow(
+    process.cwd(),
+    deps,
+    externalWorkflowPath,
+    resolvedProjectConfig.kind === "resolved"
+      ? resolveManagedProjectEnvironment(
+          resolvedProjectConfig.projectConfig,
+          runtimeRoot
+        )
+      : process.env
+  );
+
   const ghHostname = githubGraphqlEndpoint?.ghHostname;
   const ghAuth = ghInstalled
     ? deps.checkGhAuthenticated({ hostname: ghHostname })
@@ -2067,6 +2086,8 @@ export async function runDoctorDiagnostics(
     checks.push(
       await checkLinearTrackerResolution({
         projectConfig: resolvedProjectConfig,
+        token:
+          workflow.status === "pass" ? workflow.workflow.tracker.apiKey : null,
         deps,
       })
     );
@@ -2185,7 +2206,6 @@ export async function runDoctorDiagnostics(
     )
   );
 
-  const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const runtimeRootState = await inspectPathState(runtimeRoot, deps);
   checks.push(
     buildPathCheck(
@@ -2223,22 +2243,6 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  const externalWorkflowPath =
-    resolvedProjectConfig?.kind === "resolved" &&
-    resolvedProjectConfig.projectConfig.workflowSource?.path
-      ? resolvedProjectConfig.projectConfig.workflowSource.path
-      : null;
-  const workflow = await checkWorkflow(
-    process.cwd(),
-    deps,
-    externalWorkflowPath,
-    resolvedProjectConfig.kind === "resolved"
-      ? resolveManagedProjectEnvironment(
-          resolvedProjectConfig.projectConfig,
-          runtimeRoot
-        )
-      : process.env
-  );
   if (workflow.status === "pass") {
     checks.push(
       passCheck(

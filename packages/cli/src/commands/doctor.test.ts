@@ -186,6 +186,7 @@ function authDependencies(
 const originalGraphQlToken = process.env.GITHUB_GRAPHQL_TOKEN;
 const originalGraphQlApiUrl = process.env.GITHUB_GRAPHQL_API_URL;
 const originalLinearApiKey = process.env.LINEAR_API_KEY;
+const originalCustomLinearToken = process.env.CUSTOM_LINEAR_TOKEN;
 const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
 const originalCredentialBrokerUrl = process.env.AGENT_CREDENTIAL_BROKER_URL;
 const originalCredentialBrokerSecret =
@@ -221,14 +222,17 @@ async function createWorkflowFixture(
   return { repoDir, pathEnv: binDir };
 }
 
-async function createLinearWorkflowFixture(command = "fake-agent"): Promise<{
+async function createLinearWorkflowFixture(
+  command = "fake-agent",
+  apiKeyReference = "$LINEAR_API_KEY"
+): Promise<{
   repoDir: string;
   pathEnv: string;
 }> {
   const fixture = await createWorkflowFixture(command);
   await writeFile(
     join(fixture.repoDir, "WORKFLOW.md"),
-    `---\ntracker:\n  kind: linear\n  api_key: $LINEAR_API_KEY\n  project_slug: symphony-0c79b11b75ea\n  active_states:\n    - Todo\n    - In Progress\n  pickup_labels:\n    include:\n      - agent\n      - dev-ready\n    exclude:\n      - no-agent\ncodex:\n  command: ${command}\n---\nPrompt body\n`,
+    `---\ntracker:\n  kind: linear\n  api_key: ${apiKeyReference}\n  project_slug: symphony-0c79b11b75ea\n  active_states:\n    - Todo\n    - In Progress\n  pickup_labels:\n    include:\n      - agent\n      - dev-ready\n    exclude:\n      - no-agent\ncodex:\n  command: ${command}\n---\nPrompt body\n`,
     "utf8"
   );
   return fixture;
@@ -418,6 +422,11 @@ afterEach(() => {
   } else {
     process.env.LINEAR_API_KEY = originalLinearApiKey;
   }
+  if (originalCustomLinearToken === undefined) {
+    delete process.env.CUSTOM_LINEAR_TOKEN;
+  } else {
+    process.env.CUSTOM_LINEAR_TOKEN = originalCustomLinearToken;
+  }
   if (originalAnthropicApiKey === undefined) {
     delete process.env.ANTHROPIC_API_KEY;
   } else {
@@ -440,6 +449,7 @@ beforeEach(() => {
   delete process.env.GITHUB_GRAPHQL_TOKEN;
   delete process.env.GITHUB_GRAPHQL_API_URL;
   delete process.env.LINEAR_API_KEY;
+  delete process.env.CUSTOM_LINEAR_TOKEN;
   delete process.env.ANTHROPIC_API_KEY;
 });
 
@@ -1628,8 +1638,11 @@ Prompt body
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await prepareDoctorPaths(configDir, workspaceDir);
-    const { repoDir, pathEnv } = await createLinearWorkflowFixture();
-    process.env.LINEAR_API_KEY = "lin_test_token";
+    const { repoDir, pathEnv } = await createLinearWorkflowFixture(
+      "fake-agent",
+      "$CUSTOM_LINEAR_TOKEN"
+    );
+    process.env.CUSTOM_LINEAR_TOKEN = "lin_custom_token";
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -1664,10 +1677,10 @@ Prompt body
         pathEnv,
       })
     );
+    expect(report.ok).toBe(true);
     const [, fetchInit] = fetchImpl.mock.calls[0] ?? [];
     const requestBody = JSON.parse(String(fetchInit?.body));
 
-    expect(report.ok).toBe(true);
     expect(getProjectDetail).not.toHaveBeenCalled();
     expect(
       report.checks.find((check) => check.id === "github_project_resolution")
@@ -1695,7 +1708,7 @@ Prompt body
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          Authorization: "lin_test_token",
+          Authorization: "lin_custom_token",
         }),
       })
     );
@@ -1764,7 +1777,10 @@ Prompt body
 
     expect(report.ok).toBe(true);
     expect(getProjectDetail).not.toHaveBeenCalled();
-    expect(listIssues).toHaveBeenCalledOnce();
+    expect(listIssues).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "tenant-a" }),
+      { token: "lin_test_token", fetchImpl }
+    );
     expect(
       report.checks.find((check) => check.id === "smoke_issue")
     ).toMatchObject({
@@ -1855,7 +1871,7 @@ Prompt body
     });
   });
 
-  it("reports missing LINEAR_API_KEY as a Linear tracker diagnostic", async () => {
+  it("reports an unresolved tracker.api_key as a Linear tracker diagnostic", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await prepareDoctorPaths(configDir, workspaceDir);
@@ -1884,8 +1900,10 @@ Prompt body
       report.checks.find((check) => check.id === "linear_tracker_resolution")
     ).toMatchObject({
       status: "fail",
-      summary: expect.stringContaining("LINEAR_API_KEY is not set"),
-      remediation: expect.stringContaining("Set LINEAR_API_KEY"),
+      summary: expect.stringContaining("tracker.api_key did not resolve"),
+      remediation: expect.stringContaining(
+        "environment variable referenced by WORKFLOW.md"
+      ),
       details: expect.objectContaining({
         reason: "missing_token",
         projectSlug: "symphony-0c79b11b75ea",

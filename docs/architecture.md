@@ -43,9 +43,9 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - CLI global/project config, discoverable repo/standalone runtime command options,
   folder-addressed standalone project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
-  `commands/project.ts`; doctor smoke diagnostics route live issue selection through the
-  configured tracker adapter, with GitHub Project binding checks confined to GitHub-backed
-  projects; `workspaceDir` is the issue-workspace root in both modes, while
+  `commands/project.ts`; doctor smoke diagnostics route Linear live issue selection through
+  the Linear adapter while retaining the GitHub Project read path for GitHub-backed projects,
+  where Project binding checks remain confined; `workspaceDir` is the issue-workspace root in both modes, while
   repo-embedded configs additionally carry `repositoryDir` for daemon CWD/liveness
 - Cross-runtime instance index and host-level `instances` CLI surface: `packages/cli/src/instances.ts`, `commands/instances.ts`. The index is advisory; lock heartbeat and process identity remain the liveness authority.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
