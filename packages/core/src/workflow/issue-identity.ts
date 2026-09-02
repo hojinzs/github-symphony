@@ -73,14 +73,6 @@ export function extractIssueNumbersFromBranch(branch: string): number[] {
 
 const WORKPAD_FILE_PATTERN = /(?:^|\/)\.gh-symphony\/workpads\/([^/]+)\.md$/;
 const TRACKER_IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9]*-\d{1,9}$/;
-const VERSION_LIKE_TRACKER_KEYS = new Set([
-  "GO",
-  "JAVA",
-  "NODE",
-  "PHP",
-  "PYTHON",
-  "RUBY",
-]);
 
 function normalizeTrackerIdentifier(identifier: string): string | null {
   const normalized = identifier.trim();
@@ -89,23 +81,31 @@ function normalizeTrackerIdentifier(identifier: string): string | null {
     : null;
 }
 
-function isVersionLikeTrackerIdentifier(identifier: string): boolean {
-  const teamKey = identifier.split("-", 1)[0]!;
-  return VERSION_LIKE_TRACKER_KEYS.has(teamKey) || /^V\d+$/.test(teamKey);
-}
-
-function extractTrackerIdentifiersFromBranch(branch: string): string[] {
-  const identifiers = new Set<string>();
+/**
+ * Tracker identifiers encoded in a branch name.
+ *
+ * Positive evidence accepts any `key-number` token at a segment start.
+ * Foreign evidence additionally requires a slug after the token because a
+ * segment-terminal token is indistinguishable from a version fragment and
+ * must never outrank the issue's own evidence.
+ */
+function extractTrackerIdentifiersFromBranch(branch: string): {
+  positive: string[];
+  foreign: string[];
+} {
+  const positive = new Set<string>();
+  const foreign = new Set<string>();
   for (const match of branch.matchAll(
-    /(?:^|\/)([A-Za-z][A-Za-z0-9]*-\d{1,9})(?=[-_/]|$)/g
+    /(?:^|\/)([A-Za-z][A-Za-z0-9]*-\d{1,9})(?=([-_])|\/|$)/g
   )) {
     const identifier = match[1]!.toUpperCase();
-    if (!isVersionLikeTrackerIdentifier(identifier)) {
-      identifiers.add(identifier);
+    positive.add(identifier);
+    if (match[2]) {
+      foreign.add(identifier);
     }
   }
 
-  return [...identifiers];
+  return { positive: [...positive], foreign: [...foreign] };
 }
 
 function extractTrackerIdentifiersFromWorkpadFiles(
@@ -176,12 +176,12 @@ export function attributeDirtyWorkToIssue(
   const workpadNumbers = extractIssueNumbersFromWorkpadFiles(input.dirtyFiles);
   const branchTrackerIdentifiers = branch
     ? extractTrackerIdentifiersFromBranch(branch)
-    : [];
+    : { positive: [], foreign: [] };
   const workpadTrackerIdentifiers = extractTrackerIdentifiersFromWorkpadFiles(
     input.dirtyFiles
   );
 
-  const foreignBranchIdentifiers = branchTrackerIdentifiers.filter(
+  const foreignBranchIdentifiers = branchTrackerIdentifiers.foreign.filter(
     (identifier) => identifier !== trackerIdentifier
   );
   if (foreignBranchIdentifiers.length > 0) {
@@ -232,7 +232,7 @@ export function attributeDirtyWorkToIssue(
 
   if (
     trackerIdentifier &&
-    branchTrackerIdentifiers.includes(trackerIdentifier)
+    branchTrackerIdentifiers.positive.includes(trackerIdentifier)
   ) {
     return {
       attributed: true,

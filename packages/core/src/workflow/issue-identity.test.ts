@@ -163,6 +163,36 @@ describe("attributeDirtyWorkToIssue", () => {
     expect(result.attributed).toBe(true);
   });
 
+  it("keeps a Linear workpad when a terminal branch token resembles a version", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "chore/next-15",
+      dirtyFiles: [".gh-symphony/workpads/DEV-54.md"],
+    });
+
+    expect(result.attributed).toBe(true);
+  });
+
+  it("keeps a GitHub workpad when a terminal branch token resembles a version", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "acme/platform#173",
+      currentBranch: "chore/react-19",
+      dirtyFiles: [".gh-symphony/workpads/173.md"],
+    });
+
+    expect(result.attributed).toBe(true);
+  });
+
+  it("attributes a Linear branch using a team key that resembles a version", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "GO-42",
+      currentBranch: "go-42-fix",
+      dirtyFiles: ["src/fix.ts"],
+    });
+
+    expect(result.attributed).toBe(true);
+  });
+
   it("denies attribution when the branch belongs to another issue", () => {
     const result = attributeDirtyWorkToIssue({
       issueIdentifier: "acme/platform#173",
