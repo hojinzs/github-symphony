@@ -37,7 +37,7 @@ describe("extractIssueNumberFromIdentifier", () => {
     expect(extractIssueNumberFromIdentifier("acme/platform#507")).toBe(507);
     expect(extractIssueNumberFromIdentifier("#173")).toBe(173);
     expect(extractIssueNumberFromIdentifier("173")).toBe(173);
-    expect(extractIssueNumberFromIdentifier("ACME-42")).toBeNull();
+    expect(extractIssueNumberFromIdentifier("ACME-42")).toBe(42);
     expect(extractIssueNumberFromIdentifier("no-number")).toBeNull();
   });
 });
@@ -71,6 +71,48 @@ describe("extractIssueNumbersFromWorkpadFiles", () => {
 });
 
 describe("attributeDirtyWorkToIssue", () => {
+  it("attributes a Linear issue from its normalized branch identifier", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "dev-54-fix",
+      dirtyFiles: ["src/fix.ts"],
+    });
+
+    expect(result.attributed).toBe(true);
+  });
+
+  it("attributes a Linear issue from its workpad identifier", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "main",
+      dirtyFiles: [".gh-symphony/workpads/DEV-54.md"],
+    });
+
+    expect(result.attributed).toBe(true);
+  });
+
+  it("denies attribution when a branch names another Linear issue", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "eng-12-other",
+      dirtyFiles: ["src/other.ts"],
+    });
+
+    expect(result.attributed).toBe(false);
+    expect(result.reason).toContain("ENG-12");
+  });
+
+  it("denies a different Linear team with the same issue number", () => {
+    const result = attributeDirtyWorkToIssue({
+      issueIdentifier: "DEV-54",
+      currentBranch: "eng-54-other",
+      dirtyFiles: ["src/other.ts"],
+    });
+
+    expect(result.attributed).toBe(false);
+    expect(result.reason).toContain("ENG-54");
+  });
+
   it("denies attribution when the branch belongs to another issue", () => {
     const result = attributeDirtyWorkToIssue({
       issueIdentifier: "acme/platform#173",

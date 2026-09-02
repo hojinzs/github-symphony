@@ -41,13 +41,16 @@ export function buildIssueIdentityHeader(
 
 /**
  * Extract the numeric issue number from a canonical issue identifier such as
- * `owner/repo#507`, `#507`, or `507`. Returns null when the identifier does
- * not end in a numeric fragment.
+ * `owner/repo#507`, `#507`, `507`, or `TEAM-507`. Returns null when the
+ * identifier is not a supported canonical shape.
  */
 export function extractIssueNumberFromIdentifier(
   identifier: string
 ): number | null {
-  const match = identifier.trim().match(/(?:^|#|\/)(\d{1,9})$/);
+  const normalized = identifier.trim();
+  const match =
+    normalized.match(/(?:^|#|\/)(\d{1,9})$/) ??
+    normalized.match(/^[A-Za-z][A-Za-z0-9]*-(\d{1,9})$/);
   if (!match) {
     return null;
   }
@@ -72,6 +75,40 @@ export function extractIssueNumbersFromBranch(branch: string): number[] {
 }
 
 const WORKPAD_FILE_PATTERN = /(?:^|\/)\.gh-symphony\/workpads\/([^/]+)\.md$/;
+const TRACKER_IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9]*-\d{1,9}$/;
+
+function normalizeTrackerIdentifier(identifier: string): string | null {
+  const normalized = identifier.trim();
+  return TRACKER_IDENTIFIER_PATTERN.test(normalized)
+    ? normalized.toUpperCase()
+    : null;
+}
+
+function extractTrackerIdentifiersFromBranch(branch: string): string[] {
+  const identifiers = new Set<string>();
+  for (const match of branch.matchAll(
+    /(?:^|\/)([A-Za-z][A-Za-z0-9]*-\d{1,9})(?=[-_/]|$)/g
+  )) {
+    identifiers.add(match[1]!.toUpperCase());
+  }
+
+  return [...identifiers];
+}
+
+function extractTrackerIdentifiersFromWorkpadFiles(
+  dirtyFiles: string[]
+): string[] {
+  const identifiers = new Set<string>();
+  for (const file of dirtyFiles) {
+    const match = file.match(WORKPAD_FILE_PATTERN);
+    const identifier = match ? normalizeTrackerIdentifier(match[1]!) : null;
+    if (identifier) {
+      identifiers.add(identifier);
+    }
+  }
+
+  return [...identifiers];
+}
 
 /**
  * Extract issue numbers referenced by dirty workpad files
@@ -120,9 +157,40 @@ export function attributeDirtyWorkToIssue(
   input: DirtyWorkAttributionInput
 ): DirtyWorkAttribution {
   const issueNumber = extractIssueNumberFromIdentifier(input.issueIdentifier);
+  const trackerIdentifier = normalizeTrackerIdentifier(input.issueIdentifier);
   const branch = input.currentBranch?.trim() || null;
   const branchNumbers = branch ? extractIssueNumbersFromBranch(branch) : [];
   const workpadNumbers = extractIssueNumbersFromWorkpadFiles(input.dirtyFiles);
+  const branchTrackerIdentifiers = branch
+    ? extractTrackerIdentifiersFromBranch(branch)
+    : [];
+  const workpadTrackerIdentifiers = extractTrackerIdentifiersFromWorkpadFiles(
+    input.dirtyFiles
+  );
+
+  const foreignBranchIdentifiers = trackerIdentifier
+    ? branchTrackerIdentifiers.filter(
+        (identifier) => identifier !== trackerIdentifier
+      )
+    : [];
+  if (foreignBranchIdentifiers.length > 0) {
+    return {
+      attributed: false,
+      reason: `current branch '${branch}' references issue ${foreignBranchIdentifiers[0]} instead of ${input.issueIdentifier}`,
+    };
+  }
+
+  const foreignWorkpadIdentifiers = trackerIdentifier
+    ? workpadTrackerIdentifiers.filter(
+        (identifier) => identifier !== trackerIdentifier
+      )
+    : [];
+  if (foreignWorkpadIdentifiers.length > 0) {
+    return {
+      attributed: false,
+      reason: `dirty workpad references issue ${foreignWorkpadIdentifiers[0]} instead of ${input.issueIdentifier}`,
+    };
+  }
 
   const foreignBranchNumbers = branchNumbers.filter(
     (number) => number !== issueNumber
@@ -148,6 +216,26 @@ export function attributeDirtyWorkToIssue(
     return {
       attributed: true,
       reason: `current branch '${branch}' is tracker-linked to ${input.issueIdentifier}`,
+    };
+  }
+
+  if (
+    trackerIdentifier &&
+    branchTrackerIdentifiers.includes(trackerIdentifier)
+  ) {
+    return {
+      attributed: true,
+      reason: `current branch '${branch}' references ${input.issueIdentifier}`,
+    };
+  }
+
+  if (
+    trackerIdentifier &&
+    workpadTrackerIdentifiers.includes(trackerIdentifier)
+  ) {
+    return {
+      attributed: true,
+      reason: `dirty workpad belongs to ${input.issueIdentifier}`,
     };
   }
 
