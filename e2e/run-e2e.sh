@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, non-dispatchable, required-label-missing, required-label-removed
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, non-dispatchable, required-label-missing, required-label-removed, linear-dirty-recovery
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -111,6 +111,8 @@ log "Initial state: idle"
 
 if [ "$SCENARIO" = "non-dispatchable" ]; then
   cp e2e/fixtures/non-dispatchable.json e2e/fixtures/issues.json
+elif [ "$SCENARIO" = "linear-dirty-recovery" ]; then
+  cp e2e/fixtures/linear-dirty-recovery.json e2e/fixtures/issues.json
 elif [ "$SCENARIO" = "required-label-missing" ]; then
   cp e2e/fixtures/required-label-missing.json e2e/fixtures/issues.json
 elif [ "$SCENARIO" = "required-label-removed" ]; then
@@ -210,6 +212,7 @@ SAW_REDACTED_STATE=false
 SCENARIO_RUN_ID=""
 ELAPSED=0
 LABEL_REMOVED=false
+LINEAR_RECOVERY_REACTIVATED=false
 
 log "Polling..."
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
@@ -262,8 +265,26 @@ assert any(
   if [ "$RUN_STATUS" = "retrying" ]; then
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
-    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ] && [ "$SCENARIO" != "retry-attempt" ]; then
+    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ] && [ "$SCENARIO" != "retry-attempt" ] && [ "$SCENARIO" != "linear-dirty-recovery" ]; then
       echo "[]" > e2e/fixtures/issues.json
+    fi
+  fi
+
+  if [ "$SCENARIO" = "linear-dirty-recovery" ] && [ "$LINEAR_RECOVERY_REACTIVATED" != true ]; then
+    if "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "incomplete-turn-dirty-workspace" /e2e/work 2>/dev/null'; then
+      python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("e2e/fixtures/issues.json")
+issues = json.loads(path.read_text())
+assert len(issues) == 1, issues
+issues[0]["state"] = "Ready"
+path.write_text(json.dumps(issues))
+PY
+      orch_curl -sf -X POST http://localhost:4680/api/v1/refresh >/dev/null
+      LINEAR_RECOVERY_REACTIVATED=true
+      log "Linear dirty recovery reactivated after incomplete-turn classification"
     fi
   fi
 
@@ -282,6 +303,38 @@ log "=== Worker Logs ==="
 echo ""
 log "=== Event Logs ==="
 "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
+
+echo ""
+if [ "$SCENARIO" = "linear-dirty-recovery" ]; then
+  if [ "$SAW_RUNNING" != true ] || [ "$LINEAR_RECOVERY_REACTIVATED" != true ]; then
+    fail "Linear dirty recovery did not complete its initial and recovery dispatches"
+    exit 1
+  fi
+  if ! "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "linear dirty recovery verified" /e2e/work'; then
+    fail "Recovery worker did not verify the preserved Linear workspace"
+    exit 1
+  fi
+  if "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec grep -H "recovery-quarantined" {} + 2>/dev/null | grep -q .'; then
+    fail "Linear dirty workspace was quarantined"
+    exit 1
+  fi
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+issues = json.loads(Path("e2e/fixtures/issues.json").read_text())
+assert len(issues) == 1, issues
+assert issues[0]["identifier"] == "DEV-54", issues[0]
+assert issues[0]["state"] == "Done", issues[0]
+PY
+  log "=== Result ==="
+  log "  Linear dirty workspace classified: YES"
+  log "  Recovery dispatch reactivated:     YES"
+  log "  Branch and workpad preserved:      YES"
+  log "  Quarantine event emitted:          NO"
+  log "PASSED"
+  exit 0
+fi
 
 echo ""
 if [ "$SCENARIO" = "required-label-removed" ]; then

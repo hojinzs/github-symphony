@@ -1,0 +1,28 @@
+[
+  {
+    "id": "issue-linear-dirty-54",
+    "identifier": "DEV-54",
+    "number": 54,
+    "title": "Preserve attributed Linear dirty workspace",
+    "description": "The recovery worker must receive the original DEV-54 workspace.",
+    "priority": null,
+    "state": "Ready",
+    "branchName": null,
+    "url": "https://tracker.example.test/issues/DEV-54",
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-09-02T00:00:00Z",
+    "updatedAt": "2026-09-02T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-linear-dirty-54"
+    },
+    "metadata": {}
+  }
+]
