@@ -409,39 +409,39 @@ idle → [inject issue + refresh]
 
 ### Predefined Scenario Documents
 
-| File                                                      | Scenario                                                                                                                  |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `e2e/scenarios/01-happy-path.md`                          | Issue dispatch → worker completion → lifecycle observation                                                                |
-| `e2e/scenarios/02-multi-issue.md`                         | Verify concurrency limit                                                                                                  |
-| `e2e/scenarios/03-stall-detection.md`                     | stall → SIGTERM → retry                                                                                                   |
-| `e2e/scenarios/04-fail-retry.md`                          | Failure → retry scheduling                                                                                                |
-| `e2e/scenarios/05-before-remove-hook-failure.md`          | Verify a `before_remove` hook failure does not block workspace cleanup                                                    |
-| `e2e/scenarios/06-retry-title-preservation.md`            | Issue title preservation during retry/recovery                                                                            |
-| `e2e/scenarios/06-worker-failure-lifecycle-regression.md` | Worker failure lifecycle regression verification                                                                          |
-| `e2e/scenarios/07-release-missing-retry.md`               | Release a missing retry queue instead of restarting                                                                       |
-| `e2e/scenarios/08-evidence-permissions.md`                | Verify event-mirror evidence file permissions and cleanup                                                                 |
+| File                                                      | Scenario                                                                                                                                 |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `e2e/scenarios/01-happy-path.md`                          | Issue dispatch → worker completion → lifecycle observation                                                                               |
+| `e2e/scenarios/02-multi-issue.md`                         | Verify concurrency limit                                                                                                                 |
+| `e2e/scenarios/03-stall-detection.md`                     | stall → SIGTERM → retry                                                                                                                  |
+| `e2e/scenarios/04-fail-retry.md`                          | Failure → retry scheduling                                                                                                               |
+| `e2e/scenarios/05-before-remove-hook-failure.md`          | Verify a `before_remove` hook failure does not block workspace cleanup                                                                   |
+| `e2e/scenarios/06-retry-title-preservation.md`            | Issue title preservation during retry/recovery                                                                                           |
+| `e2e/scenarios/06-worker-failure-lifecycle-regression.md` | Worker failure lifecycle regression verification                                                                                         |
+| `e2e/scenarios/07-release-missing-retry.md`               | Release a missing retry queue instead of restarting                                                                                      |
+| `e2e/scenarios/08-evidence-permissions.md`                | Verify event-mirror evidence file permissions and cleanup                                                                                |
 | `e2e/scenarios/09-linear-sandbox.md`                      | Verify Linear sandbox lifecycle, confirmed per-turn state reads, branch-based dirty-workspace attribution, and reconciliation edge cases |
-| `e2e/scenarios/10-http-auth-hardening.md`                 | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                            |
-| `e2e/scenarios/10-orchestrator-tracker-state.md`          | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                |
-| `e2e/scenarios/11-stale-run-recovery.md`                  | Verify stale-run ownership and lifecycle recovery                                                                         |
-| `e2e/scenarios/12-transition-comment-race.md`             | Verify orchestrator-owned transition comments survive reconciliation races                                                |
-| `e2e/scenarios/13-api-progress-convergence.md`            | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                          |
-| `e2e/scenarios/13-standalone-project-model.md`            | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
-| `e2e/scenarios/14-dispatch-start-failure-isolation.md`    | Verify one candidate's pre-spawn failure records retry state without starving later candidates                            |
-| `e2e/scenarios/15-terminal-candidate-reconciliation.md`   | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                |
-| `e2e/scenarios/15-cache-maintenance.md`                   | Verify cache inventory, dry-run eviction, and active-worktree preservation                                                |
-| `e2e/scenarios/16-bounded-finalization-deferral.md`       | Verify persistent unknown final tracker reads emit three durable deferrals and enter failure retry handling               |
-| `e2e/scenarios/16-packaged-runtime-entrypoints.md`        | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                |
-| `e2e/scenarios/16-planning-phase-prompt.md`               | Verify normalized `planning_states` classification reaches the dispatched prompt                                          |
-| `e2e/scenarios/16-repo-embedded-workspace-root.md`        | Verify repo-embedded issue workspaces use `workspace.root` while workspace records remain in orchestrator state           |
-| `e2e/scenarios/17-retry-prompt-attempt.md`                | Verify continuation retry attempt reset and prompt rendering are covered by the Docker lifecycle path and unit assertions |
-| `e2e/scenarios/18-dispatchable-eligibility.md`            | Verify non-dispatchable tracker records do not start workers while retaining an explainable reason                        |
-| `e2e/scenarios/19-required-label-routability.md`          | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                      |
-| `e2e/scenarios/20-agent-child-isolation.md`               | Verify unconditional child credential/config isolation, host-only MCP tools, and post-run host Git push                   |
-| `e2e/scenarios/21-linear-dirty-workspace-recovery.md`     | Verify a dirty `DEV-54` branch/workpad survives incomplete-turn recovery without quarantine                               |
-| `e2e/scenarios/20-bounded-recovery-circuit-breaker.md`    | Verify dirty-workspace recovery failures exhaust a durable budget and require an explicit tracker state change to re-arm  |
-| `e2e/scenarios/17-instance-registry.md`                   | Verify host-global instance listing, stale-registry diagnostics, and daemon PID recording only after lock acquisition     |
-| `e2e/scenarios/17-retry-fire-refresh.md`                  | Verify single-ID retry refresh, terminal cleanup, and retry backoff safety                                                |
+| `e2e/scenarios/10-http-auth-hardening.md`                 | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                                           |
+| `e2e/scenarios/10-orchestrator-tracker-state.md`          | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                               |
+| `e2e/scenarios/11-stale-run-recovery.md`                  | Verify stale-run ownership and lifecycle recovery                                                                                        |
+| `e2e/scenarios/12-transition-comment-race.md`             | Verify orchestrator-owned transition comments survive reconciliation races                                                               |
+| `e2e/scenarios/13-api-progress-convergence.md`            | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                                         |
+| `e2e/scenarios/13-standalone-project-model.md`            | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project`                |
+| `e2e/scenarios/14-dispatch-start-failure-isolation.md`    | Verify one candidate's pre-spawn failure records retry state without starving later candidates                                           |
+| `e2e/scenarios/15-terminal-candidate-reconciliation.md`   | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                               |
+| `e2e/scenarios/15-cache-maintenance.md`                   | Verify cache inventory, dry-run eviction, and active-worktree preservation                                                               |
+| `e2e/scenarios/16-bounded-finalization-deferral.md`       | Verify persistent unknown final tracker reads emit three durable deferrals and enter failure retry handling                              |
+| `e2e/scenarios/16-packaged-runtime-entrypoints.md`        | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                               |
+| `e2e/scenarios/16-planning-phase-prompt.md`               | Verify normalized `planning_states` classification reaches the dispatched prompt                                                         |
+| `e2e/scenarios/16-repo-embedded-workspace-root.md`        | Verify repo-embedded issue workspaces use `workspace.root` while workspace records remain in orchestrator state                          |
+| `e2e/scenarios/17-retry-prompt-attempt.md`                | Verify continuation retry attempt reset and prompt rendering are covered by the Docker lifecycle path and unit assertions                |
+| `e2e/scenarios/18-dispatchable-eligibility.md`            | Verify non-dispatchable tracker records do not start workers while retaining an explainable reason                                       |
+| `e2e/scenarios/19-required-label-routability.md`          | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                                     |
+| `e2e/scenarios/20-agent-child-isolation.md`               | Verify unconditional child credential/config isolation, host-only MCP tools, and post-run host Git push                                  |
+| `e2e/scenarios/21-linear-dirty-workspace-recovery.md`     | Verify a dirty `DEV-54` branch/workpad survives incomplete-turn recovery without quarantine                                              |
+| `e2e/scenarios/20-bounded-recovery-circuit-breaker.md`    | Verify dirty-workspace recovery failures exhaust a durable budget and require an explicit tracker state change to re-arm                 |
+| `e2e/scenarios/17-instance-registry.md`                   | Verify host-global instance listing, stale-registry diagnostics, and daemon PID recording only after lock acquisition                    |
+| `e2e/scenarios/17-retry-fire-refresh.md`                  | Verify single-ID retry refresh, terminal cleanup, and retry backoff safety                                                               |
 
 ## TC Writing Guide
 
