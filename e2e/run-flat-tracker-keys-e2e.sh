@@ -13,12 +13,18 @@ cleanup() {
 trap cleanup EXIT
 
 "${COMPOSE[@]}" up -d --build >/dev/null
+healthy=false
 for _ in $(seq 1 30); do
   if "${COMPOSE[@]}" exec -T symphony-e2e curl -sf http://localhost:4680/healthz >/dev/null; then
+    healthy=true
     break
   fi
   sleep 1
 done
+if [ "$healthy" != true ]; then
+  echo "Timed out waiting for the E2E service health check." >&2
+  exit 1
+fi
 
 set +e
 output=$("${COMPOSE[@]}" exec -T symphony-e2e sh -lc '
@@ -44,8 +50,8 @@ status=$?
 set -e
 
 printf '%s\n' "$output"
-grep -F '"code": "workflow_deprecated_key"' <<<"$output" >/dev/null
-grep -F '"path": "tracker.project_id"' <<<"$output" >/dev/null
 if [ "$status" -ne 0 ]; then
   exit "$status"
 fi
+grep -F '"code": "workflow_deprecated_key"' <<<"$output" >/dev/null
+grep -F '"path": "tracker.project_id"' <<<"$output" >/dev/null

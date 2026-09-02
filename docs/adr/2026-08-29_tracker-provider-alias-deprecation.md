@@ -5,7 +5,7 @@
 > `gh-symphony doctor` retains a copyable `tracker.provider` migration block.
 
 - **Date**: 2026-08-29
-- **Status**: Accepted
+- **Status**: Superseded
 - **Related Issues**: #669, #679, #710
 - **Related Spec**: `docs/symphony-spec.md` §5.3.1, §6.1 (read-only)
 

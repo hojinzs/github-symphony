@@ -4809,8 +4809,9 @@ Prefer focused changes.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
   active_states: [Todo]
   terminal_states: [Done]
 hooks:
@@ -13803,15 +13804,16 @@ Prefer focused changes.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - In Progress
   active_states:
     - In Progress
     - Archived
   terminal_states:
     - Done
-  blocker_check_states:
-    - In Progress
 hooks:
   after_create: ""
   before_remove: ""
@@ -13955,8 +13957,9 @@ Handle archived item reconciliation.`,
       rawWorkflow: `---
 tracker:
   kind: linear
-  project_slug: symphony-0c79b11b75ea
-  state_field: Status
+  provider:
+    project_slug: symphony-0c79b11b75ea
+    state_field: Status
   active_states:
     - Todo
     - In Progress
@@ -14929,14 +14932,15 @@ Handle Linear issue.`,
       `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Open
   active_states:
     - Open
   terminal_states:
     - Closed
-  blocker_check_states:
-    - Open
 hooks:
   after_create: hooks/after_create.sh
 polling:
@@ -15629,14 +15633,15 @@ Workspace prompt.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 hooks:
   after_create: scripts/setup-env.sh
 polling:
@@ -15726,11 +15731,12 @@ Prefer focused changes.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states: [Todo]
   active_states: [Todo]
   terminal_states: [Done]
-  blocker_check_states: [Todo]
 hooks:
   before_run: hooks/fail-before-run.sh
 polling:
@@ -15807,11 +15813,12 @@ Test hook failure.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states: [Todo]
   active_states: [Todo]
   terminal_states: [Done]
-  blocker_check_states: [Todo]
 hooks:
   after_create: hooks/fail-after-create.sh
 polling:
@@ -15907,11 +15914,12 @@ Test hook failure.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states: [Todo]
   active_states: [Todo]
   terminal_states: [Done]
-  blocker_check_states: [Todo]
 hooks:
   after_create: hooks/count-after-create.sh
   before_run: hooks/fail-before-run.sh
@@ -16008,14 +16016,15 @@ Test workspace hook retries.
           rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: $PROJECT_ENV_WORKFLOW_ID
-  state_field: Status
+  provider:
+    project_id: $PROJECT_ENV_WORKFLOW_ID
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 polling:
   interval_ms: 30000
 workspace:
@@ -16173,14 +16182,15 @@ Prefer focused changes.
           rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 hooks:
   before_run: scripts/before-run.sh
 polling:
@@ -16499,14 +16509,15 @@ Prefer focused changes.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 hooks:
   before_run: ${join(tempRoot, "before-run-hook.sh")}
 polling:
@@ -16582,14 +16593,15 @@ Prefer focused changes.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 hooks:
   before_run: scripts/before-run.sh
 polling:
@@ -16672,15 +16684,16 @@ Prefer focused changes.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
     - In Progress
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 hooks:
   after_run: hooks/after_run.sh
 polling:

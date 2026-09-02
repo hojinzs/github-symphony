@@ -11,7 +11,7 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TrackedIssue } from "@gh-symphony/core";
+import { parseWorkflowMarkdown, type TrackedIssue } from "@gh-symphony/core";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
@@ -676,6 +676,25 @@ Prompt body
         "title": "Deprecated tracker provider keys",
       }
     `);
+
+    const providerBlock = (
+      report.checks.find((check) => check.id === "provider_deprecation")
+        ?.details as { providerBlock: string }
+    ).providerBlock;
+    const migratedWorkflow = parseWorkflowMarkdown(
+      `---
+${providerBlock.replace(/^```yaml\n|\n```$/g, "")}
+---
+Prompt body`
+    );
+
+    expect(migratedWorkflow.tracker.provider).toMatchObject({
+      project_id: "PVT_test",
+      pickup_labels: {
+        include: ["agent-ready"],
+        exclude: ["blocked"],
+      },
+    });
   });
 
   it("validates GitHub auth against the configured GraphQL endpoint", async () => {

@@ -215,15 +215,13 @@ function parseWorkflowConfig(
     throwDeprecatedTrackerKeysError(deprecatedKeys);
   }
   const provider = readProviderConfig(tracker);
-  const explicitProviderKeys = new Set(Object.keys(provider));
   if (allowDeprecatedTrackerKeys) {
     promoteDeprecatedTrackerKeys(tracker, provider);
   }
   const resolvedProvider = resolveProviderEnvironmentValues(
     provider,
     env,
-    "tracker.provider",
-    explicitProviderKeys
+    "tracker.provider"
   );
   const defaultLifecycle = trackerAdapter?.defaultLifecycle?.();
   // Keep existing workflows usable while tracker adapters adopt defaultLifecycle.
@@ -231,37 +229,31 @@ function parseWorkflowConfig(
   // owns its lifecycle defaults; adapter-provided defaults still take precedence.
   const legacyLifecycle = DEFAULT_WORKFLOW_LIFECYCLE;
   const activeStates =
-    readNormalizedStringList(
-      tracker,
+    readProviderStringList(
       provider,
-      explicitProviderKeys,
       "active_states",
       { rejectCommaString: true }
     ) ??
+    readStringList(tracker, "active_states", { rejectCommaString: true }) ??
     defaultLifecycle?.activeStates ??
     legacyLifecycle.activeStates;
   const terminalStates =
-    readNormalizedStringList(
-      tracker,
+    readProviderStringList(
       provider,
-      explicitProviderKeys,
       "terminal_states",
       { rejectCommaString: true }
     ) ??
+    readStringList(tracker, "terminal_states", { rejectCommaString: true }) ??
     defaultLifecycle?.terminalStates ??
     legacyLifecycle.terminalStates;
   const blockerCheckStates =
     readNormalizedStringList(
-      tracker,
       provider,
-      explicitProviderKeys,
       "blocker_check_states"
     ) ?? (activeStates[0] ? [activeStates[0]] : []);
   const planningStates =
     readNormalizedStringList(
-      tracker,
       provider,
-      explicitProviderKeys,
       "planning_states"
     ) ??
     defaultLifecycle?.planningStates ??
@@ -270,9 +262,7 @@ function parseWorkflowConfig(
     readRequiredLabelList(tracker) ?? DEFAULT_WORKFLOW_TRACKER.requiredLabels;
   const stateFieldName =
     readNormalizedOptionalString(
-      tracker,
       provider,
-      explicitProviderKeys,
       "state_field",
       env
     ) ??
@@ -348,52 +338,33 @@ function parseWorkflowConfig(
       deprecatedKeys,
       endpoint:
         readNormalizedOptionalString(
-          tracker,
           provider,
-          explicitProviderKeys,
           "endpoint",
           env
         ) ?? (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
       apiKey: readNormalizedOptionalSecret(
-        tracker,
         provider,
-        explicitProviderKeys,
         "api_key",
         env
       ),
       projectSlug: readNormalizedOptionalString(
-        tracker,
         provider,
-        explicitProviderKeys,
         "project_slug",
         env
       ),
-      pickupLabels: readPickupLabelsConfig(
-        tracker,
-        provider,
-        explicitProviderKeys
-      ),
+      pickupLabels: readPickupLabelsConfig(provider),
       requiredLabels,
       activeStates,
       terminalStates,
       projectId: readNormalizedOptionalString(
-        tracker,
         provider,
-        explicitProviderKeys,
         "project_id",
         env
       ),
       stateFieldName,
-      priority: readPriorityConfig(
-        tracker,
-        provider,
-        explicitProviderKeys,
-        env
-      ),
+      priority: readPriorityConfig(provider),
       priorityFieldName: readNormalizedOptionalString(
-        tracker,
         provider,
-        explicitProviderKeys,
         "priority_field",
         env
       ),
@@ -465,9 +436,7 @@ function parseWorkflowConfig(
     },
     format: "front-matter",
     githubProjectId: readNormalizedOptionalString(
-      tracker,
       provider,
-      explicitProviderKeys,
       "project_id",
       env
     ),
@@ -484,16 +453,11 @@ function parseWorkflowConfig(
 function resolveProviderEnvironmentValues(
   provider: Record<string, unknown>,
   env: NodeJS.ProcessEnv,
-  path = "tracker.provider",
-  explicitProviderKeys?: ReadonlySet<string>
+  path = "tracker.provider"
 ): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(provider).map(([key, value]) => {
-      const valuePath = explicitProviderKeys?.has(key)
-        ? `${path}.${key}`
-        : path === "tracker.provider"
-          ? `tracker.${key}`
-          : `${path}.${key}`;
+      const valuePath = `${path}.${key}`;
       if (typeof value === "string") {
         return [key, resolveEnvironmentValue(value, env, valuePath)];
       }
@@ -522,7 +486,7 @@ function resolveProviderEnvironmentValues(
   );
 }
 
-export const DEPRECATED_TRACKER_PROVIDER_KEYS = [
+const DEPRECATED_TRACKER_PROVIDER_KEYS = [
   "api_key",
   "project_slug",
   "project_id",
@@ -599,33 +563,23 @@ function readProviderOptionalString(
 }
 
 function readNormalizedOptionalString(
-  tracker: Record<string, WorkflowFrontMatterNode>,
   provider: Record<string, unknown>,
-  explicitProviderKeys: ReadonlySet<string>,
   key: string,
   env: NodeJS.ProcessEnv
 ): string | null {
-  const value = explicitProviderKeys.has(key)
-    ? readProviderOptionalString(provider, key)
-    : readOptionalString(tracker, key, `tracker.${key}`);
+  const value = readProviderOptionalString(provider, key);
   return value === null
     ? null
-    : resolveEnvironmentValue(value, env, `tracker.${key}`);
+    : resolveEnvironmentValue(value, env, `tracker.provider.${key}`);
 }
 
 function readNormalizedOptionalSecret(
-  tracker: Record<string, WorkflowFrontMatterNode>,
   provider: Record<string, unknown>,
-  explicitProviderKeys: ReadonlySet<string>,
   key: string,
   env: NodeJS.ProcessEnv
 ): string | null {
-  const path = explicitProviderKeys.has(key)
-    ? `tracker.provider.${key}`
-    : `tracker.${key}`;
-  const value = explicitProviderKeys.has(key)
-    ? readProviderOptionalString(provider, key)
-    : readOptionalString(tracker, key, path);
+  const path = `tracker.provider.${key}`;
+  const value = readProviderOptionalString(provider, key);
   return value === null ? null : resolveEnvironmentValue(value, env, path);
 }
 
@@ -665,15 +619,11 @@ function readProviderStringList(
 }
 
 function readNormalizedStringList(
-  tracker: Record<string, WorkflowFrontMatterNode>,
   provider: Record<string, unknown>,
-  explicitProviderKeys: ReadonlySet<string>,
   key: string,
   options: { rejectCommaString?: boolean } = {}
 ): string[] | undefined {
-  return explicitProviderKeys.has(key)
-    ? readProviderStringList(provider, key, options)
-    : readStringList(tracker, key, options);
+  return readProviderStringList(provider, key, options);
 }
 
 function throwProviderValidationErrors(
@@ -694,16 +644,9 @@ function throwProviderValidationErrors(
 }
 
 function readPickupLabelsConfig(
-  tracker: Record<string, WorkflowFrontMatterNode>,
-  provider: Record<string, unknown>,
-  explicitProviderKeys: ReadonlySet<string>
+  provider: Record<string, unknown>
 ): ParsedWorkflow["tracker"]["pickupLabels"] {
-  const value =
-    (explicitProviderKeys.has("pickup_labels")
-      ? provider.pickup_labels
-      : undefined) ??
-    tracker.pickup_labels ??
-    tracker.pickupLabels;
+  const value = provider.pickup_labels;
   if (value === undefined || value === null) {
     return DEFAULT_WORKFLOW_TRACKER.pickupLabels;
   }
@@ -744,14 +687,9 @@ function readRequiredLabelList(
 }
 
 function readPriorityConfig(
-  tracker: Record<string, WorkflowFrontMatterNode>,
   provider: Record<string, unknown>,
-  explicitProviderKeys: ReadonlySet<string>,
-  _env: NodeJS.ProcessEnv
 ): WorkflowPriorityConfig | null {
-  const priorityValue =
-    (explicitProviderKeys.has("priority") ? provider.priority : undefined) ??
-    tracker.priority;
+  const priorityValue = provider.priority;
   if (priorityValue === undefined || priorityValue === null) {
     return null;
   }

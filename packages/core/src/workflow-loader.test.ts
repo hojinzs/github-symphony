@@ -731,7 +731,7 @@ Prompt`)
     }
   );
 
-  it("keeps validation errors on the flat alias source path", () => {
+  it("keeps migration-parser errors on the provider path", () => {
     let thrown: unknown;
     try {
       parseWorkflowMarkdownForMigration(
@@ -749,7 +749,7 @@ Prompt`,
       thrown = error;
     }
 
-    expect(thrown).toMatchObject({ path: "tracker.api_key" });
+    expect(thrown).toMatchObject({ path: "tracker.provider.api_key" });
   });
 
   it("ignores invalid per-state concurrency overrides", () => {
