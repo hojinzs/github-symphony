@@ -1103,7 +1103,7 @@ describe("OrchestratorService", () => {
       status: "suppressed",
       retryKind: null,
       lastError:
-        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=2. maxFailureRetries=2. retry refresh failed: tracker unavailable)",
+        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=2. maxFailureRetries=2. Manual intervention required: change the tracker state to re-arm retries. retry refresh failed: tracker unavailable)",
     });
     expect(result.issueRecords[0]).toMatchObject({
       state: "released",
@@ -10218,7 +10218,7 @@ Prefer focused changes.
     expect(await store.loadRun("run-1")).toMatchObject({
       status: "suppressed",
       lastError:
-        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10.)",
+        "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10. Manual intervention required: change the tracker state to re-arm retries.)",
     });
     await expect(
       (
