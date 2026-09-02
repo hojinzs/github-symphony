@@ -12,7 +12,7 @@ export type WorkflowTrackerConfig = {
   kind: string | null;
   /** Adapter-owned configuration, including unknown provider-specific keys. */
   provider: Record<string, unknown>;
-  /** Flat tracker keys promoted into provider for backwards compatibility. */
+  /** Populated only by the doctor-only legacy migration parser. */
   deprecatedKeys: string[];
   endpoint: string | null;
   apiKey: string | null;

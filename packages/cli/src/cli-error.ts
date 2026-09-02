@@ -3,6 +3,7 @@ export type CliErrorCode =
   | "missing_workflow_file"
   | "workflow_parse_error"
   | "workflow_front_matter_not_a_map"
+  | "workflow_deprecated_key"
   | "workflow_validation_error"
   | "repository_initialization_failed"
   | "missing_repository_runtime_config"

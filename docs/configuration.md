@@ -194,9 +194,10 @@ blocked by the current issue and are not blockers of it.
 
 ## Linear and file tracker providers
 
-Tracker-specific configuration belongs in `tracker.provider`. The former flat
-keys remain deprecated, non-breaking aliases: `gh-symphony doctor` renders the
-normalized provider block so operators can migrate without changing behavior.
+Tracker-specific configuration belongs in `tracker.provider`. Flat tracker
+keys are rejected with the typed `workflow_deprecated_key` error. Run
+`gh-symphony doctor` for a copyable normalized provider block before updating
+the workflow.
 
 ```yaml
 tracker:
@@ -332,9 +333,9 @@ catches up on the next issue populate.
 
 Tracker-specific settings belong in `tracker.provider`. Core preserves every
 provider key without interpreting it, while the selected tracker adapter
-validates that block. Older flat tracker keys remain supported as deprecated
-aliases and are normalized into `provider`; new workflows should use the
-provider block. `active_states` and `terminal_states` must be YAML lists (not
+validates that block. Flat tracker keys are rejected with
+`workflow_deprecated_key`; run `gh-symphony doctor` for the copyable provider
+migration block. `active_states` and `terminal_states` must be YAML lists (not
 comma-separated strings) and must be configured explicitly unless the selected
 adapter supplies lifecycle defaults.
 
@@ -386,10 +387,10 @@ The documented GitHub Project lifecycle profile is `Status`, active states
 and no planning states. These defaults apply only when the corresponding list
 or field is omitted. Flat `tracker.project_id`, `tracker.endpoint`,
 `tracker.state_field`, `tracker.priority`, `tracker.pickup_labels`,
-`tracker.blocker_check_states`, and `tracker.planning_states` aliases remain
-supported for compatibility, but `gh-symphony workflow validate` and
-`gh-symphony doctor` warn and print a copyable `tracker.provider` block.
-They are scheduled for removal in the next major release; see
+`tracker.blocker_check_states`, and `tracker.planning_states` aliases are no
+longer accepted. `gh-symphony workflow validate` reports
+`workflow_deprecated_key`; run `gh-symphony doctor` to obtain a copyable
+`tracker.provider` migration block. See
 [ADR 2026-08-29](adr/2026-08-29_tracker-provider-alias-deprecation.md).
 
 ## Skill Layering

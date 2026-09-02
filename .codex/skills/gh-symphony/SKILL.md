@@ -71,11 +71,12 @@ Check the WORKFLOW.md for:
 ```yaml
 tracker:
   kind: github-project
-  project_id: PVT_xxx
-  state_field: Status
+  provider:
+    project_id: PVT_xxx
+    state_field: Status
+    blocker_check_states: [Blocked]
   active_states: [Todo, In Progress]
   terminal_states: [Done, Cancelled]
-  blocker_check_states: [Blocked]
 polling:
   interval_ms: 30000
 workspace:

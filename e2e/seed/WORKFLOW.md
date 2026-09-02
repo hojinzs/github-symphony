@@ -4,17 +4,17 @@ tracker:
   provider:
     path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
     project_id: e2e-test
-  state_field: Status
+    state_field: Status
+    blocker_check_states:
+      - Ready
+    planning_states:
+      - " ready "
   active_states:
     - Ready
     - In Progress
   terminal_states:
     - Done
     - Cancelled
-  blocker_check_states:
-    - Ready
-  planning_states:
-    - " ready "
 polling:
   interval_ms: 5000
 workspace:

@@ -69,8 +69,9 @@ function baseOptions(configDir: string) {
 const VALID_WORKFLOW = `---
 tracker:
   kind: github-project
-  project_id: PVT_project_123
-  state_field: Status
+  provider:
+    project_id: PVT_project_123
+    state_field: Status
   active_states:
     - Ready
   terminal_states:
@@ -538,14 +539,15 @@ describe("repo init runtime migration", () => {
       `---
 tracker:
   kind: github-project
-  project_id: PVT_project_123
-  state_field: Status
-  priority_field: Legacy Priority
-  priority:
-    source: labels
-    labels:
-      P0: 0
-      P1: 1
+  provider:
+    project_id: PVT_project_123
+    state_field: Status
+    priority_field: Legacy Priority
+    priority:
+      source: labels
+      labels:
+        P0: 0
+        P1: 1
 codex:
   command: codex app-server
 ---
@@ -616,17 +618,18 @@ Handle {{issue.identifier}}.
       `---
 tracker:
   kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: symphony-0c79b11b75ea
+  provider:
+    api_key: $LINEAR_API_KEY
+    project_slug: symphony-0c79b11b75ea
+    pickup_labels:
+      include:
+        - agent
+        - dev-ready
+      exclude:
+        - no-agent
   active_states:
     - Todo
     - In Progress
-  pickup_labels:
-    include:
-      - agent
-      - dev-ready
-    exclude:
-      - no-agent
 codex:
   command: codex app-server
 ---
@@ -678,7 +681,8 @@ Handle {{issue.identifier}}.
       `---
 tracker:
   kind: linear
-  project_slug: symphony-0c79b11b75ea
+  provider:
+    project_slug: symphony-0c79b11b75ea
 codex:
   command: codex app-server
 ---
@@ -712,7 +716,8 @@ Handle {{issue.identifier}}.
       `---
 tracker:
   kind: linear
-  api_key: $LINEAR_API_KEY
+  provider:
+    api_key: $LINEAR_API_KEY
 codex:
   command: codex app-server
 ---
@@ -752,8 +757,9 @@ Handle {{issue.identifier}}.
       `---
 tracker:
   kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: symphony-0c79b11b75ea
+  provider:
+    api_key: $LINEAR_API_KEY
+    project_slug: symphony-0c79b11b75ea
 codex:
   command: codex app-server
 ---
@@ -779,7 +785,7 @@ Handle {{issue.identifier}}.
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(
-      'Workflow front matter field "tracker.api_key" requires environment variable LINEAR_API_KEY'
+      'Workflow front matter field "tracker.provider.api_key" requires environment variable LINEAR_API_KEY'
     );
   });
 

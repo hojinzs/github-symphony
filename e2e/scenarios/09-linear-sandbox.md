@@ -7,7 +7,8 @@ Use a dedicated Linear sandbox workspace/project with a disposable issue and a r
 ```yaml
 tracker:
   kind: linear
-  project_slug: symphony-sandbox
+  provider:
+    project_slug: symphony-sandbox
   active_states:
     - Todo
     - In Progress

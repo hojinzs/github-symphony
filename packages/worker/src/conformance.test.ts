@@ -11,15 +11,16 @@ const SAMPLE_WORKFLOW = `---
 continuation_guidance: Resume using {{lastTurnSummary}}
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
     - In Progress
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 polling:
   interval_ms: 30000
 workspace:

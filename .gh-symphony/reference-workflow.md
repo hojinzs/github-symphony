@@ -10,12 +10,13 @@
 
 tracker:
   kind: github-project
-  project_id: PVT_REPLACE_WITH_YOUR_PROJECT_ID
-  state_field: Status
+  provider:
+    project_id: PVT_REPLACE_WITH_YOUR_PROJECT_ID
+    state_field: Status
+    blocker_check_states: [{first active state}]
 
   active_states: [{active column names}]
   terminal_states: [{terminal column names}]
-  blocker_check_states: [{first active state}]
 
 polling:
   interval_ms: 30000

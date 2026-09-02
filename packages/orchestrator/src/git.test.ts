@@ -1279,7 +1279,7 @@ tracker:
   kind: file
   provider:
     issues_path: /tmp/issues.json
-  state_field: Status
+    state_field: Status
   active_states:
     - Ready
   terminal_states:

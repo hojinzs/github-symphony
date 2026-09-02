@@ -211,12 +211,11 @@ tracker:
       source: disabled
 ```
 
-Legacy `tracker.priority_field: Priority` still works, but it is deprecated because it derives numeric priority from the live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. Migrate by copying the field name into `tracker.provider.priority.field` and writing each option display name under `values` with the intended number. If both keys are present, `tracker.provider.priority` wins and `gh-symphony doctor` reports a warning.
+Flat tracker keys such as `tracker.priority_field` are rejected in this major release. Use `tracker.provider.priority.field` and write each option display name under `values` with the intended number. `gh-symphony doctor` prints a copyable provider migration block.
 
-All flat `tracker.*` provider settings are deprecated, non-breaking aliases.
-Use `tracker.provider` for new workflows; `gh-symphony doctor` prints the
-normalized provider block for migration. The aliases are removed in the next
-major release (#679).
+All removed flat `tracker.*` provider settings produce a typed
+`workflow_deprecated_key` error. Use `tracker.provider`; `gh-symphony doctor`
+prints the normalized provider block for migration.
 
 Run `gh-symphony workflow validate` for local schema errors and warnings. Ignored `agent.max_concurrent_agents_by_state` entries warn with their paths and reasons, while valid entries in the same map remain active; `gh-symphony doctor` reports the same warning alongside live drift checks such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`. Strict front-matter failures use stable workflow error codes; `workflow validate --json` also emits the failing `error.path`.
 
@@ -232,7 +231,7 @@ tracker:
     project_slug: symphony-0c79b11b75ea
 ```
 
-`gh-symphony repo init` validates `tracker.provider.project_slug` and resolves `tracker.provider.api_key` when supplied. If it is omitted, startup uses `LINEAR_API_KEY`. Deprecated flat keys remain supported as migration aliases, and `.gh-symphony/config.json` is not a Linear source of truth.
+`gh-symphony repo init` validates `tracker.provider.project_slug` and resolves `tracker.provider.api_key` when supplied. If it is omitted, startup uses `LINEAR_API_KEY`. Flat keys are rejected; `.gh-symphony/config.json` is not a Linear source of truth.
 
 Linear runs are polling-only. There is no webhook setup command. Put state transition, workpad comment, and PR handoff policy in `WORKFLOW.md`; see `docs/examples/linear-WORKFLOW.md` in the repository for a complete example. Preview a Linear issue prompt with:
 

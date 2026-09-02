@@ -126,8 +126,9 @@ jobs:
           ---
           tracker:
             kind: file
-            project_id: smoke-file
-            state_field: Status
+            provider:
+              project_id: smoke-file
+              state_field: Status
             active_states:
               - Ready
             terminal_states:

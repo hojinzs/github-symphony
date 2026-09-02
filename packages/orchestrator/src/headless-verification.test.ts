@@ -112,15 +112,16 @@ async function createRepositoryFixture(
     `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
     - In Progress
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 hooks:
   after_create: hooks/after_create.sh
 polling:

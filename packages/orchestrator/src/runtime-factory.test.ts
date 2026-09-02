@@ -33,7 +33,8 @@ function parseWorkflow(frontMatter: string) {
   return parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
-  state_field: Status
+  provider:
+    state_field: Status
   active_states:
     - Ready
   terminal_states:
