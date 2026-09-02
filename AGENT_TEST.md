@@ -437,6 +437,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/18-dispatchable-eligibility.md`            | Verify non-dispatchable tracker records do not start workers while retaining an explainable reason                        |
 | `e2e/scenarios/19-required-label-routability.md`          | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                      |
 | `e2e/scenarios/20-agent-child-isolation.md`               | Verify unconditional child credential/config isolation, host-only MCP tools, and post-run host Git push                   |
+| `e2e/scenarios/21-linear-dirty-workspace-recovery.md`     | Verify a dirty `DEV-54` branch/workpad survives incomplete-turn recovery without quarantine                               |
 | `e2e/scenarios/17-instance-registry.md`                   | Verify host-global instance listing, stale-registry diagnostics, and daemon PID recording only after lock acquisition     |
 | `e2e/scenarios/17-retry-fire-refresh.md`                  | Verify single-ID retry refresh, terminal cleanup, and retry backoff safety                                                |
 

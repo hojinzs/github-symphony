@@ -41,8 +41,8 @@ export function buildIssueIdentityHeader(
 
 /**
  * Extract the numeric issue number from a canonical issue identifier such as
- * `owner/repo#507`, `#507`, or `507`. Returns null when the identifier does
- * not end in a numeric fragment.
+ * `owner/repo#507`, `#507`, or `507`. Tracker-native identifiers such as
+ * `TEAM-507` remain opaque here so legacy numeric consumers stay fail-closed.
  */
 export function extractIssueNumberFromIdentifier(
   identifier: string
@@ -72,6 +72,56 @@ export function extractIssueNumbersFromBranch(branch: string): number[] {
 }
 
 const WORKPAD_FILE_PATTERN = /(?:^|\/)\.gh-symphony\/workpads\/([^/]+)\.md$/;
+const TRACKER_IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9]*-\d{1,9}$/;
+
+function normalizeTrackerIdentifier(identifier: string): string | null {
+  const normalized = identifier.trim();
+  return TRACKER_IDENTIFIER_PATTERN.test(normalized)
+    ? normalized.toUpperCase()
+    : null;
+}
+
+/**
+ * Tracker identifiers encoded in a branch name.
+ *
+ * Positive evidence accepts any `key-number` token at a segment start.
+ * Foreign evidence additionally requires a slug after the token because a
+ * segment-terminal token is indistinguishable from a version fragment and
+ * must never outrank the issue's own evidence.
+ */
+function extractTrackerIdentifiersFromBranch(branch: string): {
+  positive: string[];
+  foreign: string[];
+} {
+  const positive = new Set<string>();
+  const foreign = new Set<string>();
+  for (const match of branch.matchAll(
+    /(?:^|\/)([A-Za-z][A-Za-z0-9]*-\d{1,9})(?=([-_])|\/|$)/g
+  )) {
+    const identifier = match[1]!.toUpperCase();
+    positive.add(identifier);
+    if (match[2]) {
+      foreign.add(identifier);
+    }
+  }
+
+  return { positive: [...positive], foreign: [...foreign] };
+}
+
+function extractTrackerIdentifiersFromWorkpadFiles(
+  dirtyFiles: string[]
+): string[] {
+  const identifiers = new Set<string>();
+  for (const file of dirtyFiles) {
+    const match = file.match(WORKPAD_FILE_PATTERN);
+    const identifier = match ? normalizeTrackerIdentifier(match[1]!) : null;
+    if (identifier) {
+      identifiers.add(identifier);
+    }
+  }
+
+  return [...identifiers];
+}
 
 /**
  * Extract issue numbers referenced by dirty workpad files
@@ -86,7 +136,7 @@ export function extractIssueNumbersFromWorkpadFiles(
     if (!match) {
       continue;
     }
-    const numeric = match[1]!.match(/(\d{1,9})/);
+    const numeric = match[1]!.match(/^(?:[A-Za-z][A-Za-z0-9]*-)?(\d{1,9})$/);
     if (numeric) {
       numbers.add(Number.parseInt(numeric[1]!, 10));
     }
@@ -120,28 +170,57 @@ export function attributeDirtyWorkToIssue(
   input: DirtyWorkAttributionInput
 ): DirtyWorkAttribution {
   const issueNumber = extractIssueNumberFromIdentifier(input.issueIdentifier);
+  const trackerIdentifier = normalizeTrackerIdentifier(input.issueIdentifier);
   const branch = input.currentBranch?.trim() || null;
   const branchNumbers = branch ? extractIssueNumbersFromBranch(branch) : [];
   const workpadNumbers = extractIssueNumbersFromWorkpadFiles(input.dirtyFiles);
-
-  const foreignBranchNumbers = branchNumbers.filter(
-    (number) => number !== issueNumber
+  const branchTrackerIdentifiers = branch
+    ? extractTrackerIdentifiersFromBranch(branch)
+    : { positive: [], foreign: [] };
+  const workpadTrackerIdentifiers = extractTrackerIdentifiersFromWorkpadFiles(
+    input.dirtyFiles
   );
-  if (foreignBranchNumbers.length > 0) {
+
+  const foreignBranchIdentifiers = branchTrackerIdentifiers.foreign.filter(
+    (identifier) => identifier !== trackerIdentifier
+  );
+  if (foreignBranchIdentifiers.length > 0) {
     return {
       attributed: false,
-      reason: `current branch '${branch}' references issue #${foreignBranchNumbers[0]} instead of ${input.issueIdentifier}`,
+      reason: `current branch '${branch}' references issue ${foreignBranchIdentifiers[0]} instead of ${input.issueIdentifier}`,
     };
   }
 
-  const foreignWorkpadNumbers = workpadNumbers.filter(
-    (number) => number !== issueNumber
+  const foreignWorkpadIdentifiers = workpadTrackerIdentifiers.filter(
+    (identifier) => identifier !== trackerIdentifier
   );
-  if (foreignWorkpadNumbers.length > 0) {
+  if (foreignWorkpadIdentifiers.length > 0) {
     return {
       attributed: false,
-      reason: `dirty workpad references issue #${foreignWorkpadNumbers[0]} instead of ${input.issueIdentifier}`,
+      reason: `dirty workpad references issue ${foreignWorkpadIdentifiers[0]} instead of ${input.issueIdentifier}`,
     };
+  }
+
+  if (!trackerIdentifier) {
+    const foreignBranchNumbers = branchNumbers.filter(
+      (number) => number !== issueNumber
+    );
+    if (foreignBranchNumbers.length > 0) {
+      return {
+        attributed: false,
+        reason: `current branch '${branch}' references issue #${foreignBranchNumbers[0]} instead of ${input.issueIdentifier}`,
+      };
+    }
+
+    const foreignWorkpadNumbers = workpadNumbers.filter(
+      (number) => number !== issueNumber
+    );
+    if (foreignWorkpadNumbers.length > 0) {
+      return {
+        attributed: false,
+        reason: `dirty workpad references issue #${foreignWorkpadNumbers[0]} instead of ${input.issueIdentifier}`,
+      };
+    }
   }
 
   if (branch && input.expectedBranches?.includes(branch)) {
@@ -151,14 +230,42 @@ export function attributeDirtyWorkToIssue(
     };
   }
 
-  if (issueNumber !== null && branchNumbers.includes(issueNumber)) {
+  if (
+    trackerIdentifier &&
+    branchTrackerIdentifiers.positive.includes(trackerIdentifier)
+  ) {
     return {
       attributed: true,
       reason: `current branch '${branch}' references ${input.issueIdentifier}`,
     };
   }
 
-  if (issueNumber !== null && workpadNumbers.includes(issueNumber)) {
+  if (
+    trackerIdentifier &&
+    workpadTrackerIdentifiers.includes(trackerIdentifier)
+  ) {
+    return {
+      attributed: true,
+      reason: `dirty workpad belongs to ${input.issueIdentifier}`,
+    };
+  }
+
+  if (
+    !trackerIdentifier &&
+    issueNumber !== null &&
+    branchNumbers.includes(issueNumber)
+  ) {
+    return {
+      attributed: true,
+      reason: `current branch '${branch}' references ${input.issueIdentifier}`,
+    };
+  }
+
+  if (
+    !trackerIdentifier &&
+    issueNumber !== null &&
+    workpadNumbers.includes(issueNumber)
+  ) {
     return {
       attributed: true,
       reason: `dirty workpad belongs to ${input.issueIdentifier}`,

@@ -13,10 +13,13 @@
  *   api-progress-unknown — confirms Done, removes the canonical item, then completes
  *   required-label-removed — completes turn one, then proves a routability
  *                            refresh prevents turn two after its label is removed
+ *   linear-dirty-recovery — leaves DEV-54 dirty mid-turn, then verifies the
+ *                           same Linear workspace is reused on recovery
  */
 
 import { existsSync } from "node:fs";
-import { writeFile, mkdir } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -39,7 +42,8 @@ type Scenario =
   | "transition-race"
   | "api-progress"
   | "api-progress-unknown"
-  | "required-label-removed";
+  | "required-label-removed"
+  | "linear-dirty-recovery";
 const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "happy",
   "fail",
@@ -51,6 +55,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "api-progress",
   "api-progress-unknown",
   "required-label-removed",
+  "linear-dirty-recovery",
 ]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
@@ -74,6 +79,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     "api-progress": { startMs: 2000, runMs: 1000 },
     "api-progress-unknown": { startMs: 2000, runMs: 1000 },
     "required-label-removed": { startMs: 2000, runMs: 1000 },
+    "linear-dirty-recovery": { startMs: 100, runMs: 100 },
   };
 
 function resolveCoreModuleUrl(): string {
@@ -227,7 +233,9 @@ async function requestTransitionForRace(): Promise<void> {
   }
 }
 
-async function requestAndConfirmApiProgress(): Promise<void> {
+async function requestAndConfirmApiProgress(
+  targetState = "Done"
+): Promise<void> {
   if (!ORCHESTRATOR_URL || !ORCHESTRATOR_TOKEN || !RUN_ID) {
     throw new Error("stub_worker_orchestrator_context_missing");
   }
@@ -245,7 +253,7 @@ async function requestAndConfirmApiProgress(): Promise<void> {
       body: JSON.stringify({
         type: "transition-request",
         expected_state: expectedState,
-        target_state: "Done",
+        target_state: targetState,
         reason: "E2E API-side lifecycle progress",
       }),
     }
@@ -259,7 +267,7 @@ async function requestAndConfirmApiProgress(): Promise<void> {
     !transitionResponse.ok ||
     transition.ok !== true ||
     transition.outcome !== "confirmed" ||
-    transition.state !== "Done"
+    transition.state !== targetState
   ) {
     throw new Error(
       `stub_api_progress_transition_failed:${JSON.stringify(transition)}`
@@ -287,7 +295,7 @@ async function requestAndConfirmApiProgress(): Promise<void> {
     !readResponse.ok ||
     readback.ok !== true ||
     readback.outcome !== "confirmed" ||
-    readback.state !== "Done"
+    readback.state !== targetState
   ) {
     throw new Error(
       `stub_api_progress_readback_failed:${JSON.stringify(readback)}`
@@ -321,7 +329,11 @@ async function preventSecondTurnAfterLabelRemoval(): Promise<void> {
   }
   // Wait for the runner to update the fixture instead of racing its status
   // poll with a fixed delay. The bounded wait still fails loudly in CI.
-  for (let attempt = 0; attempt < 30 && !existsSync(labelRemovalSignal); attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < 30 && !existsSync(labelRemovalSignal);
+    attempt += 1
+  ) {
     await sleep(500);
   }
   if (!existsSync(labelRemovalSignal)) {
@@ -332,6 +344,60 @@ async function preventSecondTurnAfterLabelRemoval(): Promise<void> {
     throw new Error(`stub_turn_two_should_be_prevented:${state}`);
   }
   console.error("[stub-worker] turn=2 prevented by routability refresh");
+}
+
+async function exerciseLinearDirtyRecovery(): Promise<void> {
+  if (ISSUE_IDENTIFIER !== "DEV-54") {
+    throw new Error(
+      `stub_linear_issue_identifier_unexpected:${ISSUE_IDENTIFIER}`
+    );
+  }
+
+  const repositoryDirectory = process.env.WORKING_DIRECTORY ?? process.cwd();
+  const workpadPath = join(
+    repositoryDirectory,
+    ".gh-symphony",
+    "workpads",
+    "DEV-54.md"
+  );
+  const partialPath = join(repositoryDirectory, "linear-partial.txt");
+  const recoveryKind = process.env.SYMPHONY_RECOVERY_KIND ?? "";
+
+  if (recoveryKind === "") {
+    execFileSync("git", ["switch", "-c", "dev-54-fix"], {
+      cwd: repositoryDirectory,
+      stdio: "pipe",
+    });
+    await mkdir(dirname(workpadPath), { recursive: true });
+    await writeFile(workpadPath, "# DEV-54 recovery workpad\n", "utf8");
+    await writeFile(partialPath, "partial Linear issue work\n", "utf8");
+    console.error("[stub-worker] linear dirty workspace prepared");
+    await requestAndConfirmApiProgress("In review");
+    await sleep(Infinity);
+    return;
+  }
+
+  if (recoveryKind !== "incomplete-turn-dirty-workspace") {
+    throw new Error(`stub_linear_recovery_kind_unexpected:${recoveryKind}`);
+  }
+  const branch = execFileSync("git", ["branch", "--show-current"], {
+    cwd: repositoryDirectory,
+    encoding: "utf8",
+  }).trim();
+  if (branch !== "dev-54-fix") {
+    throw new Error(`stub_linear_recovery_branch_unexpected:${branch}`);
+  }
+  if (
+    (await readFile(workpadPath, "utf8")) !== "# DEV-54 recovery workpad\n" ||
+    (await readFile(partialPath, "utf8")) !== "partial Linear issue work\n"
+  ) {
+    throw new Error("stub_linear_recovery_dirty_files_changed");
+  }
+  if (!RENDERED_PROMPT.includes("Incomplete Turn Dirty Workspace")) {
+    throw new Error("stub_linear_recovery_prompt_missing");
+  }
+  console.error("[stub-worker] linear dirty recovery verified");
+  await requestAndConfirmApiProgress();
 }
 
 async function run() {
@@ -411,6 +477,9 @@ async function run() {
   }
   if (SCENARIO === "required-label-removed") {
     await preventSecondTurnAfterLabelRemoval();
+  }
+  if (SCENARIO === "linear-dirty-recovery") {
+    await exerciseLinearDirtyRecovery();
   }
   await sleep(durations.runMs);
 
