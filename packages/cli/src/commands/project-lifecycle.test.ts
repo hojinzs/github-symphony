@@ -17,7 +17,8 @@ const { default: projectCommand, standaloneProjectId } =
 const workflow = `---
 tracker:
   kind: github-project
-  project_id: PVT_example
+  provider:
+    project_id: PVT_example
 codex:
   command: codex app-server
 repository:

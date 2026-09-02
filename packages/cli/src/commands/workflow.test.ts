@@ -2,7 +2,6 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import workflowCommand, {
   resetWorkflowCommandDependenciesForTest,
   setWorkflowCommandDependenciesForTest,
@@ -31,8 +30,9 @@ const SAMPLE_WORKFLOW = `---
 continuation_guidance: Continue after {{ cumulativeTurnCount }} turns. Summary: {{ lastTurnSummary }}
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
   active_states:
     - Ready
     - In progress
@@ -51,8 +51,9 @@ Labels={% for label in issue.labels %}{{ label }} {% endfor %}
 const LINEAR_WORKFLOW = `---
 tracker:
   kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: symphony-0c79b11b75ea
+  provider:
+    api_key: $LINEAR_API_KEY
+    project_slug: symphony-0c79b11b75ea
   active_states:
     - Todo
   terminal_states:
@@ -121,10 +122,10 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain("active_states=Ready, In progress");
   });
 
-  it("prints a validation warning when legacy priority_field is configured", async () => {
+  it("prints a typed error when a removed flat tracker key is configured", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-validate-priority-"));
     const workflowPath = join(root, "WORKFLOW.md");
-    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
 
     await writeFile(
       workflowPath,
@@ -132,7 +133,6 @@ describe("workflow command handler", () => {
 tracker:
   kind: github-project
   project_id: project-123
-  priority_field: Priority
 codex:
   command: codex app-server
 ---
@@ -149,69 +149,12 @@ Prompt {{ issue.identifier }}
         noColor: false,
       });
     } finally {
-      stdout.restore();
+      stderr.restore();
     }
 
-    expect(stdout.output()).toContain("Warnings");
-    expect(stdout.output()).toContain("Deprecated tracker provider keys");
-    expect(stdout.output()).toContain("tracker:\n  provider:");
-    expect(stdout.output()).toContain('priority_field: "Priority"');
-    expect(stdout.output()).toContain("Legacy priority mapping");
-  });
-
-  it("renders a copyable provider migration block that round-trips", async () => {
-    const root = await mkdtemp(join(tmpdir(), "workflow-provider-migration-"));
-    const workflowPath = join(root, "WORKFLOW.md");
-    const stdout = captureWrites(process.stdout);
-
-    await writeFile(
-      workflowPath,
-      `---
-tracker:
-  kind: github-project
-  project_id: project-123
-  pickup_labels:
-    include:
-      - agent-ready
-    exclude:
-      - blocked
-  priority:
-    source: labels
-    labels:
-      urgent: 1
-codex:
-  command: codex app-server
----
-Prompt {{ issue.identifier }}
-`,
-      "utf8"
-    );
-
-    try {
-      await workflowCommand(["validate", "--file", workflowPath], {
-        configDir: root,
-        verbose: false,
-        json: false,
-        noColor: false,
-      });
-    } finally {
-      stdout.restore();
-    }
-
-    const providerBlock = stdout
-      .output()
-      .match(/```yaml\n([\s\S]*?)\n```/)?.[1];
-    expect(stdout.output()).toContain("tracker.project_id=project-123");
-    expect(providerBlock).toContain("pickup_labels:\n      include:");
-    expect(providerBlock).toContain("priority:\n      source:");
-    const migrated = parseWorkflowMarkdown(
-      `---\n${providerBlock?.replace("tracker:\n", "tracker:\n  kind: github-project\n")}\ncodex:\n  command: codex app-server\n---\nPrompt`
-    );
-    expect(migrated.tracker.provider).toMatchObject({
-      project_id: "project-123",
-      pickup_labels: { include: ["agent-ready"], exclude: ["blocked"] },
-      priority: { source: "labels", labels: { urgent: 1 } },
-    });
+    expect(stderr.output()).toContain("tracker.project_id");
+    expect(stderr.output()).toContain("tracker.provider");
+    expect(process.exitCode).toBe(1);
   });
 
   it("includes priority precedence warnings in JSON validation output", async () => {
@@ -224,10 +167,11 @@ Prompt {{ issue.identifier }}
       `---
 tracker:
   kind: github-project
-  project_id: project-123
-  priority_field: Priority
-  priority:
-    source: disabled
+  provider:
+    project_id: project-123
+    priority_field: Priority
+    priority:
+      source: disabled
 codex:
   command: codex app-server
 ---
@@ -397,8 +341,8 @@ Prompt {{ issue.identifier }}
     const workflowPath = join(root, "WORKFLOW.md");
     const stdout = captureWrites(process.stdout);
     const workflow = SAMPLE_WORKFLOW.replace(
-      "  terminal_states:\n    - Done",
-      "  terminal_states:\n    - Done\n  planning_states:\n    - IN PROGRESS"
+      "    state_field: Status",
+      "    state_field: Status\n    planning_states:\n      - IN PROGRESS"
     ).replace(
       "{{ issue.identifier }}: {{ issue.title }}",
       "{{ issue.identifier }}: phase={{ execution_phase }}"

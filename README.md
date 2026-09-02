@@ -353,9 +353,9 @@ tracker:
 
 Lower numbers dispatch first. If an issue has multiple configured priority labels, Symphony uses the lowest numeric value and emits `priority.label_conflict_resolved`. If an active issue carries an unmapped configured-source value, it resolves to `priority = null` and emits `priority.unmapped`.
 
-Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. To migrate, replace it with `tracker.provider.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.provider.priority` wins and diagnostics warn about the conflict.
+Flat tracker keys such as `tracker.priority_field` are rejected in this major release. Use `tracker.provider.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. `gh-symphony doctor` prints a copyable provider block for migration.
 
-`gh-symphony workflow validate` reports local config errors plus warnings for legacy priority configuration and ignored per-state concurrency entries. Each concurrency warning names the ignored `agent.max_concurrent_agents_by_state` path and reason, while valid entries in the same map remain active. Strict front-matter failures use stable workflow error codes; with `--json`, `workflow validate` includes both `error.code` and `error.path`. `gh-symphony doctor` additionally checks live Project/repository drift and reports the same local configuration warnings.
+`gh-symphony workflow validate` reports local configuration errors, including `workflow_deprecated_key` for removed flat tracker keys, plus warnings for ignored per-state concurrency entries. Each concurrency warning names the ignored `agent.max_concurrent_agents_by_state` path and reason, while valid entries in the same map remain active. With `--json`, `workflow validate` includes both `error.code` and `error.path`. `gh-symphony doctor` additionally checks live Project/repository drift and prints a provider migration block for removed flat keys.
 
 ### Token-Only Setup
 
@@ -592,7 +592,7 @@ tracker:
         - needs-spec
 ```
 
-`gh-symphony repo init` validates that `tracker.provider.project_slug` is present and that the optional `tracker.provider.api_key` reference resolves when supplied. Without it, Linear uses `LINEAR_API_KEY`. Deprecated flat keys remain compatible while `gh-symphony doctor` shows the normalized provider form. The legacy `.gh-symphony/config.json` file is not used as the Linear source of truth.
+`gh-symphony repo init` validates that `tracker.provider.project_slug` is present and that the optional `tracker.provider.api_key` reference resolves when supplied. Without it, Linear uses `LINEAR_API_KEY`. Flat tracker keys are rejected; run `gh-symphony doctor` for a normalized provider migration block. The legacy `.gh-symphony/config.json` file is not used as the Linear source of truth.
 
 `gh-symphony repo start --assigned-only` also applies to Linear trackers. It is an input to the Linear adapter's `dispatchable` derivation: the adapter keeps candidate issues observable, compares each returned `assignee.id` with the authenticated viewer, and marks nonmatching or unassigned issues non-dispatchable. With a personal API key this viewer is that person; with a service-account key it is the service account. Symphony does not fail fast because Linear does not expose enough token metadata in the issue query path to distinguish those cases reliably.
 

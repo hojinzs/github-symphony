@@ -17,7 +17,8 @@ import projectCommand from "./project.js";
 const workflow = `---
 tracker:
   kind: github-project
-  project_id: PVT_example
+  provider:
+    project_id: PVT_example
 codex:
   command: codex app-server
 repository:
@@ -30,11 +31,12 @@ Implement the issue.`;
 const linearWorkflow = `---
 tracker:
   kind: linear
-  project_slug: symphony
+  provider:
+    project_slug: symphony
+    pickup_labels:
+      include: [team-a]
+      exclude: [skip]
   active_states: [" Todo "]
-  pickup_labels:
-    include: [team-a]
-    exclude: [skip]
 codex:
   command: codex app-server
 repository:
@@ -45,7 +47,8 @@ Implement the issue.`;
 const fileWorkflowWithoutProviderPath = `---
 tracker:
   kind: file
-  project_id: e2e-test
+  provider:
+    project_id: e2e-test
 codex:
   command: codex app-server
 repository:

@@ -1,17 +1,18 @@
 ---
 tracker:
   kind: github-project
-  # 🧩 Moncher Stack (hojinzs/projects/14)
-  project_id: PVT_kwHOAPiKdM4BYPVD
-  state_field: Status
+  provider:
+    # 🧩 Moncher Stack (hojinzs/projects/14)
+    project_id: PVT_kwHOAPiKdM4BYPVD
+    state_field: Status
+    blocker_check_states:
+      - Ready
   active_states:
     - Ready
     - In progress
     - Land
   terminal_states:
     - Done
-  blocker_check_states:
-    - Ready
 polling:
   interval_ms: 30000
 workspace:

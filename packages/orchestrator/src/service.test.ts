@@ -3947,8 +3947,11 @@ describe("OrchestratorService", () => {
           rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states: [Ready, In progress]
   terminal_states: [Done]
 agent:
@@ -4680,15 +4683,16 @@ Retry inconclusive work.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
     - In Progress
   terminal_states:
     - Done
-  blocker_check_states:
-    - Todo
 hooks:
   after_create: hooks/after_create.sh
   before_remove: hooks/before_remove.sh
@@ -5395,14 +5399,15 @@ Test hook failures.
         rawWorkflow: `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
     - Todo
   terminal_states:
     - Archived
-  blocker_check_states:
-    - Todo
 polling:
   interval_ms: 30000
 workspace:
@@ -16949,20 +16954,20 @@ async function writeWorkflowFixture(
     rawWorkflow?: string;
   } = {}
 ): Promise<void> {
-  const content =
+  const content = normalizeTrackerProviderFixture(
     options.rawWorkflow ??
     `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
   active_states:
     - Todo
     - In Progress
   terminal_states:
     - Done
-${options.requiredLabels?.length ? `  required_labels:\n${options.requiredLabels.map((label) => `    - ${label}`).join("\n")}\n` : ""}  blocker_check_states:
-    - Todo
+${options.requiredLabels?.length ? `  required_labels:\n${options.requiredLabels.map((label) => `    - ${label}`).join("\n")}\n` : ""}
 hooks:
   after_create: hooks/after_create.sh
 ${options.includeAfterRunHook ? `  after_run: |\n    ${(options.afterRunCommand ?? "hooks/after_run.sh").replace(/\n/g, "\n    ")}` : ""}
@@ -16982,8 +16987,67 @@ codex:
   turn_timeout_ms: 3600000
 ---
 Prefer focused changes.
-`;
+`
+  );
   await writeFile(join(repositoryRoot, "WORKFLOW.md"), content, "utf8");
+}
+
+function normalizeTrackerProviderFixture(content: string): string {
+  const flatKeys = new Set([
+    "api_key",
+    "project_slug",
+    "project_id",
+    "endpoint",
+    "state_field",
+    "priority",
+    "priority_field",
+    "pickup_labels",
+    "blocker_check_states",
+    "planning_states",
+  ]);
+  const lines = content.split("\n");
+  const trackerStart = lines.findIndex((line) => line === "tracker:");
+  if (trackerStart === -1 || lines.includes("  provider:")) {
+    return content;
+  }
+
+  const trackerEnd = lines.findIndex(
+    (line, index) => index > trackerStart && /^[^\s]/.test(line)
+  );
+  const end = trackerEnd === -1 ? lines.length : trackerEnd;
+  const trackerLines = lines.slice(trackerStart + 1, end);
+  const remaining: string[] = [];
+  const providerLines: string[] = [];
+
+  for (let index = 0; index < trackerLines.length; ) {
+    const key = trackerLines[index]?.match(/^[ ]{2}([a-z_]+):/)?.[1];
+    let next = index + 1;
+    while (
+      next < trackerLines.length && !/^[ ]{2}\S/.test(trackerLines[next]!)
+    ) {
+      next += 1;
+    }
+    const block = trackerLines.slice(index, next);
+    if (key && flatKeys.has(key)) {
+      providerLines.push(
+        ...block.map((line) => `  ${line}`)
+      );
+    } else {
+      remaining.push(...block);
+    }
+    index = next;
+  }
+
+  if (providerLines.length === 0) {
+    return content;
+  }
+  const kindIndex = remaining.findIndex((line) => /^[ ]{2}kind:/.test(line));
+  remaining.splice(kindIndex + 1, 0, "  provider:", ...providerLines);
+  return [
+    ...lines.slice(0, trackerStart + 1),
+    ...remaining,
+    ...lines.slice(end),
+  ].join("\n");
 }
 
 function createReadyStateWorkflow(
@@ -16991,22 +17055,23 @@ function createReadyStateWorkflow(
   planningStates: string[] = []
 ): string {
   const planningStatesYaml = planningStates.length
-    ? `  planning_states:\n${planningStates
-        .map((state) => `    - ${JSON.stringify(state)}`)
+    ? `    planning_states:\n${planningStates
+        .map((state) => `      - ${JSON.stringify(state)}`)
         .join("\n")}\n`
     : "";
   return `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
-  active_states:
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Ready
+${planningStatesYaml}  active_states:
     - Ready
   terminal_states:
     - Done
-  blocker_check_states:
-    - Ready
-${planningStatesYaml}hooks:
+hooks:
   commands: []
 polling:
   interval_ms: 30000

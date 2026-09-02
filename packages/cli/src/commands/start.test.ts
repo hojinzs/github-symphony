@@ -359,7 +359,8 @@ Handle {{issue.identifier}}.\n`,
       `---
 tracker:
   kind: github-project
-  project_id: project-1
+  provider:
+    project_id: project-1
 codex:
   command: $WORKFLOW_CODEX_COMMAND
 ---
@@ -989,7 +990,8 @@ Handle {{issue.identifier}}.\n`,
       `---
 tracker:
   kind: github-project
-  project_id: project-1
+  provider:
+    project_id: project-1
 codex:
   command: codex app-server
 ---

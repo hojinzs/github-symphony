@@ -139,8 +139,9 @@ describe("repo explain", () => {
       `---
 tracker:
   kind: github-project
-  project_id: PVT_test
-  state_field: Status
+  provider:
+    project_id: PVT_test
+    state_field: Status
   active_states:
     - Ready
   terminal_states:
@@ -191,14 +192,15 @@ Follow the issue instructions.
       `---
 tracker:
   kind: github-project
-  project_id: PVT_test
-  state_field: Status
+  provider:
+    project_id: PVT_test
+    state_field: Status
+    blocker_check_states:
+      - Ready
   active_states:
     - Ready
   terminal_states:
     - Done
-  blocker_check_states:
-    - Ready
 agent:
   max_concurrent_agents: 2
 codex:
@@ -240,8 +242,9 @@ Follow the issue instructions.
       `---
 tracker:
   kind: github-project
-  project_id: PVT_test
-  state_field: Status
+  provider:
+    project_id: PVT_test
+    state_field: Status
   active_states:
     - Ready
   terminal_states:

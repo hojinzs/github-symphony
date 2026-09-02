@@ -2492,14 +2492,16 @@ async function writeWorkflowFixture(
     `---
 tracker:
   kind: github-project
-  project_id: project-123
-  state_field: Status
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
   active_states:
 ${activeStateLines}
   terminal_states:
 ${terminalStateLines}
-${requiredLabelLines}  blocker_check_states:
-    - Todo
+${requiredLabelLines}
 hooks:
   after_create: hooks/after_create.sh
 polling:
