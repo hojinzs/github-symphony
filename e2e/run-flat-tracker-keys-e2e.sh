@@ -10,6 +10,8 @@ cleanup() {
   "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 >/dev/null 2>&1 || true
   remove_e2e_compose_image
 }
+
+assert_docker_runtime_is_available
 trap cleanup EXIT
 
 "${COMPOSE[@]}" up -d --build >/dev/null

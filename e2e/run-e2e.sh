@@ -182,6 +182,7 @@ cleanup() {
 log "Scenario: ${SCENARIO} (timeout: ${TIMEOUT}s)"
 log "Compose project: ${COMPOSE_PROJECT_NAME}"
 
+assert_docker_runtime_is_available
 assert_e2e_project_is_available docker-compose.e2e.yml
 
 write_empty_issues

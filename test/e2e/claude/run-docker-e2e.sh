@@ -16,6 +16,7 @@ cleanup() {
   "${claude_compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
   echo "[]" > e2e/fixtures/issues.json
 }
+assert_docker_runtime_is_available
 assert_e2e_project_is_available docker-compose.e2e.yml
 assert_e2e_project_is_available test/e2e/claude/docker-compose.yml "${COMPOSE_PROJECT_NAME}-claude"
 mkdir -p evidence
