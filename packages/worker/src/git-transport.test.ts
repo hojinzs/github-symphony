@@ -338,7 +338,9 @@ describe("synchronizeAssignedBranch", { timeout: 15_000 }, () => {
         remoteUrl: `${server.url}/${remote.slice(root.length + 1)}`,
         env: {
           ...process.env,
-          GITHUB_GRAPHQL_TOKEN: undefined,
+          // The caller helper must remain ahead of the host helper. Before
+          // composition, this token replaced index 0 and reset the count to 1.
+          GITHUB_GRAPHQL_TOKEN: "unused-host-token",
           GITHUB_TOKEN_BROKER_URL: undefined,
           GITHUB_TOKEN_BROKER_SECRET: undefined,
           GIT_CONFIG_COUNT: "2",
@@ -458,6 +460,43 @@ describe("buildHostGitEnvironment", () => {
     expect(env.GIT_CONFIG_COUNT).toBe("1");
     expect(env.GIT_CONFIG_KEY_0).toBe("credential.helper");
     expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
+  });
+
+  it("appends the credential helper after caller-supplied Git config", () => {
+    const env = buildHostGitEnvironment({
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+      GITHUB_TOKEN_CACHE_PATH: "/runtime/token-cache.json",
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "credential.helper",
+      GIT_CONFIG_VALUE_0: "",
+      GIT_CONFIG_KEY_1: "credential.helper",
+      GIT_CONFIG_VALUE_1: "!fixture-helper",
+    });
+
+    expect(env.GIT_CONFIG_COUNT).toBe("3");
+    expect(env.GIT_CONFIG_KEY_0).toBe("credential.helper");
+    expect(env.GIT_CONFIG_VALUE_0).toBe("");
+    expect(env.GIT_CONFIG_KEY_1).toBe("credential.helper");
+    expect(env.GIT_CONFIG_VALUE_1).toBe("!fixture-helper");
+    expect(env.GIT_CONFIG_KEY_2).toBe("credential.helper");
+    expect(env.GIT_CONFIG_VALUE_2).toContain("git-credential-helper.js");
+    expect(env.GITHUB_TOKEN_BROKER_URL).toBe(
+      "https://broker.example/runtime-credentials"
+    );
+    expect(env.GITHUB_TOKEN_BROKER_SECRET).toBe("broker-secret");
+    expect(env.GITHUB_TOKEN_CACHE_PATH).toBe("/runtime/token-cache.json");
+  });
+
+  it("rejects a malformed caller-supplied Git config count", () => {
+    expect(() =>
+      buildHostGitEnvironment({
+        GITHUB_GRAPHQL_TOKEN: "host-token",
+        GIT_CONFIG_COUNT: "not-a-count",
+      })
+    ).toThrow(
+      "invalid GIT_CONFIG_COUNT for host Git transport: expected a non-negative safe integer"
+    );
   });
 });
 

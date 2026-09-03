@@ -3222,7 +3222,7 @@ export class OrchestratorService {
       "bash",
       ["-lc", resolveWorkerCommand()],
       {
-        cwd: process.cwd(),
+        cwd: workspaceRuntimeDir,
         env: this.buildProjectExecutionEnv(
           tenant,
           {

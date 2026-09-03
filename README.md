@@ -858,6 +858,10 @@ worker, and runtimes, see
 
 For project-specific secrets or staging settings, place a `.env` file under the orchestrator runtime project directory instead of committing values into `WORKFLOW.md` or repository scripts.
 
+Symphony never loads the repository-root `.env`; it is reserved for the
+application. In repo mode, `gh-symphony doctor` warns when that file exists and
+directs Symphony-specific values to the managed project `.env` below.
+
 - Default path: `~/.gh-symphony/projects/<project-id>/.env`
 - If you run the CLI with a custom `--config <dir>`, the path becomes `<dir>/projects/<project-id>/.env`
 - The file is loaded as base env for workspace hooks and worker processes
