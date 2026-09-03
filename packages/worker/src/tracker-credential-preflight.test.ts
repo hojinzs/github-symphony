@@ -89,6 +89,7 @@ describe("resolveTrackerCredentialPreflight", () => {
       githubProjectTrackerAdapter,
       { GITHUB_GRAPHQL_TOKEN: "token" },
     ],
+    ["github-project", githubProjectTrackerAdapter, { GITHUB_TOKEN: "token" }],
     [
       "github-project",
       githubProjectTrackerAdapter,
