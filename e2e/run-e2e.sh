@@ -10,6 +10,7 @@ SCENARIO="${1:-happy}"
 TIMEOUT="${2:-30}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/e2e/lib/compose-project.sh"
+source "$ROOT_DIR/e2e/lib/fixture-file.sh"
 configure_e2e_compose_project "$ROOT_DIR"
 COMPOSE=(docker compose --project-name "$COMPOSE_PROJECT_NAME" -f docker-compose.e2e.yml)
 HTTP_API_TOKEN="${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}"
@@ -34,6 +35,18 @@ write_empty_issues() {
   fixture_copy=$(mktemp e2e/fixtures/issues.json.tmp.XXXXXX)
   printf '[]\n' > "$fixture_copy"
   mv "$fixture_copy" e2e/fixtures/issues.json
+}
+replace_e2e_issue_fixture_in_container() {
+  local source_fixture="$1"
+  local source_name
+  source_name=$(basename "$source_fixture")
+
+  "${COMPOSE[@]}" exec -T symphony-e2e sh -c '
+    target=/e2e/fixtures/issues.json
+    temporary=$(mktemp "${target}.tmp.XXXXXX")
+    cp "$1" "$temporary"
+    mv "$temporary" "$target"
+  ' sh "/e2e/fixtures/$source_name"
 }
 
 cleanup() {
@@ -120,15 +133,15 @@ log "Initial state: idle"
 # ── Inject issues ─────────────────────────────────────────────
 
 if [ "$SCENARIO" = "non-dispatchable" ]; then
-  cp e2e/fixtures/non-dispatchable.json e2e/fixtures/issues.json
+  replace_e2e_issue_fixture_in_container e2e/fixtures/non-dispatchable.json
 elif [ "$SCENARIO" = "linear-dirty-recovery" ]; then
-  cp e2e/fixtures/linear-dirty-recovery.json e2e/fixtures/issues.json
+  replace_e2e_issue_fixture_in_container e2e/fixtures/linear-dirty-recovery.json
 elif [ "$SCENARIO" = "required-label-missing" ]; then
-  cp e2e/fixtures/required-label-missing.json e2e/fixtures/issues.json
+  replace_e2e_issue_fixture_in_container e2e/fixtures/required-label-missing.json
 elif [ "$SCENARIO" = "required-label-removed" ]; then
-  cp e2e/fixtures/required-label-active.json e2e/fixtures/issues.json
+  replace_e2e_issue_fixture_in_container e2e/fixtures/required-label-active.json
 else
-  cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
+  replace_e2e_issue_fixture_in_container e2e/fixtures/happy-path.json
 fi
 
 INITIAL_LAST_TICK=$(orch_curl -s http://localhost:4680/api/v1/state 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt') or '')" 2>/dev/null || echo '')
@@ -246,11 +259,14 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
     if [ "$SCENARIO" = "required-label-removed" ] && [ "$LABEL_REMOVED" != true ]; then
       python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 path = Path("e2e/fixtures/issues.json")
 issues = json.loads(path.read_text())
 issues[0]["labels"] = []
-path.write_text(json.dumps(issues))
+temporary_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+temporary_path.write_text(json.dumps(issues))
+temporary_path.replace(path)
 PY
       : > e2e/fixtures/required-label-removed.signal
       LABEL_REMOVED=true
@@ -284,13 +300,16 @@ assert any(
     if "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "incomplete-turn-dirty-workspace" /e2e/work 2>/dev/null'; then
       python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 
 path = Path("e2e/fixtures/issues.json")
 issues = json.loads(path.read_text())
 assert len(issues) == 1, issues
 issues[0]["state"] = "Ready"
-path.write_text(json.dumps(issues))
+temporary_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+temporary_path.write_text(json.dumps(issues))
+temporary_path.replace(path)
 PY
       orch_curl -sf -X POST http://localhost:4680/api/v1/refresh >/dev/null
       LINEAR_RECOVERY_REACTIVATED=true
