@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT_DIR/e2e/lib/fixture-replacement.sh"
 
+file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
 test_dir=$(mktemp -d)
 trap 'rm -rf "$test_dir"' EXIT
 target="$test_dir/issues.json"
@@ -20,12 +24,12 @@ test "$(<"$target")" = '[{"id":"original"}]'
 printf '%s\n' '[{"id":"replacement"}]' > "$source_fixture"
 atomic_replace_issue_fixture_on_host "$source_fixture" "$target"
 test "$(<"$target")" = '[{"id":"replacement"}]'
-mode=$(stat -f '%Lp' "$target" 2>/dev/null || stat -c '%a' "$target")
+mode=$(file_mode "$target")
 test "$mode" = 644
 
 printf '%s\n' '[]' | atomic_replace_issue_fixture_from_stdin_on_host "$target"
 test "$(<"$target")" = '[]'
-mode=$(stat -f '%Lp' "$target" 2>/dev/null || stat -c '%a' "$target")
+mode=$(file_mode "$target")
 test "$mode" = 644
 
 printf '%s\n' '[{"id":"alternate"}]' > "$test_dir/alternate.json"

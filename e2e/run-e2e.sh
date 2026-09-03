@@ -151,14 +151,16 @@ update_e2e_issue_fixture() {
   fi
 }
 configure_fixture_replacement() {
-  if "${COMPOSE[@]}" exec -T symphony-e2e sh -c \
+  local probe_error
+
+  if probe_error=$("${COMPOSE[@]}" exec -T symphony-e2e sh -c \
     'temporary=$(mktemp /e2e/fixtures/.fixture-write-probe.XXXXXX) && rm -f "$temporary"' \
-    2>/dev/null; then
+    2>&1); then
     CONTAINER_FIXTURE_REPLACEMENT=true
     log "Fixture replacement: container-side atomic rename"
   else
     CONTAINER_FIXTURE_REPLACEMENT=false
-    warn "Container cannot write /e2e/fixtures; using host-side atomic rename"
+    warn "Container cannot write /e2e/fixtures; using host-side atomic rename: $probe_error"
   fi
 }
 
