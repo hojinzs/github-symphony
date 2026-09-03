@@ -58,6 +58,8 @@ runtime_output=$(PATH="$stub_dir:$PATH" assert_docker_runtime_is_available 2>&1)
 test "$runtime_output" = "[e2e] Docker runtime available: Docker Compose version v2.0.0; daemon reachable."
 
 set +e
+missing_docker_output=$(PATH="$stub_dir/empty" assert_docker_runtime_is_available 2>&1)
+missing_docker_status=$?
 compose_output=$(HOME=/isolated-home DOCKER_CONFIG=/run/docker-config PATH="$stub_dir:$PATH" \
   E2E_STUB_DOCKER_MODE=missing-compose assert_docker_runtime_is_available 2>&1)
 compose_status=$?
@@ -66,6 +68,8 @@ daemon_output=$(PATH="$stub_dir:$PATH" E2E_STUB_DOCKER_MODE=daemon-down \
 daemon_status=$?
 set -e
 
+test "$missing_docker_status" -eq "$E2E_DOCKER_UNAVAILABLE_EXIT"
+test "$missing_docker_output" = "[e2e] Docker runtime unavailable: the 'docker' command is not on PATH."
 test "$compose_status" -eq "$E2E_DOCKER_UNAVAILABLE_EXIT"
 case "$compose_output" in
   *"'docker compose' cannot be resolved"*"HOME=/isolated-home, DOCKER_CONFIG=/run/docker-config"*"docker: unknown command: docker compose"*) ;;
