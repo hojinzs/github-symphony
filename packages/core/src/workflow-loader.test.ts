@@ -1456,6 +1456,7 @@ Prompt body.
         bare: true,
         strictMcpConfig: true,
         trustRepoConfig: false,
+        inheritEnvironment: false,
       },
       auth: {
         env: "ANTHROPIC_API_KEY",
@@ -1510,6 +1511,81 @@ Prompt body.
     });
     expect(workflow.codex.command).toBe("codex app-server");
     expect(workflow.agentCommand).toBe("node worker.js --flag");
+  });
+
+  it("parses explicit custom runtime environment compatibility opt-in", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  isolation:
+    inherit_environment: true
+---
+Prompt body.
+`);
+
+    expect(
+      (workflow.runtime?.isolation as Record<string, unknown>)
+        .inheritEnvironment
+    ).toBe(true);
+  });
+
+  it("rejects reserved custom runtime authentication environment names", () => {
+    expect(() =>
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  auth:
+    env: GITHUB_TOKEN
+---
+Prompt body.
+`
+      )
+    ).toThrow(/runtime\.auth\.env.*reserved/i);
+  });
+
+  it("rejects custom runtime authentication names declared by the tracker", () => {
+    expect(() =>
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  auth:
+    env: TRACKER_SECRET
+---
+Prompt body.
+`,
+        {
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "TRACKER_SECRET",
+          ]),
+        }
+      )
+    ).toThrow(/runtime\.auth\.env.*reserved/i);
+  });
+
+  it("rejects the custom-only environment compatibility escape hatch for other runtimes", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: claude-print
+  isolation:
+    inherit_environment: true
+---
+Prompt body.
+`)
+    ).toThrow(/inherit_environment.*custom/i);
   });
 
   it("parses quoted inline array entries containing commas", () => {

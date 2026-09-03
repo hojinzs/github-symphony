@@ -4,6 +4,7 @@ import {
   type SpawnOptions,
 } from "node:child_process";
 import { finished } from "node:stream/promises";
+import { join } from "node:path";
 import type {
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
@@ -14,7 +15,13 @@ import type {
   AgentToolExecutionContext,
   WorkflowDefinition,
 } from "@gh-symphony/core";
-import { extractEnvForClaude } from "@gh-symphony/core";
+import {
+  buildCustomRuntimeChildEnvironment,
+  extractEnvForClaude,
+  prepareAgentChildHome,
+  resolveAgentChildHome,
+  stageGitUserIdentity,
+} from "@gh-symphony/core";
 import {
   createClaudePrintRuntimeAdapter,
   type ClaudeRuntimeDependencies,
@@ -82,6 +89,8 @@ export class CustomCommandWorkerRuntimeAdapter implements AgentRuntimeAdapter<
       args: readonly string[];
       env?: NodeJS.ProcessEnv;
       authEnvKey?: string;
+      runtimeDirectory?: string;
+      inheritEnvironment?: boolean;
       onSpawned?: (child: ChildProcess) => void;
     },
     private readonly dependencies: {
@@ -89,7 +98,14 @@ export class CustomCommandWorkerRuntimeAdapter implements AgentRuntimeAdapter<
     } = {}
   ) {}
 
-  prepare(): void {}
+  async prepare(): Promise<void> {
+    const childHome = this.resolveChildHome();
+    await prepareAgentChildHome(childHome);
+    await stageGitUserIdentity({
+      sourceHome: this.config.env?.HOME ?? process.env.HOME ?? "",
+      destination: join(childHome, ".gitconfig"),
+    });
+  }
 
   async spawnTurn(
     input: CustomCommandTurnInput
@@ -100,8 +116,15 @@ export class CustomCommandWorkerRuntimeAdapter implements AgentRuntimeAdapter<
     const child = (this.dependencies.spawnImpl ?? spawn)(command, args, {
       cwd,
       env: {
-        ...this.config.env,
-        ...input.env,
+        ...buildCustomRuntimeChildEnvironment({
+          childHome: this.resolveChildHome(),
+          source: this.config.env,
+          input: input.env,
+          authEnvKey: this.config.authEnvKey,
+          inheritEnvironment: this.config.inheritEnvironment,
+        }),
+        // The rendered prompt is the only injected Symphony value the custom
+        // child receives; it is also written to stdin below.
         SYMPHONY_RENDERED_PROMPT: input.prompt,
       },
       stdio: "pipe",
@@ -184,6 +207,13 @@ export class CustomCommandWorkerRuntimeAdapter implements AgentRuntimeAdapter<
     this.activeChild.kill("SIGTERM");
     this.activeChild = null;
   }
+
+  private resolveChildHome(): string {
+    return resolveAgentChildHome({
+      workingDirectory: this.config.workingDirectory,
+      runtimeDirectory: this.config.runtimeDirectory,
+    });
+  }
 }
 
 export function createWorkerNonCodexRuntimeAdapter(
@@ -229,11 +259,10 @@ export function createWorkerNonCodexRuntimeAdapter(
           workingDirectory: context.workingDirectory,
           command: runtime.command,
           args: runtime.args,
-          // #700 moves Git transport to the host but intentionally leaves the
-          // custom child environment unchanged. #778 owns the explicit custom
-          // runtime credential and HOME isolation contract.
           env: context.env,
           authEnvKey: runtime.auth.env ?? undefined,
+          runtimeDirectory: context.runtimeDirectory ?? context.runtimeRoot,
+          inheritEnvironment: runtime.isolation.inheritEnvironment,
           onSpawned: context.onSpawned,
         },
         context.customDependencies

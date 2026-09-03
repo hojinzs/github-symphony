@@ -9,8 +9,12 @@ import type {
   WorkflowDefinition,
 } from "@gh-symphony/core";
 import {
+  buildCustomRuntimeChildEnvironment,
   extractEnvForClaude,
+  prepareAgentChildHome,
+  resolveAgentChildHome,
   resolveWorkflowRuntimeCommand,
+  stageGitUserIdentity,
 } from "@gh-symphony/core";
 import {
   createCodexRuntimeAdapter,
@@ -28,6 +32,7 @@ import {
 export type WorkflowRuntimeFactoryContext = {
   projectId: string;
   workingDirectory: string;
+  runtimeDirectory?: string;
   mcpConfigPath?: string;
   env?: NodeJS.ProcessEnv;
   /**
@@ -54,6 +59,8 @@ export type CustomCommandRuntimeConfig = {
   args: readonly string[];
   authEnvKey?: string;
   env?: NodeJS.ProcessEnv;
+  inheritEnvironment?: boolean;
+  runtimeDirectory?: string;
 };
 
 export type CustomRuntimeTurnInput = {
@@ -61,35 +68,48 @@ export type CustomRuntimeTurnInput = {
   env?: NodeJS.ProcessEnv;
   command?: string;
   args?: readonly string[];
+  /** Rendered workflow prompt for custom commands that consume it from env. */
+  prompt?: string;
 };
 
-export class CustomCommandRuntimeAdapter
-  implements
-    AgentRuntimeAdapter<
-      void,
-      CustomRuntimeTurnInput,
-      ClaudeSpawnTurnResult,
-      AgentRuntimeEvent
-    >
-{
+export class CustomCommandRuntimeAdapter implements AgentRuntimeAdapter<
+  void,
+  CustomRuntimeTurnInput,
+  ClaudeSpawnTurnResult,
+  AgentRuntimeEvent
+> {
+  private preparation: Promise<void> | null = null;
+
   constructor(
     private readonly config: CustomCommandRuntimeConfig,
     private readonly dependencies: ClaudeSpawnDependencies = {}
   ) {}
 
-  prepare(): void {}
+  async prepare(): Promise<void> {
+    this.preparation ??= this.prepareChildHome();
+    await this.preparation;
+  }
 
   // TODO(#254): replace ClaudeSpawnTurnResult with a generic turn result once
   // custom process spawning is separated from the Claude adapter layer.
-  spawnTurn(input: CustomRuntimeTurnInput): Promise<ClaudeSpawnTurnResult> {
-    return spawnClaudeTurn(
+  async spawnTurn(
+    input: CustomRuntimeTurnInput
+  ): Promise<ClaudeSpawnTurnResult> {
+    await this.prepare();
+    return await spawnClaudeTurn(
       {
         command: input.command ?? this.config.command,
         args: input.args ?? this.config.args,
         cwd: input.cwd ?? this.config.workingDirectory,
         env: {
-          ...this.config.env,
-          ...input.env,
+          ...buildCustomRuntimeChildEnvironment({
+            childHome: this.resolveChildHome(),
+            source: this.config.env,
+            input: input.env,
+            authEnvKey: this.config.authEnvKey,
+            inheritEnvironment: this.config.inheritEnvironment,
+          }),
+          SYMPHONY_RENDERED_PROMPT: input.prompt ?? "",
         },
         // Custom runtimes do not expose Claude wire-protocol stdin.
         stdinMessages: [],
@@ -118,6 +138,22 @@ export class CustomCommandRuntimeAdapter
   shutdown(): void {}
 
   cancel(): void {}
+
+  private resolveChildHome(): string {
+    return resolveAgentChildHome({
+      workingDirectory: this.config.workingDirectory,
+      runtimeDirectory: this.config.runtimeDirectory,
+    });
+  }
+
+  private async prepareChildHome(): Promise<void> {
+    const childHome = this.resolveChildHome();
+    await prepareAgentChildHome(childHome);
+    await stageGitUserIdentity({
+      sourceHome: this.config.env?.HOME ?? process.env.HOME ?? "",
+      destination: join(childHome, ".gitconfig"),
+    });
+  }
 }
 
 export function createWorkflowRuntimeAdapter(
@@ -173,6 +209,9 @@ export function createWorkflowRuntimeAdapter(
           args: runtime.args,
           env: context.env,
           authEnvKey: runtime.auth.env ?? undefined,
+          inheritEnvironment: runtime.isolation.inheritEnvironment,
+          runtimeDirectory:
+            context.runtimeDirectory ?? context.env?.WORKSPACE_RUNTIME_DIR,
         },
         context.claudeDependencies
       );

@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createClaudePrintRuntimeAdapter } from "@gh-symphony/runtime-claude";
 import type { AgentEvent } from "@gh-symphony/core";
+import { CustomCommandWorkerRuntimeAdapter } from "../../../packages/worker/src/non-codex-runtime.js";
 
 type Invocation = {
   invocation: number;
@@ -77,6 +78,113 @@ afterEach(async () => {
 });
 
 describe("Claude Docker E2E with stub claude binary", () => {
+  it.each([
+    { name: "default isolation", inheritEnvironment: false, rawSecrets: false },
+    { name: "compatibility mode", inheritEnvironment: true, rawSecrets: true },
+  ])(
+    "runs a real custom child with $name credential semantics",
+    async ({ inheritEnvironment, rawSecrets }) => {
+      const root = await mkdtemp(join(tmpdir(), "worker-custom-e2e-"));
+      createdRoots.push(root);
+      const workspace = join(root, "workspace");
+      const runtimeDirectory = join(root, "runtime");
+      const hostHome = join(root, "operator-home");
+      const outputPath = join(root, "custom-child.json");
+      const commandPath = join(root, "custom-child.cjs");
+      await mkdir(join(hostHome, ".config", "gh"), { recursive: true });
+      await mkdir(workspace, { recursive: true });
+      await writeFile(
+        join(hostHome, ".config", "gh", "hosts.yml"),
+        "github.com:\n  oauth_token: operator-secret\n"
+      );
+      await writeFile(
+        join(hostHome, ".gitconfig"),
+        "[user]\n  name = Operator\n[credential]\n  helper = store\n"
+      );
+      await writeFile(
+        commandPath,
+        `const fs = require("node:fs");
+const path = require("node:path");
+const env = process.env;
+fs.writeFileSync(process.argv[2], JSON.stringify({
+  customAuth: env.CUSTOM_AGENT_TOKEN ?? null,
+  githubToken: env.GITHUB_TOKEN ?? null,
+  linearApiKey: env.LINEAR_API_KEY ?? null,
+  githubBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET ?? null,
+  agentBrokerSecret: env.AGENT_CREDENTIAL_BROKER_SECRET ?? null,
+  trackerSecret: env.TRACKER_SECRET ?? null,
+  home: env.HOME ?? null,
+  userProfile: env.USERPROFILE ?? null,
+  ghConfigDir: env.GH_CONFIG_DIR ?? null,
+  hostGhAuthVisible: fs.existsSync(path.join(env.HOME, ".config", "gh", "hosts.yml")),
+  childGhAuthVisible: fs.existsSync(path.join(env.GH_CONFIG_DIR, "hosts.yml")),
+  gitIdentityVisible: fs.existsSync(path.join(env.HOME, ".gitconfig")) && fs.readFileSync(path.join(env.HOME, ".gitconfig"), "utf8").includes("name = Operator"),
+  gitCredentialHelperVisible: fs.existsSync(path.join(env.HOME, ".gitconfig")) && fs.readFileSync(path.join(env.HOME, ".gitconfig"), "utf8").includes("helper = store"),
+  gitConfigInjectionVisible: Boolean(env.GIT_CONFIG_KEY_0 || env.GIT_CONFIG_VALUE_0),
+  prompt: env.SYMPHONY_RENDERED_PROMPT ?? null,
+}));
+`,
+        "utf8"
+      );
+      const adapter = new CustomCommandWorkerRuntimeAdapter({
+        workingDirectory: workspace,
+        command: process.execPath,
+        args: [commandPath, outputPath],
+        runtimeDirectory,
+        inheritEnvironment,
+        authEnvKey: "CUSTOM_AGENT_TOKEN",
+        env: {
+          PATH: process.env.PATH,
+          HOME: hostHome,
+          USERPROFILE: hostHome,
+          GH_CONFIG_DIR: join(hostHome, ".config", "gh"),
+          CUSTOM_AGENT_TOKEN: "custom-agent-token",
+          GITHUB_TOKEN: "github-token",
+          LINEAR_API_KEY: "linear-token",
+          GITHUB_TOKEN_BROKER_SECRET: "github-broker-secret",
+          AGENT_CREDENTIAL_BROKER_SECRET: "agent-broker-secret",
+          GIT_CONFIG_KEY_0: "credential.helper",
+          GIT_CONFIG_VALUE_0: "store",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "TRACKER_SECRET",
+          ]),
+          TRACKER_SECRET: "tracker-secret",
+        },
+      });
+
+      await adapter.prepare();
+      const result = await adapter.spawnTurn({ prompt: "custom E2E prompt" });
+      expect(result).toMatchObject({ result: "success" });
+      const child = JSON.parse(await readFile(outputPath, "utf8")) as Record<
+        string,
+        string | boolean | null
+      >;
+
+      expect(child).toMatchObject({
+        customAuth: "custom-agent-token",
+        home: join(runtimeDirectory, "child-home"),
+        userProfile: join(runtimeDirectory, "child-home"),
+        ghConfigDir: join(runtimeDirectory, "child-home", "gh"),
+        hostGhAuthVisible: false,
+        childGhAuthVisible: false,
+        gitIdentityVisible: true,
+        gitCredentialHelperVisible: false,
+        gitConfigInjectionVisible: false,
+        prompt: "custom E2E prompt",
+      });
+      const rawSecretValues = {
+        githubToken: "github-token",
+        linearApiKey: "linear-token",
+        githubBrokerSecret: "github-broker-secret",
+        agentBrokerSecret: "agent-broker-secret",
+        trackerSecret: "tracker-secret",
+      } as const;
+      for (const [name, value] of Object.entries(rawSecretValues)) {
+        expect(child[name]).toBe(rawSecrets ? value : null);
+      }
+    }
+  );
+
   it("processes one issue from Ready to In progress to In review", async () => {
     const harness = await createHarness("success");
     const issue: IssueFixture = {

@@ -153,12 +153,20 @@ diagnostics in worker logs. Transient failures keep the configured consecutive
 failure threshold; an adapter response of `tracker_state_requests_unsupported`
 produces one capability warning and lets the worker continue without that gate.
 
-> Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
+> Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)**, **[Claude Code](https://code.claude.com/docs/en/quickstart)**, and an operator-supplied `runtime.kind: custom` command. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
 
 For a local non-bare login, the worker copies only the selected provider's
 login material into a private, workspace-contained child home. It does not
 expose the host `gh` configuration, Codex configuration, Claude MCP OAuth, or
 tracker credentials to the coding-agent process.
+
+Custom commands are isolated by default: they receive portable process values,
+a private `HOME`/`GH_CONFIG_DIR`, the rendered prompt, and only the dedicated
+provider credential named in `runtime.auth.env`. Existing custom commands that
+relied on inherited variables must declare that one credential explicitly. The
+temporary `runtime.isolation.inherit_environment: true` migration escape hatch
+restores the raw worker environment, including tracker and broker credentials;
+it is custom-only, security-sensitive, and should be removed after migration.
 
 Before dispatch, GitHub candidates are checked against the source issue and linked closing PR state. A closed issue or merged linked PR left in an active Project status is reconciled to the first configured terminal status, suppressed from worker startup, and reported as `tracker-terminal-candidate-reconciled`.
 
