@@ -292,6 +292,12 @@ export type OrchestratorRunRecord = {
   /** Successful branch publication with worktree edits still unpublished. */
   unpublishedWorktree?: UnpublishedWorktree | null;
   nextRetryAt: string | null;
+  /** Last capacity postponement already surfaced for this retry reservation. */
+  retryPostponed?: {
+    attempt: number;
+    dueAt: string;
+    reason: string;
+  } | null;
   runtimeSession?: RuntimeSessionRow | null;
   tokenUsage?: {
     inputTokens: number;

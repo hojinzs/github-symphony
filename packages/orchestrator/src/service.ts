@@ -5296,7 +5296,16 @@ export class OrchestratorService {
         ? (issueRecord?.retryEntry?.error ?? run.lastError ?? error)
         : error;
     const sessionEndedAt = run.completedAt ?? now.toISOString();
-    await this.store.saveRun({
+    const postponedRetry =
+      options.advanceAttempt === false && dueAt
+        ? { attempt, dueAt, reason: error }
+        : null;
+    const shouldEmitRetryPostponed =
+      postponedRetry !== null &&
+      (run.retryPostponed?.attempt !== postponedRetry.attempt ||
+        run.retryPostponed.dueAt !== postponedRetry.dueAt ||
+        run.retryPostponed.reason !== postponedRetry.reason);
+    const updatedRun = {
       ...run,
       status: suppressed ? "suppressed" : "retrying",
       attempt,
@@ -5314,8 +5323,12 @@ export class OrchestratorService {
       // recovery details.
       retryKind: suppressed ? null : (run.retryKind ?? "failure"),
       lastError,
-    });
-    if (options.advanceAttempt === false && dueAt) {
+      retryPostponed: shouldEmitRetryPostponed
+        ? run.retryPostponed
+        : postponedRetry,
+    } satisfies OrchestratorRunRecord;
+    await this.store.saveRun(updatedRun);
+    if (shouldEmitRetryPostponed) {
       await this.store.appendRunEvent(run.runId, {
         at: now.toISOString(),
         event: "retry-postponed",
@@ -5324,8 +5337,12 @@ export class OrchestratorService {
         issueIdentifier: run.issueIdentifier,
         issueId: run.issueId,
         attempt,
-        dueAt,
+        dueAt: postponedRetry.dueAt,
         reason: error,
+      });
+      await this.store.saveRun({
+        ...updatedRun,
+        retryPostponed: postponedRetry,
       });
     }
     return {
