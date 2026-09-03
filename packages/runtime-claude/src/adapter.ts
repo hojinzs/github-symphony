@@ -18,6 +18,7 @@ import {
   extractEnvForClaude,
   prepareAgentChildHome,
   resolveAgentChildHome,
+  stageDockerCliPlugins,
   stageGitUserIdentity,
   stageJsonCredentialFile,
 } from "@gh-symphony/core";
@@ -455,6 +456,10 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
       sourceHome: hostHome,
       destination: join(childHome, ".gitconfig"),
     });
+    await stageDockerCliPlugins({
+      sourceHome: hostHome,
+      destination: join(childHome, ".docker", "cli-plugins"),
+    });
     if (
       this.config.isolation?.bare === true ||
       this.config.env?.ANTHROPIC_API_KEY
@@ -655,6 +660,7 @@ function buildClaudeSpawnEnv(options: {
     stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
     env.HOME = options.childHome;
     env.GH_CONFIG_DIR = join(options.childHome, "gh");
+    env.DOCKER_CONFIG = join(options.childHome, ".docker");
     removeChildHostCredentialEnvironment(env);
     return env;
   }
@@ -672,6 +678,7 @@ function buildClaudeSpawnEnv(options: {
   stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
   env.HOME = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
+  env.DOCKER_CONFIG = join(options.childHome, ".docker");
   removeChildHostCredentialEnvironment(env);
 
   return env;

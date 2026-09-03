@@ -1,4 +1,13 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export function resolveAgentChildHome(options: {
@@ -14,6 +23,54 @@ export function resolveAgentChildHome(options: {
 export async function prepareAgentChildHome(childHome: string): Promise<void> {
   await mkdir(childHome, { recursive: true, mode: 0o700 });
   await mkdir(join(childHome, "gh"), { recursive: true, mode: 0o700 });
+}
+
+/** Stages executable Docker CLI plugins without exposing host Docker config. */
+export async function stageDockerCliPlugins(options: {
+  sourceHome: string;
+  destination: string;
+}): Promise<number> {
+  const sourceDirectory = join(options.sourceHome, ".docker", "cli-plugins");
+  let entries;
+  try {
+    entries = await readdir(sourceDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return 0;
+    }
+    throw error;
+  }
+
+  let staged = 0;
+  for (const entry of entries) {
+    if (!entry.name.startsWith("docker-") || entry.isDirectory()) {
+      continue;
+    }
+
+    let target: string;
+    try {
+      target = await realpath(join(sourceDirectory, entry.name));
+      if (!(await stat(target)).isFile()) {
+        continue;
+      }
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+
+    await mkdir(options.destination, { recursive: true, mode: 0o700 });
+    try {
+      await symlink(target, join(options.destination, entry.name), "file");
+      staged += 1;
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+  return staged;
 }
 
 /** Stages only the non-secret Git author identity for an isolated child HOME. */

@@ -62,7 +62,7 @@ the tracker adapter:
   `packages/cli/src/commands/start.ts`
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
 - MCP declarations are resolved at the host boundary. Codex advertises adapter tools through dynamic-tool schemas without `config.mcp_servers`; Claude's worker starts a loopback HTTP MCP service and generates an `mcp.json` containing only its URL and ephemeral session capability. Repository/project subprocess entries are not exposed to either coding-agent child.
-- Runtime launchers share the core child-home resolver and prepare a private workspace-contained `HOME`/`GH_CONFIG_DIR`. Non-bare local authentication stages only Codex `auth.json` or Claude `claudeAiOauth`; default custom commands receive only their declared `runtime.auth.env`. Host agent configuration, Claude MCP OAuth, tracker credentials, and `gh auth` remain outside the child boundary.
+- Runtime launchers share the core child-home resolver and prepare a private workspace-contained `HOME`/`GH_CONFIG_DIR`. Codex and Claude also link host Docker CLI plugins into a runtime-owned `DOCKER_CONFIG` without copying Docker credential configuration. Non-bare local authentication stages only Codex `auth.json` or Claude `claudeAiOauth`; default custom commands receive only their declared `runtime.auth.env`. Host agent configuration, Claude MCP OAuth, tracker credentials, Docker registry credentials, and `gh auth` remain outside the child boundary.
 - CLI global/project config, discoverable repo/standalone runtime command options,
   folder-addressed standalone project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
