@@ -1,5 +1,21 @@
 # @gh-symphony/cli
 
+## 1.1.0
+
+### Minor Changes
+
+- [#798](https://github.com/hojinzs/github-symphony/pull/798) [`3f8f015`](https://github.com/hojinzs/github-symphony/commit/3f8f015890fc31d7165fc0784a454054917a8ca9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Isolate `runtime.kind: custom` child credentials and GitHub CLI home state by default, forwarding only explicitly declared runtime authentication inputs. [#778](https://github.com/hojinzs/github-symphony/issues/778)
+
+### Patch Changes
+
+- [#803](https://github.com/hojinzs/github-symphony/pull/803) [`0bf56d1`](https://github.com/hojinzs/github-symphony/commit/0bf56d188bf1ecebff4fc323d9e081ee0463ee04) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fairly prioritize overdue retry reservations during orchestrator capacity contention so each retry gets a turn without consuming its failure budget or retry backoff. ([#703](https://github.com/hojinzs/github-symphony/issues/703))
+
+- [#801](https://github.com/hojinzs/github-symphony/pull/801) [`9a28703`](https://github.com/hojinzs/github-symphony/commit/9a28703b9c358014b2c7f594f206545f0a5c7339) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Preserve bounded finalization retries when a completed run's canonical tracker item disappears, including Docker E2E coverage for the exhausted retry path ([#696](https://github.com/hojinzs/github-symphony/issues/696)).
+
+- [#802](https://github.com/hojinzs/github-symphony/pull/802) [`734ca51`](https://github.com/hojinzs/github-symphony/commit/734ca51862fa5b688443ad27d330e5d4d0bd9a66) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Exit Codex workers with status `1` after controlled startup failures, including missing project configuration ([#779](https://github.com/hojinzs/github-symphony/issues/779)).
+
+- [#799](https://github.com/hojinzs/github-symphony/pull/799) [`d37abe0`](https://github.com/hojinzs/github-symphony/commit/d37abe01e2316465e397ff70bc7331670c4bcd4b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Retain issue worktrees with tracked or untracked edits that remain unpublished after successful host-side branch transport, and expose their recovery diagnostics.
+
 ## 1.0.0
 
 ### Major Changes
