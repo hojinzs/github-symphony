@@ -72,10 +72,16 @@ the tracker adapter:
   repo-embedded configs additionally carry `repositoryDir` for daemon CWD/liveness
 - Cross-runtime instance index and host-level `instances` CLI surface: `packages/cli/src/instances.ts`, `commands/instances.ts`. The index is advisory; lock heartbeat and process identity remain the liveness authority.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
+- Repo-mode workers start with the run directory as their process cwd. Runtime
+  launchers do not discover `.env` from cwd; only the managed project `.env`
+  enters the orchestrator's documented environment merge. Doctor warns when
+  an application-owned repository-root `.env` exists.
 
 ### 3. Coordination — the orchestrator
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
+- Worker spawn isolation: each worker process uses its persisted run directory
+  as cwd while `WORKING_DIRECTORY` continues to identify the issue repository.
 - Run records pair the spawning orchestrator's owner token with its project-lock
   process-start identity. Reconciliation protects a foreign-owned run only when
   the owner PID is live and that identity still matches; legacy records and

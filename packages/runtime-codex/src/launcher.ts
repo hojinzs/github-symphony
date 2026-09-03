@@ -92,14 +92,12 @@ export async function runLocalRuntimeLauncher(
 }
 
 export function loadLauncherEnvironment(
-  env: NodeJS.ProcessEnv = process.env,
-  cwd = process.cwd()
+  env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const mergedEnv = {
     ...readEnvFile(
       resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env")
     ),
-    ...readEnvFile(resolve(cwd, ".env")),
     ...env,
   };
 

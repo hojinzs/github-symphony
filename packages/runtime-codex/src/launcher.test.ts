@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   LocalRuntimeLauncherError,
@@ -86,14 +89,32 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
 
 describe("loadLauncherEnvironment", () => {
   it("keeps explicit environment values ahead of .env defaults", () => {
-    const env = loadLauncherEnvironment(
-      {
-        PROJECT_ID: "workspace-explicit",
-      },
-      "/tmp/does-not-exist"
-    );
+    const env = loadLauncherEnvironment({
+      PROJECT_ID: "workspace-explicit",
+    });
 
     expect(env.PROJECT_ID).toBe("workspace-explicit");
+  });
+
+  it("does not load a .env file from the process cwd", async () => {
+    const cwd = process.cwd();
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), "launcher-env-"));
+    await writeFile(
+      join(temporaryDirectory, ".env"),
+      "REPOSITORY_ROOT_SECRET=must-not-load\n",
+      "utf8"
+    );
+
+    try {
+      process.chdir(temporaryDirectory);
+
+      const env = loadLauncherEnvironment({ PROJECT_ID: "workspace" });
+
+      expect(env.REPOSITORY_ROOT_SECRET).toBeUndefined();
+    } finally {
+      process.chdir(cwd);
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
   });
 });
 
