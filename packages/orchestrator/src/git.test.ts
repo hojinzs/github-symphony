@@ -1269,6 +1269,40 @@ describe("sanitizeRepositoryCloneUrl", () => {
 });
 
 describe("loadWorkflowFile", () => {
+  it("rejects a custom auth name declared by the selected tracker adapter", async () => {
+    const workflowPath = join(testConfigDir, "WORKFLOW.md");
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: file
+runtime:
+  kind: custom
+  command: node
+  auth:
+    env: TRACKER_SECRET
+---
+Prompt`,
+      "utf8"
+    );
+
+    const trackerAdapter = {
+      secretEnvironmentNames: () => ["TRACKER_SECRET"],
+    };
+    const resolution = await loadWorkflowFile(
+      workflowPath,
+      process.env,
+      trackerAdapter
+    );
+
+    expect(resolution).toMatchObject({
+      isValid: false,
+      validationError: expect.stringMatching(
+        /runtime\.auth\.env.*reserved credential.*TRACKER_SECRET/i
+      ),
+    });
+  });
+
   it("uses the selected tracker adapter for provider validation", async () => {
     const workflowPath = join(testConfigDir, "WORKFLOW.md");
     const validateProviderConfig = vi.fn(() => []);

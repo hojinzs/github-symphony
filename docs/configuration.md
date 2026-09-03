@@ -512,7 +512,9 @@ token; do not declare a tracker or broker credential as custom runtime auth.
 `runtime.auth.env` fails workflow validation when it names a reserved GitHub,
 Linear, or credential-broker value, or a tracker-declared secret name. This
 prevents a security-sensitive configuration from silently starting an
-unauthenticated custom command.
+unauthenticated custom command. The selected tracker adapter supplies those
+names during workflow loading, so the result is the same in the orchestrator
+and the dispatched worker.
 
 `runtime.isolation.inherit_environment: true` is a compatibility escape hatch
 for commands that cannot yet operate under the explicit contract. It restores

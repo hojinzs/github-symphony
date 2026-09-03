@@ -11,7 +11,6 @@ const PORTABLE_ENVIRONMENT_NAMES = [
   "TMP",
   "TMPDIR",
   "USER",
-  "USERPROFILE",
 ] as const;
 
 const CHILD_HOST_CREDENTIAL_ENVIRONMENT_NAMES = [
@@ -47,12 +46,15 @@ export const CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES = [
 
 export function isCustomRuntimeReservedAuthEnvironmentName(
   name: string,
-  environment: NodeJS.ProcessEnv
+  environment: NodeJS.ProcessEnv,
+  trackerSecretEnvironmentNames: readonly string[] = []
 ): boolean {
   return (
     CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
       name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
-    ) || readTrackerSecretEnvironmentNames(environment).includes(name)
+    ) ||
+    trackerSecretEnvironmentNames.includes(name) ||
+    readTrackerSecretEnvironmentNames(environment).includes(name)
   );
 }
 

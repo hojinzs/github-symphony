@@ -33,7 +33,7 @@ const defaultWorkflowConfigStore = new WorkflowConfigStore({
 });
 type WorkflowTrackerAdapterHooks = Pick<
   OrchestratorTrackerAdapter,
-  "validateProviderConfig" | "defaultLifecycle"
+  "validateProviderConfig" | "defaultLifecycle" | "secretEnvironmentNames"
 >;
 const workflowConfigStores = new WeakMap<
   WorkflowTrackerAdapterHooks,

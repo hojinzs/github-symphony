@@ -63,6 +63,8 @@ export type WorkflowConfigTrackerAdapter = {
     context?: { rawProvider: Record<string, unknown> }
   ) => WorkflowValidationError[];
   defaultLifecycle?: () => WorkflowLifecycleConfig;
+  /** Non-secret credential variable names reserved by the selected tracker. */
+  secretEnvironmentNames?: () => string[];
 };
 
 export type WorkflowValidationErrorCode =
@@ -268,7 +270,9 @@ function parseWorkflowConfig(
     "agent.max_concurrent_agents_by_state"
   );
 
-  const runtime = hasRuntime ? parseRuntimeConfig(runtimeNode, env) : null;
+  const runtime = hasRuntime
+    ? parseRuntimeConfig(runtimeNode, env, options)
+    : null;
   const approvalPolicy = readOptionalString(
     codex,
     "approval_policy",
@@ -1062,7 +1066,8 @@ function pushInlineArrayEntry(
 
 function parseRuntimeConfig(
   runtime: Record<string, WorkflowFrontMatterNode>,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  options: ParseWorkflowOptions
 ): WorkflowRuntimeConfig {
   const kind = readRuntimeKind(runtime);
   const isolation = readObject(runtime, "isolation", "runtime.isolation");
@@ -1095,7 +1100,11 @@ function parseRuntimeConfig(
   if (
     kind === "custom" &&
     authEnv &&
-    isCustomRuntimeReservedAuthEnvironmentName(authEnv, env)
+    isCustomRuntimeReservedAuthEnvironmentName(
+      authEnv,
+      env,
+      options.trackerAdapter?.secretEnvironmentNames?.() ?? []
+    )
   ) {
     throw new WorkflowValidationError(
       "workflow_validation_error",

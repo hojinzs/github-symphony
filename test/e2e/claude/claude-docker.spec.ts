@@ -95,11 +95,11 @@ describe("Claude Docker E2E with stub claude binary", () => {
       await mkdir(workspace, { recursive: true });
       await writeFile(
         join(hostHome, ".config", "gh", "hosts.yml"),
-        "github.com:\\n  oauth_token: operator-secret\\n"
+        "github.com:\n  oauth_token: operator-secret\n"
       );
       await writeFile(
         join(hostHome, ".gitconfig"),
-        "[user]\\n  name = Operator\\n[credential]\\n  helper = store\\n"
+        "[user]\n  name = Operator\n[credential]\n  helper = store\n"
       );
       await writeFile(
         commandPath,
@@ -118,6 +118,7 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
   ghConfigDir: env.GH_CONFIG_DIR ?? null,
   hostGhAuthVisible: fs.existsSync(path.join(env.HOME, ".config", "gh", "hosts.yml")),
   childGhAuthVisible: fs.existsSync(path.join(env.GH_CONFIG_DIR, "hosts.yml")),
+  gitIdentityVisible: fs.existsSync(path.join(env.HOME, ".gitconfig")) && fs.readFileSync(path.join(env.HOME, ".gitconfig"), "utf8").includes("name = Operator"),
   gitCredentialHelperVisible: fs.existsSync(path.join(env.HOME, ".gitconfig")) && fs.readFileSync(path.join(env.HOME, ".gitconfig"), "utf8").includes("helper = store"),
   gitConfigInjectionVisible: Boolean(env.GIT_CONFIG_KEY_0 || env.GIT_CONFIG_VALUE_0),
   prompt: env.SYMPHONY_RENDERED_PROMPT ?? null,
@@ -166,6 +167,7 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
         ghConfigDir: join(runtimeDirectory, "child-home", "gh"),
         hostGhAuthVisible: false,
         childGhAuthVisible: false,
+        gitIdentityVisible: true,
         gitCredentialHelperVisible: false,
         gitConfigInjectionVisible: false,
         prompt: "custom E2E prompt",
