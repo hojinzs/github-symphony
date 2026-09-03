@@ -4,6 +4,33 @@
 # concurrent worktrees separate while allowing an explicit project to be used
 # for debugging.
 
+E2E_DOCKER_UNAVAILABLE_EXIT=69
+
+assert_docker_runtime_is_available() {
+  local compose_error daemon_error compose_version
+
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "[e2e] Docker runtime unavailable: the 'docker' command is not on PATH." >&2
+    return "$E2E_DOCKER_UNAVAILABLE_EXIT"
+  fi
+
+  if ! compose_version=$(docker compose version 2>&1); then
+    compose_error="$compose_version"
+    echo "[e2e] Docker runtime unavailable: 'docker compose' cannot be resolved by this process." >&2
+    echo "[e2e] A user-level Compose plugin may be hidden by the current environment (HOME=${HOME:-<unset>}, DOCKER_CONFIG=${DOCKER_CONFIG:-<unset>})." >&2
+    echo "[e2e] Compose probe: ${compose_error:-no diagnostic output}" >&2
+    return "$E2E_DOCKER_UNAVAILABLE_EXIT"
+  fi
+
+  if ! daemon_error=$(docker info 2>&1 >/dev/null); then
+    echo "[e2e] Docker runtime unavailable: Docker Compose is installed, but the Docker daemon is not reachable." >&2
+    echo "[e2e] Daemon probe: ${daemon_error:-no diagnostic output}" >&2
+    return "$E2E_DOCKER_UNAVAILABLE_EXIT"
+  fi
+
+  echo "[e2e] Docker runtime available: ${compose_version}; daemon reachable."
+}
+
 e2e_path_hash() {
   local worktree_path="$1"
   if command -v sha256sum >/dev/null 2>&1; then
