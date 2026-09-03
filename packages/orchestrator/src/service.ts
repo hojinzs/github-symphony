@@ -5337,6 +5337,8 @@ export class OrchestratorService {
     } satisfies OrchestratorRunRecord;
     await this.store.saveRun(updatedRun);
     if (shouldEmitRetryPostponed) {
+      // Persist the new marker only after the event append succeeds so an
+      // append failure retries the operator signal on the next poll.
       await this.store.appendRunEvent(run.runId, {
         at: now.toISOString(),
         event: "retry-postponed",
