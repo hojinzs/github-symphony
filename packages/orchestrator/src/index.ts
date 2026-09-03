@@ -125,10 +125,7 @@ export async function runCli(
       projectId: parsed.projectId,
     });
     try {
-      service.setOwnerToken(
-        lock.ownerToken,
-        getProcessStartIdentity(lock.pid)
-      );
+      service.setOwnerToken(lock.ownerToken, getProcessStartIdentity(lock.pid));
       return await action();
     } finally {
       await (dependencies.releaseLock ?? releaseProjectLock)(lock);
