@@ -1,86 +1,171 @@
 ---
 name: gh-pr-writeup
-description: Draft, create, and update GitHub pull requests for implementation work. Use when opening or refreshing a PR that must clearly link the issue, include concise evidence from pre-PR validation, and add a human validation checklist for reviewers.
+description: Create and refresh GitHub pull requests through the host-side github_graphql tool. Use when opening the Draft PR after the first pushed commit, refreshing the PR body before handoff, or converting a draft PR to ready for review.
 ---
 
 # /gh-pr-writeup — GitHub PR Writeup Workflow
 
 ## Trigger
 
-Use this skill when creating or updating a GitHub PR for an implementation issue.
+Use this skill when creating or updating the PR for the assigned issue.
+
+- **Initial Draft** (WORKFLOW.md Step 2.4): the turn after your first commit, once the assigned branch exists on the remote.
+- **Refresh** (WORKFLOW.md Step 2.9): immediately before marking the PR ready, and again on rework cycles before re-handoff.
+
+The worker has no GitHub credentials: `gh pr create` / `gh pr edit` do not work. Every operation below is a `github_graphql` call with the body loaded from a scratch file outside the checkout (`jq -n --rawfile body "$scratch/pr-body.md" …`).
 
 ## Flow
 
-1. Confirm the issue number and repository context before drafting the PR body.
-2. Run a small but relevant validation pass before opening or refreshing the PR.
-3. Capture the exact commands you ran and the scope they validated.
-4. Draft or update the PR body using the template below.
-5. Create the PR if none exists; otherwise edit the existing PR so the body stays current.
+1. Confirm the issue number, repository, base branch (from the workpad), and the assigned branch (`git branch --show-current`).
+2. **Initial Draft only:** verify the branch is on the remote and ahead of the base:
 
-## Minimum Validation
+   ```graphql
+   query BranchState(
+     $owner: String!
+     $name: String!
+     $base: String!
+     $head: String!
+   ) {
+     repository(owner: $owner, name: $name) {
+       id
+       ref(qualifiedName: $base) {
+         compare(headRef: $head) {
+           aheadBy
+           behindBy
+         }
+       }
+     }
+   }
+   ```
 
-Before the PR is created or updated, run the smallest meaningful automated check that covers the changed area.
+   (`$base` = `refs/heads/<base>`, `$head` = `<branch>`.) If the ref is missing or `aheadBy == 0`, the previous host push did not land; record the diagnostic in the workpad and retry next turn.
 
-- Prefer targeted commands over full-repo suites when the change scope is narrow.
-- Use repository defaults when the scope is broad: `pnpm -r lint`, `pnpm -r test`, `pnpm -r build`.
-- If no automated test is available, record the gap explicitly in `Evidence` and explain the fallback manual check.
+3. Run the smallest meaningful validation for the changed area and capture the exact commands (targeted `npx vitest run <file>` for narrow scopes; the full Completion Bar commands before Refresh).
+4. Draft the body using the template below, then:
+   - **Create** (draft):
+
+     ```graphql
+     mutation CreateDraftPr(
+       $repositoryId: ID!
+       $base: String!
+       $head: String!
+       $title: String!
+       $body: String!
+     ) {
+       createPullRequest(
+         input: {
+           repositoryId: $repositoryId
+           baseRefName: $base
+           headRefName: $head
+           title: $title
+           body: $body
+           draft: true
+         }
+       ) {
+         pullRequest {
+           id
+           number
+           url
+           isDraft
+         }
+       }
+     }
+     ```
+
+   - **Refresh**:
+
+     ```graphql
+     mutation RefreshPr($pullRequestId: ID!, $title: String!, $body: String!) {
+       updatePullRequest(
+         input: { pullRequestId: $pullRequestId, title: $title, body: $body }
+       ) {
+         pullRequest {
+           id
+           url
+         }
+       }
+     }
+     ```
+
+   - **Ready for review** (Step 2.9 only, after Refresh):
+
+     ```graphql
+     mutation ReadyPr($pullRequestId: ID!) {
+       markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+         pullRequest {
+           isDraft
+         }
+       }
+     }
+     ```
+
+     On rework cycles also re-request review from the reviewers who requested changes: `requestReviews(input: { pullRequestId, userIds, union: true })` (user ids via `user(login:) { id }`).
+
+5. Record the PR URL (create) or the refresh timestamp in the workpad.
 
 ## PR Body Template
 
-Use this structure unless the repository already has a stricter template:
+Follow the repository's `.github/pull_request_template.md` when one exists; this structure satisfies it:
 
 ```md
 ## Issues
 
-- Fixes #<issue-number>
+- Closes #<issue-number>
 
 ## Summary
 
-- Short outcome summary
-- Key behavior change
+- TL;DR: what changed and why (2–3 bullets)
 
-## Changes
+## Change-point diagram
 
-- Implementation detail 1
-- Implementation detail 2
+- <package/module> → <what it now does> (text diagram or bullet chain of the affected components)
 
-## Evidence
+## Start here
 
-- `command run before PR`
-- `another command`
-- Manual check: what was verified and where
+- <file:line> — the entry point a reviewer should read first
+- <file:line> — the core change
 
-## Human Validation
+## User-Visible Behavior / Operational Impact
 
-- [ ] Confirm the main user flow works as expected
-- [ ] Confirm there is no obvious regression in adjacent behavior
-- [ ] Confirm reviewer-visible behavior matches the issue requirements
+- CLI/runtime behavior, deployment impact, or "None"
 
-## Risks
+## Validation
 
-- Remaining risk, rollout caveat, or reviewer focus area
+- `command` — pass/fail (Completion Bar results; flake exceptions cite the follow-up issue)
+- Docker E2E / blackbox evidence path or "not applicable: <reason>"
+
+## Changeset
+
+- `.changeset/<file>.md` (`<bump>`) or "Not needed because <reason>"
+
+## Risks & rollback
+
+- Remaining risk, reviewer focus area, rollback plan
+
+## Changed files
+
+- <path> — <one-line purpose>
+
+## Post-merge / human validation
+
+- [ ] Items the agent does not perform (deploy, external smoke, manual UX) — mirrored from the workpad Delegation section
+
+## Security
+
+- [ ] No real tokens, private keys, `.env` files, or generated installation tokens are committed
 ```
 
 ## Rules
 
-- Put the linked issue under `## Issues` and use an auto-close keyword such as `Fixes #<issue-number>`.
-- Keep `Human Validation` unchecked; it is for humans, not the agent.
-- In `Evidence`, include concrete commands or concrete manual checks, not vague statements like "tests passed".
-- When updating an existing PR after review, refresh `Summary`, `Changes`, and `Evidence` so they describe the latest diff.
-- If validation could not run, say exactly why in `Evidence` and in the final handoff.
-
-## Commands
-
-Use GitHub CLI if available:
-
-```bash
-gh pr create --title "<title>" --body-file <file>
-gh pr edit <pr-number> --title "<title>" --body-file <file>
-gh pr view --json number,title,body,url
-```
+- Keep `Post-merge / human validation` and `Security` unchecked; they are for humans.
+- `Closes #<n>` under `## Issues` is mandatory so GitHub links and auto-closes the issue.
+- Everything in English (WORKFLOW.md Posture 2).
+- In `Validation`, list concrete commands and outcomes, never "tests passed".
+- On Refresh, rewrite `Summary`, `Change-point diagram`, `Validation`, and `Changed files` so they describe the latest diff.
+- Never mark a PR ready before the Completion Bar and changeset policy pass.
 
 ## Related Skills
 
-- `/pull` — sync branch with latest base before PR handoff when needed
-- `/push` — publish verified commits before creating or updating the PR
+- `/pull` — merge the base branch into the assigned branch when behind (never rebase)
+- `/push` — how the host publishes your commits at turn end
 - `/land` — merge approved PRs after checks and approvals are green
