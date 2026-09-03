@@ -7,7 +7,7 @@
 E2E_DOCKER_UNAVAILABLE_EXIT=69
 
 assert_docker_runtime_is_available() {
-  local compose_error daemon_error compose_version
+  local daemon_error compose_version
 
   if ! command -v docker >/dev/null 2>&1; then
     echo "[e2e] Docker runtime unavailable: the 'docker' command is not on PATH." >&2
@@ -15,10 +15,9 @@ assert_docker_runtime_is_available() {
   fi
 
   if ! compose_version=$(docker compose version 2>&1); then
-    compose_error="$compose_version"
     echo "[e2e] Docker runtime unavailable: 'docker compose' cannot be resolved by this process." >&2
-    echo "[e2e] A user-level Compose plugin may be hidden by the current environment (HOME=${HOME:-<unset>}, DOCKER_CONFIG=${DOCKER_CONFIG:-<unset>})." >&2
-    echo "[e2e] Compose probe: ${compose_error:-no diagnostic output}" >&2
+    echo "[e2e] A user-level Compose plugin under \$HOME/.docker/cli-plugins/ may be hidden by the current environment (HOME=${HOME:-<unset>}, DOCKER_CONFIG=${DOCKER_CONFIG:-<unset>})." >&2
+    echo "[e2e] Compose probe: ${compose_version:-no diagnostic output}" >&2
     return "$E2E_DOCKER_UNAVAILABLE_EXIT"
   fi
 
@@ -27,8 +26,6 @@ assert_docker_runtime_is_available() {
     echo "[e2e] Daemon probe: ${daemon_error:-no diagnostic output}" >&2
     return "$E2E_DOCKER_UNAVAILABLE_EXIT"
   fi
-
-  echo "[e2e] Docker runtime available: ${compose_version}; daemon reachable."
 }
 
 e2e_path_hash() {

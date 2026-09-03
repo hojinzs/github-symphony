@@ -55,7 +55,7 @@ EOF
 chmod +x "$stub_dir/docker"
 
 runtime_output=$(PATH="$stub_dir:$PATH" assert_docker_runtime_is_available 2>&1)
-test "$runtime_output" = "[e2e] Docker runtime available: Docker Compose version v2.0.0; daemon reachable."
+test -z "$runtime_output"
 
 set +e
 missing_docker_output=$(PATH="$stub_dir/empty" assert_docker_runtime_is_available 2>&1)
@@ -72,9 +72,21 @@ test "$missing_docker_status" -eq "$E2E_DOCKER_UNAVAILABLE_EXIT"
 test "$missing_docker_output" = "[e2e] Docker runtime unavailable: the 'docker' command is not on PATH."
 test "$compose_status" -eq "$E2E_DOCKER_UNAVAILABLE_EXIT"
 case "$compose_output" in
-  *"'docker compose' cannot be resolved"*"HOME=/isolated-home, DOCKER_CONFIG=/run/docker-config"*"docker: unknown command: docker compose"*) ;;
+  *"'docker compose' cannot be resolved"*'$HOME/.docker/cli-plugins/'*"HOME=/isolated-home, DOCKER_CONFIG=/run/docker-config"*"docker: unknown command: docker compose"*) ;;
   *) echo "missing Compose diagnostic was incomplete: $compose_output" >&2; exit 1 ;;
 esac
+
+for runner in \
+  e2e/run-e2e.sh \
+  e2e/run-flat-tracker-keys-e2e.sh \
+  e2e/run-standalone-project-e2e.sh \
+  test/e2e/claude/run-docker-e2e.sh; do
+  preflight_line=$(grep -n -m1 '^assert_docker_runtime_is_available$' "$root_dir/$runner" | cut -d: -f1)
+  cleanup_trap_line=$(grep -n -m1 '^trap cleanup EXIT' "$root_dir/$runner" | cut -d: -f1)
+  test -n "$preflight_line"
+  test -n "$cleanup_trap_line"
+  test "$preflight_line" -lt "$cleanup_trap_line"
+done
 test "$daemon_status" -eq "$E2E_DOCKER_UNAVAILABLE_EXIT"
 case "$daemon_output" in
   *"Docker daemon is not reachable"*"Cannot connect to the Docker daemon"*) ;;
