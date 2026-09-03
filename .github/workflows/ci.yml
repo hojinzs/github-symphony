@@ -35,6 +35,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Built worker startup regression
+        run: pnpm test:worker-startup
+
       - name: Lint
         run: pnpm lint
 
