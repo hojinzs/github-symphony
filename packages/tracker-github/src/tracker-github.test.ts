@@ -1213,7 +1213,48 @@ Prompt`,
       "GITHUB_TOKEN_BROKER_SECRET",
     ]);
     expect(adapter.buildWorkerEnvironment).toBeTypeOf("function");
+    expect(adapter.resolveWorkerCredentials).toBeTypeOf("function");
     expect(adapter.reviveIssue).toBeTypeOf("function");
+  });
+
+  it("resolves project GitHub credentials before daemon credentials", () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+    });
+    const project = {
+      projectId: "project-a",
+      slug: "project-a",
+      workspaceDir: "/tmp/project-a",
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "binding-123",
+      },
+    };
+
+    expect(
+      adapter.resolveWorkerCredentials?.(project, {
+        project: { GITHUB_GRAPHQL_TOKEN: "project-token" },
+        daemon: { GITHUB_GRAPHQL_TOKEN: "daemon-token" },
+      })
+    ).toEqual({ GITHUB_GRAPHQL_TOKEN: "project-token" });
+    expect(
+      adapter.resolveWorkerCredentials?.(project, {
+        project: {
+          GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+          GITHUB_TOKEN_BROKER_SECRET: "project-broker-secret",
+        },
+        daemon: { GITHUB_GRAPHQL_TOKEN: "daemon-token" },
+      })
+    ).toEqual({
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+      GITHUB_TOKEN_BROKER_SECRET: "project-broker-secret",
+    });
   });
 
   it("propagates the configured GitHub GraphQL endpoint into worker env", () => {

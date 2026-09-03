@@ -259,6 +259,20 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     return ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"];
   },
 
+  resolveWorkerCredentials(_project, environments) {
+    for (const environment of [environments.project, environments.daemon]) {
+      const authorization = environment.LINEAR_AUTHORIZATION?.trim();
+      const apiKey = environment.LINEAR_API_KEY?.trim();
+      if (authorization || apiKey) {
+        return {
+          ...(authorization ? { LINEAR_AUTHORIZATION: authorization } : {}),
+          ...(apiKey ? { LINEAR_API_KEY: apiKey } : {}),
+        };
+      }
+    }
+    return {};
+  },
+
   agentToolSpecs() {
     return [
       {
@@ -344,18 +358,11 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 
   buildWorkerEnvironment(project, issue) {
-    const linearAuthorization = process.env.LINEAR_AUTHORIZATION?.trim();
-    const linearApiKey = process.env.LINEAR_API_KEY?.trim();
-
     return {
       LINEAR_GRAPHQL_URL: resolveLinearEndpoint(project.tracker),
       LINEAR_ISSUE_ID: issue.id,
       LINEAR_ISSUE_IDENTIFIER: issue.identifier,
       SYMPHONY_TRACKER_KIND: "linear",
-      ...(linearAuthorization
-        ? { LINEAR_AUTHORIZATION: linearAuthorization }
-        : {}),
-      ...(linearApiKey ? { LINEAR_API_KEY: linearApiKey } : {}),
     };
   },
 

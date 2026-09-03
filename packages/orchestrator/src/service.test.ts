@@ -16571,7 +16571,7 @@ Prefer focused changes.
     }
   });
 
-  it("includes project .env in worker spawn env without inheriting unscoped host secrets", async () => {
+  it("injects daemon tracker credentials without inheriting unrelated host secrets", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalStagingApiHost = process.env.STAGING_API_HOST;
     const originalSshAuthSock = process.env.SSH_AUTH_SOCK;
@@ -16613,7 +16613,7 @@ Prefer focused changes.
       expect(spawnEnv?.FILE_ONLY).toBe("from-project-env");
       expect(spawnEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
       expect(spawnEnv?.SYMPHONY_ISSUE_WORKSPACE_KEY).toBeTruthy();
-      expect(spawnEnv?.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+      expect(spawnEnv?.GITHUB_GRAPHQL_TOKEN).toBe("test-token");
       expect(spawnEnv?.SSH_AUTH_SOCK).toBeUndefined();
     } finally {
       if (originalStagingApiHost === undefined) {
@@ -16625,6 +16625,104 @@ Prefer focused changes.
         delete process.env.SSH_AUTH_SOCK;
       } else {
         process.env.SSH_AUTH_SOCK = originalSshAuthSock;
+      }
+    }
+  });
+
+  it("prefers project tracker credentials over daemon credentials", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "daemon-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-worker-project-credential-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "GITHUB_GRAPHQL_TOKEN=project-token\n",
+      "utf8"
+    );
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4306, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl.mock.calls[0]?.[2]?.env?.GITHUB_GRAPHQL_TOKEN).toBe(
+      "project-token"
+    );
+  });
+
+  it("records a structured warning when no worker credential resolves", async () => {
+    const originalBrokerUrl = process.env.GITHUB_TOKEN_BROKER_URL;
+    const originalBrokerSecret = process.env.GITHUB_TOKEN_BROKER_SECRET;
+    process.env.GITHUB_GRAPHQL_TOKEN = "tracker-list-token";
+    delete process.env.GITHUB_TOKEN_BROKER_URL;
+    delete process.env.GITHUB_TOKEN_BROKER_SECRET;
+    try {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-worker-missing-credential-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      const adapter = trackerAdapters.resolveTrackerAdapter(
+        projectConfig.tracker
+      );
+      vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+        ...adapter,
+        resolveWorkerCredentials: () => ({}),
+      });
+      const stderrWrite = vi.fn().mockReturnValue(true);
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+        spawnImpl: vi
+          .fn()
+          .mockReturnValue({ pid: 4307, unref: vi.fn() }) as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+        stderr: { write: stderrWrite } as never,
+      });
+
+      await service.runOnce();
+
+      const run = (await store.loadAllRuns()).find(
+        (candidate) => candidate.projectId === projectConfig.projectId
+      );
+      await expect(
+        store.loadRecentRunEvents(run!.runId, 20, projectConfig.projectId)
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "worker-credential-missing",
+          }),
+        ])
+      );
+      expect(stderrWrite).toHaveBeenCalledWith(
+        expect.stringContaining("No worker credential resolved")
+      );
+    } finally {
+      if (originalBrokerUrl === undefined) {
+        delete process.env.GITHUB_TOKEN_BROKER_URL;
+      } else {
+        process.env.GITHUB_TOKEN_BROKER_URL = originalBrokerUrl;
+      }
+      if (originalBrokerSecret === undefined) {
+        delete process.env.GITHUB_TOKEN_BROKER_SECRET;
+      } else {
+        process.env.GITHUB_TOKEN_BROKER_SECRET = originalBrokerSecret;
       }
     }
   });
@@ -17257,7 +17355,7 @@ async function writeWorkflowFixture(
 ): Promise<void> {
   const content = normalizeTrackerProviderFixture(
     options.rawWorkflow ??
-    `---
+      `---
 tracker:
   kind: github-project
   provider:
@@ -17324,15 +17422,14 @@ function normalizeTrackerProviderFixture(content: string): string {
     const key = trackerLines[index]?.match(/^[ ]{2}([a-z_]+):/)?.[1];
     let next = index + 1;
     while (
-      next < trackerLines.length && !/^[ ]{2}\S/.test(trackerLines[next]!)
+      next < trackerLines.length &&
+      !/^[ ]{2}\S/.test(trackerLines[next]!)
     ) {
       next += 1;
     }
     const block = trackerLines.slice(index, next);
     if (key && flatKeys.has(key)) {
-      providerLines.push(
-        ...block.map((line) => `  ${line}`)
-      );
+      providerLines.push(...block.map((line) => `  ${line}`));
     } else {
       remaining.push(...block);
     }

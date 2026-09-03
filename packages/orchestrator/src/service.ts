@@ -2860,6 +2860,14 @@ export class OrchestratorService {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     const runId = createRunId(now, tenant.projectId, issue.identifier);
+    const projectEnvironment = this.readProjectEnv(tenant);
+    const resolvesWorkerCredentials =
+      typeof trackerAdapter.resolveWorkerCredentials === "function";
+    const workerCredentials =
+      trackerAdapter.resolveWorkerCredentials?.(tenant, {
+        project: projectEnvironment,
+        daemon: process.env,
+      }) ?? {};
     const runDir = this.store.runDir(runId, tenant.projectId);
     const workspaceRuntimeDir = runDir;
 
@@ -3155,6 +3163,26 @@ export class OrchestratorService {
     // lease. This also leaves a recoverable preparing record if the daemon
     // exits between preparation and process spawn.
     await options.onPrepared?.(buildRunRecord(null));
+    if (
+      resolvesWorkerCredentials &&
+      Object.keys(workerCredentials).length === 0
+    ) {
+      await this.store.appendRunEvent(runId, {
+        at: now.toISOString(),
+        event: "worker-credential-missing",
+        projectId: tenant.projectId,
+        runId,
+        issueIdentifier: issue.identifier,
+        issueId: issue.id,
+        tracker: {
+          adapter: issue.tracker.adapter,
+          projectSlug: tenant.slug,
+        },
+      });
+      this.writeStderr(
+        `[warn] No worker credential resolved for ${issue.identifier} (${issue.tracker.adapter}); host tracker tools and authenticated Git transport may be unavailable.\n`
+      );
+    }
     mkdirSync(runDir, { recursive: true });
     const workerLogStream = (
       this.dependencies.createWriteStreamImpl ?? createWriteStream
@@ -3189,72 +3217,79 @@ export class OrchestratorService {
       ["-lc", resolveWorkerCommand()],
       {
         cwd: process.cwd(),
-        env: this.buildProjectExecutionEnv(tenant, {
-          CODEX_PROJECT_ID: tenant.projectId,
-          PROJECT_ID: tenant.projectId,
-          WORKING_DIRECTORY: repositoryDirectory,
-          SYMPHONY_ASSIGNED_BRANCH: assignedBranch,
-          WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
-          SYMPHONY_PROJECT_DIR:
-            tenant.projectDir ?? this.store.projectDir(tenant.projectId),
-          SYMPHONY_TRUST_REPO_CONFIG: String(
-            workflow.workflow.runtime?.isolation.trustRepoConfig === true
-          ),
-          SYMPHONY_RUN_ID: runId,
-          SYMPHONY_ISSUE_STATE: issue.state,
-          SYMPHONY_ISSUE_ID: issue.id,
-          SYMPHONY_ISSUE_IDENTIFIER: issue.identifier,
-          SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify(issue.nativeRef ?? null),
-          SYMPHONY_ISSUE_TITLE: issue.title,
-          SYMPHONY_ISSUE_SUBJECT_ID: issueSubjectId,
-          SYMPHONY_ISSUE_WORKSPACE_KEY: workspaceKey,
-          SYMPHONY_TRACKER_ADAPTER: issue.tracker.adapter,
-          SYMPHONY_TRACKER_BINDING_ID: issue.tracker.bindingId,
-          SYMPHONY_TRACKER_ITEM_ID: issue.tracker.itemId,
-          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify(
-            resolveTrackerSecretEnvironmentNames(trackerAdapter)
-          ),
-          TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
-          TARGET_REPOSITORY_OWNER: issue.repository.owner,
-          TARGET_REPOSITORY_NAME: issue.repository.name,
-          TARGET_REPOSITORY_URL: issue.repository.url,
-          ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
-          SYMPHONY_RENDERED_PROMPT: renderedPrompt,
-          SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
-          SYMPHONY_AGENT_COMMAND: resolveWorkflowRuntimeCommand(
-            workflow.workflow
-          ),
-          SYMPHONY_APPROVAL_POLICY:
-            workflow.workflow.codex.approvalPolicy ?? "",
-          SYMPHONY_THREAD_SANDBOX: workflow.workflow.codex.threadSandbox ?? "",
-          SYMPHONY_TURN_SANDBOX_POLICY:
-            workflow.workflow.codex.turnSandboxPolicy ?? "",
-          SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
-          SYMPHONY_ORCHESTRATOR_URL: this.workerOrchestratorUrl ?? "",
-          SYMPHONY_ORCHESTRATOR_TOKEN: this.workerOrchestratorToken ?? "",
-          SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
-            process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
-            String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),
-          // Clear legacy resume/budget env so fresh worker sessions do not
-          // inherit stale process-level values.
-          SYMPHONY_GLOBAL_MAX_TURNS: "",
-          SYMPHONY_MAX_TOKENS: "",
-          SYMPHONY_SESSION_TIMEOUT_MS: "",
-          SYMPHONY_RESUME_THREAD_ID: "",
-          SYMPHONY_CUMULATIVE_TURN_COUNT: "0",
-          SYMPHONY_CUMULATIVE_INPUT_TOKENS: "0",
-          SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: "0",
-          SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
-          SYMPHONY_LAST_TURN_SUMMARY: "",
-          SYMPHONY_RECOVERY_KIND: recovery?.kind ?? "",
-          SYMPHONY_RECOVERY_DIRTY_FILES: recovery
-            ? formatRecoveryDirtyFilesForContext(recovery.dirtyFiles)
-            : "",
-          SYMPHONY_RECOVERY_SUGGESTED_COMMAND: recovery?.suggestedCommand ?? "",
-          SYMPHONY_SESSION_STARTED_AT: "",
-          SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
-          SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
-        }),
+        env: this.buildProjectExecutionEnv(
+          tenant,
+          {
+            CODEX_PROJECT_ID: tenant.projectId,
+            PROJECT_ID: tenant.projectId,
+            WORKING_DIRECTORY: repositoryDirectory,
+            SYMPHONY_ASSIGNED_BRANCH: assignedBranch,
+            WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
+            SYMPHONY_PROJECT_DIR:
+              tenant.projectDir ?? this.store.projectDir(tenant.projectId),
+            SYMPHONY_TRUST_REPO_CONFIG: String(
+              workflow.workflow.runtime?.isolation.trustRepoConfig === true
+            ),
+            SYMPHONY_RUN_ID: runId,
+            SYMPHONY_ISSUE_STATE: issue.state,
+            SYMPHONY_ISSUE_ID: issue.id,
+            SYMPHONY_ISSUE_IDENTIFIER: issue.identifier,
+            SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify(issue.nativeRef ?? null),
+            SYMPHONY_ISSUE_TITLE: issue.title,
+            SYMPHONY_ISSUE_SUBJECT_ID: issueSubjectId,
+            SYMPHONY_ISSUE_WORKSPACE_KEY: workspaceKey,
+            SYMPHONY_TRACKER_ADAPTER: issue.tracker.adapter,
+            SYMPHONY_TRACKER_BINDING_ID: issue.tracker.bindingId,
+            SYMPHONY_TRACKER_ITEM_ID: issue.tracker.itemId,
+            SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify(
+              resolveTrackerSecretEnvironmentNames(trackerAdapter)
+            ),
+            TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
+            TARGET_REPOSITORY_OWNER: issue.repository.owner,
+            TARGET_REPOSITORY_NAME: issue.repository.name,
+            TARGET_REPOSITORY_URL: issue.repository.url,
+            ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
+            ...workerCredentials,
+            SYMPHONY_RENDERED_PROMPT: renderedPrompt,
+            SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
+            SYMPHONY_AGENT_COMMAND: resolveWorkflowRuntimeCommand(
+              workflow.workflow
+            ),
+            SYMPHONY_APPROVAL_POLICY:
+              workflow.workflow.codex.approvalPolicy ?? "",
+            SYMPHONY_THREAD_SANDBOX:
+              workflow.workflow.codex.threadSandbox ?? "",
+            SYMPHONY_TURN_SANDBOX_POLICY:
+              workflow.workflow.codex.turnSandboxPolicy ?? "",
+            SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
+            SYMPHONY_ORCHESTRATOR_URL: this.workerOrchestratorUrl ?? "",
+            SYMPHONY_ORCHESTRATOR_TOKEN: this.workerOrchestratorToken ?? "",
+            SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
+              process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
+              String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),
+            // Clear legacy resume/budget env so fresh worker sessions do not
+            // inherit stale process-level values.
+            SYMPHONY_GLOBAL_MAX_TURNS: "",
+            SYMPHONY_MAX_TOKENS: "",
+            SYMPHONY_SESSION_TIMEOUT_MS: "",
+            SYMPHONY_RESUME_THREAD_ID: "",
+            SYMPHONY_CUMULATIVE_TURN_COUNT: "0",
+            SYMPHONY_CUMULATIVE_INPUT_TOKENS: "0",
+            SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: "0",
+            SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
+            SYMPHONY_LAST_TURN_SUMMARY: "",
+            SYMPHONY_RECOVERY_KIND: recovery?.kind ?? "",
+            SYMPHONY_RECOVERY_DIRTY_FILES: recovery
+              ? formatRecoveryDirtyFilesForContext(recovery.dirtyFiles)
+              : "",
+            SYMPHONY_RECOVERY_SUGGESTED_COMMAND:
+              recovery?.suggestedCommand ?? "",
+            SYMPHONY_SESSION_STARTED_AT: "",
+            SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
+            SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
+          },
+          projectEnvironment
+        ),
         detached: true,
         stdio: ["ignore", "ignore", "pipe"],
       }
@@ -4902,9 +4937,9 @@ export class OrchestratorService {
 
   private buildProjectExecutionEnv(
     tenant: OrchestratorProjectConfig,
-    env: Record<string, string | undefined>
+    env: Record<string, string | undefined>,
+    projectEnv = this.readProjectEnv(tenant)
   ): Record<string, string> {
-    const projectEnv = this.readProjectEnv(tenant);
     const inheritedEnv = Object.fromEntries(
       Object.entries(process.env).filter(
         (entry): entry is [string, string] =>

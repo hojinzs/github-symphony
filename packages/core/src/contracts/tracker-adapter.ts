@@ -278,6 +278,18 @@ export type OrchestratorTrackerAdapter = {
   defaultLifecycle?: () => WorkflowLifecycleConfig;
   /** Names whose values authenticate this tracker and must not reach agents. */
   secretEnvironmentNames(): string[];
+  /**
+   * Resolves tracker credentials for the worker host boundary. Project-scoped
+   * values take precedence over daemon values, and adapters may require a
+   * complete credential set (for example a broker URL/secret pair).
+   */
+  resolveWorkerCredentials?(
+    project: OrchestratorProjectConfig,
+    environments: {
+      project: Readonly<Record<string, string>>;
+      daemon: Readonly<NodeJS.ProcessEnv>;
+    }
+  ): Record<string, string>;
   /** Advertises provider tools that the runtime may expose to the agent. */
   agentToolSpecs?(): readonly AgentToolSpec[];
   /** Executes one advertised provider tool on the host for the active issue. */
