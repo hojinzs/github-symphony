@@ -994,6 +994,10 @@ through host dynamic tools; Claude's generated MCP configuration contains only
 the worker-owned loopback endpoint and its per-run capability. The host-owned
 transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
+At dispatch, tracker adapters resolve host-only credentials from the tenant's
+project `.env` before the daemon environment. This lets repo-mode workers use
+the daemon-resolved tracker identity for host tools and Git transport without
+restoring blanket environment inheritance.
 When no direct provider API key is configured, a non-bare runtime stages only
 the provider login into this private home: Codex `auth.json`, or Claude's
 `claudeAiOauth` entry without `mcpOAuth`. Host agent configuration and GitHub

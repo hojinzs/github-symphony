@@ -84,6 +84,16 @@ export type RunDispatchedEvent = {
   issue?: IssueEventMetadata;
 };
 
+export type WorkerCredentialMissingEvent = {
+  at: string;
+  event: "worker-credential-missing";
+  projectId: string;
+  runId: string;
+  issueIdentifier: string;
+  issueId: string;
+  tracker: TrackerEventMetadata;
+};
+
 export type RunRecoveredEvent = {
   at: string;
   event: "run-recovered";
@@ -346,6 +356,7 @@ export type OrchestratorEvent =
   | TrackerStateRequestEvent
   | TrackerTransitionCommentEvent
   | RunDispatchedEvent
+  | WorkerCredentialMissingEvent
   | RunRecoveredEvent
   | RunRestartFailedEvent
   | RunRetriedEvent

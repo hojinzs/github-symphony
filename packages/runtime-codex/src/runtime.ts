@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildAgentInputRequiredReason,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   DEFAULT_LINEAR_GRAPHQL_URL,
   prepareAgentChildHome,
   readAgentCredentialCache,
@@ -654,13 +655,7 @@ export function buildCodexRuntimePlan(
 
   for (const name of new Set([
     ...secretEnvironmentNames,
-    "GH_TOKEN",
-    "GH_ENTERPRISE_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_GRAPHQL_TOKEN",
-    "GITHUB_TOKEN_BROKER_SECRET",
-    "LINEAR_API_KEY",
-    "LINEAR_AUTHORIZATION",
+    ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
     "LINEAR_GRAPHQL_URL",
   ])) {
     delete plan.env[name];

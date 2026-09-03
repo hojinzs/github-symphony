@@ -138,6 +138,11 @@ the tracker adapter:
   responsible for narrowing documents; adapters do not infer or rewrite a target.
   Codex snapshots those schemas in its runtime plan; Claude snapshots them when its
   loopback Streamable HTTP MCP server starts.
+- Tracker adapters also resolve tenant-scoped worker credentials from separate
+  project and daemon scopes. The orchestrator injects only the selected values
+  into the worker's explicit environment; adapter-declared secret names preserve
+  the agent-child stripping boundary. Missing credentials emit a structured
+  `worker-credential-missing` run event and operator warning.
 
 ### 6. Observability — events and status surfaces
 
