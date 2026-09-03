@@ -11,7 +11,7 @@ lifecycle remains healthy.
 
 ```bash
 pnpm --filter @gh-symphony/orchestrator exec vitest run src/service.test.ts \
-  -t 'requeues an active retry|cleans up and releases a terminal retry|releases due retrying runs when the tracker issue is missing|requeues due retries when the single-ID refresh fails'
+  -t 'preserves recovery kind and age when capacity postpones a due retry|requeues an active retry|cleans up and releases a terminal retry|releases due retrying runs when the tracker issue is missing|requeues due retries when the single-ID refresh fails'
 bash e2e/run-e2e.sh happy 60
 ```
 
@@ -23,4 +23,7 @@ bash e2e/run-e2e.sh happy 60
   candidate list.
 - Refresh failure and exhausted concurrency retain the retry reservation and
   schedule a later attempt with the reported error.
+- Repeated capacity saturation for the same attempt, retained due time, and
+  reason emits only one `retry-postponed` event, while a changed reservation
+  remains eligible for a new operator-visible signal.
 - The Docker runtime still dispatches, reports a retry, and returns to idle.

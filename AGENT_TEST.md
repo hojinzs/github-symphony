@@ -446,7 +446,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/23-dirty-unpublished-worktree.md`          | Verify terminal lifecycle retains tracked and untracked work left unpublished after committed transport                                  |
 | `e2e/scenarios/20-bounded-recovery-circuit-breaker.md`    | Verify dirty-workspace recovery failures exhaust a durable budget and require an explicit tracker state change to re-arm                 |
 | `e2e/scenarios/17-instance-registry.md`                   | Verify host-global instance listing, stale-registry diagnostics, and daemon PID recording only after lock acquisition                    |
-| `e2e/scenarios/17-retry-fire-refresh.md`                  | Verify single-ID retry refresh, terminal cleanup, and retry backoff safety                                                               |
+| `e2e/scenarios/17-retry-fire-refresh.md`                  | Verify single-ID retry refresh, terminal cleanup, bounded capacity-postponement events, and retry backoff safety                         |
 
 ## TC Writing Guide
 
