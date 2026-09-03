@@ -268,6 +268,8 @@ export type OrchestratorRunRecord = {
   processIdentity?: string | null;
   /** Project-lock owner identity of the orchestrator instance that spawned this run. */
   ownerInstanceId?: string | null;
+  /** Stable process start-time identity of the project-lock owner. */
+  ownerProcessIdentity?: string | null;
   port: number | null;
   workingDirectory: string;
   issueWorkspaceKey: string | null;

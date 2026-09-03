@@ -28,6 +28,9 @@ pnpm exec vitest run packages/cli/src/commands/lifecycle.test.ts packages/cli/sr
 3. Verify a persisted worker PID with a different process-start identity is
    rejected before active-run/concurrency accounting, while a surviving child
    in the detached process group remains live after its wrapper leader exits.
+   Verify run protection likewise rejects a reused orchestrator-owner PID when
+   its persisted project-lock process identity differs, while missing identity
+   data and unavailable probes remain fail-closed.
 4. Verify `repo stop` rejects a daemon with the wrong repository CWD, resolves
    legacy PID records from the configured repository when invoked elsewhere,
    and, when `daemon.pid` is stale, finds and stops the identity/CWD-matching
@@ -49,6 +52,8 @@ pnpm exec vitest run packages/cli/src/commands/lifecycle.test.ts packages/cli/sr
 - Clean convergence is explicit and retryable; it does not remain falsely
   completed or silently locked in the current tracker state.
 - Reused/dead worker PIDs are excluded from active status after reconciliation.
+- Reused orchestrator-owner PIDs do not protect stale runs, while unverifiable
+  live foreign owners continue to protect them.
 - Daemon stopping is bound to the expected repository CWD and reports a clear
   unresolved-daemon error if neither `daemon.pid` nor the project lock identifies
   a matching live process.

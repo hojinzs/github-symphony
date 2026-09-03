@@ -32,6 +32,7 @@ import {
 import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
+import { getProcessStartIdentity } from "./lock.js";
 import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
 import {
   applyStateReadRoutability,
@@ -246,10 +247,13 @@ describe("OrchestratorService", () => {
       {} as OrchestratorProjectConfig,
       {
         ownerToken: "4102:instance-b",
+        ownerProcessIdentity: "owner-current",
         killImpl,
         isProcessRunning: vi.fn().mockReturnValue(true),
         isOwnerProcessRunning: vi.fn().mockReturnValue(true),
-        getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
+        getProcessStartIdentity: vi.fn((pid) =>
+          pid === 4100 ? "owner-original" : "worker-current"
+        ),
       }
     );
     const signalRunProcess = (
@@ -268,6 +272,7 @@ describe("OrchestratorService", () => {
       processId: 4101,
       processIdentity: "worker-current",
       ownerInstanceId: "4100:instance-a",
+      ownerProcessIdentity: "owner-original",
     } as OrchestratorRunRecord;
 
     await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("protected");
@@ -321,6 +326,82 @@ describe("OrchestratorService", () => {
     run.processIdentity = "worker-current";
     await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
     expect(killImpl).toHaveBeenCalledWith(4101, "SIGTERM");
+  });
+
+  it("does not protect a run when a live owner pid has been reused", () => {
+    const service = new OrchestratorService(
+      {} as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "5100:current",
+        ownerProcessIdentity: "current-owner",
+        isOwnerProcessRunning: () => true,
+        getProcessStartIdentity: () => "reused-owner",
+      }
+    );
+    const isRunProtectedByLiveOwner = (
+      service as unknown as {
+        isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
+      }
+    ).isRunProtectedByLiveOwner.bind(service);
+
+    expect(
+      isRunProtectedByLiveOwner({
+        ownerInstanceId: "5102:foreign",
+        ownerProcessIdentity: "original-owner",
+      } as OrchestratorRunRecord)
+    ).toBe(false);
+  });
+
+  it("protects a run owned by a live foreign process with the same start identity", () => {
+    const ownerProcessIdentity = getProcessStartIdentity(process.pid);
+    expect(ownerProcessIdentity).not.toBeNull();
+    const service = new OrchestratorService(
+      {} as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "5100:current",
+        ownerProcessIdentity: "current-owner",
+        isOwnerProcessRunning: () => true,
+      }
+    );
+    const isRunProtectedByLiveOwner = (
+      service as unknown as {
+        isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
+      }
+    ).isRunProtectedByLiveOwner.bind(service);
+
+    expect(
+      isRunProtectedByLiveOwner({
+        ownerInstanceId: `${process.pid}:foreign`,
+        ownerProcessIdentity,
+      } as OrchestratorRunRecord)
+    ).toBe(true);
+  });
+
+  it("fails closed when a live owner's identity cannot be verified", () => {
+    const service = new OrchestratorService(
+      {} as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "5100:current",
+        ownerProcessIdentity: "current-owner",
+        isOwnerProcessRunning: () => true,
+        getProcessStartIdentity: () => null,
+      }
+    );
+    const isRunProtectedByLiveOwner = (
+      service as unknown as {
+        isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
+      }
+    ).isRunProtectedByLiveOwner.bind(service);
+
+    expect(
+      isRunProtectedByLiveOwner({
+        ownerInstanceId: "5102:foreign",
+        ownerProcessIdentity: "original-owner",
+      } as OrchestratorRunRecord)
+    ).toBe(true);
   });
 
   it("recovers dead-owner and legacy runs without signalling a live foreign owner", async () => {

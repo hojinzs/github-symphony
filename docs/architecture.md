@@ -76,6 +76,10 @@ the tracker adapter:
 ### 3. Coordination — the orchestrator
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
+- Run records pair the spawning orchestrator's owner token with its project-lock
+  process-start identity. Reconciliation protects a foreign-owned run only when
+  the owner PID is live and that identity still matches; legacy records and
+  unavailable identity probes remain fail-closed.
 - A `retry_queued` orchestration record with a non-null `currentRunId` retains its
   concurrency reservation until it is restarted, released, or suppressed. Due
   reservations are reconciled after non-due active runs, then oldest due time
