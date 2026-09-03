@@ -29,6 +29,7 @@ import {
   type WorkflowLifecycleConfig,
 } from "./lifecycle.js";
 import { normalizeLabels } from "./normalization.js";
+import { isCustomRuntimeReservedAuthEnvironmentName } from "../runtime/custom-child-env.js";
 
 type WorkflowFrontMatterNode =
   | string
@@ -1061,7 +1062,7 @@ function pushInlineArrayEntry(
 
 function parseRuntimeConfig(
   runtime: Record<string, WorkflowFrontMatterNode>,
-  _env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv
 ): WorkflowRuntimeConfig {
   const kind = readRuntimeKind(runtime);
   const isolation = readObject(runtime, "isolation", "runtime.isolation");
@@ -1073,6 +1074,33 @@ function parseRuntimeConfig(
   if (!command) {
     throw new Error(
       'Workflow front matter field "runtime.command" is required for runtime.kind "custom".'
+    );
+  }
+
+  const inheritEnvironment =
+    readOptionalBoolean(
+      isolation,
+      "inherit_environment",
+      "runtime.isolation.inherit_environment"
+    ) ?? false;
+  if (inheritEnvironment && kind !== "custom") {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      "runtime.isolation.inherit_environment",
+      'Workflow front matter field "runtime.isolation.inherit_environment" is supported only for runtime.kind "custom".'
+    );
+  }
+
+  const authEnv = readOptionalString(auth, "env");
+  if (
+    kind === "custom" &&
+    authEnv &&
+    isCustomRuntimeReservedAuthEnvironmentName(authEnv, env)
+  ) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      "runtime.auth.env",
+      `Workflow front matter field "runtime.auth.env" cannot use reserved credential environment name "${authEnv}".`
     );
   }
 
@@ -1096,15 +1124,10 @@ function parseRuntimeConfig(
           "trust_repo_config",
           "runtime.isolation.trust_repo_config"
         ) ?? false,
-      inheritEnvironment:
-        readOptionalBoolean(
-          isolation,
-          "inherit_environment",
-          "runtime.isolation.inherit_environment"
-        ) ?? false,
+      inheritEnvironment,
     },
     auth: {
-      env: readOptionalString(auth, "env"),
+      env: authEnv,
     },
     timeouts: {
       turnTimeoutMs:

@@ -30,7 +30,7 @@ const CHILD_HOST_CREDENTIAL_ENVIRONMENT_NAMES = [
   "XDG_CONFIG_HOME",
 ] as const;
 
-const CUSTOM_RUNTIME_SECRET_ENVIRONMENT_NAMES = [
+export const CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES = [
   "AGENT_CREDENTIAL_BROKER_URL",
   "AGENT_CREDENTIAL_BROKER_SECRET",
   "AGENT_CREDENTIAL_CACHE_PATH",
@@ -44,6 +44,17 @@ const CUSTOM_RUNTIME_SECRET_ENVIRONMENT_NAMES = [
   "LINEAR_API_KEY",
   "LINEAR_AUTHORIZATION",
 ] as const;
+
+export function isCustomRuntimeReservedAuthEnvironmentName(
+  name: string,
+  environment: NodeJS.ProcessEnv
+): boolean {
+  return (
+    CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
+      name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
+    ) || readTrackerSecretEnvironmentNames(environment).includes(name)
+  );
+}
 
 /** Builds the least-privilege environment for an operator-supplied command. */
 export function buildCustomRuntimeChildEnvironment(options: {
@@ -61,6 +72,8 @@ export function buildCustomRuntimeChildEnvironment(options: {
 
   if (!options.inheritEnvironment) {
     for (const name of PORTABLE_ENVIRONMENT_NAMES) {
+      // A supplied worker environment is deliberately augmented with portable
+      // process defaults so custom commands keep normal terminal behavior.
       const value = source[name] ?? process.env[name];
       if (value !== undefined) {
         env[name] = value;
@@ -72,25 +85,13 @@ export function buildCustomRuntimeChildEnvironment(options: {
     if (options.authEnvKey && authValue !== undefined) {
       env[options.authEnvKey] = authValue;
     }
-    removeCustomRuntimeSecrets(env, source);
   }
 
   env.HOME = options.childHome;
+  env.USERPROFILE = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
   removeChildHostCredentialEnvironment(env);
   return env;
-}
-
-function removeCustomRuntimeSecrets(
-  env: NodeJS.ProcessEnv,
-  source: NodeJS.ProcessEnv
-): void {
-  for (const name of [
-    ...readTrackerSecretEnvironmentNames(source),
-    ...CUSTOM_RUNTIME_SECRET_ENVIRONMENT_NAMES,
-  ]) {
-    delete env[name];
-  }
 }
 
 function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {

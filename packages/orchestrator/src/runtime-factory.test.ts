@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -233,6 +233,7 @@ describe("createWorkflowRuntimeAdapter", () => {
   });
 
   it("creates a custom adapter that spawns command and args exactly", async () => {
+    const workspace = await createTempWorkspace();
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
     const { child, stdout, stderr } = createStubChild();
     const spawnImpl: SpawnLike = (command, args) => {
@@ -254,7 +255,7 @@ describe("createWorkflowRuntimeAdapter", () => {
 
     const adapter = createWorkflowRuntimeAdapter(workflow, {
       projectId: "project-1",
-      workingDirectory: "/workspace",
+      workingDirectory: workspace,
       claudeDependencies: {
         spawnImpl,
       },
@@ -274,5 +275,47 @@ describe("createWorkflowRuntimeAdapter", () => {
         args: ["worker.js", "--direct"],
       },
     ]);
+  });
+
+  it("prepares an isolated custom child home before spawning a rendered prompt", async () => {
+    const workspace = await createTempWorkspace();
+    const runtimeDirectory = join(workspace, "runtime");
+    const { child, stdout, stderr } = createStubChild();
+    let spawnedEnv: NodeJS.ProcessEnv | undefined;
+    const workflow = parseWorkflow(`runtime:
+  kind: custom
+  command: node
+  args: []
+`);
+    const adapter = createWorkflowRuntimeAdapter(workflow, {
+      projectId: "project-1",
+      workingDirectory: workspace,
+      runtimeDirectory,
+      env: { GITHUB_TOKEN: "host-secret" },
+      claudeDependencies: {
+        spawnImpl: (_command, _args, options) => {
+          spawnedEnv = options.env;
+          queueMicrotask(() => {
+            stdout.end();
+            stderr.end();
+            child.emit("close", 0, null);
+          });
+          return child;
+        },
+      },
+    });
+
+    await adapter.spawnTurn({ messages: [], prompt: "rendered prompt" });
+
+    expect(spawnedEnv).toMatchObject({
+      HOME: join(runtimeDirectory, "child-home"),
+      USERPROFILE: join(runtimeDirectory, "child-home"),
+      GH_CONFIG_DIR: join(runtimeDirectory, "child-home", "gh"),
+      SYMPHONY_RENDERED_PROMPT: "rendered prompt",
+    });
+    expect(spawnedEnv?.GITHUB_TOKEN).toBeUndefined();
+    await expect(
+      access(join(runtimeDirectory, "child-home"))
+    ).resolves.toBeUndefined();
   });
 });
