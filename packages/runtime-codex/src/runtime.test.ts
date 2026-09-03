@@ -516,6 +516,7 @@ describe("createGitCredentialHelperEnvironment", () => {
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
+      tokenBrokerTimeoutMs: 7_500,
     });
 
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");
@@ -525,6 +526,7 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(env.GITHUB_GIT_HOST).toBe("github.com");
     expect(env.GITHUB_GIT_USERNAME).toBe("x-access-token");
     expect(env.GITHUB_TOKEN_BROKER_URL).toContain("/runtime-credentials");
+    expect(env.GITHUB_TOKEN_BROKER_TIMEOUT_MS).toBe("7500");
   });
 
   it("preserves a configured Git host and username for the helper", () => {
@@ -546,6 +548,28 @@ describe("createGitCredentialHelperEnvironment", () => {
       })
     ).toThrow(/must use https/);
   });
+
+  it("rejects an invalid broker timeout before exposing it to git", () => {
+    expect(() =>
+      createGitCredentialHelperEnvironment({
+        githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
+        githubTokenBrokerSecret: "runtime-secret",
+        tokenBrokerTimeoutMs: 0,
+      })
+    ).toThrow(/GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer/);
+  });
+
+  it.each(["", "  "])(
+    "omits an unset broker timeout %j from the helper environment",
+    (tokenBrokerTimeoutMs) => {
+      const env = createGitCredentialHelperEnvironment({
+        githubToken: "host-token",
+        tokenBrokerTimeoutMs,
+      });
+
+      expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_TIMEOUT_MS");
+    }
+  );
 });
 
 describe("launchCodexAppServer", () => {
