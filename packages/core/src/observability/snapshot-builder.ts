@@ -107,6 +107,7 @@ export function buildProjectSnapshot(
       lastEventAt: run.lastEventAt ?? null,
       executionPhase: run.executionPhase ?? null,
       runPhase: run.runPhase ?? null,
+      unpublishedWorktree: run.unpublishedWorktree ?? null,
       tokenUsage: attachCumulativeTokenUsage(
         run.tokenUsage,
         cumulativeTokenUsageByIssue.get(run.issueId)
@@ -116,6 +117,7 @@ export function buildProjectSnapshot(
       issueIdentifier: workspace.issueIdentifier,
       workspaceKey: workspace.workspaceKey,
       status: workspace.status,
+      unpublishedWorktree: workspace.unpublishedWorktree ?? null,
     })),
     retryQueue: activeRuns
       .filter((run) => run.status === "retrying" && run.retryKind)

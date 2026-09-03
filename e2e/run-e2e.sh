@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, recovery-fail, non-dispatchable, required-label-missing, required-label-removed, linear-dirty-recovery
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, recovery-fail, non-dispatchable, required-label-missing, required-label-removed, linear-dirty-recovery, dirty-unpublished-worktree
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -538,6 +538,39 @@ if [ "$SCENARIO" = "recovery-fail" ]; then
   log "  Claim released:             YES"
   log "  Later refresh redispatch:   NO"
   echo ""
+  log "PASSED"
+  exit 0
+fi
+
+if [ "$SCENARIO" = "dirty-unpublished-worktree" ]; then
+  if [ "$SAW_RUNNING" != true ]; then
+    fail "Dirty unpublished worktree scenario did not reach a running worker"
+    exit 1
+  fi
+  "${COMPOSE[@]}" exec -T symphony-e2e node --input-type=module -e '
+    import { existsSync, readFileSync } from "node:fs";
+    import { execFileSync } from "node:child_process";
+    const stateDir = "/e2e/work/test-repo/.runtime/orchestrator/projects/repository";
+    const workspacePaths = execFileSync("find", [stateDir, "-name", "workspace.json"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (workspacePaths.length !== 1) throw new Error(`expected_one_workspace:${JSON.stringify(workspacePaths)}`);
+    const workspace = JSON.parse(readFileSync(workspacePaths[0], "utf8"));
+    if (workspace.status !== "active" || workspace.lastError !== null || workspace.unpublishedWorktree?.branch !== "feat/assigned") {
+      throw new Error(`unexpected_workspace_retention:${JSON.stringify(workspace)}`);
+    }
+    if (!existsSync(`${workspace.repositoryPath}/tracked.txt`) || !existsSync(`${workspace.repositoryPath}/untracked/notes.txt`)) {
+      throw new Error(`unpublished_files_removed:${workspace.repositoryPath}`);
+    }
+    const runPaths = execFileSync("find", [stateDir, "-path", "*/runs/*/run.json"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (runPaths.length !== 1) throw new Error(`expected_one_run:${JSON.stringify(runPaths)}`);
+    const run = JSON.parse(readFileSync(runPaths[0], "utf8"));
+    if (run.status !== "succeeded" || run.runPhase !== "succeeded" || run.lastError !== null || run.unpublishedWorktree?.branch !== "feat/assigned") {
+      throw new Error(`unexpected_dirty_publication_run:${JSON.stringify(run)}`);
+    }
+  '
+  log "=== Result ==="
+  log "  Committed transport outcome: succeeded"
+  log "  Unpublished tracked/untracked work: retained"
+  log "  Terminal workspace cleanup: deferred"
   log "PASSED"
   exit 0
 fi

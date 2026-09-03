@@ -3547,7 +3547,7 @@ export class OrchestratorService {
         if (
           retryAction.issue &&
           retryAction.terminal &&
-          !isGitTransportFailure(runWithTokens)
+          !hasUnpublishedGitWork(runWithTokens)
         ) {
           try {
             await this.cleanupTerminalIssueWorkspace(
@@ -3647,6 +3647,7 @@ export class OrchestratorService {
         nextRetryAt: null,
         retryKind: null,
         lastError: null,
+        unpublishedWorktree: runWithTokens.unpublishedWorktree ?? null,
       };
       await this.store.saveRun(completedRun);
       this.logVerbose(
@@ -4100,6 +4101,10 @@ export class OrchestratorService {
         executionPhase: event.executionPhase ?? run.executionPhase,
         runPhase: event.runPhase ?? run.runPhase,
         lastError: event.lastError,
+        unpublishedWorktree:
+          event.unpublishedWorktree === undefined
+            ? (run.unpublishedWorktree ?? null)
+            : event.unpublishedWorktree,
       });
       return;
     }
@@ -4194,6 +4199,10 @@ export class OrchestratorService {
       executionPhase: event.executionPhase ?? run.executionPhase ?? null,
       runPhase: event.runPhase ?? run.runPhase ?? null,
       lastError: event.lastError ?? run.lastError,
+      unpublishedWorktree:
+        event.unpublishedWorktree === undefined
+          ? (run.unpublishedWorktree ?? null)
+          : event.unpublishedWorktree,
     });
   }
 
@@ -5675,11 +5684,13 @@ export class OrchestratorService {
       return;
     }
 
-    if (
-      await this.hasUnpublishedGitTransportFailure(tenant.projectId, issue.id)
-    ) {
+    const unpublishedGitWork = await this.unpublishedGitWorkReason(
+      tenant.projectId,
+      issue.id
+    );
+    if (unpublishedGitWork) {
       this.logVerbose(
-        `[workspace-cleanup-deferred] ${issue.identifier} reason=git_transport_failed`
+        `[workspace-cleanup-deferred] ${issue.identifier} reason=${unpublishedGitWork}`
       );
       return;
     }
@@ -5791,22 +5802,25 @@ export class OrchestratorService {
     await this.store.saveIssueWorkspace(removedRecord);
   }
 
-  private async hasUnpublishedGitTransportFailure(
+  private async unpublishedGitWorkReason(
     projectId: string,
     issueId: string
-  ): Promise<boolean> {
+  ): Promise<"git_transport_failed" | "git_unpublished_worktree" | null> {
     const workspace = (await this.store.loadIssueWorkspaces(projectId)).find(
       (record) => record.issueSubjectId === issueId
     );
-    if (workspace) {
-      return isGitTransportFailureError(workspace.lastError);
+    const workspaceReason = workspace
+      ? unpublishedGitWorkReason(workspace)
+      : null;
+    if (workspaceReason) {
+      return workspaceReason;
     }
-    return (await this.store.loadAllRuns()).some(
-      (run) =>
-        run.projectId === projectId &&
-        run.issueId === issueId &&
-        isGitTransportFailure(run)
-    );
+    const latestRun = buildLatestRunMapByIssueId(
+      (await this.store.loadAllRuns()).filter(
+        (run) => run.projectId === projectId && run.issueId === issueId
+      )
+    ).get(issueId);
+    return latestRun ? unpublishedGitWorkReason(latestRun) : null;
   }
 
   private async recordGitTransportWorkspaceState(
@@ -5823,16 +5837,17 @@ export class OrchestratorService {
     if (!workspace || workspace.status === "removed") {
       return;
     }
-    const transportError = isGitTransportFailure(run) ? run.lastError : null;
+    const unpublishedGitWork = unpublishedGitWorkReason(run);
     const transportSucceeded =
       run.runPhase === "succeeded" && run.lastError === null;
-    if (!transportError && !transportSucceeded) {
+    if (!unpublishedGitWork && !transportSucceeded) {
       return;
     }
     await this.store.saveIssueWorkspace({
       ...workspace,
       updatedAt: now.toISOString(),
-      lastError: transportError,
+      lastError: isGitTransportFailure(run) ? run.lastError : null,
+      unpublishedWorktree: run.unpublishedWorktree ?? null,
     });
   }
 
@@ -6524,6 +6539,22 @@ function isGitTransportFailure(run: OrchestratorRunRecord): boolean {
 
 function isGitTransportFailureError(error: string | null | undefined): boolean {
   return error?.startsWith("git_transport_failed:") === true;
+}
+
+function hasUnpublishedGitWork(run: OrchestratorRunRecord): boolean {
+  return unpublishedGitWorkReason(run) !== null;
+}
+
+function unpublishedGitWorkReason(
+  record: Pick<
+    OrchestratorRunRecord | IssueWorkspaceRecord,
+    "lastError" | "unpublishedWorktree"
+  >
+): "git_transport_failed" | "git_unpublished_worktree" | null {
+  if (isGitTransportFailureError(record.lastError)) {
+    return "git_transport_failed";
+  }
+  return record.unpublishedWorktree ? "git_unpublished_worktree" : null;
 }
 
 function formatMaxFailureRetrySuppression(

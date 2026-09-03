@@ -7,6 +7,7 @@ import type {
 } from "../workflow/config.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
 import type { TrackerAdapterKind } from "./tracker-adapter.js";
+import type { UnpublishedWorktree } from "../domain/issue.js";
 import type { RunAttemptPhase } from "./run-attempt-phase.js";
 import type { OrchestratorEvent } from "../observability/structured-events.js";
 
@@ -288,6 +289,8 @@ export type OrchestratorRunRecord = {
   startedAt: string | null;
   completedAt: string | null;
   lastError: string | null;
+  /** Successful branch publication with worktree edits still unpublished. */
+  unpublishedWorktree?: UnpublishedWorktree | null;
   nextRetryAt: string | null;
   runtimeSession?: RuntimeSessionRow | null;
   tokenUsage?: {
@@ -412,6 +415,7 @@ export type ProjectStatusSnapshot = {
     lastEventAt?: string | null;
     executionPhase?: WorkflowExecutionPhase | null;
     runPhase?: RunAttemptPhase | null;
+    unpublishedWorktree?: UnpublishedWorktree | null;
     tokenUsage?: {
       inputTokens: number;
       outputTokens: number;
@@ -425,6 +429,7 @@ export type ProjectStatusSnapshot = {
     issueIdentifier: string;
     workspaceKey: string;
     status: "active" | "cleanup_pending" | "removed";
+    unpublishedWorktree?: UnpublishedWorktree | null;
   }>;
   runtimeSession?: RuntimeSessionRow | null;
   recovery?: IncompleteTurnRecoveryInfo | null;
@@ -491,6 +496,7 @@ export type IssueStatusSnapshot = {
     error: string | null;
   } | null;
   recovery: IncompleteTurnRecoveryInfo | null;
+  unpublished_worktree?: UnpublishedWorktree | null;
   logs: {
     codex_session_logs: Array<{
       label: string;

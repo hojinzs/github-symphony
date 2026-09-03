@@ -27,6 +27,19 @@ export type IssueSubjectIdentity = {
  */
 export type IssueWorkspaceStatus = "active" | "cleanup_pending" | "removed";
 
+/**
+ * Bounded publication diagnostic for work left in an assigned worktree after
+ * its committed branch was successfully pushed.
+ */
+export type UnpublishedWorktree = {
+  branch: string;
+  head: string;
+  tracked: string[];
+  untracked: string[];
+  trackedOmitted: number;
+  untrackedOmitted: number;
+};
+
 export type IssueWorkspaceRecord = {
   workspaceKey: string;
   projectId: string;
@@ -39,4 +52,5 @@ export type IssueWorkspaceRecord = {
   createdAt: string;
   updatedAt: string;
   lastError: string | null;
+  unpublishedWorktree?: UnpublishedWorktree | null;
 };

@@ -11,6 +11,7 @@ import {
   type OrchestratorChannelEvent,
   type RunAttemptPhase,
   type SessionExitClassification,
+  type UnpublishedWorktree,
   type WorkflowDefinition,
   type WorkflowExecutionPhase,
 } from "@gh-symphony/core";
@@ -113,6 +114,7 @@ const runtimeState: {
       url: string | null;
     };
     lastError: string | null;
+    unpublishedWorktree: UnpublishedWorktree | null;
   };
   tokenUsage: {
     inputTokens: number;
@@ -148,6 +150,7 @@ const runtimeState: {
           url: launcherEnv.TARGET_REPOSITORY_URL ?? null,
         },
         lastError: null,
+        unpublishedWorktree: null,
       }
     : null,
   tokenUsage: {
@@ -361,6 +364,7 @@ function emitOrchestratorHeartbeat(): void {
     executionPhase: runtimeState.executionPhase,
     runPhase: runtimeState.runPhase,
     lastError: runtimeState.run?.lastError ?? null,
+    unpublishedWorktree: runtimeState.run?.unpublishedWorktree ?? null,
   };
 
   writeOrQueueOrchestratorChannelPayload(`${JSON.stringify(payload)}\n`);
@@ -402,6 +406,7 @@ function emitOrchestratorChannelEvent(event?: string): void {
     executionPhase: runtimeState.executionPhase,
     runPhase: runtimeState.runPhase,
     lastError: runtimeState.run?.lastError ?? null,
+    unpublishedWorktree: runtimeState.run?.unpublishedWorktree ?? null,
   };
 
   if (runtimeState.rateLimits) {
@@ -1937,7 +1942,9 @@ async function runCodexClientProtocol(
         const refreshGate = resolveTrackerRefreshGate(
           trackerState,
           consecutiveRefreshFailures,
-          resolveRefreshFailureThreshold(env.SYMPHONY_REFRESH_FAILURE_THRESHOLD),
+          resolveRefreshFailureThreshold(
+            env.SYMPHONY_REFRESH_FAILURE_THRESHOLD
+          ),
           "convergence"
         );
         consecutiveRefreshFailures = refreshGate.count;
@@ -2110,6 +2117,7 @@ function recordGitTransportAttempt(attempt: GitTransportAttempt): 0 | 1 {
         ? runtimeState.runPhase
         : null,
     lastError: runtimeState.run?.lastError ?? null,
+    unpublishedWorktree: runtimeState.run?.unpublishedWorktree ?? null,
     exitClassification: runtimeState.sessionInfo.exitClassification,
   };
   const exitCode = applyGitTransportAttempt(transportState, attempt);
@@ -2119,6 +2127,7 @@ function recordGitTransportAttempt(attempt: GitTransportAttempt): 0 | 1 {
     transportState.exitClassification;
   if (runtimeState.run) {
     runtimeState.run.lastError = transportState.lastError;
+    runtimeState.run.unpublishedWorktree = transportState.unpublishedWorktree;
   }
   return exitCode;
 }
