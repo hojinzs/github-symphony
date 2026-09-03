@@ -160,7 +160,7 @@ These facts describe what your process can and cannot do. Every instruction belo
 
 When entering `Ready`, before treating it as a fresh pickup, board drift, or resume, inspect linked PR state:
 
-1. Resolve the **current delivery PR** (Posture 11). Once the current delivery PR is merged, the issue is terminal; follow-up work opens a new issue (Posture 13), never a new cycle on this one.
+1. Resolve the **current delivery PR** (Posture 11): the PR recorded in the newest workpad, else the primary PR from the _Linked pull request context_, else the issue's `closedByPullRequestsReferences` / `closingIssuesReferences` relationship. A text-search match alone is never linked evidence. Once the current delivery PR is merged, the issue is terminal; follow-up work opens a new issue (Posture 13), never a new cycle on this one.
 2. **Merged-PR precedence guard:** if the current delivery PR is `MERGED`, refresh its merged commit SHA into the current workpad when one exists, prepare the `🔁 Status: Ready → Done` body, and send it as `comment_body` through `/gh-project`. After confirmed readback, append the matching workpad Status Transitions line when the worker remains alive, then exit. Do not open a new cycle, inspect review feedback, or enter any rework path.
 3. For each remaining open linked PR, read `reviewDecision`, latest human reviews, review threads (`prReviewState` query), top-level PR comments, and recent issue comments.
 4. If any open linked PR has `CHANGES_REQUESTED`, unresolved actionable review threads, a human instruction indicating rework, or a recent `Land` → `Ready` transition recorded as a **Land-return rework**, this `Ready` state means **review rework return** — not a fresh pickup and not drift.

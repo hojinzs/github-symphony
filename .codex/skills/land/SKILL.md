@@ -166,7 +166,7 @@ All must pass before merging. If any fails, record the failure in the workpad an
 
 ## Failure Handling
 
-1. **Merged-PR precedence is always first.** Re-read the linked PR's `state` before classifying a failure. If it is `MERGED`, discard the pending failure classification, record the merge commit SHA, transition `Land` → `Done` through `/gh-project`, and exit.
+1. **Merged-PR precedence is always first.** Re-read the linked PR's `state` before classifying a failure. If it is `MERGED`, discard the pending failure classification, record the merge commit SHA, transition `Land` → `Done` through `/gh-project`, and exit. A deleted head branch is not rework after merge.
 2. Record the exact failure (operation, response excerpt, head SHA, timestamp) in the workpad `### Progress Log`.
 3. If immediately recoverable in this run (branch behind → server-side update; trivial conflict → `/pull` merge and end the turn so the host pushes), do so and re-run the merged guard plus pre-flight from scratch.
 4. Do not retry a non-recoverable Land pre-flight failure on later turns. First write its concrete classification, response excerpt, timestamp, exact transition reason, and `comment_body` into the workpad; then close the Land cycle after the orchestrator confirms the transition readback.
