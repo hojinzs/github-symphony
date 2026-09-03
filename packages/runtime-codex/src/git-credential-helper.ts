@@ -2,6 +2,7 @@ import {
   resolveGitHubGraphQLToken,
   type GitHubGraphQLToolConfig,
 } from "@gh-symphony/tool-github-graphql";
+import { writeSync } from "node:fs";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
@@ -111,23 +112,35 @@ async function readStdin(): Promise<string> {
 
 export async function runGitCredentialHelper(): Promise<void> {
   const request = parseGitCredentialRequest(await readStdin());
-  const response = await resolveGitCredential(request, {
-    token: process.env.GITHUB_GRAPHQL_TOKEN,
-    tokenBrokerUrl: process.env.GITHUB_TOKEN_BROKER_URL,
-    tokenBrokerSecret: process.env.GITHUB_TOKEN_BROKER_SECRET,
-    tokenCachePath: process.env.GITHUB_TOKEN_CACHE_PATH,
-    gitHost: process.env.GITHUB_GIT_HOST,
-    gitUsername: process.env.GITHUB_GIT_USERNAME,
-  });
+  const response = await resolveGitCredential(
+    request,
+    resolveGitCredentialHelperConfig(process.env)
+  );
 
   process.stdout.write(response);
+}
+
+export function resolveGitCredentialHelperConfig(
+  env: NodeJS.ProcessEnv
+): GitCredentialHelperConfig {
+  return {
+    token: env.GITHUB_GRAPHQL_TOKEN,
+    tokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
+    tokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
+    tokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
+    gitHost: env.GITHUB_GIT_HOST,
+    gitUsername: env.GITHUB_GIT_USERNAME,
+    tokenBrokerTimeoutMs: env.GITHUB_TOKEN_BROKER_TIMEOUT_MS
+      ? Number(env.GITHUB_TOKEN_BROKER_TIMEOUT_MS)
+      : undefined,
+  };
 }
 
 if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
   runGitCredentialHelper().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "Unknown error";
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
+    writeSync(2, `${message}\n`);
+    process.exit(1);
   });
 }
 
@@ -136,7 +149,11 @@ function normalizeGitHost(host: string): string {
 }
 
 function isTimeoutError(error: unknown): boolean {
-  return error instanceof DOMException
-    ? error.name === "TimeoutError"
-    : error instanceof Error && error.name === "TimeoutError";
+  for (let cursor = error; cursor instanceof Error; cursor = cursor.cause) {
+    if (cursor.name === "TimeoutError") {
+      return true;
+    }
+  }
+
+  return false;
 }

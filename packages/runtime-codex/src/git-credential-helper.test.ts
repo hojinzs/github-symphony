@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   formatGitCredentialResponse,
   parseGitCredentialRequest,
+  resolveGitCredentialHelperConfig,
   resolveGitCredential,
 } from "./git-credential-helper.js";
 
@@ -68,25 +69,63 @@ describe("resolveGitCredential", () => {
         })
     );
 
-    await expect(
-      resolveGitCredential(
-        {
-          protocol: "https",
-          host: "github.com",
-        },
-        {
-          tokenBrokerUrl: brokerUrl,
-          tokenBrokerSecret: "runtime-secret",
-          tokenBrokerTimeoutMs: 10,
-        },
-        fetchImpl as typeof fetch
-      )
-    ).rejects.toThrow(
-      `Git credential token broker request to ${brokerUrl} timed out after 10ms.`
+    const result = resolveGitCredential(
+      {
+        protocol: "https",
+        host: "github.com",
+      },
+      {
+        tokenBrokerUrl: brokerUrl,
+        tokenBrokerSecret: "runtime-secret",
+        tokenBrokerTimeoutMs: 10,
+      },
+      fetchImpl as typeof fetch
     );
+
+    await expect(result).rejects.toMatchObject({
+      message: `Git credential token broker request to ${brokerUrl} timed out after 10ms.`,
+      cause: expect.objectContaining({ name: "TimeoutError" }),
+    });
 
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("recognizes a broker timeout wrapped in an error cause", async () => {
+    const brokerUrl = "https://broker.example/runtime-token";
+    const timeout = new DOMException("request expired", "TimeoutError");
+
+    await expect(
+      resolveGitCredential(
+        { protocol: "https", host: "github.com" },
+        {
+          tokenBrokerUrl: brokerUrl,
+          tokenBrokerSecret: "runtime-secret",
+          tokenBrokerTimeoutMs: 25,
+        },
+        vi
+          .fn()
+          .mockRejectedValue(new TypeError("fetch failed", { cause: timeout }))
+      )
+    ).rejects.toMatchObject({
+      message: `Git credential token broker request to ${brokerUrl} timed out after 25ms.`,
+      cause: expect.objectContaining({ message: "fetch failed" }),
+    });
+  });
+
+  it("preserves non-timeout broker errors", async () => {
+    const brokerError = new Error("broker returned 500");
+
+    await expect(
+      resolveGitCredential(
+        { protocol: "https", host: "github.com" },
+        {
+          tokenBrokerUrl: "https://broker.example/runtime-token",
+          tokenBrokerSecret: "runtime-secret",
+        },
+        vi.fn().mockRejectedValue(brokerError)
+      )
+    ).rejects.toBe(brokerError);
   });
 
   it("ignores unsupported hosts or protocols", async () => {
@@ -113,5 +152,21 @@ describe("resolveGitCredential", () => {
         }
       )
     ).resolves.toBe("");
+  });
+});
+
+describe("resolveGitCredentialHelperConfig", () => {
+  it("reads the operator-configured broker timeout from the helper environment", () => {
+    expect(
+      resolveGitCredentialHelperConfig({
+        GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-token",
+        GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
+        GITHUB_TOKEN_BROKER_TIMEOUT_MS: "7500",
+      })
+    ).toMatchObject({
+      tokenBrokerUrl: "https://broker.example/runtime-token",
+      tokenBrokerSecret: "runtime-secret",
+      tokenBrokerTimeoutMs: 7500,
+    });
   });
 });

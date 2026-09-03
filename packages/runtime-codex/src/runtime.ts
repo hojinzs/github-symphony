@@ -854,6 +854,7 @@ export function createGitCredentialHelperEnvironment(
   > & {
     gitHost?: string;
     gitUsername?: string;
+    tokenBrokerTimeoutMs?: number;
   }
 ): Record<string, string> {
   const githubTokenBrokerUrl = config.githubTokenBrokerUrl
@@ -888,6 +889,11 @@ export function createGitCredentialHelperEnvironment(
     ...(config.githubTokenCachePath
       ? {
           GITHUB_TOKEN_CACHE_PATH: config.githubTokenCachePath,
+        }
+      : {}),
+    ...(config.tokenBrokerTimeoutMs !== undefined
+      ? {
+          GITHUB_TOKEN_BROKER_TIMEOUT_MS: String(config.tokenBrokerTimeoutMs),
         }
       : {}),
   };
