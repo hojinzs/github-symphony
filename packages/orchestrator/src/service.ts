@@ -277,7 +277,7 @@ function isDueRetryReservation(
   return dueAtMs !== null && dueAtMs <= now.getTime();
 }
 
-function sortRunsForReconciliation(
+export function sortRunsForReconciliation(
   activeRuns: OrchestratorRunRecord[],
   now: Date
 ): OrchestratorRunRecord[] {
@@ -5280,8 +5280,7 @@ export class OrchestratorService {
             ? scheduleRetryAt(now, attempt, retryPolicy)
             : new Date(
                 now.getTime() +
-                  (this.dependencies.retryBackoffMs ??
-                    DEFAULT_RETRY_BACKOFF_MS)
+                  (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
               )
         ).toISOString();
       }
@@ -5293,9 +5292,9 @@ export class OrchestratorService {
           maxFailureRetries,
           error
         )
-      : (options.advanceAttempt === false
+      : options.advanceAttempt === false
         ? (issueRecord?.retryEntry?.error ?? run.lastError ?? error)
-        : error);
+        : error;
     const sessionEndedAt = run.completedAt ?? now.toISOString();
     await this.store.saveRun({
       ...run,
@@ -5316,6 +5315,19 @@ export class OrchestratorService {
       retryKind: suppressed ? null : (run.retryKind ?? "failure"),
       lastError,
     });
+    if (options.advanceAttempt === false && dueAt) {
+      await this.store.appendRunEvent(run.runId, {
+        at: now.toISOString(),
+        event: "retry-postponed",
+        projectId: run.projectId,
+        runId: run.runId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        attempt,
+        dueAt,
+        reason: error,
+      });
+    }
     return {
       issueRecords: upsertIssueOrchestration(issueRecords, {
         issueId: run.issueId,

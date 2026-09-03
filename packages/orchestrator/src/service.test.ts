@@ -38,6 +38,7 @@ import {
   clampPollInterval,
   OrchestratorService,
   resolveDirtyWorkAttributionBranches,
+  sortRunsForReconciliation,
   shouldAwaitTrackerProgressExit,
   shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
@@ -188,99 +189,53 @@ describe("OrchestratorService", () => {
     expect(clampPollInterval(30_000)).toBe(30_000);
   });
 
-  it("reconciles the oldest due retry reservation before newer due retries", async () => {
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-retry-fairness-")
-    );
-    const repository = await createRepositoryFixture(
-      tempRoot,
-      "acme",
-      "platform",
-      { maxConcurrentAgents: 1 }
-    );
-    const store = new OrchestratorFsStore(tempRoot);
-    const projectConfig = createProjectConfig(tempRoot, repository);
-    await store.saveProjectConfig(projectConfig);
-    const newerRun = {
-      runId: "run-a-newer",
-      projectId: "tenant-1",
-      projectSlug: "tenant-1",
-      issueId: "issue-newer",
-      issueSubjectId: "issue-newer",
-      issueIdentifier: "acme/platform#2",
-      issueState: "Todo",
-      repository,
-      status: "retrying",
-      attempt: 1,
-      processId: null,
-      port: null,
-      workingDirectory: tempRoot,
-      issueWorkspaceKey: "acme_platform_2",
-      workspaceRuntimeDir: tempRoot,
-      workflowPath: null,
-      retryKind: "failure",
-      createdAt: "2026-03-08T00:00:00.000Z",
-      updatedAt: "2026-03-08T00:00:00.000Z",
-      startedAt: null,
-      completedAt: null,
-      lastError: "worker failed",
-      nextRetryAt: "2026-03-08T00:00:30.000Z",
-    } as OrchestratorRunRecord;
-    const olderRun = {
-      ...newerRun,
-      runId: "run-z-older",
-      issueId: "issue-older",
-      issueSubjectId: "issue-older",
-      issueIdentifier: "acme/platform#1",
-      issueWorkspaceKey: "acme_platform_1",
-      nextRetryAt: "2026-03-08T00:00:00.000Z",
-    };
-    const records: IssueOrchestrationRecord[] = [newerRun, olderRun].map(
-      (run) => ({
-        issueId: run.issueId,
-        identifier: run.issueIdentifier,
-        workspaceKey: run.issueWorkspaceKey ?? run.issueId,
-        completedOnce: false,
-        failureRetryCount: 0,
-        state: "retry_queued",
-        currentRunId: run.runId,
-        retryEntry: {
-          attempt: run.attempt,
-          dueAt: run.nextRetryAt ?? "",
-          error: run.lastError ?? "",
-        },
-        updatedAt: run.updatedAt,
-      })
-    );
-    await store.saveProjectIssueOrchestrations("tenant-1", records);
-    await store.saveRun(newerRun);
-    await store.saveRun(olderRun);
+  it("orders non-due runs before fair due retry reservations", () => {
+    const now = new Date("2026-03-08T00:01:00.000Z");
+    const run = (
+      runId: string,
+      issueIdentifier: string,
+      status: OrchestratorRunRecord["status"],
+      nextRetryAt: string | null
+    ) =>
+      ({
+        runId,
+        issueIdentifier,
+        status,
+        nextRetryAt,
+      }) as OrchestratorRunRecord;
 
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-      listIssues: vi.fn().mockResolvedValue([]),
-      listIssuesByStates: vi.fn().mockResolvedValue([]),
-      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
-      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
-      reviveIssue: vi.fn(),
-    } as never);
-    const service = new OrchestratorService(store, projectConfig, {
-      now: () => new Date("2026-03-08T00:01:00.000Z"),
-    });
-    const reconciledRunIds: string[] = [];
-    vi.spyOn(service as never, "reconcileRun").mockImplementation(
-      async (
-        _tenant: OrchestratorProjectConfig,
-        run: OrchestratorRunRecord,
-        issueRecords: IssueOrchestrationRecord[]
-      ) => {
-        reconciledRunIds.push(run.runId);
-        return { issueRecords, recovered: false };
-      }
-    );
-
-    await service.runOnce();
-
-    expect(reconciledRunIds).toEqual(["run-z-older", "run-a-newer"]);
+    expect(
+      sortRunsForReconciliation(
+        [
+          run(
+            "due-b",
+            "acme/platform#2",
+            "retrying",
+            "2026-03-08T00:00:00.000Z"
+          ),
+          run(
+            "due-a",
+            "acme/platform#1",
+            "retrying",
+            "2026-03-08T00:00:00.000Z"
+          ),
+          run(
+            "pending",
+            "acme/platform#3",
+            "retrying",
+            "2026-03-08T00:02:00.000Z"
+          ),
+          run("running", "acme/platform#4", "running", null),
+          run(
+            "due-a-run-a",
+            "acme/platform#1",
+            "retrying",
+            "2026-03-08T00:00:00.000Z"
+          ),
+        ],
+        now
+      ).map((candidate) => candidate.runId)
+    ).toEqual(["pending", "running", "due-a", "due-a-run-a", "due-b"]);
   });
 
   it("guards worker signals by owner and process identity", async () => {
@@ -1172,6 +1127,12 @@ describe("OrchestratorService", () => {
         error: "worker failed",
       }),
     });
+    await expect(
+      readFile(
+        join(store.runDir(run.runId, run.projectId), "events.ndjson"),
+        "utf8"
+      )
+    ).resolves.toContain('"event":"retry-postponed"');
 
     const fallbackRun = {
       ...run,
@@ -17296,7 +17257,7 @@ async function writeWorkflowFixture(
 ): Promise<void> {
   const content = normalizeTrackerProviderFixture(
     options.rawWorkflow ??
-      `---
+    `---
 tracker:
   kind: github-project
   provider:
@@ -17363,14 +17324,15 @@ function normalizeTrackerProviderFixture(content: string): string {
     const key = trackerLines[index]?.match(/^[ ]{2}([a-z_]+):/)?.[1];
     let next = index + 1;
     while (
-      next < trackerLines.length &&
-      !/^[ ]{2}\S/.test(trackerLines[next]!)
+      next < trackerLines.length && !/^[ ]{2}\S/.test(trackerLines[next]!)
     ) {
       next += 1;
     }
     const block = trackerLines.slice(index, next);
     if (key && flatKeys.has(key)) {
-      providerLines.push(...block.map((line) => `  ${line}`));
+      providerLines.push(
+        ...block.map((line) => `  ${line}`)
+      );
     } else {
       remaining.push(...block);
     }
