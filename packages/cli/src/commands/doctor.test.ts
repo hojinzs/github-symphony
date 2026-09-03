@@ -600,6 +600,43 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("warns that a repository-root .env is not loaded in repo mode", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(join(repoDir, ".env"), "APP_SECRET=repository-only\n");
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: {
+            ...createProjectConfig(workspaceDir),
+            repositoryDir: repoDir,
+            workflowSource: {
+              type: "repo",
+              path: join(repoDir, "WORKFLOW.md"),
+            },
+          },
+        }),
+        getProjectDetail: (async () => createProjectDetail()) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "repository_environment")
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("is not loaded"),
+      details: { path: join(repoDir, ".env") },
+    });
+  });
+
   it("snapshots provider deprecation guidance for flat GitHub keys", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

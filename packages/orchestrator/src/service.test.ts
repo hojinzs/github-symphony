@@ -2529,6 +2529,11 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(isProcessRunning).toHaveBeenCalledWith(4101);
     expect((await store.loadAllRuns())[0]?.trackerItemId).toBe("item-1");
+    const workerSpawnOptions = spawnImpl.mock.calls[0]?.[2];
+    expect(workerSpawnOptions?.cwd).toBe(
+      workerSpawnOptions?.env?.WORKSPACE_RUNTIME_DIR
+    );
+    expect(workerSpawnOptions?.cwd).not.toBe(process.cwd());
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
       ["-lc", expect.stringMatching(/worker/)],
