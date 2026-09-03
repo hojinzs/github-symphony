@@ -57,6 +57,38 @@ describe("resolveGitCredential", () => {
     expect(response).toContain("password=ghs_brokered");
   });
 
+  it("bounds a hung broker request with an attributable timeout", async () => {
+    const brokerUrl = "https://broker.example/runtime-token";
+    const fetchImpl = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason);
+          });
+        })
+    );
+
+    await expect(
+      resolveGitCredential(
+        {
+          protocol: "https",
+          host: "github.com",
+        },
+        {
+          tokenBrokerUrl: brokerUrl,
+          tokenBrokerSecret: "runtime-secret",
+          tokenBrokerTimeoutMs: 10,
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(
+      `Git credential token broker request to ${brokerUrl} timed out after 10ms.`
+    );
+
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("ignores unsupported hosts or protocols", async () => {
     await expect(
       resolveGitCredential(

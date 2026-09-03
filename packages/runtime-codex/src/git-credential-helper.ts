@@ -5,6 +5,7 @@ import {
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
+const DEFAULT_TOKEN_BROKER_TIMEOUT_MS = 5_000;
 
 export type GitCredentialRequest = Record<string, string>;
 
@@ -14,6 +15,7 @@ export type GitCredentialHelperConfig = Pick<
 > & {
   gitHost?: string;
   gitUsername?: string;
+  tokenBrokerTimeoutMs?: number;
 };
 
 export async function resolveGitCredential(
@@ -36,9 +38,29 @@ export async function resolveGitCredential(
     return "";
   }
 
-  const token = await resolveGitHubGraphQLToken(config, {
-    fetchImpl,
-  });
+  const tokenBrokerTimeoutMs =
+    config.tokenBrokerTimeoutMs ?? DEFAULT_TOKEN_BROKER_TIMEOUT_MS;
+  const tokenBrokerUrl = config.tokenBrokerUrl;
+  const brokerFetch: typeof fetch = (input, init) =>
+    fetchImpl(input, {
+      ...init,
+      signal: AbortSignal.timeout(tokenBrokerTimeoutMs),
+    });
+
+  let token: string;
+  try {
+    token = await resolveGitHubGraphQLToken(config, {
+      fetchImpl: brokerFetch,
+    });
+  } catch (error) {
+    if (tokenBrokerUrl && isTimeoutError(error)) {
+      throw new Error(
+        `Git credential token broker request to ${tokenBrokerUrl} timed out after ${tokenBrokerTimeoutMs}ms.`,
+        { cause: error }
+      );
+    }
+    throw error;
+  }
 
   return formatGitCredentialResponse({
     protocol: requestProtocol || "https",
@@ -111,4 +133,10 @@ if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
 
 function normalizeGitHost(host: string): string {
   return host.trim().toLowerCase();
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === "TimeoutError"
+    : error instanceof Error && error.name === "TimeoutError";
 }
