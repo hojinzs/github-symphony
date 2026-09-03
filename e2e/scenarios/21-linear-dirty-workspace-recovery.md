@@ -27,6 +27,7 @@ recovery scenario:
   partial artifact.
 - No `recovery-quarantined` event is emitted.
 - The recovered worker completes with the canonical fixture state `Done`.
+- The runner remains healthy while it atomically injects and reactivates the mounted fixture.
 
 ## Cleanup
 
