@@ -41,6 +41,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Built worker startup regressions
+        run: pnpm test:worker-startup
+
       - name: Run tests with coverage
         run: npx vitest run --coverage.enabled --coverage.reporter=json-summary --coverage.reporter=json
 
