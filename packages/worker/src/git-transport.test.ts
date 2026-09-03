@@ -338,7 +338,9 @@ describe("synchronizeAssignedBranch", { timeout: 15_000 }, () => {
         remoteUrl: `${server.url}/${remote.slice(root.length + 1)}`,
         env: {
           ...process.env,
-          GITHUB_GRAPHQL_TOKEN: undefined,
+          // The caller helper must remain ahead of the host helper. Before
+          // composition, this token replaced index 0 and reset the count to 1.
+          GITHUB_GRAPHQL_TOKEN: "unused-host-token",
           GITHUB_TOKEN_BROKER_URL: undefined,
           GITHUB_TOKEN_BROKER_SECRET: undefined,
           GIT_CONFIG_COUNT: "2",
