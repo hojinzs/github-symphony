@@ -169,4 +169,17 @@ describe("resolveGitCredentialHelperConfig", () => {
       tokenBrokerTimeoutMs: 7500,
     });
   });
+
+  it.each(["0", "-1", "1.5", "abc", "4294967296"])(
+    "rejects invalid operator broker timeout %s with an attributable diagnostic",
+    (timeout) => {
+      expect(() =>
+        resolveGitCredentialHelperConfig({
+          GITHUB_TOKEN_BROKER_TIMEOUT_MS: timeout,
+        })
+      ).toThrow(
+        `GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer no greater than 4294967295; received ${JSON.stringify(timeout)}.`
+      );
+    }
+  );
 });

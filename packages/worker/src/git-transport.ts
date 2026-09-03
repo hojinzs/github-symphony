@@ -233,9 +233,7 @@ export function buildHostGitEnvironment(
           githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
           githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
           githubTokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
-          tokenBrokerTimeoutMs: env.GITHUB_TOKEN_BROKER_TIMEOUT_MS
-            ? Number(env.GITHUB_TOKEN_BROKER_TIMEOUT_MS)
-            : undefined,
+          tokenBrokerTimeoutMs: env.GITHUB_TOKEN_BROKER_TIMEOUT_MS,
           gitHost: env.GITHUB_GIT_HOST,
           gitUsername: env.GITHUB_GIT_USERNAME,
         })

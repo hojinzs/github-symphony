@@ -7,6 +7,7 @@ import { writeSync } from "node:fs";
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
 const DEFAULT_TOKEN_BROKER_TIMEOUT_MS = 5_000;
+const MAX_TOKEN_BROKER_TIMEOUT_MS = 4_294_967_295;
 
 export type GitCredentialRequest = Record<string, string>;
 
@@ -130,10 +131,31 @@ export function resolveGitCredentialHelperConfig(
     tokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
     gitHost: env.GITHUB_GIT_HOST,
     gitUsername: env.GITHUB_GIT_USERNAME,
-    tokenBrokerTimeoutMs: env.GITHUB_TOKEN_BROKER_TIMEOUT_MS
-      ? Number(env.GITHUB_TOKEN_BROKER_TIMEOUT_MS)
-      : undefined,
+    tokenBrokerTimeoutMs: parseGitCredentialBrokerTimeoutMs(
+      env.GITHUB_TOKEN_BROKER_TIMEOUT_MS
+    ),
   };
+}
+
+export function parseGitCredentialBrokerTimeoutMs(
+  value: string | number | undefined
+): number | undefined {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+
+  const timeoutMs = typeof value === "number" ? value : Number(value);
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > MAX_TOKEN_BROKER_TIMEOUT_MS
+  ) {
+    throw new Error(
+      `GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer no greater than ${MAX_TOKEN_BROKER_TIMEOUT_MS}; received ${JSON.stringify(value)}.`
+    );
+  }
+
+  return timeoutMs;
 }
 
 if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {

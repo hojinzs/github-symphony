@@ -26,6 +26,7 @@ import {
   validateGitHubTokenBrokerUrl,
 } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
+import { parseGitCredentialBrokerTimeoutMs } from "./git-credential-helper.js";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
@@ -854,7 +855,7 @@ export function createGitCredentialHelperEnvironment(
   > & {
     gitHost?: string;
     gitUsername?: string;
-    tokenBrokerTimeoutMs?: number;
+    tokenBrokerTimeoutMs?: number | string;
   }
 ): Record<string, string> {
   const githubTokenBrokerUrl = config.githubTokenBrokerUrl
@@ -893,7 +894,9 @@ export function createGitCredentialHelperEnvironment(
       : {}),
     ...(config.tokenBrokerTimeoutMs !== undefined
       ? {
-          GITHUB_TOKEN_BROKER_TIMEOUT_MS: String(config.tokenBrokerTimeoutMs),
+          GITHUB_TOKEN_BROKER_TIMEOUT_MS: String(
+            parseGitCredentialBrokerTimeoutMs(config.tokenBrokerTimeoutMs)
+          ),
         }
       : {}),
   };

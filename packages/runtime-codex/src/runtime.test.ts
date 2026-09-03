@@ -548,6 +548,16 @@ describe("createGitCredentialHelperEnvironment", () => {
       })
     ).toThrow(/must use https/);
   });
+
+  it("rejects an invalid broker timeout before exposing it to git", () => {
+    expect(() =>
+      createGitCredentialHelperEnvironment({
+        githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
+        githubTokenBrokerSecret: "runtime-secret",
+        tokenBrokerTimeoutMs: 0,
+      })
+    ).toThrow(/GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer/);
+  });
 });
 
 describe("launchCodexAppServer", () => {
