@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { getProcessStartIdentity } from "./lock.js";
 import { runCli } from "./index.js";
 import type { OrchestratorLogLevel } from "./service.js";
 import type { OrchestratorService } from "./service.js";
@@ -406,6 +407,10 @@ describe("orchestrator CLI", () => {
         (command === "recover" ? service.recover : service.runOnce).mock
           .invocationCallOrder[0]
       );
+      expect(service.setOwnerToken).toHaveBeenCalledWith(
+        "owner-1",
+        getProcessStartIdentity(1234)
+      );
     }
   );
 
@@ -421,7 +426,7 @@ describe("orchestrator CLI", () => {
 
       expect(service.setOwnerToken).toHaveBeenCalledWith(
         expect.stringMatching(new RegExp(`^${process.pid}:`)),
-        expect.any(String)
+        getProcessStartIdentity(process.pid)
       );
     }
   );

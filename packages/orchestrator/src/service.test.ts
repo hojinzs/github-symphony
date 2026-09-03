@@ -32,6 +32,7 @@ import {
 import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
+import { getProcessStartIdentity } from "./lock.js";
 import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
 import {
   applyStateReadRoutability,
@@ -350,6 +351,32 @@ describe("OrchestratorService", () => {
         ownerProcessIdentity: "original-owner",
       } as OrchestratorRunRecord)
     ).toBe(false);
+  });
+
+  it("protects a run owned by a live foreign process with the same start identity", () => {
+    const ownerProcessIdentity = getProcessStartIdentity(process.pid);
+    expect(ownerProcessIdentity).not.toBeNull();
+    const service = new OrchestratorService(
+      {} as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "5100:current",
+        ownerProcessIdentity: "current-owner",
+        isOwnerProcessRunning: () => true,
+      }
+    );
+    const isRunProtectedByLiveOwner = (
+      service as unknown as {
+        isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
+      }
+    ).isRunProtectedByLiveOwner.bind(service);
+
+    expect(
+      isRunProtectedByLiveOwner({
+        ownerInstanceId: `${process.pid}:foreign`,
+        ownerProcessIdentity,
+      } as OrchestratorRunRecord)
+    ).toBe(true);
   });
 
   it("fails closed when a live owner's identity cannot be verified", () => {
