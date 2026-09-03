@@ -281,7 +281,9 @@ export type OrchestratorTrackerAdapter = {
   /**
    * Resolves tracker credentials for the worker host boundary. Project-scoped
    * values take precedence over daemon values, and adapters may require a
-   * complete credential set (for example a broker URL/secret pair).
+   * complete credential set (for example a broker URL/secret pair). Adapters
+   * backed by external trackers should implement this hook so missing
+   * credentials produce an observable dispatch warning.
    */
   resolveWorkerCredentials?(
     project: OrchestratorProjectConfig,

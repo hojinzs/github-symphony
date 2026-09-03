@@ -179,6 +179,8 @@ describe("buildCodexRuntimePlan", () => {
         HOME: "/Users/operator",
         GH_CONFIG_DIR: "/Users/operator/.config/gh",
         WORKSPACE_RUNTIME_DIR: "/tmp/runtime-123",
+        GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+        GITHUB_TOKEN_CACHE_PATH: "/tmp/runtime-123/github-token.json",
         SSH_AUTH_SOCK: "/tmp/operator-ssh-agent.sock",
         GIT_ASKPASS: "/tmp/operator-git-askpass",
         SSH_ASKPASS: "/tmp/operator-ssh-askpass",
@@ -201,7 +203,9 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GIT_CONFIG_KEY_0).toBeUndefined();
     expect(plan.env.GIT_CONFIG_VALUE_0).toBeUndefined();
     expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.env.GITHUB_TOKEN_BROKER_URL).toBeUndefined();
     expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
+    expect(plan.env.GITHUB_TOKEN_CACHE_PATH).toBeUndefined();
     expect(plan.env.LINEAR_API_KEY).toBeUndefined();
     expect(plan.env.LINEAR_AUTHORIZATION).toBeUndefined();
     expect(plan.env.SSH_AUTH_SOCK).toBeUndefined();

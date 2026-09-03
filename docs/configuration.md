@@ -430,7 +430,10 @@ from the project `.env` first and the daemon environment second, then injects it
 only into the worker host environment. The credential remains excluded from the
 coding-agent child. GitHub accepts either `GITHUB_GRAPHQL_TOKEN` or a complete
 `GITHUB_TOKEN_BROKER_URL`/`GITHUB_TOKEN_BROKER_SECRET` pair; incomplete pairs do
-not combine values across project and daemon scopes.
+not combine values across project and daemon scopes. Linear likewise treats
+each scope atomically: when either `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`
+is present in the project `.env`, only values from that project scope are
+forwarded and daemon values are not mixed into the credential set.
 
 For standalone projects, the project `.env` lives in the registered external
 project folder. For registry-backed or repo-embedded projects it lives at

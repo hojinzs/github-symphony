@@ -449,6 +449,8 @@ describe("buildHostGitEnvironment", () => {
 
     expect(env.GITHUB_GIT_HOST).toBe("github.enterprise.example");
     expect(env.GITHUB_GIT_USERNAME).toBe("symphony-service");
+    expect(env.GIT_CONFIG_COUNT).toBe("1");
+    expect(env.GIT_CONFIG_KEY_0).toBe("credential.helper");
     expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
   });
 });

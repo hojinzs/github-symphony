@@ -47,7 +47,9 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       "GH_ENTERPRISE_TOKEN",
       "GITHUB_TOKEN",
       "GITHUB_GRAPHQL_TOKEN",
+      "GITHUB_TOKEN_BROKER_URL",
       "GITHUB_TOKEN_BROKER_SECRET",
+      "GITHUB_TOKEN_CACHE_PATH",
     ];
   },
 

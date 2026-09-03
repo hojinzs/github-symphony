@@ -2868,8 +2868,6 @@ export class OrchestratorService {
     const now = this.now();
     const runId = createRunId(now, tenant.projectId, issue.identifier);
     const projectEnvironment = this.readProjectEnv(tenant);
-    const resolvesWorkerCredentials =
-      typeof trackerAdapter.resolveWorkerCredentials === "function";
     const workerCredentials =
       trackerAdapter.resolveWorkerCredentials?.(tenant, {
         project: projectEnvironment,
@@ -3172,7 +3170,7 @@ export class OrchestratorService {
     // exits between preparation and process spawn.
     await options.onPrepared?.(buildRunRecord(null));
     if (
-      resolvesWorkerCredentials &&
+      typeof trackerAdapter.resolveWorkerCredentials === "function" &&
       Object.keys(workerCredentials).length === 0
     ) {
       await this.store.appendRunEvent(runId, {
