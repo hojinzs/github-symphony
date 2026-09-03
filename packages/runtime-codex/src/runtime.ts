@@ -861,6 +861,9 @@ export function createGitCredentialHelperEnvironment(
   const githubTokenBrokerUrl = config.githubTokenBrokerUrl
     ? validateGitHubTokenBrokerUrl(config.githubTokenBrokerUrl)
     : undefined;
+  const tokenBrokerTimeoutMs = parseGitCredentialBrokerTimeoutMs(
+    config.tokenBrokerTimeoutMs
+  );
 
   return {
     GITHUB_GIT_HOST: config.gitHost?.trim() || DEFAULT_GITHUB_GIT_HOST,
@@ -892,11 +895,9 @@ export function createGitCredentialHelperEnvironment(
           GITHUB_TOKEN_CACHE_PATH: config.githubTokenCachePath,
         }
       : {}),
-    ...(config.tokenBrokerTimeoutMs !== undefined
+    ...(tokenBrokerTimeoutMs !== undefined
       ? {
-          GITHUB_TOKEN_BROKER_TIMEOUT_MS: String(
-            parseGitCredentialBrokerTimeoutMs(config.tokenBrokerTimeoutMs)
-          ),
+          GITHUB_TOKEN_BROKER_TIMEOUT_MS: String(tokenBrokerTimeoutMs),
         }
       : {}),
   };

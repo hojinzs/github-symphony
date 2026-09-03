@@ -140,7 +140,10 @@ export function resolveGitCredentialHelperConfig(
 export function parseGitCredentialBrokerTimeoutMs(
   value: string | number | undefined
 ): number | undefined {
-  if (value === undefined || value === "") {
+  if (
+    value === undefined ||
+    (typeof value === "string" && value.trim() === "")
+  ) {
     return undefined;
   }
 

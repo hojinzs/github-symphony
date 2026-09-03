@@ -558,6 +558,18 @@ describe("createGitCredentialHelperEnvironment", () => {
       })
     ).toThrow(/GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer/);
   });
+
+  it.each(["", "  "])(
+    "omits an unset broker timeout %j from the helper environment",
+    (tokenBrokerTimeoutMs) => {
+      const env = createGitCredentialHelperEnvironment({
+        githubToken: "host-token",
+        tokenBrokerTimeoutMs,
+      });
+
+      expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_TIMEOUT_MS");
+    }
+  );
 });
 
 describe("launchCodexAppServer", () => {

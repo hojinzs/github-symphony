@@ -170,6 +170,17 @@ describe("resolveGitCredentialHelperConfig", () => {
     });
   });
 
+  it.each(["", "  "])(
+    "treats an empty broker timeout %j as unset",
+    (timeout) => {
+      expect(
+        resolveGitCredentialHelperConfig({
+          GITHUB_TOKEN_BROKER_TIMEOUT_MS: timeout,
+        }).tokenBrokerTimeoutMs
+      ).toBeUndefined();
+    }
+  );
+
   it.each(["0", "-1", "1.5", "abc", "2147483648"])(
     "rejects invalid operator broker timeout %s with an attributable diagnostic",
     (timeout) => {
