@@ -277,6 +277,40 @@ function isDueRetryReservation(
   return dueAtMs !== null && dueAtMs <= now.getTime();
 }
 
+function sortRunsForReconciliation(
+  activeRuns: OrchestratorRunRecord[],
+  now: Date
+): OrchestratorRunRecord[] {
+  return activeRuns
+    .map((run, index) => ({
+      run,
+      index,
+      dueAtMs:
+        run.status === "retrying" ? parseTimestampMs(run.nextRetryAt) : null,
+    }))
+    .sort((left, right) => {
+      const leftIsDue = left.dueAtMs !== null && left.dueAtMs <= now.getTime();
+      const rightIsDue =
+        right.dueAtMs !== null && right.dueAtMs <= now.getTime();
+      if (leftIsDue !== rightIsDue) {
+        return leftIsDue ? 1 : -1;
+      }
+      if (!leftIsDue) {
+        return left.index - right.index;
+      }
+      if (left.dueAtMs !== right.dueAtMs) {
+        return (left.dueAtMs ?? 0) - (right.dueAtMs ?? 0);
+      }
+      const identifierOrder = left.run.issueIdentifier.localeCompare(
+        right.run.issueIdentifier
+      );
+      return identifierOrder !== 0
+        ? identifierOrder
+        : left.run.runId.localeCompare(right.run.runId);
+    })
+    .map(({ run }) => run);
+}
+
 function parseFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -1259,7 +1293,7 @@ export class OrchestratorService {
       activeRuns,
       now
     );
-    for (const run of activeRuns) {
+    for (const run of sortRunsForReconciliation(activeRuns, now)) {
       let outcome: {
         issueRecords: IssueOrchestrationRecord[];
         recovered: boolean;
@@ -5225,19 +5259,23 @@ export class OrchestratorService {
     const retryPolicy = suppressed
       ? null
       : await this.loadRetryPolicy(tenant, run.repository);
+    const queuedDueAt = issueRecord?.retryEntry?.dueAt;
+    const retainedDueAt =
+      options.advanceAttempt === false &&
+      queuedDueAt !== undefined &&
+      parseTimestampMs(queuedDueAt) !== null
+        ? queuedDueAt
+        : null;
     const dueAt = suppressed
       ? null
-      : (retryPolicy
-          ? options.advanceAttempt === false
-            ? new Date(
-                now.getTime() + (await this.loadProjectPollInterval(tenant))
-              )
-            : scheduleRetryAt(now, attempt, retryPolicy)
+      : (retainedDueAt ??
+        (retryPolicy
+          ? scheduleRetryAt(now, attempt, retryPolicy)
           : new Date(
               now.getTime() +
                 (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
             )
-        ).toISOString();
+        ).toISOString());
     const lastError = suppressed
       ? formatMaxFailureRetrySuppression(
           run,
