@@ -217,7 +217,8 @@ export function shouldSynchronizeAssignedBranch(options: {
   userInputRequired: boolean;
   terminalFailure: boolean;
 }): boolean {
-  return !options.userInputRequired && !options.terminalFailure;
+  void options;
+  return true;
 }
 
 export function buildHostGitEnvironment(

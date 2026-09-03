@@ -432,8 +432,8 @@ describe("synchronizeAssignedBranch", { timeout: 15_000 }, () => {
 describe("shouldSynchronizeAssignedBranch", () => {
   it.each([
     { userInputRequired: false, terminalFailure: false, expected: true },
-    { userInputRequired: false, terminalFailure: true, expected: false },
-    { userInputRequired: true, terminalFailure: false, expected: false },
+    { userInputRequired: false, terminalFailure: true, expected: true },
+    { userInputRequired: true, terminalFailure: false, expected: true },
   ])(
     "returns $expected for userInputRequired=$userInputRequired terminalFailure=$terminalFailure",
     ({ userInputRequired, terminalFailure, expected }) => {

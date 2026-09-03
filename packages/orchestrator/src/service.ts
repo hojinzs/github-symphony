@@ -551,9 +551,29 @@ export class OrchestratorService {
     });
     if (!run) return rejected("run_not_current");
 
+    return this.publishAssignedBranchForRun(run);
+  }
+
+  private async publishAssignedBranchForRun(
+    run: OrchestratorRunRecord
+  ): Promise<{
+    ok: boolean;
+    outcome: "published" | "rejected" | "failed";
+    branch: string | null;
+    head: string | null;
+    unpublishedWorktree: import("@gh-symphony/core").UnpublishedWorktree | null;
+    error: string | null;
+  }> {
     const assignedBranch = await readGitCurrentBranch(run.workingDirectory);
     if (!assignedBranch) {
-      return rejected("assigned_branch_unavailable");
+      return {
+        ok: false,
+        outcome: "rejected",
+        branch: null,
+        head: null,
+        unpublishedWorktree: null,
+        error: "assigned_branch_unavailable",
+      };
     }
     const publish =
       this.dependencies.publishAssignedBranch ?? trySynchronizeAssignedBranch;
@@ -561,16 +581,22 @@ export class OrchestratorService {
       cwd: run.workingDirectory,
       assignedBranch,
       remoteUrl: run.repository.cloneUrl,
-      env: process.env,
+      env: this.buildProjectExecutionEnv(this.projectConfig, {}),
     });
     if (!attempt.ok) {
+      const error = `git_transport_failed: ${attempt.error}`;
+      await this.persistAssignedBranchPublishResult(run, {
+        lastEvent: "assigned-branch-publish-failed",
+        lastError: error,
+        unpublishedWorktree: null,
+      });
       return {
         ok: false,
         outcome: "failed",
         branch: assignedBranch,
         head: null,
         unpublishedWorktree: null,
-        error: `git_transport_failed: ${attempt.error}`,
+        error,
       };
     }
 
@@ -582,19 +608,10 @@ export class OrchestratorService {
           ...unpublished,
         }
       : null;
-    await this.runSerialized(async () => {
-      const latest = await this.store.loadRun(
-        run.runId,
-        this.projectConfig.projectId
-      );
-      if (!latest) return;
-      await this.store.saveRun({
-        ...latest,
-        updatedAt: this.now().toISOString(),
-        lastEvent: "assigned-branch-published",
-        lastEventAt: this.now().toISOString(),
-        unpublishedWorktree,
-      });
+    await this.persistAssignedBranchPublishResult(run, {
+      lastEvent: "assigned-branch-published",
+      lastError: run.lastError ?? null,
+      unpublishedWorktree,
     });
     return {
       ok: true,
@@ -604,6 +621,25 @@ export class OrchestratorService {
       unpublishedWorktree,
       error: null,
     };
+  }
+
+  private async persistAssignedBranchPublishResult(
+    run: OrchestratorRunRecord,
+    result: Pick<
+      OrchestratorRunRecord,
+      "lastEvent" | "lastError" | "unpublishedWorktree"
+    >
+  ): Promise<void> {
+    const latest =
+      (await this.store.loadRun(run.runId, this.projectConfig.projectId)) ??
+      run;
+    const now = this.now().toISOString();
+    await this.store.saveRun({
+      ...latest,
+      ...result,
+      updatedAt: now,
+      lastEventAt: now,
+    });
   }
 
   async acquireWorkerTurnLease(input: {
@@ -2054,6 +2090,7 @@ export class OrchestratorService {
           if (!activeRun || activeRun.processId === null) {
             continue;
           }
+          const publication = await this.publishAssignedBranchForRun(activeRun);
           if (
             (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
           ) {
@@ -2085,9 +2122,12 @@ export class OrchestratorService {
                 )
               : activeRun.runtimeSession,
             recovery,
-            lastError: recovery
-              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
-              : "Run suppressed because the tracker issue is no longer tracked.",
+            unpublishedWorktree: publication.unpublishedWorktree,
+            lastError:
+              (publication.outcome === "failed" ? publication.error : null) ??
+              (recovery
+                ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+                : "Run suppressed because the tracker issue is no longer tracked."),
           };
           await this.store.saveRun(suppressedRun);
           this.logVerbose(
@@ -2137,6 +2177,7 @@ export class OrchestratorService {
           continue;
         }
 
+        const publication = await this.publishAssignedBranchForRun(activeRun);
         if (
           (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
         ) {
@@ -2174,13 +2215,16 @@ export class OrchestratorService {
               )
             : activeRun.runtimeSession,
           recovery,
-          lastError: activeButUnroutable
-            ? `Run canceled by reconciliation because the active tracker issue is not routable: ${routability?.reason ?? "no reason was provided"}`
-            : recovery
-              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
-              : terminalState
-                ? "Run suppressed because the tracker issue moved to a terminal state."
-                : "Run suppressed because the tracker state is no longer actionable.",
+          unpublishedWorktree: publication.unpublishedWorktree,
+          lastError:
+            (publication.outcome === "failed" ? publication.error : null) ??
+            (activeButUnroutable
+              ? `Run canceled by reconciliation because the active tracker issue is not routable: ${routability?.reason ?? "no reason was provided"}`
+              : recovery
+                ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+                : terminalState
+                  ? "Run suppressed because the tracker issue moved to a terminal state."
+                  : "Run suppressed because the tracker state is no longer actionable."),
         };
         await this.store.saveRun(suppressedRun);
         this.logVerbose(

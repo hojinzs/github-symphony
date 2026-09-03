@@ -1957,7 +1957,7 @@ describe("OrchestratorService", () => {
       cwd: tempRoot,
       assignedBranch: "symphony/acme-platform-1",
       remoteUrl: "https://github.com/acme/platform.git",
-      env: process.env,
+      env: expect.any(Object),
     });
     await expect(
       store.loadRun("run-1", projectConfig.projectId)
@@ -14401,6 +14401,23 @@ Handle archived item reconciliation.`,
     const listIssues = vi.fn().mockResolvedValue([]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([archivedIssue]);
     const killImpl = vi.fn();
+    const publishAssignedBranch = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        branch: "symphony/acme-platform-1",
+        pushed: true,
+        head: "abc123",
+        unpublishedWorktreeChanges: {
+          tracked: [" M partial.txt"],
+          untracked: [],
+          trackedOmitted: 0,
+          untrackedOmitted: 0,
+        },
+      },
+    });
+    vi.spyOn(gitModule, "readGitCurrentBranch").mockResolvedValue(
+      "symphony/acme-platform-1"
+    );
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
@@ -14418,6 +14435,7 @@ Handle archived item reconciliation.`,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
       killImpl,
       isProcessRunning: vi.fn().mockReturnValue(true),
+      publishAssignedBranch,
     });
 
     const snapshot = await service.runOnce();
@@ -14430,6 +14448,15 @@ Handle archived item reconciliation.`,
       expect.any(Object)
     );
     expect(killImpl).toHaveBeenCalledWith(4209, "SIGTERM");
+    expect(publishAssignedBranch).toHaveBeenCalledWith({
+      cwd: join(tempRoot, "active-run"),
+      assignedBranch: "symphony/acme-platform-1",
+      remoteUrl: repository.cloneUrl,
+      env: expect.any(Object),
+    });
+    expect(publishAssignedBranch.mock.invocationCallOrder[0]).toBeLessThan(
+      killImpl.mock.invocationCallOrder[0]!
+    );
     expect(updatedRun).toMatchObject({
       status: "suppressed",
       issueState: "Archived",
@@ -14437,6 +14464,11 @@ Handle archived item reconciliation.`,
       runPhase: "canceled_by_reconciliation",
       lastError:
         "Run suppressed because the tracker state is no longer actionable.",
+      unpublishedWorktree: {
+        branch: "symphony/acme-platform-1",
+        head: "abc123",
+        tracked: [" M partial.txt"],
+      },
     });
     expect(issueRecords[0]?.state).toBe("released");
     expect(snapshot.activeRuns).toHaveLength(0);
