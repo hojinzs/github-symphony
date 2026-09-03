@@ -16,6 +16,7 @@ const orchestratorMocks = vi.hoisted(() => ({
   shutdown: vi.fn(),
   requestReconcile: vi.fn(),
   acquireWorkerTurnLease: vi.fn(),
+  requestAssignedBranchPublish: vi.fn(),
   requestTrackerState: vi.fn(),
   setWorkerOrchestratorUrl: vi.fn(),
   setWorkerOrchestratorToken: vi.fn(),
@@ -28,6 +29,7 @@ const {
   shutdown,
   requestReconcile,
   acquireWorkerTurnLease,
+  requestAssignedBranchPublish,
   requestTrackerState,
   setWorkerOrchestratorUrl,
   setWorkerOrchestratorToken,
@@ -82,6 +84,8 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     shutdown = orchestratorMocks.shutdown;
     requestReconcile = orchestratorMocks.requestReconcile;
     acquireWorkerTurnLease = orchestratorMocks.acquireWorkerTurnLease;
+    requestAssignedBranchPublish =
+      orchestratorMocks.requestAssignedBranchPublish;
     requestTrackerState = orchestratorMocks.requestTrackerState;
     setWorkerOrchestratorUrl = orchestratorMocks.setWorkerOrchestratorUrl;
     setWorkerOrchestratorToken = orchestratorMocks.setWorkerOrchestratorToken;
@@ -142,6 +146,15 @@ beforeEach(() => {
   acquireWorkerTurnLease.mockResolvedValue({
     acquired: true,
     expiresAt: "2026-07-15T00:00:15.000Z",
+  });
+  requestAssignedBranchPublish.mockReset();
+  requestAssignedBranchPublish.mockResolvedValue({
+    ok: true,
+    outcome: "published",
+    branch: "symphony/acme-platform-1",
+    head: "abc123",
+    unpublishedWorktree: null,
+    error: null,
   });
   requestTrackerState.mockReset();
   requestTrackerState.mockResolvedValue({
@@ -1562,6 +1575,28 @@ Handle {{issue.identifier}}.\n`,
           reason: "validation passed",
           commentBody: "agent-authored transition body",
         },
+      });
+      const publishResponse = await fetch(
+        `${url}/api/v1/assigned-branch/publish`,
+        {
+          method: "POST",
+          headers: {
+            "x-symphony-run-id": "run-1",
+            "x-symphony-orchestrator-token": workerApiToken,
+          },
+        }
+      );
+      expect(publishResponse.status).toBe(200);
+      await expect(publishResponse.json()).resolves.toEqual({
+        ok: true,
+        outcome: "published",
+        branch: "symphony/acme-platform-1",
+        head: "abc123",
+        unpublishedWorktree: null,
+        error: null,
+      });
+      expect(requestAssignedBranchPublish).toHaveBeenCalledWith({
+        runId: "run-1",
       });
       expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);
       expect(setWorkerOrchestratorToken).toHaveBeenCalledWith(workerApiToken);

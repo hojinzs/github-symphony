@@ -67,6 +67,10 @@ import {
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import {
+  trySynchronizeAssignedBranch,
+  type GitTransportAttempt,
+} from "@gh-symphony/worker/git-transport";
+import {
   ensureIssueWorkspaceRepository,
   inspectIssueWorkspaceDirtyStatus,
   loadWorkflowFile,
@@ -481,6 +485,12 @@ export class OrchestratorService {
       rmImpl?: typeof rm;
       ownerToken?: string;
       ownerProcessIdentity?: string | null;
+      publishAssignedBranch?: (input: {
+        cwd: string;
+        assignedBranch: string;
+        remoteUrl: string;
+        env: NodeJS.ProcessEnv;
+      }) => Promise<GitTransportAttempt>;
     } = {}
   ) {
     assertIssueWorkspaceRootIsOutsideRepository(projectConfig);
@@ -503,6 +513,97 @@ export class OrchestratorService {
 
   setWorkerOrchestratorToken(token: string): void {
     this.workerOrchestratorToken = token;
+  }
+
+  async requestAssignedBranchPublish(input: { runId: string }): Promise<{
+    ok: boolean;
+    outcome: "published" | "rejected" | "failed";
+    branch: string | null;
+    head: string | null;
+    unpublishedWorktree: import("@gh-symphony/core").UnpublishedWorktree | null;
+    error: string | null;
+  }> {
+    const rejected = (error: string) => ({
+      ok: false,
+      outcome: "rejected" as const,
+      branch: null,
+      head: null,
+      unpublishedWorktree: null,
+      error,
+    });
+    const run = await this.runSerialized(async () => {
+      const candidate = await this.store.loadRun(
+        input.runId,
+        this.projectConfig.projectId
+      );
+      if (!candidate) return null;
+      const issueRecords = await this.store.loadProjectIssueOrchestrations(
+        this.projectConfig.projectId
+      );
+      const issueRecord = issueRecords.find(
+        (record) => record.issueId === candidate.issueId
+      );
+      return issueRecord?.state === "running" &&
+        issueRecord.currentRunId === candidate.runId &&
+        isActiveRunRecordStatus(candidate.status)
+        ? candidate
+        : null;
+    });
+    if (!run) return rejected("run_not_current");
+
+    const assignedBranch = await readGitCurrentBranch(run.workingDirectory);
+    if (!assignedBranch) {
+      return rejected("assigned_branch_unavailable");
+    }
+    const publish =
+      this.dependencies.publishAssignedBranch ?? trySynchronizeAssignedBranch;
+    const attempt = await publish({
+      cwd: run.workingDirectory,
+      assignedBranch,
+      remoteUrl: run.repository.cloneUrl,
+      env: process.env,
+    });
+    if (!attempt.ok) {
+      return {
+        ok: false,
+        outcome: "failed",
+        branch: assignedBranch,
+        head: null,
+        unpublishedWorktree: null,
+        error: `git_transport_failed: ${attempt.error}`,
+      };
+    }
+
+    const unpublished = attempt.result.unpublishedWorktreeChanges;
+    const unpublishedWorktree = unpublished
+      ? {
+          branch: attempt.result.branch,
+          head: attempt.result.head,
+          ...unpublished,
+        }
+      : null;
+    await this.runSerialized(async () => {
+      const latest = await this.store.loadRun(
+        run.runId,
+        this.projectConfig.projectId
+      );
+      if (!latest) return;
+      await this.store.saveRun({
+        ...latest,
+        updatedAt: this.now().toISOString(),
+        lastEvent: "assigned-branch-published",
+        lastEventAt: this.now().toISOString(),
+        unpublishedWorktree,
+      });
+    });
+    return {
+      ok: true,
+      outcome: "published",
+      branch: attempt.result.branch,
+      head: attempt.result.head,
+      unpublishedWorktree,
+      error: null,
+    };
   }
 
   async acquireWorkerTurnLease(input: {

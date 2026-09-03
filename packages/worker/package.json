@@ -13,6 +13,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./git-transport": {
+      "types": "./dist/git-transport.d.ts",
+      "import": "./dist/git-transport.js",
+      "default": "./dist/git-transport.js"
     }
   },
   "files": [

@@ -1869,6 +1869,104 @@ describe("OrchestratorService", () => {
     ]);
   });
 
+  it("publishes the current run branch repeatedly through the host transport", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-assigned-branch-publish-")
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "issue-1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-07-30T13:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "issue-1",
+      workspaceRuntimeDir: join(tempRoot, "runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-07-30T13:00:00.000Z",
+      updatedAt: "2026-07-30T13:00:00.000Z",
+      startedAt: "2026-07-30T13:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+    vi.spyOn(gitModule, "readGitCurrentBranch").mockResolvedValue(
+      "symphony/acme-platform-1"
+    );
+    const publishAssignedBranch = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        branch: "symphony/acme-platform-1",
+        pushed: true,
+        head: "abc123",
+        unpublishedWorktreeChanges: null,
+      },
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-07-30T13:01:00.000Z"),
+      publishAssignedBranch,
+    });
+
+    const first = await service.requestAssignedBranchPublish({
+      runId: "run-1",
+    });
+    const second = await service.requestAssignedBranchPublish({
+      runId: "run-1",
+    });
+
+    expect(first).toEqual({
+      ok: true,
+      outcome: "published",
+      branch: "symphony/acme-platform-1",
+      head: "abc123",
+      unpublishedWorktree: null,
+      error: null,
+    });
+    expect(second).toEqual(first);
+    expect(publishAssignedBranch).toHaveBeenCalledTimes(2);
+    expect(publishAssignedBranch).toHaveBeenCalledWith({
+      cwd: tempRoot,
+      assignedBranch: "symphony/acme-platform-1",
+      remoteUrl: "https://github.com/acme/platform.git",
+      env: process.env,
+    });
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      lastEvent: "assigned-branch-published",
+      unpublishedWorktree: null,
+    });
+  });
+
   it("publishes transition comments only after confirmation and preserves transition failures", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-transition-comment-")
