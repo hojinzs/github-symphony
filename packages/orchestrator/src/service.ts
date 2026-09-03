@@ -281,6 +281,7 @@ function sortRunsForReconciliation(
   activeRuns: OrchestratorRunRecord[],
   now: Date
 ): OrchestratorRunRecord[] {
+  const nowMs = now.getTime();
   return activeRuns
     .map((run, index) => ({
       run,
@@ -289,9 +290,8 @@ function sortRunsForReconciliation(
         run.status === "retrying" ? parseTimestampMs(run.nextRetryAt) : null,
     }))
     .sort((left, right) => {
-      const leftIsDue = left.dueAtMs !== null && left.dueAtMs <= now.getTime();
-      const rightIsDue =
-        right.dueAtMs !== null && right.dueAtMs <= now.getTime();
+      const leftIsDue = left.dueAtMs !== null && left.dueAtMs <= nowMs;
+      const rightIsDue = right.dueAtMs !== null && right.dueAtMs <= nowMs;
       if (leftIsDue !== rightIsDue) {
         return leftIsDue ? 1 : -1;
       }
@@ -301,12 +301,14 @@ function sortRunsForReconciliation(
       if (left.dueAtMs !== right.dueAtMs) {
         return (left.dueAtMs ?? 0) - (right.dueAtMs ?? 0);
       }
-      const identifierOrder = left.run.issueIdentifier.localeCompare(
-        right.run.issueIdentifier
-      );
-      return identifierOrder !== 0
-        ? identifierOrder
-        : left.run.runId.localeCompare(right.run.runId);
+      if (left.run.issueIdentifier !== right.run.issueIdentifier) {
+        return left.run.issueIdentifier < right.run.issueIdentifier ? -1 : 1;
+      }
+      return left.run.runId === right.run.runId
+        ? 0
+        : left.run.runId < right.run.runId
+          ? -1
+          : 1;
     })
     .map(({ run }) => run);
 }
@@ -5256,9 +5258,6 @@ export class OrchestratorService {
     );
     const suppressed =
       options.countFailure !== false && failureRetryCount >= maxFailureRetries;
-    const retryPolicy = suppressed
-      ? null
-      : await this.loadRetryPolicy(tenant, run.repository);
     const queuedDueAt = issueRecord?.retryEntry?.dueAt;
     const retainedDueAt =
       options.advanceAttempt === false &&
@@ -5266,16 +5265,27 @@ export class OrchestratorService {
       parseTimestampMs(queuedDueAt) !== null
         ? queuedDueAt
         : null;
-    const dueAt = suppressed
-      ? null
-      : (retainedDueAt ??
-        (retryPolicy
-          ? scheduleRetryAt(now, attempt, retryPolicy)
-          : new Date(
-              now.getTime() +
-                (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
-            )
-        ).toISOString());
+    let dueAt: string | null = null;
+    if (!suppressed) {
+      if (retainedDueAt) {
+        dueAt = retainedDueAt;
+      } else if (options.advanceAttempt === false) {
+        dueAt = new Date(
+          now.getTime() + (await this.loadProjectPollInterval(tenant))
+        ).toISOString();
+      } else {
+        const retryPolicy = await this.loadRetryPolicy(tenant, run.repository);
+        dueAt = (
+          retryPolicy
+            ? scheduleRetryAt(now, attempt, retryPolicy)
+            : new Date(
+                now.getTime() +
+                  (this.dependencies.retryBackoffMs ??
+                    DEFAULT_RETRY_BACKOFF_MS)
+              )
+        ).toISOString();
+      }
+    }
     const lastError = suppressed
       ? formatMaxFailureRetrySuppression(
           run,
@@ -5283,7 +5293,9 @@ export class OrchestratorService {
           maxFailureRetries,
           error
         )
-      : error;
+      : (options.advanceAttempt === false
+        ? (issueRecord?.retryEntry?.error ?? run.lastError ?? error)
+        : error);
     const sessionEndedAt = run.completedAt ?? now.toISOString();
     await this.store.saveRun({
       ...run,
@@ -5323,7 +5335,7 @@ export class OrchestratorService {
           ? run.issueState
           : (issueRecord?.failureRetrySuppressedState ?? null),
         currentRunId: suppressed ? null : run.runId,
-        retryEntry: dueAt ? { attempt, dueAt, error } : null,
+        retryEntry: dueAt ? { attempt, dueAt, error: lastError } : null,
         updatedAt: now.toISOString(),
       }),
       recovered: false,

@@ -1080,7 +1080,8 @@ describe("OrchestratorService", () => {
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
-      "platform"
+      "platform",
+      { schedulerPollIntervalMs: 30_000, retryBaseDelayMs: 10_000 }
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
@@ -1094,7 +1095,7 @@ describe("OrchestratorService", () => {
       issueState: "Todo",
       repository,
       status: "retrying",
-      attempt: 2,
+      attempt: 4,
       processId: null,
       port: 4601,
       workingDirectory: tempRoot,
@@ -1107,7 +1108,7 @@ describe("OrchestratorService", () => {
       startedAt: "2026-03-07T23:58:00.000Z",
       completedAt: null,
       lastError: "worker failed",
-      nextRetryAt: now.toISOString(),
+      nextRetryAt: "2026-03-07T23:55:00.000Z",
     } as OrchestratorRunRecord;
     const issueRecords: IssueOrchestrationRecord[] = [
       {
@@ -1120,7 +1121,7 @@ describe("OrchestratorService", () => {
         currentRunId: run.runId,
         retryEntry: {
           attempt: run.attempt,
-          dueAt: now.toISOString(),
+          dueAt: "2026-03-07T23:55:00.000Z",
           error: run.lastError,
         },
         updatedAt: now.toISOString(),
@@ -1160,13 +1161,44 @@ describe("OrchestratorService", () => {
       startedAt: null,
       completedAt: now.toISOString(),
       cumulativeRuntimeMs: 120_000,
-      nextRetryAt: now.toISOString(),
+      nextRetryAt: "2026-03-07T23:55:00.000Z",
+      lastError: "worker failed",
     });
     expect(result.issueRecords[0]).toMatchObject({
       failureRetryCount: 0,
       retryEntry: expect.objectContaining({
-        attempt: 2,
-        dueAt: now.toISOString(),
+        attempt: 4,
+        dueAt: "2026-03-07T23:55:00.000Z",
+        error: "worker failed",
+      }),
+    });
+
+    const fallbackRun = {
+      ...run,
+      runId: "run-recovery-fallback",
+      issueId: "retry-fallback-issue",
+      issueSubjectId: "retry-fallback-issue",
+      issueIdentifier: "acme/platform#2",
+      issueWorkspaceKey: "retry-fallback-issue",
+    };
+    const fallbackResult = await requeueRetryingRun(
+      projectConfig,
+      fallbackRun,
+      [],
+      now,
+      "no available orchestrator slots",
+      { countFailure: false, advanceAttempt: false }
+    );
+
+    expect(await store.loadRun(fallbackRun.runId)).toMatchObject({
+      nextRetryAt: "2026-03-08T00:00:30.000Z",
+      lastError: "worker failed",
+    });
+    expect(fallbackResult.issueRecords[0]).toMatchObject({
+      retryEntry: expect.objectContaining({
+        attempt: 4,
+        dueAt: "2026-03-08T00:00:30.000Z",
+        error: "worker failed",
       }),
     });
   });
