@@ -60,6 +60,7 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   releaseProjectLock: orchestratorMocks.releaseProjectLock,
   createStore: vi.fn(() => ({ kind: "store" })),
   getProcessIdentity: vi.fn((pid: number) => `process-${pid}`),
+  getProcessStartIdentity: vi.fn((pid: number) => `start-${pid}`),
   isProcessRunning: vi.fn(() => true),
   resolveProjectLockPath: (runtimeRoot: string, projectId: string) =>
     join(runtimeRoot, "projects", projectId, ".lock"),
@@ -918,6 +919,10 @@ Handle {{issue.identifier}}.\n`,
       projectId: "tenant-a",
     });
     expect(run).toHaveBeenCalledTimes(1);
+    expect(serviceDependencies.at(-1)).toMatchObject({
+      ownerToken: "owner",
+      ownerProcessIdentity: "start-1234",
+    });
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
