@@ -22,6 +22,7 @@ import {
   createStore,
   getSupportedTrackerKinds,
   getProcessIdentity,
+  getProcessStartIdentity,
   releaseProjectLock,
   resolveOrchestratorLogLevel,
   resolveWorkflowConfigTrackerAdapter,
@@ -1135,6 +1136,7 @@ const handler = async (
       logLevel,
       assignedOnly: parsed.assignedOnly,
       ownerToken: projectLock.ownerToken,
+      ownerProcessIdentity: getProcessStartIdentity(projectLock.pid),
       onTick: async (snapshot) => {
         try {
           if (authShutdownRequested) {

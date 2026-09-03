@@ -12,6 +12,7 @@
     "e2e:compose-project-test": "bash e2e/lib/compose-project.test.sh",
     "e2e:fixture-replacement-test": "bash e2e/lib/fixture-replacement.test.sh",
     "e2e:claude": "bash test/e2e/claude/run-docker-e2e.sh",
+    "test:worker-startup": "vitest run --config test/e2e/claude/vitest.config.ts",
     "dev:orchestrator": "pnpm --filter @gh-symphony/orchestrator dev",
     "dev:worker": "pnpm --filter @gh-symphony/worker dev",
     "lint": "pnpm -r lint",

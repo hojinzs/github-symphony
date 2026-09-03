@@ -468,6 +468,7 @@ export class OrchestratorService {
   private workerOrchestratorUrl: string | null = null;
   private workerOrchestratorToken: string | null = null;
   private ownerToken: string | null = null;
+  private ownerProcessIdentity: string | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -496,14 +497,20 @@ export class OrchestratorService {
       assignedOnly?: boolean;
       rmImpl?: typeof rm;
       ownerToken?: string;
+      ownerProcessIdentity?: string | null;
     } = {}
   ) {
     assertIssueWorkspaceRootIsOutsideRepository(projectConfig);
     this.ownerToken = dependencies.ownerToken ?? null;
+    this.ownerProcessIdentity = dependencies.ownerProcessIdentity ?? null;
   }
 
-  setOwnerToken(ownerToken: string): void {
+  setOwnerToken(
+    ownerToken: string,
+    ownerProcessIdentity: string | null = null
+  ): void {
     this.ownerToken = ownerToken;
+    this.ownerProcessIdentity = ownerProcessIdentity;
   }
 
   setWorkerOrchestratorUrl(url: string, apiToken?: string): void {
@@ -3153,6 +3160,7 @@ export class OrchestratorService {
       processId,
       processIdentity,
       ownerInstanceId: this.ownerToken,
+      ownerProcessIdentity: this.ownerProcessIdentity,
       port: null,
       workingDirectory: repositoryDirectory,
       issueWorkspaceKey: workspaceKey,
@@ -5659,7 +5667,17 @@ export class OrchestratorService {
       return false;
     }
     const ownerPid = parseOwnerProcessId(run.ownerInstanceId);
-    return ownerPid !== null && this.isOwnerProcessRunning(ownerPid);
+    if (ownerPid === null || !this.isOwnerProcessRunning(ownerPid)) {
+      return false;
+    }
+    if (!run.ownerProcessIdentity) {
+      return true;
+    }
+    const liveOwnerIdentity = this.resolveProcessIdentity(ownerPid);
+    return (
+      liveOwnerIdentity === null ||
+      liveOwnerIdentity === run.ownerProcessIdentity
+    );
   }
 
   private isOwnerProcessRunning(processId: number): boolean {

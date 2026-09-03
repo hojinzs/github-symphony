@@ -107,7 +107,10 @@ export async function runCli(
   const exitProcess = dependencies.exitProcess ?? process.exit;
   const signalTarget = dependencies.signalTarget ?? process;
   const setUnscopedOwnerToken = (): void => {
-    service.setOwnerToken(`${process.pid}:${randomUUID()}`);
+    service.setOwnerToken(
+      `${process.pid}:${randomUUID()}`,
+      getProcessStartIdentity(process.pid)
+    );
   };
   const withProjectMutationLock = async <T>(
     action: () => Promise<T>
@@ -122,7 +125,7 @@ export async function runCli(
       projectId: parsed.projectId,
     });
     try {
-      service.setOwnerToken(lock.ownerToken);
+      service.setOwnerToken(lock.ownerToken, getProcessStartIdentity(lock.pid));
       return await action();
     } finally {
       await (dependencies.releaseLock ?? releaseProjectLock)(lock);
@@ -185,7 +188,10 @@ export async function runCli(
             runtimeRoot,
             projectId: parsed.projectId,
           });
-          service.setOwnerToken(lock.ownerToken);
+          service.setOwnerToken(
+            lock.ownerToken,
+            getProcessStartIdentity(lock.pid)
+          );
         } else {
           setUnscopedOwnerToken();
         }
