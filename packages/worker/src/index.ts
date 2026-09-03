@@ -55,6 +55,7 @@ import {
 } from "./runtime-routing.js";
 import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
+import { resolveTrackerCredentialPreflight } from "./tracker-credential-preflight.js";
 import {
   applyGitTransportAttempt,
   shouldSynchronizeAssignedBranch,
@@ -536,6 +537,14 @@ async function startAssignedRun() {
       await exitWorkerStartupFailure(
         `Issue identity preflight failed: ${identityPreflight.reason}`
       );
+      return;
+    }
+
+    const trackerCredentialPreflight = resolveTrackerCredentialPreflight(
+      launcherEnv
+    );
+    if (!trackerCredentialPreflight.ok) {
+      await exitWorkerStartupFailure(trackerCredentialPreflight.reason);
       return;
     }
 
