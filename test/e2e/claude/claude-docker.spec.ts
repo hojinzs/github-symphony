@@ -453,7 +453,12 @@ Worker prompt.
     await runGit(workspace, "config", "user.name", "Symphony E2E");
     await runGit(workspace, "config", "user.email", "e2e@example.com");
     await runGit(workspace, "add", "WORKFLOW.md");
-    await runGit(workspace, "commit", "-m", "test: seed Codex startup workspace");
+    await runGit(
+      workspace,
+      "commit",
+      "-m",
+      "test: seed Codex startup workspace"
+    );
     await runGit(workspace, "remote", "add", "origin", remote);
     await runGit(workspace, "push", "origin", "feat/assigned");
 
@@ -478,7 +483,7 @@ Worker prompt.
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "PROJECT_ID or CODEX_PROJECT_ID is required."
+      "[worker] startup failed: PROJECT_ID or CODEX_PROJECT_ID is required."
     );
     const heartbeats = result.stderr
       .split("\n")
@@ -494,7 +499,7 @@ Worker prompt.
     expect(heartbeats.at(-1)).toMatchObject({
       issueId: "issue-worker-codex-startup",
       runPhase: "failed",
-      lastError: "PROJECT_ID or CODEX_PROJECT_ID is required.",
+      lastError: "startup failed: PROJECT_ID or CODEX_PROJECT_ID is required.",
     });
   });
 

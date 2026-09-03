@@ -657,7 +657,7 @@ async function startAssignedRun() {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown worker startup error";
-    await exitWorkerStartupFailure(message);
+    await exitWorkerStartupFailure(`startup failed: ${message}`);
   }
 }
 
