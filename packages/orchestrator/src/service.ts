@@ -1701,6 +1701,10 @@ export class OrchestratorService {
           );
           dispatchWarnings.push(warning);
           this.warnMissingWorkerCredentialOnce(tenant, warning);
+          // `skipped` includes both provider items that could not be mapped and
+          // actionable issues held back by the worker credential gate. The
+          // warning distinguishes this operator-actionable subset without
+          // changing the existing status snapshot contract.
           skipped += 1;
           continue;
         }

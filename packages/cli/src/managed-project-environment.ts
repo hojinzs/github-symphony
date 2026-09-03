@@ -10,9 +10,10 @@ export function resolveManagedProjectEnvironment(
   projectConfig: Pick<OrchestratorProjectConfig, "projectDir" | "projectId">,
   runtimeRoot: string
 ): NodeJS.ProcessEnv {
-  const projectDirectory =
-    projectConfig.projectDir ??
-    join(runtimeRoot, "projects", encodeURIComponent(projectConfig.projectId));
+  const projectDirectory = resolveManagedProjectDirectory(
+    projectConfig,
+    runtimeRoot
+  );
   const envPath = join(projectDirectory, ".env");
 
   try {

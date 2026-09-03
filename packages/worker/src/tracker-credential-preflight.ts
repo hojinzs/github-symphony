@@ -55,5 +55,8 @@ export function resolveTrackerCredentialPreflight(
     };
   }
 
+  // File-backed and harness adapters do not require hosted credentials. Keep
+  // unknown values permissive so worker preflight does not define the adapter
+  // registry; the orchestrator remains responsible for adapter validation.
   return { ok: true };
 }

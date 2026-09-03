@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { OrchestratorProjectConfig } from "@gh-symphony/core";
+import { githubProjectTrackerAdapter } from "@gh-symphony/tracker-github";
+import { linearTrackerAdapter } from "@gh-symphony/tracker-linear";
 import { resolveTrackerCredentialPreflight } from "./tracker-credential-preflight.js";
+
+const project = {} as OrchestratorProjectConfig;
 
 describe("resolveTrackerCredentialPreflight", () => {
   it("rejects a GitHub worker without a credential before launch", () => {
@@ -76,4 +81,45 @@ describe("resolveTrackerCredentialPreflight", () => {
       })
     ).toEqual({ ok: true });
   });
+
+  it.each([
+    ["github-project", githubProjectTrackerAdapter, {}],
+    [
+      "github-project",
+      githubProjectTrackerAdapter,
+      { GITHUB_GRAPHQL_TOKEN: "token" },
+    ],
+    [
+      "github-project",
+      githubProjectTrackerAdapter,
+      { GITHUB_TOKEN_BROKER_URL: "https://broker.example/token" },
+    ],
+    [
+      "github-project",
+      githubProjectTrackerAdapter,
+      {
+        GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+        GITHUB_TOKEN_BROKER_SECRET: "secret",
+      },
+    ],
+    ["linear", linearTrackerAdapter, {}],
+    ["linear", linearTrackerAdapter, { LINEAR_API_KEY: "key" }],
+    ["linear", linearTrackerAdapter, { LINEAR_AUTHORIZATION: "Bearer token" }],
+  ] as const)(
+    "matches the %s adapter credential contract for %j",
+    (adapterName, adapter, environment) => {
+      const preflight = resolveTrackerCredentialPreflight({
+        SYMPHONY_TRACKER_ADAPTER: adapterName,
+        ...environment,
+      });
+      const credentials = adapter.resolveWorkerCredentials?.(project, {
+        project: {},
+        daemon: environment,
+      });
+
+      expect(preflight.ok).toBe(
+        credentials !== undefined && Object.keys(credentials).length > 0
+      );
+    }
+  );
 });
