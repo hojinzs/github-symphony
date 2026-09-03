@@ -420,7 +420,8 @@ describe("orchestrator CLI", () => {
       });
 
       expect(service.setOwnerToken).toHaveBeenCalledWith(
-        expect.stringMatching(new RegExp(`^${process.pid}:`))
+        expect.stringMatching(new RegExp(`^${process.pid}:`)),
+        expect.any(String)
       );
     }
   );
