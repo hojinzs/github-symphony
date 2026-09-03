@@ -494,7 +494,9 @@ describe("buildHostGitEnvironment", () => {
         GITHUB_GRAPHQL_TOKEN: "host-token",
         GIT_CONFIG_COUNT: "not-a-count",
       })
-    ).toThrow("invalid GIT_CONFIG_COUNT for host Git transport: not-a-count");
+    ).toThrow(
+      "invalid GIT_CONFIG_COUNT for host Git transport: expected a non-negative safe integer"
+    );
   });
 });
 

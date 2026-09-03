@@ -253,13 +253,13 @@ export function buildHostGitEnvironment(
   const gitConfigCountValue = env.GIT_CONFIG_COUNT ?? "0";
   if (!/^\d+$/.test(gitConfigCountValue)) {
     throw new Error(
-      `invalid GIT_CONFIG_COUNT for host Git transport: ${gitConfigCountValue}`
+      "invalid GIT_CONFIG_COUNT for host Git transport: expected a non-negative safe integer"
     );
   }
   const gitConfigCount = Number(gitConfigCountValue);
   if (!Number.isSafeInteger(gitConfigCount)) {
     throw new Error(
-      `invalid GIT_CONFIG_COUNT for host Git transport: ${gitConfigCountValue}`
+      "invalid GIT_CONFIG_COUNT for host Git transport: expected a non-negative safe integer"
     );
   }
 
