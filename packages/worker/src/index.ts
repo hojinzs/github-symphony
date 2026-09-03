@@ -657,14 +657,7 @@ async function startAssignedRun() {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown worker startup error";
-    runtimeState.status = "failed";
-    runtimeState.runPhase = "failed";
-
-    if (runtimeState.run) {
-      runtimeState.run.lastError = message;
-    }
-    process.stderr.write(`[worker] startup failed: ${message}\n`);
-    await persistSessionTokenUsageArtifact(launcherEnv);
+    await exitWorkerStartupFailure(message);
   }
 }
 

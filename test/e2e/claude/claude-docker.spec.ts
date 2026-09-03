@@ -426,6 +426,78 @@ lines.on("line", (line) => {
     expect(result.stderr).toContain("origin/feat/assigned is not an ancestor");
   });
 
+  it("fails a built Codex worker startup with a terminal failed heartbeat", async () => {
+    const root = await mkdtemp(join(tmpdir(), "worker-codex-startup-e2e-"));
+    createdRoots.push(root);
+    const workspace = join(root, "workspace");
+    const runtimeRoot = join(root, "runtime");
+    const workflowPath = join(workspace, "WORKFLOW.md");
+    await mkdir(workspace, { recursive: true });
+    await mkdir(runtimeRoot, { recursive: true });
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  command: codex app-server
+---
+Worker prompt.
+`,
+      "utf8"
+    );
+    const remote = join(root, "remote.git");
+    await runGit(root, "init", "--bare", remote);
+    await runGit(workspace, "init", "-b", "feat/assigned");
+    await runGit(workspace, "config", "user.name", "Symphony E2E");
+    await runGit(workspace, "config", "user.email", "e2e@example.com");
+    await runGit(workspace, "add", "WORKFLOW.md");
+    await runGit(workspace, "commit", "-m", "test: seed Codex startup workspace");
+    await runGit(workspace, "remote", "add", "origin", remote);
+    await runGit(workspace, "push", "origin", "feat/assigned");
+
+    const result = await runWorkerProcess({
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PROJECT_ID: undefined,
+        CODEX_PROJECT_ID: undefined,
+        WORKING_DIRECTORY: workspace,
+        SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
+        TARGET_REPOSITORY_CLONE_URL: remote,
+        WORKSPACE_RUNTIME_DIR: runtimeRoot,
+        SYMPHONY_WORKFLOW_PATH: workflowPath,
+        SYMPHONY_RENDERED_PROMPT: "Handle worker Codex startup issue.",
+        SYMPHONY_RUN_ID: "run-worker-codex-startup-failure",
+        SYMPHONY_ISSUE_ID: "issue-worker-codex-startup",
+        SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#779",
+        SYMPHONY_ISSUE_STATE: "In progress",
+      },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "PROJECT_ID or CODEX_PROJECT_ID is required."
+    );
+    const heartbeats = result.stderr
+      .split("\n")
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((payload): payload is Record<string, unknown> => payload !== null)
+      .filter((payload) => payload.type === "heartbeat");
+    expect(heartbeats.at(-1)).toMatchObject({
+      issueId: "issue-worker-codex-startup",
+      runPhase: "failed",
+      lastError: "PROJECT_ID or CODEX_PROJECT_ID is required.",
+    });
+  });
+
   it("keeps --resume within an intra-run continuation without --fork-session", async () => {
     const harness = await createHarness("retry-then-success");
 
