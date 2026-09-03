@@ -481,18 +481,24 @@ if [ "$SCENARIO" = "api-progress-unknown" ]; then
     import { execFileSync } from "node:child_process";
     const eventPaths = execFileSync("find", ["/e2e/work", "-path", `*/runs/${process.env.SCENARIO_RUN_ID}/events.ndjson`], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
     if (eventPaths.length !== 1) throw new Error(`expected_one_event_log:${JSON.stringify(eventPaths)}`);
-    const events = readFileSync(eventPaths[0], "utf8").trim().split("\n").map(JSON.parse).filter((event) => event.event === "run-finalization-deferred");
+    const allEvents = readFileSync(eventPaths[0], "utf8").trim().split("\n").map(JSON.parse);
+    const events = allEvents.filter((event) => event.event === "run-finalization-deferred");
     if (events.length !== 3) throw new Error(`expected_three_deferrals:${JSON.stringify(events)}`);
     for (let index = 0; index < events.length; index += 1) {
       if (events[index].consecutiveDeferrals !== index + 1 || events[index].maxDeferrals !== 3 || events[index].exhausted !== (index === 2)) {
         throw new Error(`unexpected_deferral_sequence:${JSON.stringify(events)}`);
       }
     }
+    const retry = allEvents.find((event) => event.event === "run-retried" && event.retryKind === "failure");
+    if (!retry) {
+      throw new Error(`missing_finalization_failure_retry:${JSON.stringify(allEvents)}`);
+    }
   '
   log "=== Result ==="
   log "  Canonical tracker readback: unknown after confirmed progress"
   log "  Persisted deferrals:        3 (bounded)"
   log "  Final deferral exhausted:   YES"
+  log "  Failure retry scheduled:    YES"
   echo ""
   log "PASSED"
   exit 0

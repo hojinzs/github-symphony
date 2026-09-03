@@ -3465,6 +3465,8 @@ export class OrchestratorService {
     const workerInfo = await this.fetchWorkerRunInfo(run);
     const runWithTokens: OrchestratorRunRecord = {
       ...run,
+      // The pid was retired above; the process is confirmed dead past this point.
+      processId: null,
       runtimeSession: buildRuntimeSession(
         run.runtimeSession,
         workerInfo.sessionId,
