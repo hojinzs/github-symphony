@@ -26,10 +26,7 @@ export function resolveTrackerCredentialPreflight(
   const adapter = env.SYMPHONY_TRACKER_ADAPTER?.trim().toLowerCase();
 
   if (adapter === "linear") {
-    if (
-      hasValue(env.LINEAR_AUTHORIZATION) ||
-      hasValue(env.LINEAR_API_KEY)
-    ) {
+    if (hasValue(env.LINEAR_AUTHORIZATION) || hasValue(env.LINEAR_API_KEY)) {
       return { ok: true };
     }
 

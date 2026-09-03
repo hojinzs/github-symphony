@@ -540,9 +540,8 @@ async function startAssignedRun() {
       return;
     }
 
-    const trackerCredentialPreflight = resolveTrackerCredentialPreflight(
-      launcherEnv
-    );
+    const trackerCredentialPreflight =
+      resolveTrackerCredentialPreflight(launcherEnv);
     if (!trackerCredentialPreflight.ok) {
       await exitWorkerStartupFailure(trackerCredentialPreflight.reason);
       return;
