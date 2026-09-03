@@ -7,7 +7,7 @@ import { writeSync } from "node:fs";
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
 const DEFAULT_TOKEN_BROKER_TIMEOUT_MS = 5_000;
-const MAX_TOKEN_BROKER_TIMEOUT_MS = 4_294_967_295;
+const MAX_TOKEN_BROKER_TIMEOUT_MS = 2_147_483_647;
 
 export type GitCredentialRequest = Record<string, string>;
 
