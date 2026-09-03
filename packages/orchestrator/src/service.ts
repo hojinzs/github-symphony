@@ -197,6 +197,23 @@ export function resolveDirtyWorkAttributionBranches(
   return checkoutTarget ? [checkoutTarget.headRefName] : [];
 }
 
+export function assertAssignedBranchMatchesTemplate(input: {
+  assignedBranch: string;
+  branchTemplate?: string | null;
+  issueIdentifier: string;
+  pullRequestBranch?: { headRefName: string } | null;
+  baseBranch?: string | null;
+}): void {
+  if (!input.branchTemplate || input.pullRequestBranch) return;
+
+  const baseBranch = input.baseBranch?.trim();
+  if (!baseBranch || input.assignedBranch !== baseBranch) return;
+
+  throw new Error(
+    `Cannot launch worker for ${input.issueIdentifier}: configured branch template resolved to configured base branch ${baseBranch}.`
+  );
+}
+
 /**
  * Replaces the initial state-read with facts from one freshly normalized
  * snapshot so a worker never combines an old lifecycle state with new label
@@ -3013,6 +3030,13 @@ export class OrchestratorService {
         `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
       );
     }
+    assertAssignedBranchMatchesTemplate({
+      assignedBranch,
+      branchTemplate,
+      issueIdentifier: issue.identifier,
+      pullRequestBranch,
+      baseBranch,
+    });
 
     const shouldSaveWorkspaceRecord =
       !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;

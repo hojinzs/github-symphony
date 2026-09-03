@@ -273,11 +273,16 @@ orchestrator state remains under `.runtime/orchestrator`, while populated issue
 workspaces live at `<workspace.root>/<sanitized-issue-identifier>`; when omitted,
 `workspace.root` defaults to `.runtime/symphony-workspaces`. `repo init` creates
 the resolved root with mode `0700`, and rejects a root that equals or contains
-the repository checkout. Each issue is
-populated from the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git`
-using a worktree. Branches default to
-`symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
-one repository without branch collisions. The project `.env` is loaded first
+the repository checkout. Standalone-project issue workspaces are populated from
+the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git` using worktrees.
+Repo-embedded runtimes keep the `clone` populate strategy written by `repo init`:
+each issue receives an isolated clone, then the clone checks out
+`repository.branch_template` from `origin/<repository.base_branch>` with no
+upstream. A linked pull request head still takes precedence. Existing
+repo-embedded tenant configs need no migration; the corrected checkout behavior
+applies on the next workspace creation or reuse. Branches default to
+`symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use one
+repository without branch collisions. The project `.env` is loaded first
 for project hooks and workers, then host process values override it; keep it
 mode `0600` and do not commit it. Workflow reload caching compares a SHA-256
 digest of the effective environment so project and host secret values are not

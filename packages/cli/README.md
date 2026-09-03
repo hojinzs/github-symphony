@@ -326,6 +326,13 @@ gh-symphony repo stop                # Stop this repository
 
 `gh-symphony repo init` reads `WORKFLOW.md` (or `--workflow-file <path>`), infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`. The selected workflow path is persisted and startup validates it before launching the daemon. With an explicit `GH_SYMPHONY_CONFIG_DIR` or `--config <dir>`, it also registers a path-scoped record in that shared config directory and makes it active so `repo start` in the repository or one of its subdirectories selects this repository. Existing records for other repositories are preserved.
 
+Repository mode keeps the `clone` populate strategy written by `repo init`.
+Each issue clone checks out the rendered `repository.branch_template` from
+`origin/<repository.base_branch>` without an upstream, unless a linked pull
+request head is available. Existing tenant configs require no migration; the
+fixed checkout applies when their workspace is next created or reused.
+Standalone `project` mode continues to use shared-cache worktrees.
+
 ### Why Is My Issue Not Running?
 
 Use `gh-symphony repo explain <owner/repo#number>` before digging through

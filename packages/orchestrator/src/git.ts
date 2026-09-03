@@ -177,7 +177,7 @@ export async function ensureIssueWorkspaceRepository(input: {
     ? await syncExistingIssueWorkspaceRepository(
         {
           ...input,
-          skipPull: Boolean(input.pullRequestBranch),
+          skipPull: Boolean(input.pullRequestBranch || input.branchTemplate),
           allowDirty: input.allowDirtyExistingWorkspace,
         },
         (dirtyAllowed) => {
@@ -198,9 +198,54 @@ export async function ensureIssueWorkspaceRepository(input: {
       repositoryDirectory,
       input.pullRequestBranch
     );
+  } else if (
+    input.branchTemplate &&
+    !dirtyExistingWorkspaceAllowed &&
+    input.projectSlug &&
+    input.issueIdentifier
+  ) {
+    await checkoutIssueBranch(repositoryDirectory, {
+      branchName: renderIssueBranchName({
+        template: input.branchTemplate,
+        projectSlug: input.projectSlug,
+        issueIdentifier: input.issueIdentifier,
+      }),
+      baseBranch:
+        input.baseBranch ??
+        (await readOriginDefaultBranch(repositoryDirectory)),
+    });
   }
 
   return repositoryDirectory;
+}
+
+async function checkoutIssueBranch(
+  repositoryDirectory: string,
+  input: { branchName: string; baseBranch: string }
+): Promise<void> {
+  const currentBranch = await readGitCurrentBranch(repositoryDirectory);
+  if (currentBranch === input.branchName) return;
+
+  await runCommand("git", ["check-ref-format", "--branch", input.branchName]);
+  await runCommand("git", [
+    "-C",
+    repositoryDirectory,
+    "checkout",
+    "-B",
+    input.branchName,
+    `refs/remotes/origin/${input.baseBranch}`,
+  ]);
+  try {
+    await runCommand("git", [
+      "-C",
+      repositoryDirectory,
+      "branch",
+      "--unset-upstream",
+      input.branchName,
+    ]);
+  } catch {
+    // A freshly created branch normally has no upstream already.
+  }
 }
 
 export async function removeIssueWorkspaceWorktree(input: {

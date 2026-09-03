@@ -575,6 +575,14 @@ gh-symphony repo recover --dry-run       # Preview what would be recovered
 
 `gh-symphony repo init` binds the orchestrator to the cwd repository. It reads `WORKFLOW.md` (or `--workflow-file <path>`), infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`. The selected absolute workflow path is persisted and validated before `repo start` or `project start` launches the daemon. When `GH_SYMPHONY_CONFIG_DIR` or `--config <dir>` is explicitly set, it also registers a path-scoped record in that shared config directory and makes it active, so `repo start` in the repository or one of its subdirectories selects this repository. Other repository records in the directory are preserved.
 
+Repo-embedded runtimes continue to use the `clone` populate strategy written by
+`repo init`. Each issue clone checks out the rendered
+`repository.branch_template` from `origin/<repository.base_branch>` without an
+upstream; a linked pull request head overrides the template. Existing tenant
+configs require no migration and receive this behavior when a workspace is next
+created or reused. Standalone `project` mode continues to use the shared bare
+cache and worktrees.
+
 For Linear tracker repositories, `WORKFLOW.md` remains the source of truth:
 
 ```yaml

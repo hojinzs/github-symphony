@@ -35,6 +35,7 @@ import * as gitModule from "./git.js";
 import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
 import {
   applyStateReadRoutability,
+  assertAssignedBranchMatchesTemplate,
   clampPollInterval,
   OrchestratorService,
   resolveDirtyWorkAttributionBranches,
@@ -43,6 +44,33 @@ import {
   shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
+
+describe("assigned branch validation", () => {
+  it("rejects a clone workspace left on the configured base branch", () => {
+    expect(() =>
+      assertAssignedBranchMatchesTemplate({
+        assignedBranch: "main",
+        branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+        issueIdentifier: "acme/platform#42",
+        baseBranch: "main",
+      })
+    ).toThrow(
+      "configured branch template resolved to configured base branch main"
+    );
+  });
+
+  it("allows a pull request head to override the configured template", () => {
+    expect(() =>
+      assertAssignedBranchMatchesTemplate({
+        assignedBranch: "feature/pr-head",
+        branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+        issueIdentifier: "acme/platform#42",
+        baseBranch: "main",
+        pullRequestBranch: { headRefName: "feature/pr-head" },
+      })
+    ).not.toThrow();
+  });
+});
 
 describe("state-read routability", () => {
   const confirmed = {
@@ -17257,7 +17285,7 @@ async function writeWorkflowFixture(
 ): Promise<void> {
   const content = normalizeTrackerProviderFixture(
     options.rawWorkflow ??
-    `---
+      `---
 tracker:
   kind: github-project
   provider:
@@ -17324,15 +17352,14 @@ function normalizeTrackerProviderFixture(content: string): string {
     const key = trackerLines[index]?.match(/^[ ]{2}([a-z_]+):/)?.[1];
     let next = index + 1;
     while (
-      next < trackerLines.length && !/^[ ]{2}\S/.test(trackerLines[next]!)
+      next < trackerLines.length &&
+      !/^[ ]{2}\S/.test(trackerLines[next]!)
     ) {
       next += 1;
     }
     const block = trackerLines.slice(index, next);
     if (key && flatKeys.has(key)) {
-      providerLines.push(
-        ...block.map((line) => `  ${line}`)
-      );
+      providerLines.push(...block.map((line) => `  ${line}`));
     } else {
       remaining.push(...block);
     }

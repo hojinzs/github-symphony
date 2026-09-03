@@ -538,6 +538,116 @@ describe("cloneRepositoryForRun", () => {
     ).toBe("false");
   });
 
+  it("checks out the rendered template branch from the configured base for clone workspaces", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-git-template-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_42");
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      populateStrategy: "clone",
+      projectSlug: "acme/platform",
+      issueIdentifier: "acme/platform#42",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+      baseBranch: "main",
+    });
+
+    expect(
+      execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("agents/acme-platform/acme-platform-42");
+    expect(
+      execSync(`git -C "${repositoryDirectory}" rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(
+      execSync(`git -C "${repositoryDirectory}" rev-parse origin/main`, {
+        encoding: "utf8",
+      }).trim()
+    );
+    expect(() =>
+      execSync(
+        `git -C "${repositoryDirectory}" rev-parse --abbrev-ref --symbolic-full-name @{upstream}`,
+        { stdio: "pipe" }
+      )
+    ).toThrow();
+  });
+
+  it("lets a pull request head branch override the clone workspace template", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-git-pr-template-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    execSync(`git -C "${repository.path}" checkout -b feature/pr-template`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-template`);
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "acme_platform_43"),
+      existingWorkspace: false,
+      populateStrategy: "clone",
+      pullRequestBranch: { headRefName: "feature/pr-template" },
+      projectSlug: "acme/platform",
+      issueIdentifier: "acme/platform#43",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+      baseBranch: "main",
+    });
+
+    expect(
+      execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("feature/pr-template");
+  });
+
+  it("reuses an existing clone workspace already on its template branch", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-git-reuse-template-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const input = {
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "acme_platform_44"),
+      populateStrategy: "clone" as const,
+      projectSlug: "acme/platform",
+      issueIdentifier: "acme/platform#44",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+      baseBranch: "main",
+    };
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      ...input,
+      existingWorkspace: false,
+    });
+    const before = execSync(
+      `git -C "${repositoryDirectory}" reflog -1 --format=%H`,
+      {
+        encoding: "utf8",
+      }
+    ).trim();
+
+    const reusedDirectory = await ensureIssueWorkspaceRepository({
+      ...input,
+      existingWorkspace: true,
+    });
+
+    expect(reusedDirectory).toBe(repositoryDirectory);
+    expect(
+      execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("agents/acme-platform/acme-platform-44");
+    expect(
+      execSync(`git -C "${repositoryDirectory}" reflog -1 --format=%H`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(before);
+  });
+
   it("migrates a reused shallow checkout before checking out a pull request branch", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
     const repository = await createRepositoryFixture(tempRoot);
