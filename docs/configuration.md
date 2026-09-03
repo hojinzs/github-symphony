@@ -472,16 +472,24 @@ operator's credential stores.
 Use these when workers need short-lived credentials or when Git traffic must
 target a non-`github.com` host.
 
-| Variable                         | Default          | Read by                                 | Audience          | Notes                                                                                                                         |
-| -------------------------------- | ---------------- | --------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `GITHUB_TOKEN_BROKER_URL`        | unset            | Worker host tools and Git transport     | User-facing/ops   | Broker endpoint for GitHub tokens. It is host-only and not inherited by agent children by default.                            |
-| `GITHUB_TOKEN_BROKER_SECRET`     | unset            | Worker host tools and Git transport     | User-facing/ops   | Shared secret sent to the GitHub token broker. It is declared as a tracker secret and removed from agent children by default. |
-| `GITHUB_TOKEN_CACHE_PATH`        | unset            | Worker host tools and Git transport     | User-facing/ops   | Optional host-side file path for caching brokered GitHub tokens.                                                              |
-| `GITHUB_GIT_HOST`                | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the credential helper, for example `github.example`; retained at the host boundary.                       |
-| `GITHUB_GIT_USERNAME`            | `x-access-token` | Git credential helper                   | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                 |
-| `AGENT_CREDENTIAL_BROKER_URL`    | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Broker endpoint for agent provider credentials such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.                               |
-| `AGENT_CREDENTIAL_BROKER_SECRET` | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Shared secret sent to the agent credential broker. Set with `AGENT_CREDENTIAL_BROKER_URL`.                                    |
-| `AGENT_CREDENTIAL_CACHE_PATH`    | unset            | Codex runtime                           | User-facing/ops   | Optional file path for caching brokered agent credentials.                                                                    |
+| Variable                                                     | Default          | Read by                                 | Audience          | Notes                                                                                                                                                  |
+| ------------------------------------------------------------ | ---------------- | --------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Broker endpoint for GitHub tokens. It is host-only and not inherited by agent children by default.                                                     |
+| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Worker host tools and Git transport     | User-facing/ops   | Shared secret sent to the GitHub token broker. It is declared as a tracker secret and removed from agent children by default.                          |
+| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Optional host-side file path for caching brokered GitHub tokens.                                                                                       |
+| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the credential helper, for example `github.example`; retained at the host boundary.                                                |
+| `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper                   | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
+| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport               | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
+| `AGENT_CREDENTIAL_BROKER_URL`                                | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Broker endpoint for agent provider credentials such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.                                                        |
+| `AGENT_CREDENTIAL_BROKER_SECRET`                             | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Shared secret sent to the agent credential broker. Set with `AGENT_CREDENTIAL_BROKER_URL`.                                                             |
+| `AGENT_CREDENTIAL_CACHE_PATH`                                | unset            | Codex runtime                           | User-facing/ops   | Optional file path for caching brokered agent credentials.                                                                                             |
+
+When host Git credentials are available, Symphony appends its
+`credential.helper` entry after the caller-supplied indexed Git configuration.
+Git therefore consults caller-supplied credential helpers first, and a helper
+that returns complete credentials can shadow Symphony's tenant-scoped helper.
+Treat `GIT_CONFIG_*` values from the process or project `.env` as trusted host
+configuration.
 
 ## Agent Runtime Credentials
 
