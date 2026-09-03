@@ -277,7 +277,8 @@ the repository checkout. Standalone-project issue workspaces are populated from
 the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git` using worktrees.
 Repo-embedded runtimes keep the `clone` populate strategy written by `repo init`:
 each issue receives an isolated clone, then the clone checks out
-`repository.branch_template` from `origin/<repository.base_branch>` with no
+`repository.branch_template` from `origin/<repository.base_branch>` (or the
+origin default branch when `repository.base_branch` is omitted) with no
 upstream. A linked pull request head still takes precedence. Existing
 repo-embedded tenant configs need no migration; the corrected checkout behavior
 applies on the next workspace creation or reuse. Branches default to

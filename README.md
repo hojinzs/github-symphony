@@ -577,7 +577,8 @@ gh-symphony repo recover --dry-run       # Preview what would be recovered
 
 Repo-embedded runtimes continue to use the `clone` populate strategy written by
 `repo init`. Each issue clone checks out the rendered
-`repository.branch_template` from `origin/<repository.base_branch>` without an
+`repository.branch_template` from `origin/<repository.base_branch>` (or the
+origin default branch when `repository.base_branch` is omitted) without an
 upstream; a linked pull request head overrides the template. Existing tenant
 configs require no migration and receive this behavior when a workspace is next
 created or reused. Standalone `project` mode continues to use the shared bare

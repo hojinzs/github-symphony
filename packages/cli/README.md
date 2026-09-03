@@ -328,7 +328,8 @@ gh-symphony repo stop                # Stop this repository
 
 Repository mode keeps the `clone` populate strategy written by `repo init`.
 Each issue clone checks out the rendered `repository.branch_template` from
-`origin/<repository.base_branch>` without an upstream, unless a linked pull
+`origin/<repository.base_branch>` (or the origin default branch when omitted)
+without an upstream, unless a linked pull
 request head is available. Existing tenant configs require no migration; the
 fixed checkout applies when their workspace is next created or reused.
 Standalone `project` mode continues to use shared-cache worktrees.

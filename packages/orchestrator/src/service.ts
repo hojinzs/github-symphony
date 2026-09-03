@@ -73,6 +73,7 @@ import {
   loadRepositoryWorkflow,
   quarantineIssueWorkspace,
   readGitCurrentBranch,
+  readOriginDefaultBranch,
   removeIssueWorkspaceWorktree,
   runGitCommand,
 } from "./git.js";
@@ -201,13 +202,19 @@ export function assertAssignedBranchMatchesTemplate(input: {
   assignedBranch: string;
   branchTemplate?: string | null;
   issueIdentifier: string;
-  pullRequestBranch?: { headRefName: string } | null;
-  baseBranch?: string | null;
+  hasPullRequestBranch?: boolean;
+  baseBranch: string;
+  dirtyWorkspaceRecovery?: boolean;
 }): void {
-  if (!input.branchTemplate || input.pullRequestBranch) return;
+  if (
+    !input.branchTemplate ||
+    input.hasPullRequestBranch ||
+    input.dirtyWorkspaceRecovery
+  )
+    return;
 
-  const baseBranch = input.baseBranch?.trim();
-  if (!baseBranch || input.assignedBranch !== baseBranch) return;
+  const baseBranch = input.baseBranch.trim();
+  if (input.assignedBranch !== baseBranch) return;
 
   throw new Error(
     `Cannot launch worker for ${input.issueIdentifier}: configured branch template resolved to configured base branch ${baseBranch}.`
@@ -3041,8 +3048,11 @@ export class OrchestratorService {
       assignedBranch,
       branchTemplate,
       issueIdentifier: issue.identifier,
-      pullRequestBranch,
-      baseBranch,
+      hasPullRequestBranch: Boolean(pullRequestBranch),
+      baseBranch:
+        baseBranch ?? (await readOriginDefaultBranch(repositoryDirectory)),
+      dirtyWorkspaceRecovery:
+        recovery?.kind === "incomplete-turn-dirty-workspace",
     });
 
     const shouldSaveWorkspaceRecord =

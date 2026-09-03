@@ -213,6 +213,7 @@ export async function ensureIssueWorkspaceRepository(input: {
       baseBranch:
         input.baseBranch ??
         (await readOriginDefaultBranch(repositoryDirectory)),
+      refreshBase: input.existingWorkspace,
     });
   }
 
@@ -221,12 +222,30 @@ export async function ensureIssueWorkspaceRepository(input: {
 
 async function checkoutIssueBranch(
   repositoryDirectory: string,
-  input: { branchName: string; baseBranch: string }
+  input: { branchName: string; baseBranch: string; refreshBase: boolean }
 ): Promise<void> {
   const currentBranch = await readGitCurrentBranch(repositoryDirectory);
   if (currentBranch === input.branchName) return;
 
   await runCommand("git", ["check-ref-format", "--branch", input.branchName]);
+  if (await hasLocalBranch(repositoryDirectory, input.branchName)) {
+    await runCommand("git", [
+      "-C",
+      repositoryDirectory,
+      "checkout",
+      input.branchName,
+    ]);
+    return;
+  }
+  if (input.refreshBase) {
+    await runCommand("git", [
+      "-C",
+      repositoryDirectory,
+      "fetch",
+      "origin",
+      input.baseBranch,
+    ]);
+  }
   await runCommand("git", [
     "-C",
     repositoryDirectory,
@@ -573,7 +592,9 @@ function hasGitError(error: unknown, message: string): boolean {
   return error instanceof Error && error.message.includes(message);
 }
 
-async function readOriginDefaultBranch(bareDirectory: string): Promise<string> {
+export async function readOriginDefaultBranch(
+  bareDirectory: string
+): Promise<string> {
   const ref = (
     await runGitCommandCapture([
       "-C",

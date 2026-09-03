@@ -648,6 +648,89 @@ describe("cloneRepositoryForRun", () => {
     ).toBe(before);
   });
 
+  it("reuses a local template branch with unpublished commits when HEAD drifted", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-git-local-template-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const input = {
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "acme_platform_45"),
+      populateStrategy: "clone" as const,
+      projectSlug: "acme/platform",
+      issueIdentifier: "acme/platform#45",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+      baseBranch: "main",
+    };
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      ...input,
+      existingWorkspace: false,
+    });
+    await writeFile(
+      join(repositoryDirectory, "agent-work.txt"),
+      "unpublished\n",
+      "utf8"
+    );
+    execSync(`git -C "${repositoryDirectory}" add agent-work.txt`);
+    execSync(`git -C "${repositoryDirectory}" commit -m "Agent work"`);
+    const unpublishedHead = execSync(
+      `git -C "${repositoryDirectory}" rev-parse HEAD`,
+      {
+        encoding: "utf8",
+      }
+    ).trim();
+    execSync(`git -C "${repositoryDirectory}" checkout main`);
+
+    await ensureIssueWorkspaceRepository({ ...input, existingWorkspace: true });
+
+    expect(
+      execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("agents/acme-platform/acme-platform-45");
+    expect(
+      execSync(`git -C "${repositoryDirectory}" rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(unpublishedHead);
+  });
+
+  it("fetches the current base before migrating a reused clone", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-git-migrate-template-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_46");
+    const repositoryDirectory = join(issueWorkspacePath, "repository");
+    await mkdir(issueWorkspacePath, { recursive: true });
+    execSync(`git clone "${repository.cloneUrl}" "${repositoryDirectory}"`);
+
+    await writeFile(join(repository.path, "upstream.txt"), "current\n", "utf8");
+    execSync(`git -C "${repository.path}" add upstream.txt`);
+    execSync(`git -C "${repository.path}" commit -m "Advance base"`);
+    execSync(`git -C "${repository.path}" push origin main`);
+    const currentBase = execSync(`git -C "${repository.path}" rev-parse HEAD`, {
+      encoding: "utf8",
+    }).trim();
+
+    await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: true,
+      populateStrategy: "clone",
+      projectSlug: "acme/platform",
+      issueIdentifier: "acme/platform#46",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+      baseBranch: "main",
+    });
+
+    expect(
+      execSync(`git -C "${repositoryDirectory}" rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(currentBase);
+  });
+
   it("migrates a reused shallow checkout before checking out a pull request branch", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
     const repository = await createRepositoryFixture(tempRoot);

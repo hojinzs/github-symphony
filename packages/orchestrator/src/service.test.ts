@@ -67,7 +67,19 @@ describe("assigned branch validation", () => {
         branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
         issueIdentifier: "acme/platform#42",
         baseBranch: "main",
-        pullRequestBranch: { headRefName: "feature/pr-head" },
+        hasPullRequestBranch: true,
+      })
+    ).not.toThrow();
+  });
+
+  it("allows an incomplete-turn dirty workspace to resume on the base branch", () => {
+    expect(() =>
+      assertAssignedBranchMatchesTemplate({
+        assignedBranch: "main",
+        branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+        issueIdentifier: "acme/platform#42",
+        baseBranch: "main",
+        dirtyWorkspaceRecovery: true,
       })
     ).not.toThrow();
   });
