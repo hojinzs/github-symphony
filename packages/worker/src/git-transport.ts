@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type {
   RunAttemptPhase,
   SessionExitClassification,
+  UnpublishedWorktree,
 } from "@gh-symphony/core";
 import { createGitCredentialHelperEnvironment } from "@gh-symphony/runtime-codex";
 
@@ -18,6 +19,8 @@ export type GitTransportResult = {
   unpublishedWorktreeChanges: {
     tracked: string[];
     untracked: string[];
+    trackedOmitted: number;
+    untrackedOmitted: number;
   } | null;
 };
 
@@ -29,6 +32,7 @@ export type GitTransportLifecycleState = {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   runPhase: RunAttemptPhase | null;
   lastError: string | null;
+  unpublishedWorktree: UnpublishedWorktree | null;
   exitClassification: SessionExitClassification | null;
 };
 
@@ -41,12 +45,18 @@ export function applyGitTransportAttempt(
   if (attempt.ok) {
     const unpublished = attempt.result.unpublishedWorktreeChanges;
     if (unpublished) {
-      state.lastError = formatUnpublishedWorktreeError(attempt.result);
+      state.lastError = null;
+      state.unpublishedWorktree = {
+        branch: attempt.result.branch,
+        head: attempt.result.head,
+        ...unpublished,
+      };
       writeStderr(
         `[worker] host Git transport pushed ${attempt.result.branch} at ${attempt.result.head}, but tracked or untracked work remains unpublished\n`
       );
       return 0;
     }
+    state.unpublishedWorktree = null;
     writeStderr(
       `[worker] host Git transport pushed ${attempt.result.branch} at ${attempt.result.head}\n`
     );
@@ -56,6 +66,7 @@ export function applyGitTransportAttempt(
   state.status = "failed";
   state.runPhase = "failed";
   state.lastError = `git_transport_failed: ${attempt.error}`;
+  state.unpublishedWorktree = null;
   state.exitClassification = "error";
   writeStderr(`[worker] host Git transport failed: ${attempt.error}\n`);
   return 1;
@@ -180,7 +191,9 @@ export function formatUnpublishedWorktreeError(
     `branch=${result.branch}`,
     `head=${result.head}`,
     `tracked=[${changes.tracked.join(", ")}]`,
+    `tracked_omitted=${changes.trackedOmitted}`,
     `untracked=[${changes.untracked.join(", ")}]`,
+    `untracked_omitted=${changes.untrackedOmitted}`,
   ].join(" ");
 }
 
@@ -294,10 +307,12 @@ async function readUnpublishedWorktreeChanges(
     "status",
     "--porcelain=v1",
     "-z",
-    "--untracked-files=all",
+    "--untracked-files=normal",
   ]);
   const tracked: string[] = [];
   const untracked: string[] = [];
+  let trackedOmitted = 0;
+  let untrackedOmitted = 0;
   const records = output.split("\0");
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
@@ -305,17 +320,40 @@ async function readUnpublishedWorktreeChanges(
     const status = record.slice(0, 2);
     const path = record.slice(3);
     if (status === "??") {
-      untracked.push(path);
+      untrackedOmitted += appendBoundedChange(untracked, path);
       continue;
     }
-    tracked.push(`${status} ${path}`);
     if (status.includes("R") || status.includes("C")) {
+      const originalPath = records[index + 1];
+      trackedOmitted += appendBoundedChange(
+        tracked,
+        originalPath
+          ? `${status} ${originalPath} -> ${path}`
+          : `${status} ${path}`
+      );
       index += 1;
+      continue;
     }
+    trackedOmitted += appendBoundedChange(tracked, `${status} ${path}`);
   }
   return tracked.length === 0 && untracked.length === 0
     ? null
-    : { tracked, untracked };
+    : { tracked, untracked, trackedOmitted, untrackedOmitted };
+}
+
+const MAX_UNPUBLISHED_WORKTREE_ENTRIES = 8;
+const MAX_UNPUBLISHED_WORKTREE_PATH_LENGTH = 160;
+
+function appendBoundedChange(entries: string[], change: string): 0 | 1 {
+  if (entries.length >= MAX_UNPUBLISHED_WORKTREE_ENTRIES) {
+    return 1;
+  }
+  entries.push(
+    change.length > MAX_UNPUBLISHED_WORKTREE_PATH_LENGTH
+      ? `${change.slice(0, MAX_UNPUBLISHED_WORKTREE_PATH_LENGTH - 1)}…`
+      : change
+  );
+  return 0;
 }
 
 async function runGit(

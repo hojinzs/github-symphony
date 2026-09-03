@@ -127,16 +127,6 @@ elif [ "$SCENARIO" = "required-label-missing" ]; then
   cp e2e/fixtures/required-label-missing.json e2e/fixtures/issues.json
 elif [ "$SCENARIO" = "required-label-removed" ]; then
   cp e2e/fixtures/required-label-active.json e2e/fixtures/issues.json
-elif [ "$SCENARIO" = "dirty-unpublished-worktree" ]; then
-  DIRTY_FIXTURE_B64=$(base64 < e2e/fixtures/happy-path.json | tr -d '\n')
-  "${COMPOSE[@]}" exec -T -e "FIXTURE_B64=$DIRTY_FIXTURE_B64" symphony-e2e \
-    node --input-type=module -e '
-      import { writeFileSync } from "node:fs";
-      writeFileSync(
-        "/e2e/fixtures/issues.json",
-        Buffer.from(process.env.FIXTURE_B64, "base64")
-      );
-    '
 else
   cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
 fi
@@ -564,7 +554,7 @@ if [ "$SCENARIO" = "dirty-unpublished-worktree" ]; then
     const workspacePaths = execFileSync("find", [stateDir, "-name", "workspace.json"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
     if (workspacePaths.length !== 1) throw new Error(`expected_one_workspace:${JSON.stringify(workspacePaths)}`);
     const workspace = JSON.parse(readFileSync(workspacePaths[0], "utf8"));
-    if (workspace.status !== "active" || !workspace.lastError?.startsWith("git_unpublished_worktree: committed_transport_succeeded")) {
+    if (workspace.status !== "active" || workspace.lastError !== null || workspace.unpublishedWorktree?.branch !== "feat/assigned") {
       throw new Error(`unexpected_workspace_retention:${JSON.stringify(workspace)}`);
     }
     if (!existsSync(`${workspace.repositoryPath}/tracked.txt`) || !existsSync(`${workspace.repositoryPath}/untracked/notes.txt`)) {
@@ -573,7 +563,7 @@ if [ "$SCENARIO" = "dirty-unpublished-worktree" ]; then
     const runPaths = execFileSync("find", [stateDir, "-path", "*/runs/*/run.json"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
     if (runPaths.length !== 1) throw new Error(`expected_one_run:${JSON.stringify(runPaths)}`);
     const run = JSON.parse(readFileSync(runPaths[0], "utf8"));
-    if (run.status !== "succeeded" || run.runPhase !== "succeeded" || !run.lastError?.startsWith("git_unpublished_worktree: committed_transport_succeeded")) {
+    if (run.status !== "succeeded" || run.runPhase !== "succeeded" || run.lastError !== null || run.unpublishedWorktree?.branch !== "feat/assigned") {
       throw new Error(`unexpected_dirty_publication_run:${JSON.stringify(run)}`);
     }
   '

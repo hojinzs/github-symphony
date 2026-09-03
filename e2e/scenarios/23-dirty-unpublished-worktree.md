@@ -14,7 +14,7 @@ publication scenario:
 1. Dispatch the `Ready` fixture issue.
 2. Let the stub create and commit `tracked.txt`, then modify it and create the
    untracked `untracked/notes.txt` file.
-3. Let the stub report the host transport contract indicating the committed
+3. Let the stub simulate the host transport contract indicating the committed
    branch push succeeded while those edits remain unpublished, and transition
    the issue to `Done`.
 4. Inspect the persisted run and workspace after terminal reconciliation.
@@ -23,10 +23,13 @@ publication scenario:
 
 - The run remains `succeeded`/`succeeded`, rather than becoming a transport or
   ordinary worker failure.
-- Its `lastError` identifies `git_unpublished_worktree`, the committed
-  transport outcome, and tracked/untracked file lists.
-- The workspace remains active with the same diagnostic, and both unpublished
-  files remain present after terminal cleanup has been considered.
+- Its dedicated `unpublishedWorktree` record identifies the committed
+  transport outcome and bounded tracked/untracked file lists while `lastError`
+  remains null.
+- The workspace remains active with the same publication record, and both
+  unpublished files remain present after terminal cleanup has been considered.
+- This scenario verifies orchestrator retention with a simulated transport
+  outcome; worker-side Git detection is covered by `git-transport.test.ts`.
 
 ## Cleanup
 

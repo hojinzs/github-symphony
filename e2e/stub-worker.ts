@@ -168,12 +168,18 @@ function emitOrchestratorEvent(event: string): void {
             : status === "completed"
               ? "succeeded"
               : null,
-      lastError:
-        status === "failed"
-          ? "Stub worker simulated failure"
-          : SCENARIO === "dirty-unpublished-worktree" && status === "completed"
-            ? "git_unpublished_worktree: committed_transport_succeeded branch=feat/assigned head=stubbed tracked=[ M tracked.txt] untracked=[untracked/notes.txt]"
-            : null,
+      lastError: status === "failed" ? "Stub worker simulated failure" : null,
+      unpublishedWorktree:
+        SCENARIO === "dirty-unpublished-worktree" && status === "completed"
+          ? {
+              branch: "feat/assigned",
+              head: "stubbed",
+              tracked: [" M tracked.txt"],
+              untracked: ["untracked/notes.txt"],
+              trackedOmitted: 0,
+              untrackedOmitted: 0,
+            }
+          : null,
     })
   );
 }

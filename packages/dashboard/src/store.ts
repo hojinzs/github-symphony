@@ -322,6 +322,7 @@ export async function statusForIssue(
           }
         : null,
     recovery: resolvedRun?.recovery ?? null,
+    unpublished_worktree: resolvedRun?.unpublishedWorktree ?? null,
     logs: {
       codex_session_logs:
         resolvedRun === null

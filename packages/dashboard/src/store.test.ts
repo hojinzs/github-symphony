@@ -244,6 +244,7 @@ describe("DashboardFsReader", () => {
         error: "worker failed",
       },
       recovery: null,
+      unpublished_worktree: null,
       logs: {
         codex_session_logs: [
           {

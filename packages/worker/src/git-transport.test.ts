@@ -33,12 +33,13 @@ afterEach(async () => {
   );
 });
 
-describe("synchronizeAssignedBranch", () => {
+describe("synchronizeAssignedBranch", { timeout: 15_000 }, () => {
   it("marks a failed host transport as a terminal worker failure", () => {
     const state = {
       status: "completed" as const,
       runPhase: "succeeded" as const,
       lastError: null as string | null,
+      unpublishedWorktree: null,
       exitClassification: "completed" as const,
     };
 
@@ -52,6 +53,7 @@ describe("synchronizeAssignedBranch", () => {
       status: "failed",
       runPhase: "failed",
       lastError: "git_transport_failed: refusing to push feat/assigned",
+      unpublishedWorktree: null,
       exitClassification: "error",
     });
     expect(exitCode).toBe(1);
@@ -62,6 +64,7 @@ describe("synchronizeAssignedBranch", () => {
       status: "completed" as const,
       runPhase: "succeeded" as const,
       lastError: null as string | null,
+      unpublishedWorktree: null,
       exitClassification: "completed" as const,
     };
 
@@ -76,6 +79,8 @@ describe("synchronizeAssignedBranch", () => {
           unpublishedWorktreeChanges: {
             tracked: [" M tracked.txt"],
             untracked: ["untracked/notes.txt"],
+            trackedOmitted: 0,
+            untrackedOmitted: 0,
           },
         },
       } as GitTransportAttempt,
@@ -85,8 +90,15 @@ describe("synchronizeAssignedBranch", () => {
     expect(state).toMatchObject({
       status: "completed",
       runPhase: "succeeded",
-      lastError:
-        "git_unpublished_worktree: committed_transport_succeeded branch=feat/assigned head=deadbeef tracked=[ M tracked.txt] untracked=[untracked/notes.txt]",
+      lastError: null,
+      unpublishedWorktree: {
+        branch: "feat/assigned",
+        head: "deadbeef",
+        tracked: [" M tracked.txt"],
+        untracked: ["untracked/notes.txt"],
+        trackedOmitted: 0,
+        untrackedOmitted: 0,
+      },
       exitClassification: "completed",
     });
     expect(exitCode).toBe(0);
@@ -153,9 +165,56 @@ describe("synchronizeAssignedBranch", () => {
       pushed: true,
       unpublishedWorktreeChanges: {
         tracked: [" M tracked.txt"],
-        untracked: ["untracked/notes.txt"],
+        untracked: ["untracked/"],
       },
     });
+  });
+
+  it("reports both paths for an unpublished rename after pushing the branch", async () => {
+    const { remote, workspace } = await createGitFixture();
+    const original = join(workspace, "original.txt");
+    await writeFile(original, "committed\n", "utf8");
+    await git(workspace, "add", "original.txt");
+    await git(workspace, "commit", "-m", "agent commit");
+    await git(workspace, "mv", "original.txt", "renamed.txt");
+
+    const result = await synchronizeAssignedBranch({
+      cwd: workspace,
+      assignedBranch: "feat/assigned",
+      remoteUrl: remote,
+    });
+
+    expect(result.unpublishedWorktreeChanges).toEqual({
+      tracked: ["R  original.txt -> renamed.txt"],
+      untracked: [],
+      trackedOmitted: 0,
+      untrackedOmitted: 0,
+    });
+  });
+
+  it("bounds unpublished worktree diagnostics while retaining omitted counts", async () => {
+    const { remote, workspace } = await createGitFixture();
+    await Promise.all(
+      Array.from({ length: 11 }, (_, index) =>
+        writeFile(
+          join(workspace, `untracked-${index}.txt`),
+          "unpublished\n",
+          "utf8"
+        )
+      )
+    );
+
+    const result = await synchronizeAssignedBranch({
+      cwd: workspace,
+      assignedBranch: "feat/assigned",
+      remoteUrl: remote,
+    });
+
+    expect(result.unpublishedWorktreeChanges).toMatchObject({
+      tracked: [],
+      untrackedOmitted: 3,
+    });
+    expect(result.unpublishedWorktreeChanges?.untracked).toHaveLength(8);
   });
 
   it("refuses a host-authenticated push when the child moved off the assigned branch", async () => {

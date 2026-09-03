@@ -4542,14 +4542,23 @@ Retry inconclusive work.
     [
       "a transport failure",
       "git_transport_failed: refusing to push feat/assigned",
+      null,
     ],
     [
       "a dirty worktree after committed transport",
-      "git_unpublished_worktree: committed_transport_succeeded branch=feat/assigned head=deadbeef tracked=[ M tracked.txt] untracked=[untracked/notes.txt]",
+      null,
+      {
+        branch: "feat/assigned",
+        head: "deadbeef",
+        tracked: [" M tracked.txt"],
+        untracked: ["untracked/notes.txt"],
+        trackedOmitted: 0,
+        untrackedOmitted: 0,
+      },
     ],
   ])(
-    "retains a terminal issue workspace with %s after a later non-transport run",
-    async (_description, unpublishedError) => {
+    "retains a terminal issue workspace when its latest run records %s and the workspace marker is absent",
+    async (_description, lastError, unpublishedWorktree) => {
       process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
       const tempRoot = await mkdtemp(
         join(tmpdir(), "orchestrator-startup-transport-retention-")
@@ -4598,7 +4607,7 @@ Retry inconclusive work.
         status: "active",
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:07.000Z",
-        lastError: unpublishedError,
+        lastError: null,
       });
       await store.saveRun({
         runId: "run-transport-failed",
@@ -4627,37 +4636,8 @@ Retry inconclusive work.
         startedAt: "2026-03-08T00:00:00.000Z",
         completedAt: "2026-03-08T00:00:07.000Z",
         runPhase: "failed",
-        lastError: unpublishedError,
-        nextRetryAt: null,
-      });
-      await store.saveRun({
-        runId: "run-later-agent-failure",
-        projectId: "tenant-1",
-        projectSlug: "tenant-1",
-        issueId: "issue-1",
-        issueSubjectId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        issueState: "Done",
-        repository,
-        status: "failed",
-        attempt: 3,
-        processId: null,
-        port: null,
-        workingDirectory: repositoryPath,
-        issueWorkspaceKey: workspaceKey,
-        workspaceRuntimeDir: join(
-          tempRoot,
-          "run-later-agent-failure",
-          "workspace"
-        ),
-        workflowPath: null,
-        retryKind: null,
-        createdAt: "2026-03-08T00:00:08.000Z",
-        updatedAt: "2026-03-08T00:00:09.000Z",
-        startedAt: "2026-03-08T00:00:08.000Z",
-        completedAt: "2026-03-08T00:00:09.000Z",
-        runPhase: "failed",
-        lastError: "agent failed before a subsequent transport attempt",
+        lastError,
+        unpublishedWorktree,
         nextRetryAt: null,
       });
       const service = new OrchestratorService(store, projectConfig, {
@@ -10289,21 +10269,30 @@ Prefer focused changes.
       lastError:
         "git_transport_failed: refusing to push feat/assigned (Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10. Manual intervention required: change the tracker state to re-arm retries.)",
     });
-    await expect(
-      (
-        service as unknown as {
-          hasUnpublishedGitTransportFailure(
-            projectId: string,
-            issueId: string
-          ): Promise<boolean>;
-        }
-      ).hasUnpublishedGitTransportFailure("tenant-1", "issue-1")
-    ).resolves.toBe(true);
   });
 
-  it.each(["Done", "In review"])(
-    "retains an unpublished transport failure and workspace when a %s issue reaches its retry due time",
-    async (trackerState) => {
+  it.each([
+    [
+      "transport failure",
+      "git_transport_failed: refusing to push feat/assigned",
+      null,
+    ],
+    [
+      "dirty worktree after committed transport",
+      null,
+      {
+        branch: "feat/assigned",
+        head: "deadbeef",
+        tracked: [" M tracked.txt"],
+        untracked: ["untracked/"],
+        trackedOmitted: 0,
+        untrackedOmitted: 0,
+      },
+    ],
+  ])(
+    "retains an unpublished %s and workspace when a terminal issue reaches its retry due time",
+    async (_description, lastError, unpublishedWorktree) => {
+      const trackerState = "Done";
       const { store, service, advanceToRetryDue, spawnImpl } =
         await createSuccessfulFinalizationFixture(trackerState);
       const run = await store.loadRun("run-1");
@@ -10312,14 +10301,15 @@ Prefer focused changes.
         ...run!,
         workerExitCode: 1,
         runPhase: "failed",
-        lastError: "git_transport_failed: refusing to push feat/assigned",
+        lastError,
+        unpublishedWorktree,
       });
 
       await service.runOnce();
       expect(await store.loadRun("run-1")).toMatchObject({
         status: "retrying",
         retryKind: "failure",
-        lastError: "git_transport_failed: refusing to push feat/assigned",
+        unpublishedWorktree,
       });
 
       advanceToRetryDue();
@@ -10328,8 +10318,7 @@ Prefer focused changes.
       expect(spawnImpl).not.toHaveBeenCalled();
       expect(await store.loadRun("run-1")).toMatchObject({
         status: "suppressed",
-        runPhase: "failed",
-        lastError: "git_transport_failed: refusing to push feat/assigned",
+        unpublishedWorktree,
       });
       expect(
         (await store.loadProjectIssueOrchestrations("tenant-1"))[0]

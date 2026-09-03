@@ -4,6 +4,7 @@ import {
   type SessionExitClassification,
   type WorkflowExecutionPhase,
 } from "./status-surface.js";
+import type { UnpublishedWorktree } from "../domain/issue.js";
 import {
   isRunAttemptPhase,
   type RunAttemptPhase,
@@ -70,6 +71,7 @@ export type OrchestratorChannelCodexUpdateEvent = {
   executionPhase?: WorkflowExecutionPhase | null;
   runPhase?: RunAttemptPhase | null;
   lastError?: string | null;
+  unpublishedWorktree?: UnpublishedWorktree | null;
   event?: string;
 };
 
@@ -83,6 +85,7 @@ export type OrchestratorChannelHeartbeatEvent = {
   executionPhase: WorkflowExecutionPhase | null;
   runPhase: RunAttemptPhase | null;
   lastError: string | null;
+  unpublishedWorktree?: UnpublishedWorktree | null;
 };
 
 export type OrchestratorChannelEvent =
@@ -129,6 +132,22 @@ function isSessionInfo(
 
 function isNullableString(value: unknown): value is string | null {
   return typeof value === "string" || value === null;
+}
+
+function isUnpublishedWorktree(value: unknown): value is UnpublishedWorktree {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.branch === "string" &&
+    typeof value.head === "string" &&
+    Array.isArray(value.tracked) &&
+    value.tracked.every((entry) => typeof entry === "string") &&
+    Array.isArray(value.untracked) &&
+    value.untracked.every((entry) => typeof entry === "string") &&
+    typeof value.trackedOmitted === "number" &&
+    typeof value.untrackedOmitted === "number"
+  );
 }
 
 function isTurnEventBase(value: Record<string, unknown>): boolean {
@@ -216,6 +235,15 @@ export function isOrchestratorChannelEvent(
       return false;
     }
 
+    if (
+      "unpublishedWorktree" in value &&
+      value.unpublishedWorktree !== undefined &&
+      value.unpublishedWorktree !== null &&
+      !isUnpublishedWorktree(value.unpublishedWorktree)
+    ) {
+      return false;
+    }
+
     return true;
   }
 
@@ -248,6 +276,15 @@ export function isOrchestratorChannelEvent(
     }
 
     if (value.lastError !== null && typeof value.lastError !== "string") {
+      return false;
+    }
+
+    if (
+      "unpublishedWorktree" in value &&
+      value.unpublishedWorktree !== undefined &&
+      value.unpublishedWorktree !== null &&
+      !isUnpublishedWorktree(value.unpublishedWorktree)
+    ) {
       return false;
     }
 
