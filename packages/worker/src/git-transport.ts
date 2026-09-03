@@ -237,10 +237,35 @@ export function buildHostGitEnvironment(
           gitUsername: env.GITHUB_GIT_USERNAME,
         })
       : {};
+  const credentialHelper = credentialEnvironment.GIT_CONFIG_VALUE_0;
+  if (!credentialHelper) {
+    return {
+      ...env,
+      GIT_TERMINAL_PROMPT: "0",
+    };
+  }
+
+  const gitConfigCountValue = env.GIT_CONFIG_COUNT ?? "0";
+  if (!/^\d+$/.test(gitConfigCountValue)) {
+    throw new Error(
+      `invalid GIT_CONFIG_COUNT for host Git transport: ${gitConfigCountValue}`
+    );
+  }
+  const gitConfigCount = Number(gitConfigCountValue);
+  if (!Number.isSafeInteger(gitConfigCount)) {
+    throw new Error(
+      `invalid GIT_CONFIG_COUNT for host Git transport: ${gitConfigCountValue}`
+    );
+  }
+
   return {
     ...env,
     GIT_TERMINAL_PROMPT: "0",
-    ...credentialEnvironment,
+    GITHUB_GIT_HOST: credentialEnvironment.GITHUB_GIT_HOST,
+    GITHUB_GIT_USERNAME: credentialEnvironment.GITHUB_GIT_USERNAME,
+    GIT_CONFIG_COUNT: String(gitConfigCount + 1),
+    [`GIT_CONFIG_KEY_${gitConfigCount}`]: "credential.helper",
+    [`GIT_CONFIG_VALUE_${gitConfigCount}`]: credentialHelper,
   };
 }
 

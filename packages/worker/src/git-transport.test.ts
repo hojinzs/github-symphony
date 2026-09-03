@@ -459,6 +459,34 @@ describe("buildHostGitEnvironment", () => {
     expect(env.GIT_CONFIG_KEY_0).toBe("credential.helper");
     expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
   });
+
+  it("appends the credential helper after caller-supplied Git config", () => {
+    const env = buildHostGitEnvironment({
+      GITHUB_GRAPHQL_TOKEN: "host-token",
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "credential.helper",
+      GIT_CONFIG_VALUE_0: "",
+      GIT_CONFIG_KEY_1: "credential.helper",
+      GIT_CONFIG_VALUE_1: "!fixture-helper",
+    });
+
+    expect(env.GIT_CONFIG_COUNT).toBe("3");
+    expect(env.GIT_CONFIG_KEY_0).toBe("credential.helper");
+    expect(env.GIT_CONFIG_VALUE_0).toBe("");
+    expect(env.GIT_CONFIG_KEY_1).toBe("credential.helper");
+    expect(env.GIT_CONFIG_VALUE_1).toBe("!fixture-helper");
+    expect(env.GIT_CONFIG_KEY_2).toBe("credential.helper");
+    expect(env.GIT_CONFIG_VALUE_2).toContain("git-credential-helper.js");
+  });
+
+  it("rejects a malformed caller-supplied Git config count", () => {
+    expect(() =>
+      buildHostGitEnvironment({
+        GITHUB_GRAPHQL_TOKEN: "host-token",
+        GIT_CONFIG_COUNT: "not-a-count",
+      })
+    ).toThrow("invalid GIT_CONFIG_COUNT for host Git transport: not-a-count");
+  });
 });
 
 async function createGitFixture() {
