@@ -23,6 +23,7 @@ NC='\033[0m'
 log()  { echo -e "${GREEN}[e2e]${NC} $*"; }
 warn() { echo -e "${YELLOW}[e2e]${NC} $*"; }
 fail() { echo -e "${RED}[e2e]${NC} $*"; }
+source "$ROOT_DIR/e2e/lib/fixture-replacement.sh"
 orch_curl() {
   "${COMPOSE[@]}" exec -T symphony-e2e curl \
     -H "Authorization: Bearer ${HTTP_API_TOKEN}" "$@"
@@ -31,15 +32,12 @@ unauthenticated_orch_curl() {
   "${COMPOSE[@]}" exec -T symphony-e2e curl "$@"
 }
 write_empty_issues() {
-  local fixture_copy
-  fixture_copy=$(mktemp e2e/fixtures/issues.json.tmp.XXXXXX)
-  printf '[]\n' > "$fixture_copy"
   if [ "$CONTAINER_FIXTURE_REPLACEMENT" = true ]; then
-    replace_e2e_issue_fixture_in_container "$(basename "$fixture_copy")"
+    printf '[]\n' | replace_e2e_issue_fixture_from_stdin_in_container
   else
-    mv "$fixture_copy" e2e/fixtures/issues.json
+    printf '[]\n' | atomic_replace_issue_fixture_from_stdin_on_host \
+      "$ROOT_DIR/e2e/fixtures/issues.json"
   fi
-  rm -f "$fixture_copy"
 }
 replace_e2e_issue_fixture_in_container() {
   local source_fixture_name="$1"
@@ -52,13 +50,44 @@ replace_e2e_issue_fixture_in_container() {
   "${COMPOSE[@]}" exec -T symphony-e2e sh -eu -c '
     target=/e2e/fixtures/issues.json
     source_fixture="/e2e/fixtures/$1"
-    [ -f "$source_fixture" ]
+    [ -f "$source_fixture" ] || {
+      echo "Missing fixture: $source_fixture" >&2
+      exit 1
+    }
     temporary=$(mktemp "${target}.tmp.XXXXXX")
     cleanup() { rm -f "$temporary"; }
     trap cleanup EXIT HUP INT TERM
     cp "$source_fixture" "$temporary"
+    chmod 0644 "$temporary"
     mv "$temporary" "$target"
   ' sh "$source_fixture_name"
+}
+replace_e2e_issue_fixture_from_stdin_in_container() {
+  "${COMPOSE[@]}" exec -T symphony-e2e sh -eu -c '
+    target=/e2e/fixtures/issues.json
+    temporary=$(mktemp "${target}.tmp.XXXXXX")
+    cleanup() { rm -f "$temporary"; }
+    trap cleanup EXIT HUP INT TERM
+    cat > "$temporary"
+    chmod 0644 "$temporary"
+    mv "$temporary" "$target"
+  '
+}
+replace_e2e_issue_fixture() {
+  local source_fixture_name="$1"
+
+  if [ "$source_fixture_name" != "$(basename "$source_fixture_name")" ]; then
+    fail "Fixture name must not include a path: $source_fixture_name"
+    return 1
+  fi
+
+  if [ "$CONTAINER_FIXTURE_REPLACEMENT" = true ]; then
+    replace_e2e_issue_fixture_in_container "$source_fixture_name"
+  else
+    atomic_replace_issue_fixture_on_host \
+      "$ROOT_DIR/e2e/fixtures/$source_fixture_name" \
+      "$ROOT_DIR/e2e/fixtures/issues.json"
+  fi
 }
 update_e2e_issue_fixture_in_container() {
   local mutation="$1"
@@ -79,11 +108,58 @@ update_e2e_issue_fixture_in_container() {
     const temporary = `${target}.tmp.${process.pid}.${Date.now()}`;
     try {
       fs.writeFileSync(temporary, JSON.stringify(issues));
+      fs.chmodSync(temporary, 0o644);
       fs.renameSync(temporary, target);
     } finally {
       fs.rmSync(temporary, { force: true });
     }
   ' "$mutation"
+}
+update_e2e_issue_fixture_on_host() {
+  local mutation="$1"
+
+  node -e '
+    const fs = require("node:fs");
+    const target = process.argv[1];
+    const mutation = process.argv[2];
+    const issues = JSON.parse(fs.readFileSync(target, "utf8"));
+    if (mutation === "remove-required-label") {
+      issues[0].labels = [];
+    } else if (mutation === "reactivate-linear-dirty-recovery") {
+      if (issues.length !== 1) throw new Error(`Expected one issue, got ${issues.length}`);
+      issues[0].state = "Ready";
+    } else {
+      throw new Error(`Unknown fixture mutation: ${mutation}`);
+    }
+    const temporary = `${target}.tmp.${process.pid}.${Date.now()}`;
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(issues));
+      fs.chmodSync(temporary, 0o644);
+      fs.renameSync(temporary, target);
+    } finally {
+      fs.rmSync(temporary, { force: true });
+    }
+  ' "$ROOT_DIR/e2e/fixtures/issues.json" "$mutation"
+}
+update_e2e_issue_fixture() {
+  local mutation="$1"
+
+  if [ "$CONTAINER_FIXTURE_REPLACEMENT" = true ]; then
+    update_e2e_issue_fixture_in_container "$mutation"
+  else
+    update_e2e_issue_fixture_on_host "$mutation"
+  fi
+}
+configure_fixture_replacement() {
+  if "${COMPOSE[@]}" exec -T symphony-e2e sh -c \
+    'temporary=$(mktemp /e2e/fixtures/.fixture-write-probe.XXXXXX) && rm -f "$temporary"' \
+    2>/dev/null; then
+    CONTAINER_FIXTURE_REPLACEMENT=true
+    log "Fixture replacement: container-side atomic rename"
+  else
+    CONTAINER_FIXTURE_REPLACEMENT=false
+    warn "Container cannot write /e2e/fixtures; using host-side atomic rename"
+  fi
 }
 
 cleanup() {
@@ -121,7 +197,7 @@ if [ "$SCENARIO" = "recovery-fail" ]; then
   E2E_MAX_FAILURE_RETRIES="3"
 fi
 E2E_REQUIRED_LABELS="$E2E_REQUIRED_LABELS" E2E_MAX_FAILURE_RETRIES="$E2E_MAX_FAILURE_RETRIES" STUB_SCENARIO="$SCENARIO" "${COMPOSE[@]}" up -d --build 2>&1 | tail -1
-CONTAINER_FIXTURE_REPLACEMENT=true
+configure_fixture_replacement
 
 log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
@@ -172,15 +248,15 @@ log "Initial state: idle"
 # ── Inject issues ─────────────────────────────────────────────
 
 if [ "$SCENARIO" = "non-dispatchable" ]; then
-  replace_e2e_issue_fixture_in_container non-dispatchable.json
+  replace_e2e_issue_fixture non-dispatchable.json
 elif [ "$SCENARIO" = "linear-dirty-recovery" ]; then
-  replace_e2e_issue_fixture_in_container linear-dirty-recovery.json
+  replace_e2e_issue_fixture linear-dirty-recovery.json
 elif [ "$SCENARIO" = "required-label-missing" ]; then
-  replace_e2e_issue_fixture_in_container required-label-missing.json
+  replace_e2e_issue_fixture required-label-missing.json
 elif [ "$SCENARIO" = "required-label-removed" ]; then
-  replace_e2e_issue_fixture_in_container required-label-active.json
+  replace_e2e_issue_fixture required-label-active.json
 else
-  replace_e2e_issue_fixture_in_container happy-path.json
+  replace_e2e_issue_fixture happy-path.json
 fi
 
 INITIAL_LAST_TICK=$(orch_curl -s http://localhost:4680/api/v1/state 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt') or '')" 2>/dev/null || echo '')
@@ -296,7 +372,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
       SCENARIO_RUN_ID=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0].get('runId','') if r else '')" 2>/dev/null || echo "")
     fi
     if [ "$SCENARIO" = "required-label-removed" ] && [ "$LABEL_REMOVED" != true ]; then
-      update_e2e_issue_fixture_in_container remove-required-label
+      update_e2e_issue_fixture remove-required-label
       : > e2e/fixtures/required-label-removed.signal
       LABEL_REMOVED=true
     fi
@@ -327,7 +403,7 @@ assert any(
 
   if [ "$SCENARIO" = "linear-dirty-recovery" ] && [ "$LINEAR_RECOVERY_REACTIVATED" != true ]; then
     if "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "incomplete-turn-dirty-workspace" /e2e/work 2>/dev/null'; then
-      update_e2e_issue_fixture_in_container reactivate-linear-dirty-recovery
+      update_e2e_issue_fixture reactivate-linear-dirty-recovery
       orch_curl -sf -X POST http://localhost:4680/api/v1/refresh >/dev/null
       LINEAR_RECOVERY_REACTIVATED=true
       log "Linear dirty recovery reactivated after incomplete-turn classification"
