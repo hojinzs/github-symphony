@@ -9954,7 +9954,8 @@ Prefer focused changes.
   });
 
   async function createSuccessfulFinalizationFixture(
-    trackerState: string | null | Error
+    trackerState: string | null | Error,
+    options: { processId?: number | null } = {}
   ) {
     let currentTime = new Date("2026-03-08T00:00:00.000Z");
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
@@ -9997,7 +9998,7 @@ Prefer focused changes.
       repository,
       status: "running",
       attempt: 1,
-      processId: null,
+      processId: options.processId ?? null,
       port: 4601,
       workingDirectory: join(tempRoot, "stale-run"),
       issueWorkspaceKey: null,
@@ -10050,6 +10051,8 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: spawnImpl as never,
+      isProcessRunning:
+        options.processId === undefined ? undefined : () => false,
       now: () => currentTime,
     });
 
@@ -10437,6 +10440,29 @@ Prefer focused changes.
         exhausted: true,
       }),
     ]);
+  });
+
+  it("retains an exited deferred run when candidate reconciliation loses its item", async () => {
+    const { store, service } = await createSuccessfulFinalizationFixture(null, {
+      processId: 4105,
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "running",
+      processId: null,
+      finalizationDeferralCount: 1,
+    });
+
+    await service.runOnce();
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      finalizationDeferralCount: 0,
+    });
   });
 
   it.each(["turn_completed", "heartbeat", undefined] as const)(

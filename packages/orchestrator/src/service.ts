@@ -1902,9 +1902,10 @@ export class OrchestratorService {
           ? await this.store.loadRun(issueRecord.currentRunId, tenant.projectId)
           : null;
         const activeRun =
+          persistedRun ??
           syncedActiveRuns.find((run) =>
             isMatchingIssueRun(run, issueRecord.issueId, issueRecord.identifier)
-          ) ?? persistedRun;
+          );
         const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
         if (!issue) {
           if (!activeRun || activeRun.processId === null) {
@@ -3465,6 +3466,7 @@ export class OrchestratorService {
     const workerInfo = await this.fetchWorkerRunInfo(run);
     const runWithTokens: OrchestratorRunRecord = {
       ...run,
+      processId: null,
       runtimeSession: buildRuntimeSession(
         run.runtimeSession,
         workerInfo.sessionId,
