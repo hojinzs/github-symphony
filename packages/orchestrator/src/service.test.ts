@@ -1215,6 +1215,32 @@ describe("OrchestratorService", () => {
       )
     ).resolves.toContain('"event":"retry-postponed"');
 
+    await requeueRetryingRun(
+      projectConfig,
+      (await store.loadRun(run.runId, run.projectId))!,
+      result.issueRecords,
+      new Date("2026-03-08T00:00:30.000Z"),
+      "no available orchestrator slots",
+      { countFailure: false, advanceAttempt: false }
+    );
+    const postponedEvents = (
+      await store.loadRecentRunEvents(run.runId, 20, run.projectId)
+    ).filter((event) => event.event === "retry-postponed");
+    expect(postponedEvents).toHaveLength(1);
+
+    await requeueRetryingRun(
+      projectConfig,
+      (await store.loadRun(run.runId, run.projectId))!,
+      result.issueRecords,
+      new Date("2026-03-08T00:01:00.000Z"),
+      "a different capacity reason",
+      { countFailure: false, advanceAttempt: false }
+    );
+    const changedPostponedEvents = (
+      await store.loadRecentRunEvents(run.runId, 20, run.projectId)
+    ).filter((event) => event.event === "retry-postponed");
+    expect(changedPostponedEvents).toHaveLength(2);
+
     const fallbackRun = {
       ...run,
       runId: "run-recovery-fallback",
