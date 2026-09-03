@@ -1286,6 +1286,7 @@ export class OrchestratorService {
     let rateLimits: Record<string, unknown> | null = null;
     let trackerRateLimits: Record<string, unknown> | null = null;
     let workflowResolution: WorkflowResolution | null = null;
+    const dispatchWarnings: string[] = [];
 
     let issueRecords = await this.store.loadProjectIssueOrchestrations(
       tenant.projectId
@@ -1620,6 +1621,14 @@ export class OrchestratorService {
       const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);
       const listRateLimits = getTrackedIssueListRateLimits(issues);
       let listRateLimitsRecorded = false;
+      const workerCredentials =
+        trackerAdapter.resolveWorkerCredentials?.(tenant, {
+          project: this.readProjectEnv(tenant),
+          daemon: process.env,
+        }) ?? null;
+      const workerCredentialMissing =
+        workerCredentials !== null &&
+        Object.keys(workerCredentials).length === 0;
 
       // Count active runs by state for per-state concurrency limits
       const activeByState = new Map<string, number>();
@@ -1675,6 +1684,14 @@ export class OrchestratorService {
           if (activeInState >= stateLimit) {
             continue;
           }
+        }
+
+        if (workerCredentialMissing) {
+          const warning = `Dispatch skipped for ${issue.identifier}: no worker credential resolved for ${issue.tracker.adapter}. Add the credential to the managed project .env or authenticate the daemon and restart it.`;
+          dispatchWarnings.push(warning);
+          this.writeStderr(`[orchestrator] ${warning}\n`);
+          skipped += 1;
+          continue;
         }
 
         const preferredWorkspaceKey = deriveIssueWorkspaceKey(
@@ -2190,7 +2207,10 @@ export class OrchestratorService {
         dispatchRateLimits
       ),
       issueWorkspaces,
-      warnings: await this.resolveWorkflowWarnings(tenant),
+      warnings: [
+        ...(await this.resolveWorkflowWarnings(tenant)),
+        ...dispatchWarnings,
+      ],
       workflowResolution,
     });
     await this.store.saveProjectStatus({

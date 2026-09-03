@@ -1002,6 +1002,10 @@ At dispatch, tracker adapters resolve host-only credentials from the tenant's
 project `.env` before the daemon environment. This lets repo-mode workers use
 the daemon-resolved tracker identity for host tools and Git transport without
 restoring blanket environment inheritance.
+GitHub and Linear workers fail startup before launching an agent when this
+effective environment has no provider credential. Candidate dispatch is also
+skipped when the orchestrator can determine the credential is missing, and
+`repo status` / `project status` expose the remediation in `warnings`.
 When no direct provider API key is configured, a non-bare runtime stages only
 the provider login into this private home: Codex `auth.json`, or Claude's
 `claudeAiOauth` entry without `mcpOAuth`. Host agent configuration and GitHub
