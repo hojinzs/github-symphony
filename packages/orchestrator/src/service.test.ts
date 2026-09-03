@@ -10399,6 +10399,9 @@ Prefer focused changes.
     const trackerAdapter = trackerAdapters.resolveTrackerAdapter(
       projectConfig.tracker
     );
+    const resolveWorkerCredentials = vi.fn(
+      trackerAdapter.resolveWorkerCredentials?.bind(trackerAdapter)
+    );
     const fetchIssueStatesByIds = vi.fn();
     if (trackerState instanceof Error) {
       fetchIssueStatesByIds.mockRejectedValue(trackerState);
@@ -10412,6 +10415,7 @@ Prefer focused changes.
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       ...trackerAdapter,
       fetchIssueStatesByIds,
+      resolveWorkerCredentials,
     });
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4105,
@@ -10429,6 +10433,7 @@ Prefer focused changes.
       store,
       service,
       fetchIssueStatesByIds,
+      resolveWorkerCredentials,
       spawnImpl,
       advanceToRetryDue: () => {
         currentTime = new Date("2026-03-08T00:00:07.000Z");
@@ -10722,6 +10727,62 @@ Prefer focused changes.
         failureRetrySuppressedState: null,
       },
     ]);
+  });
+
+  it("keeps a due retry queued when the worker credential is missing", async () => {
+    const {
+      store,
+      service,
+      advanceToRetryDue,
+      resolveWorkerCredentials,
+      spawnImpl,
+    } = await createSuccessfulFinalizationFixture("Todo");
+
+    await service.runOnce();
+    const queuedRun = await store.loadRun("run-1");
+    const queuedRecord = (
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    )[0];
+    expect(queuedRun).toMatchObject({
+      status: "retrying",
+      attempt: 1,
+      retryKind: "continuation",
+    });
+
+    resolveWorkerCredentials.mockReturnValue({});
+    advanceToRetryDue();
+    const snapshot = await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "continuation",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: queuedRecord?.failureRetryCount,
+      retryEntry: {
+        attempt: queuedRecord?.retryEntry?.attempt,
+        dueAt: queuedRecord?.retryEntry?.dueAt,
+        error: expect.stringContaining("no worker credential resolved"),
+      },
+    });
+    expect(snapshot.warnings).toContain(
+      "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it."
+    );
+
+    const credentialGatedRun = await store.loadRun("run-1");
+    await service.runOnce();
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      attempt: credentialGatedRun?.attempt,
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+        ?.failureRetryCount
+    ).toBe(queuedRecord?.failureRetryCount);
   });
 
   it("recovers a transient unknown finalization read and later succeeds", async () => {
@@ -16808,6 +16869,7 @@ Prefer focused changes.
       });
 
       const snapshot = await service.runOnce();
+      const nextSnapshot = await service.runOnce();
 
       expect(spawnImpl).not.toHaveBeenCalled();
       expect(await store.loadAllRuns()).toEqual([]);
@@ -16815,9 +16877,11 @@ Prefer focused changes.
       expect(snapshot.warnings).toEqual([
         "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it.",
       ]);
+      expect(nextSnapshot.warnings).toEqual(snapshot.warnings);
       expect(stderrWrite).toHaveBeenCalledWith(
         expect.stringContaining("Dispatch skipped for acme/platform#1")
       );
+      expect(stderrWrite).toHaveBeenCalledTimes(1);
     } finally {
       if (originalBrokerUrl === undefined) {
         delete process.env.GITHUB_TOKEN_BROKER_URL;

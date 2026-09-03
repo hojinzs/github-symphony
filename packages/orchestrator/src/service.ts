@@ -434,6 +434,7 @@ export class OrchestratorService {
   >();
   private readonly issueCommentCaches = new Map<string, IssueCommentCache>();
   private readonly warnedProjectEnvPermissions = new Map<string, number>();
+  private readonly warnedMissingWorkerCredentials = new Set<string>();
   private workflowResolutionCache: Map<
     string,
     Promise<WorkflowResolution>
@@ -1308,6 +1309,7 @@ export class OrchestratorService {
         issueRecords: IssueOrchestrationRecord[];
         recovered: boolean;
         lastError?: string | null;
+        dispatchWarnings?: string[];
       };
       try {
         outcome = await this.reconcileRun(
@@ -1332,6 +1334,7 @@ export class OrchestratorService {
       }
       issueRecords = outcome.issueRecords;
       lastError = outcome.lastError ?? lastError;
+      dispatchWarnings.push(...(outcome.dispatchWarnings ?? []));
       if (outcome.recovered) {
         recovered += 1;
       }
@@ -1629,6 +1632,11 @@ export class OrchestratorService {
       const workerCredentialMissing =
         workerCredentials !== null &&
         Object.keys(workerCredentials).length === 0;
+      if (!workerCredentialMissing) {
+        this.warnedMissingWorkerCredentials.delete(
+          this.workerCredentialWarningKey(tenant)
+        );
+      }
 
       // Count active runs by state for per-state concurrency limits
       const activeByState = new Map<string, number>();
@@ -1687,9 +1695,12 @@ export class OrchestratorService {
         }
 
         if (workerCredentialMissing) {
-          const warning = `Dispatch skipped for ${issue.identifier}: no worker credential resolved for ${issue.tracker.adapter}. Add the credential to the managed project .env or authenticate the daemon and restart it.`;
+          const warning = this.formatWorkerCredentialWarning(
+            tenant,
+            issue.identifier
+          );
           dispatchWarnings.push(warning);
-          this.writeStderr(`[orchestrator] ${warning}\n`);
+          this.warnMissingWorkerCredentialOnce(tenant, warning);
           skipped += 1;
           continue;
         }
@@ -3454,6 +3465,7 @@ export class OrchestratorService {
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
     lastError?: string | null;
+    dispatchWarnings?: string[];
   }> {
     const now = this.now();
     const issueRecord = issueRecords.find(
@@ -3627,6 +3639,35 @@ export class OrchestratorService {
           recovered: false,
         };
       }
+
+      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+      const workerCredentials =
+        trackerAdapter.resolveWorkerCredentials?.(tenant, {
+          project: this.readProjectEnv(tenant),
+          daemon: process.env,
+        }) ?? null;
+      if (
+        workerCredentials !== null &&
+        Object.keys(workerCredentials).length === 0
+      ) {
+        const warning = this.formatWorkerCredentialWarning(
+          tenant,
+          run.issueIdentifier
+        );
+        this.warnMissingWorkerCredentialOnce(tenant, warning);
+        const requeued = await this.requeueRetryingRun(
+          tenant,
+          runWithTokens,
+          issueRecords,
+          now,
+          warning,
+          { countFailure: false, advanceAttempt: false }
+        );
+        return { ...requeued, dispatchWarnings: [warning] };
+      }
+      this.warnedMissingWorkerCredentials.delete(
+        this.workerCredentialWarningKey(tenant)
+      );
 
       const retryAction = await this.resolveRetryRestartAction(
         tenant,
@@ -4950,6 +4991,29 @@ export class OrchestratorService {
       );
       return {};
     }
+  }
+
+  private workerCredentialWarningKey(
+    tenant: OrchestratorProjectConfig
+  ): string {
+    return `${tenant.projectId}:${tenant.tracker.adapter}`;
+  }
+
+  private formatWorkerCredentialWarning(
+    tenant: OrchestratorProjectConfig,
+    issueIdentifier: string
+  ): string {
+    return `Dispatch skipped for ${issueIdentifier}: no worker credential resolved for ${tenant.tracker.adapter}. Add the credential to the managed project .env or authenticate the daemon and restart it.`;
+  }
+
+  private warnMissingWorkerCredentialOnce(
+    tenant: OrchestratorProjectConfig,
+    warning: string
+  ): void {
+    const warningKey = this.workerCredentialWarningKey(tenant);
+    if (this.warnedMissingWorkerCredentials.has(warningKey)) return;
+    this.warnedMissingWorkerCredentials.add(warningKey);
+    this.writeStderr(`[orchestrator] ${warning}\n`);
   }
 
   private resolveProjectEnvironment(
