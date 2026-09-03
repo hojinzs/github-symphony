@@ -338,9 +338,11 @@ describe("synchronizeAssignedBranch", { timeout: 15_000 }, () => {
         remoteUrl: `${server.url}/${remote.slice(root.length + 1)}`,
         env: {
           ...process.env,
-          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_COUNT: "2",
           GIT_CONFIG_KEY_0: "credential.helper",
-          GIT_CONFIG_VALUE_0: `!f() { if test "$1" = get; then printf 'username=host-user\\npassword=${token}\\n\\n'; fi; }; f`,
+          GIT_CONFIG_VALUE_0: "",
+          GIT_CONFIG_KEY_1: "credential.helper",
+          GIT_CONFIG_VALUE_1: `!f() { if test "$1" = get; then printf 'username=host-user\\npassword=${token}\\n\\n'; fi; }; f`,
         },
       });
 
@@ -553,7 +555,11 @@ async function createAuthenticatedGitServer(
   return {
     authenticatedPaths,
     url: `http://127.0.0.1:${address.port}`,
-    close: () =>
-      new Promise<void>((resolveClose) => server.close(() => resolveClose())),
+    close: () => {
+      server.closeAllConnections();
+      return new Promise<void>((resolveClose) =>
+        server.close(() => resolveClose())
+      );
+    },
   };
 }
