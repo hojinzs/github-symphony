@@ -1,58 +1,52 @@
 ---
 name: push
-description: Explains the host-owned push of the assigned branch and the turn-end checklist that makes it succeed. There is no agent-side push command.
+description: Publish the assigned branch through the authenticated host action and verify its concrete result.
 license: MIT
 metadata:
   author: gh-symphony
-  version: "2.0"
-  generatedBy: "gh-symphony"
+  version: "3.0"
+  generatedBy: gh-symphony
 ---
 
 # /push — Host-owned Branch Publication
 
-## How publishing works
+## Trigger
 
-The worker child has no GitHub credentials, so `git push` from the agent fails. Instead, at the end of **every turn** (and again at session end) the worker host:
+Use this skill after committing work that must become visible on the assigned
+remote branch, including before creating or refreshing a pull request.
 
-1. verifies the worktree is still on `$SYMPHONY_ASSIGNED_BRANCH` (refuses otherwise),
-2. copies that ref into a temporary bare repository,
-3. fetches `origin/<branch>` and checks it is an ancestor of your head (refuses non-fast-forward),
-4. pushes with repository hooks disabled to the orchestrator-owned target URL,
-5. records any tracked or untracked files still in the worktree as **unpublished work**, which blocks cleanup and triggers dirty-workspace recovery on the next dispatch.
+## Flow
 
-## Turn-end checklist (run before you finish the message)
+1. Run the relevant tests and confirm the worktree is clean.
+2. Confirm `git branch --show-current` equals `$SYMPHONY_ASSIGNED_BRANCH`.
+3. Request publication from the authenticated host:
 
-```bash
-git branch --show-current            # must equal $SYMPHONY_ASSIGNED_BRANCH
-git status --porcelain               # must be empty: commit everything, delete scratch files
-git rev-parse --verify MERGE_HEAD 2>/dev/null && echo "merge in progress — finish or abort"
-git log --oneline origin/"$SYMPHONY_ASSIGNED_BRANCH"..HEAD 2>/dev/null   # commits the host will push
-```
+   ```bash
+   curl --fail-with-body --silent --show-error \
+     -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/assigned-branch/publish" \
+     -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \
+     -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN"
+   ```
 
-- Scratch files (comment bodies, PR bodies, transition bodies) live under `mktemp -d "${TMPDIR:-/tmp}/symphony-<issue>.XXXXXX"`, never in the checkout.
-- Run the relevant validation before committing; a broken intermediate commit still gets pushed.
-- Conventional commit messages via `/commit`.
+4. Require `ok: true`, `outcome: published`, and the expected branch/head in
+   the response before relying on the remote ref.
+5. A missing remote ref alone is not a blocker and must never trigger a
+   turn-count escalation. If publication was not requested yet, request it; if
+   the action fails, record its concrete error.
 
-## Verifying the push next turn
+## Host guarantees
 
-The branch exists on the remote when this query returns a target:
-
-```graphql
-query BranchOnRemote($owner: String!, $name: String!, $ref: String!) {
-  repository(owner: $owner, name: $name) {
-    ref(qualifiedName: $ref) {
-      target {
-        oid
-      }
-    }
-  }
-}
-```
-
-(`$ref` = `refs/heads/<branch>`.) Compare the returned `oid` with `git rev-parse HEAD`. If the branch is missing or stale, the previous push was refused; the worker output names the reason (`refusing to push …`). Fix the cause (wrong branch, non-fast-forward history) and end the turn again.
+- The host alone holds Git credentials.
+- The host verifies the assigned branch, refuses non-fast-forward publication,
+  disables repository hooks, and reports tracked or untracked work left
+  unpublished.
+- Repeating the action at the same HEAD is safe and idempotent.
+- The worker also publishes at session exit as a backstop, including abnormal
+  exits.
 
 ## Rules
 
-- Never `git push`, never add credentials, never edit `origin`.
-- Never `--force`, `--force-with-lease`, rebase, amend, or reset commits that may already be on the remote.
-- Never push to `main`; the assigned branch is the only publication target.
+- Never run `git push`, add credentials, or edit `origin` from the agent child.
+- Never rebase, amend, reset, or force-rewrite commits that may already be
+  remote.
+- Never publish `main`; the assigned branch is the only publication target.

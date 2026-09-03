@@ -299,6 +299,11 @@ gh-symphony workflow init
 
 The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
 
+The generated `/push` skill requests the run-scoped host publication action
+after a commit. The credential remains in the worker host, while the assigned
+branch becomes available for pull-request creation during the same run. Worker
+exit repeats the same fast-forward-only transport as a backstop.
+
 You can further customize the agent's behavior by editing `WORKFLOW.md` or by adding repository-specific reference markdown under the `/gh-symphony` skill's `references/` directory. `WORKFLOW.md` remains the policy layer that controls what the agent does at each workflow phase.
 
 > Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
