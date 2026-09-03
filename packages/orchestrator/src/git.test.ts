@@ -666,6 +666,7 @@ describe("cloneRepositoryForRun", () => {
       ...input,
       existingWorkspace: false,
     });
+    configureGitIdentity(repositoryDirectory);
     await writeFile(
       join(repositoryDirectory, "agent-work.txt"),
       "unpublished\n",
