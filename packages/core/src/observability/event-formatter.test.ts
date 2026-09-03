@@ -194,6 +194,24 @@ describe("event-formatter", () => {
     ).toBe("Retry 2 scheduled (failure): worker exited with code 1");
   });
 
+  it("formats postponed retry events with their capacity reason", () => {
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:01:00.000Z",
+        event: "retry-postponed",
+        projectId: "project-1",
+        runId: "run-1",
+        issueIdentifier: "acme/repo#1",
+        issueId: "issue-1",
+        attempt: 2,
+        dueAt: "2026-03-16T00:00:00.000Z",
+        reason: "no available orchestrator slots",
+      })
+    ).toBe(
+      "Retry 2 postponed until 2026-03-16T00:00:00.000Z: no available orchestrator slots"
+    );
+  });
+
   it("formats finalization deferrals with diagnostic context", () => {
     expect(
       formatEventMessage({

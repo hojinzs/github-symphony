@@ -120,6 +120,18 @@ export type RunRetriedEvent = {
   error: string | null;
 };
 
+export type RetryPostponedEvent = {
+  at: string;
+  event: "retry-postponed";
+  projectId?: string;
+  runId: string;
+  issueIdentifier: string;
+  issueId?: string;
+  attempt: number;
+  dueAt: string;
+  reason: string;
+};
+
 export type RunFailedEvent = {
   at: string;
   event: "run-failed";
@@ -337,6 +349,7 @@ export type OrchestratorEvent =
   | RunRecoveredEvent
   | RunRestartFailedEvent
   | RunRetriedEvent
+  | RetryPostponedEvent
   | RunFailedEvent
   | RunSuppressedEvent
   | RunOwnershipSkippedEvent

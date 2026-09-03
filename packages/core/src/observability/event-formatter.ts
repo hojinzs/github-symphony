@@ -28,6 +28,8 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
         : `Restart failed; retry scheduled: ${event.error}`;
     case "run-retried":
       return `Retry ${event.attempt} scheduled (${event.retryKind})${event.error ? `: ${event.error}` : ""}`;
+    case "retry-postponed":
+      return `Retry ${event.attempt} postponed until ${event.dueAt}: ${event.reason}`;
     case "run-finalization-deferred":
       return `Finalization deferred ${event.consecutiveDeferrals}/${event.maxDeferrals} (${event.reason})${event.exhausted ? " — bound exhausted" : ""}`;
     case "run-failed":

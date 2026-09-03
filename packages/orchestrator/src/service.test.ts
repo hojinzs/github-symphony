@@ -38,6 +38,7 @@ import {
   clampPollInterval,
   OrchestratorService,
   resolveDirtyWorkAttributionBranches,
+  sortRunsForReconciliation,
   shouldAwaitTrackerProgressExit,
   shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
@@ -186,6 +187,55 @@ describe("OrchestratorService", () => {
     expect(clampPollInterval(0)).toBe(1_000);
     expect(clampPollInterval(10 * 60_000)).toBe(5 * 60_000);
     expect(clampPollInterval(30_000)).toBe(30_000);
+  });
+
+  it("orders non-due runs before fair due retry reservations", () => {
+    const now = new Date("2026-03-08T00:01:00.000Z");
+    const run = (
+      runId: string,
+      issueIdentifier: string,
+      status: OrchestratorRunRecord["status"],
+      nextRetryAt: string | null
+    ) =>
+      ({
+        runId,
+        issueIdentifier,
+        status,
+        nextRetryAt,
+      }) as OrchestratorRunRecord;
+
+    expect(
+      sortRunsForReconciliation(
+        [
+          run(
+            "due-b",
+            "acme/platform#2",
+            "retrying",
+            "2026-03-08T00:00:00.000Z"
+          ),
+          run(
+            "due-a",
+            "acme/platform#1",
+            "retrying",
+            "2026-03-08T00:00:00.000Z"
+          ),
+          run(
+            "pending",
+            "acme/platform#3",
+            "retrying",
+            "2026-03-08T00:02:00.000Z"
+          ),
+          run("running", "acme/platform#4", "running", null),
+          run(
+            "due-a-run-a",
+            "acme/platform#1",
+            "retrying",
+            "2026-03-08T00:00:00.000Z"
+          ),
+        ],
+        now
+      ).map((candidate) => candidate.runId)
+    ).toEqual(["pending", "running", "due-a", "due-a-run-a", "due-b"]);
   });
 
   it("guards worker signals by owner and process identity", async () => {
@@ -977,7 +1027,7 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("preserves recovery kind when postponing a due retry", async () => {
+  it("preserves recovery kind and age when capacity postpones a due retry", async () => {
     const now = new Date("2026-03-08T00:00:00.000Z");
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-requeue-kind-")
@@ -985,7 +1035,8 @@ describe("OrchestratorService", () => {
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
-      "platform"
+      "platform",
+      { schedulerPollIntervalMs: 30_000, retryBaseDelayMs: 10_000 }
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
@@ -999,7 +1050,7 @@ describe("OrchestratorService", () => {
       issueState: "Todo",
       repository,
       status: "retrying",
-      attempt: 2,
+      attempt: 4,
       processId: null,
       port: 4601,
       workingDirectory: tempRoot,
@@ -1012,7 +1063,7 @@ describe("OrchestratorService", () => {
       startedAt: "2026-03-07T23:58:00.000Z",
       completedAt: null,
       lastError: "worker failed",
-      nextRetryAt: now.toISOString(),
+      nextRetryAt: "2026-03-07T23:55:00.000Z",
     } as OrchestratorRunRecord;
     const issueRecords: IssueOrchestrationRecord[] = [
       {
@@ -1025,7 +1076,7 @@ describe("OrchestratorService", () => {
         currentRunId: run.runId,
         retryEntry: {
           attempt: run.attempt,
-          dueAt: now.toISOString(),
+          dueAt: "2026-03-07T23:55:00.000Z",
           error: run.lastError,
         },
         updatedAt: now.toISOString(),
@@ -1041,17 +1092,22 @@ describe("OrchestratorService", () => {
           retryRun: OrchestratorRunRecord,
           records: IssueOrchestrationRecord[],
           currentTime: Date,
-          error: string
-        ) => Promise<unknown>;
+          error: string,
+          options?: { countFailure?: boolean; advanceAttempt?: boolean }
+        ) => Promise<{
+          issueRecords: IssueOrchestrationRecord[];
+          recovered: boolean;
+        }>;
       }
     ).requeueRetryingRun.bind(service);
 
-    await requeueRetryingRun(
+    const result = await requeueRetryingRun(
       projectConfig,
       run,
       issueRecords,
       now,
-      "retry refresh failed"
+      "no available orchestrator slots",
+      { countFailure: false, advanceAttempt: false }
     );
 
     expect(await store.loadRun(run.runId)).toMatchObject({
@@ -1060,6 +1116,51 @@ describe("OrchestratorService", () => {
       startedAt: null,
       completedAt: now.toISOString(),
       cumulativeRuntimeMs: 120_000,
+      nextRetryAt: "2026-03-07T23:55:00.000Z",
+      lastError: "worker failed",
+    });
+    expect(result.issueRecords[0]).toMatchObject({
+      failureRetryCount: 0,
+      retryEntry: expect.objectContaining({
+        attempt: 4,
+        dueAt: "2026-03-07T23:55:00.000Z",
+        error: "worker failed",
+      }),
+    });
+    await expect(
+      readFile(
+        join(store.runDir(run.runId, run.projectId), "events.ndjson"),
+        "utf8"
+      )
+    ).resolves.toContain('"event":"retry-postponed"');
+
+    const fallbackRun = {
+      ...run,
+      runId: "run-recovery-fallback",
+      issueId: "retry-fallback-issue",
+      issueSubjectId: "retry-fallback-issue",
+      issueIdentifier: "acme/platform#2",
+      issueWorkspaceKey: "retry-fallback-issue",
+    };
+    const fallbackResult = await requeueRetryingRun(
+      projectConfig,
+      fallbackRun,
+      [],
+      now,
+      "no available orchestrator slots",
+      { countFailure: false, advanceAttempt: false }
+    );
+
+    expect(await store.loadRun(fallbackRun.runId)).toMatchObject({
+      nextRetryAt: "2026-03-08T00:00:30.000Z",
+      lastError: "worker failed",
+    });
+    expect(fallbackResult.issueRecords[0]).toMatchObject({
+      retryEntry: expect.objectContaining({
+        attempt: 4,
+        dueAt: "2026-03-08T00:00:30.000Z",
+        error: "worker failed",
+      }),
     });
   });
 
@@ -6130,7 +6231,7 @@ Prefer focused changes.
       status: "retrying",
       attempt: 2,
       retryKind: "failure",
-      lastError: "no available orchestrator slots",
+      lastError: "Worker process exited unexpectedly.",
     });
     expect(
       (await store.loadProjectIssueOrchestrations("tenant-1"))[1]
@@ -6140,7 +6241,163 @@ Prefer focused changes.
       failureRetryCount: 0,
       retryEntry: expect.objectContaining({
         attempt: 2,
-        error: "no available orchestrator slots",
+        error: "Worker process exited unexpectedly.",
+      }),
+    });
+  });
+
+  it("starts the oldest due retry and retains the newer reservation under saturation", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const now = new Date("2026-03-08T00:01:00.000Z");
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-retry-fair-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxConcurrentAgents: 1 }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const makeIssue = (number: number) => ({
+      id: `issue-${number}`,
+      identifier: `acme/platform#${number}`,
+      number,
+      title: `Retry ${number}`,
+      description: null,
+      priority: null,
+      state: "Todo",
+      branchName: null,
+      url: `https://github.com/acme/platform/issues/${number}`,
+      labels: [],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      repository,
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        itemId: `item-${number}`,
+      },
+      metadata: {},
+    });
+    const olderIssue = makeIssue(1);
+    const newerIssue = makeIssue(2);
+    const issueById = new Map([
+      [olderIssue.id, olderIssue],
+      [newerIssue.id, newerIssue],
+    ]);
+    const retryRun = (issue: typeof olderIssue, runId: string, dueAt: string) =>
+      ({
+        runId,
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: issue.id,
+        issueSubjectId: issue.id,
+        issueIdentifier: issue.identifier,
+        issueTitle: issue.title,
+        issueState: issue.state,
+        repository,
+        status: "retrying",
+        attempt: 2,
+        processId: null,
+        port: null,
+        workingDirectory: join(tempRoot, runId),
+        issueWorkspaceKey: `acme_platform_${issue.number}`,
+        workspaceRuntimeDir: join(tempRoot, runId, "workspace-runtime"),
+        workflowPath: null,
+        retryKind: "failure",
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        startedAt: null,
+        completedAt: now.toISOString(),
+        lastError: `retry ${issue.number} failed`,
+        nextRetryAt: dueAt,
+      }) as OrchestratorRunRecord;
+    const olderRun = retryRun(
+      olderIssue,
+      "run-z-older",
+      "2026-03-08T00:00:00.000Z"
+    );
+    const newerRun = retryRun(
+      newerIssue,
+      "run-a-newer",
+      "2026-03-08T00:00:30.000Z"
+    );
+    await store.saveRun(newerRun);
+    await store.saveRun(olderRun);
+    await store.saveProjectIssueOrchestrations(
+      "tenant-1",
+      [olderRun, newerRun].map((run) => ({
+        issueId: run.issueId,
+        identifier: run.issueIdentifier,
+        workspaceKey: run.issueWorkspaceKey ?? run.issueId,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "retry_queued" as const,
+        currentRunId: run.runId,
+        retryEntry: {
+          attempt: run.attempt,
+          dueAt: run.nextRetryAt ?? "",
+          error: run.lastError ?? "",
+        },
+        updatedAt: now.toISOString(),
+      }))
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([olderIssue, newerIssue]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi
+        .fn()
+        .mockImplementation(async (_project, ids: string[]) =>
+          ids.flatMap((id) => {
+            const issue = issueById.get(id);
+            return issue ? [issue] : [];
+          })
+        ),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn((_project, run: OrchestratorRunRecord) =>
+        issueById.get(run.issueId)
+      ),
+    } as never);
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4102,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
+      spawnImpl: spawnImpl as never,
+      getProcessStartIdentity: (pid) => `worker-${pid}-started-once`,
+      now: () => now,
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+    expect(
+      issueRecords.find((record) => record.issueId === olderIssue.id)
+    ).toMatchObject({
+      state: "running",
+      retryEntry: null,
+    });
+    expect(
+      issueRecords.find((record) => record.issueId === newerIssue.id)
+    ).toMatchObject({
+      state: "retry_queued",
+      currentRunId: newerRun.runId,
+      retryEntry: expect.objectContaining({
+        attempt: 2,
+        dueAt: "2026-03-08T00:00:30.000Z",
+        error: "retry 2 failed",
       }),
     });
   });
@@ -17000,7 +17257,7 @@ async function writeWorkflowFixture(
 ): Promise<void> {
   const content = normalizeTrackerProviderFixture(
     options.rawWorkflow ??
-      `---
+    `---
 tracker:
   kind: github-project
   provider:
@@ -17067,14 +17324,15 @@ function normalizeTrackerProviderFixture(content: string): string {
     const key = trackerLines[index]?.match(/^[ ]{2}([a-z_]+):/)?.[1];
     let next = index + 1;
     while (
-      next < trackerLines.length &&
-      !/^[ ]{2}\S/.test(trackerLines[next]!)
+      next < trackerLines.length && !/^[ ]{2}\S/.test(trackerLines[next]!)
     ) {
       next += 1;
     }
     const block = trackerLines.slice(index, next);
     if (key && flatKeys.has(key)) {
-      providerLines.push(...block.map((line) => `  ${line}`));
+      providerLines.push(
+        ...block.map((line) => `  ${line}`)
+      );
     } else {
       remaining.push(...block);
     }

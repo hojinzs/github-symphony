@@ -77,12 +77,13 @@ the tracker adapter:
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
 - A `retry_queued` orchestration record with a non-null `currentRunId` retains its
-  concurrency reservation until it is restarted, released, or suppressed. A
-  due reservation is excluded from the retry-fire capacity count so the oldest
-  due retry can make progress after concurrency is reduced; once restarted, it
-  immediately counts as a running claim. Exhausted capacity is requeued for
-  the polling interval without consuming failure budget or increasing retry
-  backoff.
+  concurrency reservation until it is restarted, released, or suppressed. Due
+  reservations are reconciled after non-due active runs, then oldest due time
+  first with stable issue-identity tie-breaking. A capacity-only requeue
+  retains its original due time, so an already-waiting retry ages ahead of a
+  retry that just ran; it still consumes neither failure budget nor retry
+  backoff. Due reservations are excluded from retry-fire capacity accounting
+  and count as running immediately after restart.
 - This reservation behavior is an intentional repository-local scheduler
   divergence. After a confirmed transition out of an active state, the worker
   also receives a fixed 30-second clean-exit grace before reconciliation acts.
@@ -136,7 +137,7 @@ the tracker adapter:
 
 ### 6. Observability — events and status surfaces
 
-- Structured events and snapshot builder: `packages/core/src/observability/`; the project snapshot exposes the short SHA-256-derived workflow revision and load time applied during its latest tick, and `run-dispatched` records that revision. Retry scheduling emits `run-retried` with the run and issue IDs, attempt, retry kind, due time, and error summary; retry queue rows expose the issue ID, attempt, and error. Completed-run reconciliation emits `run-finalization-deferred` with the discriminated unknown cause, diagnostic error, consecutive count, bound, and exhaustion flag, while candidate-level reconciliation emits `tracker-terminal-candidate-reconciled` before any run exists.
+- Structured events and snapshot builder: `packages/core/src/observability/`; the project snapshot exposes the short SHA-256-derived workflow revision and load time applied during its latest tick, and `run-dispatched` records that revision. Retry scheduling emits `run-retried` with the run and issue IDs, attempt, retry kind, due time, and error summary; a capacity-postponed reservation emits `retry-postponed` with its retained due time and capacity reason, preserving the original retry error in the queue row. Retry queue rows expose the issue ID, attempt, and error. Completed-run reconciliation emits `run-finalization-deferred` with the discriminated unknown cause, diagnostic error, consecutive count, bound, and exhaustion flag, while candidate-level reconciliation emits `tracker-terminal-candidate-reconciled` before any run exists.
 - Operator HTTP control plane (bearer auth, redaction): `packages/control-plane`
 - Browser dashboard: `packages/dashboard` — details in [../packages/control-plane/README.md](../packages/control-plane/README.md)
 - Runtime state files: `.runtime/orchestrator/` (`workspaces/<id>/`, `runs/<run-id>/`)
