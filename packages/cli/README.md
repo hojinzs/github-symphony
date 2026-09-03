@@ -254,6 +254,11 @@ gh-symphony workflow preview ENG-123
 
 ### Repository `.env` Mapping
 
+Symphony does not load the repository-root `.env`; that file remains owned by
+the application. `gh-symphony doctor` warns when it exists in repo mode.
+Symphony-specific values belong in the managed project `.env`, which is merged
+before the daemon environment and Symphony-injected run context.
+
 If your hooks or worker runs need staging hosts, database URLs, Playwright base URLs, or other runtime-only values, store them in the repository runtime directory instead of hardcoding them in `WORKFLOW.md`.
 
 1. Initialize the repository runtime with `gh-symphony repo init`.

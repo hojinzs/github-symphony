@@ -440,6 +440,13 @@ project folder. For registry-backed or repo-embedded projects it lives at
 `<config-dir>/projects/<project-id>/.env` (or the default config directory
 when no `--config <dir>`/`GH_SYMPHONY_CONFIG_DIR` override is set).
 
+This managed project `.env` is Symphony's only `.env` source. Symphony does
+not load `<repository>/.env`; that file remains application-owned even when the
+daemon is started from the repository. In repo mode, `gh-symphony doctor`
+warns when the repository-root file exists and points operators to the managed
+project file. Each worker host is also spawned from its run-scoped runtime
+directory rather than inheriting the daemon's working directory.
+
 ## Auth And API Endpoints
 
 These variables are user-facing and are safe to set in local shells, CI, or
