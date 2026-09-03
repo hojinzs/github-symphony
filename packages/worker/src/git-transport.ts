@@ -237,7 +237,12 @@ export function buildHostGitEnvironment(
           gitUsername: env.GITHUB_GIT_USERNAME,
         })
       : {};
-  const credentialHelper = credentialEnvironment.GIT_CONFIG_VALUE_0;
+  const {
+    GIT_CONFIG_COUNT: _credentialConfigCount,
+    GIT_CONFIG_KEY_0: _credentialConfigKey,
+    GIT_CONFIG_VALUE_0: credentialHelper,
+    ...credentialVariables
+  } = credentialEnvironment;
   if (!credentialHelper) {
     return {
       ...env,
@@ -260,9 +265,7 @@ export function buildHostGitEnvironment(
 
   return {
     ...env,
-    GIT_TERMINAL_PROMPT: "0",
-    GITHUB_GIT_HOST: credentialEnvironment.GITHUB_GIT_HOST,
-    GITHUB_GIT_USERNAME: credentialEnvironment.GITHUB_GIT_USERNAME,
+    ...credentialVariables,
     GIT_CONFIG_COUNT: String(gitConfigCount + 1),
     [`GIT_CONFIG_KEY_${gitConfigCount}`]: "credential.helper",
     [`GIT_CONFIG_VALUE_${gitConfigCount}`]: credentialHelper,
