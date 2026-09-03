@@ -13,6 +13,7 @@ cleanup() {
   remove_e2e_compose_image
 }
 
+assert_docker_runtime_is_available
 assert_e2e_project_is_available docker-compose.e2e.yml
 trap cleanup EXIT
 

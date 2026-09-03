@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   formatGitCredentialResponse,
   parseGitCredentialRequest,
+  resolveGitCredentialHelperConfig,
   resolveGitCredential,
 } from "./git-credential-helper.js";
 
@@ -57,6 +58,76 @@ describe("resolveGitCredential", () => {
     expect(response).toContain("password=ghs_brokered");
   });
 
+  it("bounds a hung broker request with an attributable timeout", async () => {
+    const brokerUrl = "https://broker.example/runtime-token";
+    const fetchImpl = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason);
+          });
+        })
+    );
+
+    const result = resolveGitCredential(
+      {
+        protocol: "https",
+        host: "github.com",
+      },
+      {
+        tokenBrokerUrl: brokerUrl,
+        tokenBrokerSecret: "runtime-secret",
+        tokenBrokerTimeoutMs: 10,
+      },
+      fetchImpl as typeof fetch
+    );
+
+    await expect(result).rejects.toMatchObject({
+      message: `Git credential token broker request to ${brokerUrl} timed out after 10ms.`,
+      cause: expect.objectContaining({ name: "TimeoutError" }),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("recognizes a broker timeout wrapped in an error cause", async () => {
+    const brokerUrl = "https://broker.example/runtime-token";
+    const timeout = new DOMException("request expired", "TimeoutError");
+
+    await expect(
+      resolveGitCredential(
+        { protocol: "https", host: "github.com" },
+        {
+          tokenBrokerUrl: brokerUrl,
+          tokenBrokerSecret: "runtime-secret",
+          tokenBrokerTimeoutMs: 25,
+        },
+        vi
+          .fn()
+          .mockRejectedValue(new TypeError("fetch failed", { cause: timeout }))
+      )
+    ).rejects.toMatchObject({
+      message: `Git credential token broker request to ${brokerUrl} timed out after 25ms.`,
+      cause: expect.objectContaining({ message: "fetch failed" }),
+    });
+  });
+
+  it("preserves non-timeout broker errors", async () => {
+    const brokerError = new Error("broker returned 500");
+
+    await expect(
+      resolveGitCredential(
+        { protocol: "https", host: "github.com" },
+        {
+          tokenBrokerUrl: "https://broker.example/runtime-token",
+          tokenBrokerSecret: "runtime-secret",
+        },
+        vi.fn().mockRejectedValue(brokerError)
+      )
+    ).rejects.toBe(brokerError);
+  });
+
   it("ignores unsupported hosts or protocols", async () => {
     await expect(
       resolveGitCredential(
@@ -82,4 +153,44 @@ describe("resolveGitCredential", () => {
       )
     ).resolves.toBe("");
   });
+});
+
+describe("resolveGitCredentialHelperConfig", () => {
+  it("reads the operator-configured broker timeout from the helper environment", () => {
+    expect(
+      resolveGitCredentialHelperConfig({
+        GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-token",
+        GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
+        GITHUB_TOKEN_BROKER_TIMEOUT_MS: "7500",
+      })
+    ).toMatchObject({
+      tokenBrokerUrl: "https://broker.example/runtime-token",
+      tokenBrokerSecret: "runtime-secret",
+      tokenBrokerTimeoutMs: 7500,
+    });
+  });
+
+  it.each(["", "  "])(
+    "treats an empty broker timeout %j as unset",
+    (timeout) => {
+      expect(
+        resolveGitCredentialHelperConfig({
+          GITHUB_TOKEN_BROKER_TIMEOUT_MS: timeout,
+        }).tokenBrokerTimeoutMs
+      ).toBeUndefined();
+    }
+  );
+
+  it.each(["0", "-1", "1.5", "abc", "2147483648"])(
+    "rejects invalid operator broker timeout %s with an attributable diagnostic",
+    (timeout) => {
+      expect(() =>
+        resolveGitCredentialHelperConfig({
+          GITHUB_TOKEN_BROKER_TIMEOUT_MS: timeout,
+        })
+      ).toThrow(
+        `GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer no greater than 2147483647; received ${JSON.stringify(timeout)}.`
+      );
+    }
+  );
 });

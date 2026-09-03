@@ -2,9 +2,12 @@ import {
   resolveGitHubGraphQLToken,
   type GitHubGraphQLToolConfig,
 } from "@gh-symphony/tool-github-graphql";
+import { writeSync } from "node:fs";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
+const DEFAULT_TOKEN_BROKER_TIMEOUT_MS = 5_000;
+const MAX_TOKEN_BROKER_TIMEOUT_MS = 2_147_483_647;
 
 export type GitCredentialRequest = Record<string, string>;
 
@@ -14,6 +17,7 @@ export type GitCredentialHelperConfig = Pick<
 > & {
   gitHost?: string;
   gitUsername?: string;
+  tokenBrokerTimeoutMs?: number;
 };
 
 export async function resolveGitCredential(
@@ -36,9 +40,29 @@ export async function resolveGitCredential(
     return "";
   }
 
-  const token = await resolveGitHubGraphQLToken(config, {
-    fetchImpl,
-  });
+  const tokenBrokerTimeoutMs =
+    config.tokenBrokerTimeoutMs ?? DEFAULT_TOKEN_BROKER_TIMEOUT_MS;
+  const tokenBrokerUrl = config.tokenBrokerUrl;
+  const brokerFetch: typeof fetch = (input, init) =>
+    fetchImpl(input, {
+      ...init,
+      signal: AbortSignal.timeout(tokenBrokerTimeoutMs),
+    });
+
+  let token: string;
+  try {
+    token = await resolveGitHubGraphQLToken(config, {
+      fetchImpl: brokerFetch,
+    });
+  } catch (error) {
+    if (tokenBrokerUrl && isTimeoutError(error)) {
+      throw new Error(
+        `Git credential token broker request to ${tokenBrokerUrl} timed out after ${tokenBrokerTimeoutMs}ms.`,
+        { cause: error }
+      );
+    }
+    throw error;
+  }
 
   return formatGitCredentialResponse({
     protocol: requestProtocol || "https",
@@ -89,26 +113,72 @@ async function readStdin(): Promise<string> {
 
 export async function runGitCredentialHelper(): Promise<void> {
   const request = parseGitCredentialRequest(await readStdin());
-  const response = await resolveGitCredential(request, {
-    token: process.env.GITHUB_GRAPHQL_TOKEN,
-    tokenBrokerUrl: process.env.GITHUB_TOKEN_BROKER_URL,
-    tokenBrokerSecret: process.env.GITHUB_TOKEN_BROKER_SECRET,
-    tokenCachePath: process.env.GITHUB_TOKEN_CACHE_PATH,
-    gitHost: process.env.GITHUB_GIT_HOST,
-    gitUsername: process.env.GITHUB_GIT_USERNAME,
-  });
+  const response = await resolveGitCredential(
+    request,
+    resolveGitCredentialHelperConfig(process.env)
+  );
 
   process.stdout.write(response);
+}
+
+export function resolveGitCredentialHelperConfig(
+  env: NodeJS.ProcessEnv
+): GitCredentialHelperConfig {
+  return {
+    token: env.GITHUB_GRAPHQL_TOKEN,
+    tokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
+    tokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
+    tokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
+    gitHost: env.GITHUB_GIT_HOST,
+    gitUsername: env.GITHUB_GIT_USERNAME,
+    tokenBrokerTimeoutMs: parseGitCredentialBrokerTimeoutMs(
+      env.GITHUB_TOKEN_BROKER_TIMEOUT_MS
+    ),
+  };
+}
+
+export function parseGitCredentialBrokerTimeoutMs(
+  value: string | number | undefined
+): number | undefined {
+  if (
+    value === undefined ||
+    (typeof value === "string" && value.trim() === "")
+  ) {
+    return undefined;
+  }
+
+  const timeoutMs = typeof value === "number" ? value : Number(value);
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > MAX_TOKEN_BROKER_TIMEOUT_MS
+  ) {
+    throw new Error(
+      `GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer no greater than ${MAX_TOKEN_BROKER_TIMEOUT_MS}; received ${JSON.stringify(value)}.`
+    );
+  }
+
+  return timeoutMs;
 }
 
 if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
   runGitCredentialHelper().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "Unknown error";
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
+    writeSync(2, `${message}\n`);
+    process.exit(1);
   });
 }
 
 function normalizeGitHost(host: string): string {
   return host.trim().toLowerCase();
+}
+
+function isTimeoutError(error: unknown): boolean {
+  for (let cursor = error; cursor instanceof Error; cursor = cursor.cause) {
+    if (cursor.name === "TimeoutError") {
+      return true;
+    }
+  }
+
+  return false;
 }
