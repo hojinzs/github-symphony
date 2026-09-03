@@ -47,9 +47,6 @@ jobs:
       - name: Compose project helper test
         run: pnpm e2e:compose-project-test
 
-      - name: Atomic fixture helper test
-        run: pnpm e2e:fixture-file-test
-
       - name: Package entrypoint smoke test
         run: pnpm --filter @gh-symphony/cli test:package
 
