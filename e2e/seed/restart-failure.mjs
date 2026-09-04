@@ -1,8 +1,13 @@
+import { createHash } from "node:crypto";
 import { OrchestratorFsStore } from "/app/packages/orchestrator/dist/fs-store.js";
 
 const now = new Date().toISOString();
 const runtimeRoot = "/e2e/work/test-repo/.runtime/orchestrator";
-const projectId = "repository";
+const projectDirectory = "/e2e/work/test-repo";
+const projectId = `test-repo-${createHash("sha256")
+  .update(projectDirectory)
+  .digest("hex")
+  .slice(0, 8)}`;
 const issueId = "retry-issue";
 const identifier = "test-owner/test-repo#20";
 const runId = "restart-failure-run";

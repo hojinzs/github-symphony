@@ -77,7 +77,6 @@ case "$compose_output" in
 esac
 
 for runner in \
-  e2e/run-e2e.sh \
   e2e/run-flat-tracker-keys-e2e.sh \
   e2e/run-standalone-project-e2e.sh \
   test/e2e/claude/run-docker-e2e.sh; do

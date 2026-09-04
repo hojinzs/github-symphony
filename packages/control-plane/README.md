@@ -109,8 +109,8 @@ export function createControlPlaneHandler(options: {
 
 ### 1.5 §13 snapshot field mapping
 
-| Symphony §13 field | Implementation field | Notes |
-| --- | --- | --- |
+| Symphony §13 field                           | Implementation field                             | Notes                                                                                            |
+| -------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | `issue_url` on running/retrying rows (§13.3) | `activeRuns[].issueUrl`, `retryQueue[].issueUrl` | Captured from the tracker issue when a run is created; exposed unchanged by `GET /api/v1/state`. |
 
 Static assets are resolved relative to `import.meta.url`:
@@ -299,19 +299,23 @@ pnpm --filter @gh-symphony/control-plane dev:server
 pnpm --filter @gh-symphony/control-plane dev:client
 ```
 
-During development, the React app is served by Vite on `:5173`. API calls are proxied to the Node.js server on `:4680`. The `gh-symphony repo start --web` command starts only the Node.js server; point a browser at `:5173` during dev, `:4680` in production.
+During development, the React app is served by Vite on `:5173`. API calls are
+proxied to the Node.js server on `:4680`. The
+`gh-symphony project start --project-dir <path> --web` command starts only the
+Node.js server; point a browser at `:5173` during development and `:4680` in
+production.
 
 ---
 
 ## 5. CLI Integration
 
-The `--web` flag is available on `gh-symphony repo start`:
+The `--web` flag is available on `gh-symphony project start`:
 
 ```bash
-gh-symphony repo start --web       # orchestrator + HTML dashboard
-gh-symphony repo start --web 4680  # explicit port
-gh-symphony repo start --http      # orchestrator + JSON API only
-gh-symphony repo start --web --bind-all # opt in to all-interface binding
+gh-symphony project start --project-dir <path> --web       # orchestrator + HTML dashboard
+gh-symphony project start --project-dir <path> --web 4680  # explicit port
+gh-symphony project start --project-dir <path> --http      # orchestrator + JSON API only
+gh-symphony project start --project-dir <path> --web --bind-all # opt in to all-interface binding
 ```
 
 Both HTTP modes bind to `127.0.0.1` by default. All `/api/v1/*` routes require

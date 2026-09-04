@@ -8,12 +8,14 @@ docker compose -f docker-compose.e2e.yml up -d --build
 ```
 
 Modify `docker-compose.e2e.yml` environment:
+
 ```yaml
 environment:
   STUB_SCENARIO: fail
 ```
 
 Then:
+
 ```bash
 docker compose -f docker-compose.e2e.yml up -d --build
 curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
@@ -22,16 +24,19 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ## Steps
 
 1. **Inject issue fixture**
+
    ```bash
    cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
    ```
 
 2. **Trigger reconciliation**
+
    ```bash
    curl -X POST http://localhost:4680/api/v1/refresh
    ```
 
 3. **Verify worker starts and fails**
+
    ```bash
    # After ~5s (2s starting + 3s running), worker should fail
    # Poll status
@@ -40,6 +45,7 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
    ```
 
 4. **Verify retry scheduling**
+
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.retryQueue'
    # Expected: non-empty retry queue with the failed issue
@@ -47,7 +53,7 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 
 5. **Check event log**
    ```bash
-   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/projects/*/runs/*/events.ndjson'
    # Expected: dispatch event, failure event, retry-scheduled event
    ```
 

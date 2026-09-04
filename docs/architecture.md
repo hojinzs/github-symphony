@@ -38,7 +38,8 @@ the tracker adapter:
 - **Coordination:** `packages/orchestrator/src/service.ts` consumes the durable
   retry budget for dirty-workspace recovery, preserves recovery context on
   exhaustion, releases the claim, and requires an explicit tracker state change
-  before redispatch. Docker coverage: [bounded recovery circuit breaker](../e2e/scenarios/20-bounded-recovery-circuit-breaker.md).
+  before redispatch. Deterministic orchestrator tests are the authoritative
+  coverage for this failure circuit.
 - **Execution:** `packages/worker/src/turn-lease.ts` distinguishes permanent
   unsupported state reads from transient provider failures and retains
   diagnostics for the latter. This capability behavior is focused-test coverage
@@ -46,7 +47,8 @@ the tracker adapter:
 - **Core and coordination:** `packages/core/src/workflow/issue-identity.ts`
   recognizes normalized `TEAM-123` branch and workpad evidence for safe
   dirty-workspace attribution; `packages/orchestrator/src/service.ts` consumes
-  that evidence. Docker coverage: [Linear dirty-workspace recovery](../e2e/scenarios/21-linear-dirty-workspace-recovery.md).
+  that evidence. Core and orchestrator unit suites are the authoritative
+  coverage for this attribution boundary.
 - **Configuration and integration:** `packages/cli/src/commands/doctor.ts`
   selects the Linear adapter for standalone `doctor --smoke` reads without a
   GitHub Project binding. This provider selection is focused-test coverage;
@@ -55,7 +57,7 @@ the tracker adapter:
 
 ### 1. Policy — defined by the repo/project
 
-- `WORKFLOW.md` (repository root or standalone project folder) — prompt body and team rules
+- `WORKFLOW.md` (project folder) — prompt body and team rules
 - Prompt policy can branch on the normalized lifecycle `execution_phase`; phase classification alone does not impose agent behavior.
 - Skill layers: global `~/.gh-symphony/skills/` + project `.agent/skills/`, injected into the worktree's `.codex/skills/` / `.claude/skills/` (see Skill Layering in [configuration.md](configuration.md))
 - Examples: [examples/](examples/)
@@ -63,26 +65,25 @@ the tracker adapter:
 ### 2. Configuration — typed parsing and validation
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
-- Workflow `server.port` configuration and the `repo start --port` / `--http`
+- Workflow `server.port` configuration and the `project start --port` / `--http`
   status-API options: `packages/core/src/workflow/`,
   `packages/cli/src/commands/start.ts`
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
 - MCP declarations are resolved at the host boundary. Codex advertises adapter tools through dynamic-tool schemas without `config.mcp_servers`; Claude's worker starts a loopback HTTP MCP service and generates an `mcp.json` containing only its URL and ephemeral session capability. Repository/project subprocess entries are not exposed to either coding-agent child.
 - Agent-child launchers share the core `AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES` allowlist for non-secret run and repository identity. Codex, Claude, and custom runtimes compose that context consistently, then remove tracker-declared secrets and reserved broker/authentication variables at the final child boundary.
 - Runtime launchers share the core child-home resolver and prepare a private workspace-contained `HOME`/`GH_CONFIG_DIR`. Codex and Claude also link host Docker CLI plugins into a runtime-owned `DOCKER_CONFIG` without copying Docker credential configuration. Non-bare local authentication stages only Codex `auth.json` or Claude `claudeAiOauth`; default custom commands receive only their declared `runtime.auth.env`. Host agent configuration, Claude MCP OAuth, tracker credentials, Docker registry credentials, and `gh auth` remain outside the child boundary.
-- CLI global/project config, discoverable repo/standalone runtime command options,
-  folder-addressed standalone project derivation, and cwd-first
+- CLI global/project config, folder-addressed project runtime commands,
+  project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
   `commands/project.ts`; doctor smoke diagnostics route Linear live issue selection through
   the Linear adapter while retaining the GitHub Project read path for GitHub-backed projects,
-  where Project binding checks remain confined; `workspaceDir` is the issue-workspace root in both modes, while
-  repo-embedded configs additionally carry `repositoryDir` for daemon CWD/liveness
+  where Project binding checks remain confined; `workspaceDir` is the
+  issue-workspace root
 - Cross-runtime instance index and host-level `instances` CLI surface: `packages/cli/src/instances.ts`, `commands/instances.ts`. The index is advisory; lock heartbeat and process identity remain the liveness authority.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
-- Repo-mode workers start with the run directory as their process cwd. Runtime
+- Workers start with the run directory as their process cwd. Runtime
   launchers do not discover `.env` from cwd; only the managed project `.env`
-  enters the orchestrator's documented environment merge. Doctor warns when
-  an application-owned repository-root `.env` exists.
+  enters the orchestrator's documented environment merge.
 
 ### 3. Coordination — the orchestrator
 
@@ -121,7 +122,7 @@ the tracker adapter:
   Symphony §14.3 does not restore scheduler state. This is an intentional
   repository-local persistence divergence.
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`), heartbeat locks, direct-clone degradation, safe inventory/eviction, worktree populate, and conservative agent-branch collection (only refs fully reachable from `origin/*` and not linked to a worktree): `repository-cache.ts`, `git.ts`; operator diagnostics and cleanup: `packages/cli/src/commands/cache.ts`
-- Issue workspace records remain in orchestrator state, while population, quarantine, terminal cleanup, and worktree removal operate on `<workspace.root>/<issue-key>` in repo-embedded and standalone modes. The authenticated `/api/v1/assigned-branch/publish` action authorizes the current run and invokes the worker-owned Git transport from the orchestrator host, allowing the agent to publish before pull-request creation; worker exit invokes the same transport as a backstop. A successful assigned-branch push is not a complete-publication claim when the worktree still has tracked or untracked changes: the worker records a bounded, dedicated `unpublishedWorktree` publication outcome with the pushed branch/commit and file lists while preserving successful transport status. Terminal and startup cleanup retain a workspace carrying either this outcome or a Git transport failure until recovery. This retention is an intentional repository-level divergence from upstream Symphony §8.6: unrecoverable unpublished agent work must not be destroyed by otherwise unconditional terminal cleanup.
+- Issue workspace records remain in orchestrator state, while population, quarantine, terminal cleanup, and worktree removal operate on `<workspace.root>/<issue-key>`. The authenticated `/api/v1/assigned-branch/publish` action authorizes the current run and invokes the worker-owned Git transport from the orchestrator host, allowing the agent to publish before pull-request creation; worker exit invokes the same transport as a backstop. A successful assigned-branch push is not a complete-publication claim when the worktree still has tracked or untracked changes: the worker records a bounded, dedicated `unpublishedWorktree` publication outcome with the pushed branch/commit and file lists while preserving successful transport status. Terminal and startup cleanup retain a workspace carrying either this outcome or a Git transport failure until recovery. This retention is an intentional repository-level divergence from upstream Symphony §8.6: unrecoverable unpublished agent work must not be destroyed by otherwise unconditional terminal cleanup.
 - Dirty-workspace recovery attribution is tracker-neutral core behavior in `packages/core/src/workflow/issue-identity.ts`, consumed by `packages/orchestrator/src/service.ts`. GitHub numeric identifiers and normalized `TEAM-123` identifiers both accept positive branch/workpad evidence; a different full tracker identifier overrides same-number evidence, and missing positive evidence remains fail-closed.
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config. The file is defensively re-read on every reconciliation tick; no filesystem watcher is installed (an explicit upstream divergence documented in [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md)).
 
@@ -139,7 +140,7 @@ the tracker adapter:
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason.
-- Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract, serves adapter-native CLI smoke reads (`listIssues` / `fetchIssueStatesByIds`) for standalone projects, confirms per-turn `state-read` requests from a fresh issue query, and exposes normalized Linear `branchName` values for dirty-workspace attribution without treating them as checkout refs. Its pickup labels instead filter label-ineligible candidates from the list before dispatch, so they are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records. Linear transition requests are explicitly rejected because state mutation remains worker-owned through `linear_graphql`.
+- Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract, serves adapter-native CLI smoke reads (`listIssues` / `fetchIssueStatesByIds`) for projects, confirms per-turn `state-read` requests from a fresh issue query, and exposes normalized Linear `branchName` values for dirty-workspace attribution without treating them as checkout refs. Its pickup labels instead filter label-ineligible candidates from the list before dispatch, so they are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records. Linear transition requests are explicitly rejected because state mutation remains worker-owned through `linear_graphql`.
 - File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
 - Compact adapter profiles: [GitHub Project](trackers/github-project.md),

@@ -163,7 +163,7 @@ async function listStandaloneProjects(
     entries.map((projectId) => loadProjectConfig(configDir, projectId))
   );
   return configs.filter(
-    // After repo-mode migration, projectDir is the standalone-project marker.
+    // After repository-command migration, projectDir identifies the project.
     (config): config is CliProjectConfig => config?.projectDir !== undefined
   );
 }
