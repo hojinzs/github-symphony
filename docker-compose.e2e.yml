@@ -13,3 +13,41 @@ services:
       E2E_REQUIRED_LABELS: ${E2E_REQUIRED_LABELS:-}
       E2E_MAX_FAILURE_RETRIES: ${E2E_MAX_FAILURE_RETRIES:-}
       GH_SYMPHONY_HTTP_TOKEN: ${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        project_dir=/e2e/work/test-repo
+        rm -rf "$$project_dir"
+        git clone /e2e/repos/test-owner/test-repo "$$project_dir"
+        git -C "$$project_dir" remote set-url origin test-owner/test-repo
+        if [ -n "$${E2E_REQUIRED_LABELS:-}" ]; then
+          awk -v labels="$$E2E_REQUIRED_LABELS" '
+            /^  active_states:/ {
+              print "  required_labels:"
+              count = split(labels, values, ",")
+              for (label_index = 1; label_index <= count; label_index += 1) print "    - " values[label_index]
+            }
+            { print }
+          ' "$$project_dir/WORKFLOW.md" > /tmp/e2e-workflow.md
+          mv /tmp/e2e-workflow.md "$$project_dir/WORKFLOW.md"
+        fi
+        if [ -n "$${E2E_MAX_FAILURE_RETRIES:-}" ]; then
+          awk -v retries="$$E2E_MAX_FAILURE_RETRIES" '
+            /^  max_concurrent_agents:/ {
+              print
+              print "  max_failure_retries: " retries
+              next
+            }
+            { print }
+          ' "$$project_dir/WORKFLOW.md" > /tmp/e2e-workflow.md
+          mv /tmp/e2e-workflow.md "$$project_dir/WORKFLOW.md"
+        fi
+        printf 'STUB_SCENARIO=%s\n' "$${STUB_SCENARIO:-happy}" > "$$project_dir/.env"
+        printf 'GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/e2e/fixtures/issues.json\n' >> "$$project_dir/.env"
+        chmod 600 "$$project_dir/.env"
+        export GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/e2e/fixtures/issues.json
+        exec node /app/packages/cli/dist/index.js \
+          --config "$$project_dir/.runtime/orchestrator" \
+          project start --project-dir "$$project_dir" --http 4680 --bind-all

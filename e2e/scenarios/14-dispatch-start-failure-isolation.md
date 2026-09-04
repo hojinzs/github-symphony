@@ -20,7 +20,7 @@
 3. Poll `GET /api/v1/state` until `test-owner/test-repo#21` appears in
    `activeRuns`.
 4. Inspect
-   `/e2e/work/test-repo/.runtime/orchestrator/projects/repository/issues.json`
+   `/e2e/work/test-repo/.runtime/orchestrator/projects/*/issues.json`
    in the container.
 5. Inspect the container logs for the failed `test-owner/test-repo#20`
    dispatch.

@@ -11,29 +11,34 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
 ## Steps
 
 1. **Verify idle state**
+
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.health'
    # Expected: "idle"
    ```
 
 2. **Inject issue fixture**
+
    ```bash
    cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
    ```
 
 3. **Trigger reconciliation**
+
    ```bash
    curl -s -o /tmp/e2e-refresh-body -w "%{http_code}" -X POST http://localhost:4680/api/v1/refresh
    # Expected: 202
    ```
 
 4. **Wait for dispatch** (poll every 1s, allow ~5s for git clone + workspace prep)
+
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.summary.activeRuns'
    # Expected: 1 (within ~5s)
    ```
 
 5. **Observe worker running** (poll every 1s)
+
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.activeRuns[0] | {status, executionPhase, lastEvent}'
    # Expected: status="running", executionPhase="implementation", lastEvent="running"
@@ -41,6 +46,7 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
    ```
 
 6. **Observe continuation retry** (after ~12s from dispatch)
+
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.activeRuns[0].status, .retryQueue[0].retryKind'
    # Expected: status="retrying", retryKind="continuation"
@@ -48,11 +54,13 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
    ```
 
 7. **Remove issue to stop retry cycle** (simulates worker changing state to "Done")
+
    ```bash
    echo "[]" > e2e/fixtures/issues.json
    ```
 
 8. **Observe final failure + release** (within ~15s)
+
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.health, .summary.activeRuns'
    # Expected: health="idle", activeRuns=0
@@ -62,7 +70,7 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
 
 9. **Verify event log**
    ```bash
-   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/projects/*/runs/*/events.ndjson'
    # Expected: run-dispatched and run-recovered events
    ```
 

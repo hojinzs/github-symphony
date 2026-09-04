@@ -500,7 +500,7 @@ The diagnostic checks cover:
 - GitHub authentication via `GITHUB_GRAPHQL_TOKEN` or `gh`, including required scopes
 - project runtime selection plus GitHub Project binding resolution
 - runtime/workspace path writability
-- repository `WORKFLOW.md` presence and parse validity
+- project `WORKFLOW.md` presence and parse validity
 - runtime command availability on `PATH`
 - with `--smoke`: linked repository readiness, live issue readability, strict prompt rendering, and hook path resolution
 

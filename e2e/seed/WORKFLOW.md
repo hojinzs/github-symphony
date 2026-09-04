@@ -24,6 +24,7 @@ agent:
   max_turns: 2
 repository:
   slug: test-owner/test-repo
+  clone_url: /e2e/repos/test-owner/test-repo
 codex:
   command: node /app/e2e/stub-worker.js
   approval_policy: never

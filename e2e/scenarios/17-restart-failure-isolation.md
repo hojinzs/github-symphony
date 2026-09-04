@@ -37,9 +37,9 @@
    curl --fail -H 'Authorization: Bearer e2e-http-token' \
      http://localhost:4680/api/v1/state
    docker compose -f docker-compose.e2e.yml exec symphony-e2e cat \
-     /e2e/work/test-repo/.runtime/orchestrator/projects/repository/runs/restart-failure-run/run.json
+     /e2e/work/test-repo/.runtime/orchestrator/projects/*/runs/restart-failure-run/run.json
    docker compose -f docker-compose.e2e.yml exec symphony-e2e cat \
-     /e2e/work/test-repo/.runtime/orchestrator/projects/repository/issues.json
+     /e2e/work/test-repo/.runtime/orchestrator/projects/*/issues.json
    ```
 
 ## Expected

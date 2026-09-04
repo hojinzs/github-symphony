@@ -12,7 +12,7 @@ project start --project-dir <path>'.` See the
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Code of Conduct](https://img.shields.io/badge/code%20of%20conduct-active-blueviolet.svg)](CODE_OF_CONDUCT.md)
 
-GitHub Symphony is a multi-tenant AI coding agent orchestration platform built on the [OpenAI Symphony specification](https://github.com/openai/symphony). A CLI-first orchestrator polls GitHub Projects for open issues, dispatches worker runs per repository, and resolves all workflow policy from each repository's `WORKFLOW.md` at runtime.
+GitHub Symphony is a multi-tenant AI coding agent orchestration platform built on the [OpenAI Symphony specification](https://github.com/openai/symphony). A CLI-first orchestrator polls GitHub Projects for open issues, dispatches worker runs per repository, and resolves workflow policy from the project folder's `WORKFLOW.md` at runtime.
 
 GitHub Symphony is an MIT-licensed open source project. Contributions are welcome: start with the [contributing guide](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), use the GitHub issue templates for bug reports and feature requests, and report security issues through [SECURITY.md](SECURITY.md). For setup or orchestration failures, include a redacted support bundle from `gh-symphony doctor --bundle` when opening a bug report.
 
@@ -124,6 +124,11 @@ The one-command setup flow will:
 Before writing anything, the interactive wizard shows a final summary of the
 project folder and generated workflow.
 
+When the selected GitHub Project links multiple repositories, setup outside a
+repository checkout selects the first linked repository. Verify
+`repository.slug` in the generated `WORKFLOW.md` and correct it before starting
+Symphony if the project should target a different repository.
+
 Non-interactive mode:
 
 ```bash
@@ -199,7 +204,8 @@ example from CI, scripts, or another monitoring process. It exposes
 
 ## End-to-End Walkthrough
 
-This walkthrough shows the default happy path for one repository after `gh-symphony setup` has generated `WORKFLOW.md` and bound `.runtime/orchestrator/` to a GitHub Project.
+This walkthrough shows the default happy path for one repository after
+`gh-symphony setup` has generated a project folder with `WORKFLOW.md`.
 
 1. Create or pick one issue in the managed repository, for example `acme/web#42`.
 2. Add that issue to the GitHub Project selected during setup.
@@ -210,8 +216,8 @@ This walkthrough shows the default happy path for one repository after `gh-symph
    gh-symphony project start --project-dir <path> --once
    ```
 
-5. Symphony reads the Project item, checks that the repository and issue are dispatchable, creates an issue workspace under `.runtime/orchestrator/`, and starts the configured worker runtime.
-6. The worker receives the rendered issue prompt, follows the repository `WORKFLOW.md`, makes the requested change on a feature branch, and opens a draft PR linked back to the issue.
+5. Symphony reads the Project item, checks that the repository and issue are dispatchable, creates an issue workspace under `workspace.root` (by default `<project-dir>/.runtime/workspaces`), and starts the configured worker runtime.
+6. The worker receives the rendered issue prompt, follows the project folder's `WORKFLOW.md`, makes the requested change on a feature branch, and opens a draft PR linked back to the issue.
 7. Inspect the result:
 
    ```bash
@@ -219,7 +225,7 @@ This walkthrough shows the default happy path for one repository after `gh-symph
    gh pr list --repo acme/web --search "42"
    ```
 
-The expected first success is an opened PR for the managed issue. After that, the lifecycle continues through the statuses and handoff rules encoded in the repository `WORKFLOW.md`.
+The expected first success is an opened PR for the managed issue. After that, the lifecycle continues through the statuses and handoff rules encoded in the project `WORKFLOW.md`.
 
 If GitHub reports that the source issue is already closed, or that a linked closing PR is merged, Symphony does not dispatch a worker even when the Project item was accidentally left in an active status. It reconciles that Project item to the first terminal status configured in `WORKFLOW.md` and emits a `tracker-terminal-candidate-reconciled` event.
 
@@ -473,15 +479,15 @@ services:
   gh-symphony:
     image: ghcr.io/hojinzs/github-symphony:latest
     restart: unless-stopped
-    working_dir: /repo
+    working_dir: /project
     environment:
       GITHUB_GRAPHQL_TOKEN: ${GITHUB_GRAPHQL_TOKEN}
     volumes:
-      - ./:/repo
+      - ./:/project
 ```
 
-Run `gh-symphony setup` once before starting the service so the mounted repository
-has `WORKFLOW.md` and `.runtime/orchestrator/`.
+Run `gh-symphony setup` once before starting the service so the mounted project
+folder has `WORKFLOW.md`.
 
 If you prefer a host bind mount in `docker compose`, align the container user with the host directory owner:
 
@@ -489,12 +495,12 @@ If you prefer a host bind mount in `docker compose`, align the container user wi
 services:
   gh-symphony:
     image: ghcr.io/hojinzs/github-symphony:latest
-    working_dir: /repo
+    working_dir: /project
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       GITHUB_GRAPHQL_TOKEN: ${GITHUB_GRAPHQL_TOKEN}
     volumes:
-      - ./:/repo
+      - ./:/project
       - ./data:/var/lib/gh-symphony
 ```
 
@@ -628,7 +634,7 @@ gh-symphony completion fish         # Print fish completion script
 ## Concepts
 
 - **Project** — one GitHub Project bound to a set of repositories. Each project gets its own config, leases, and status snapshot. A single orchestrator manages multiple projects.
-- **WORKFLOW.md** — the per-repository (or per-project fallback) workflow policy file. Contains YAML front matter for lifecycle config and a Markdown body used as the agent prompt template.
+- **WORKFLOW.md** — the project folder's workflow policy file. Contains YAML front matter for lifecycle config and a Markdown body used as the agent prompt template.
 
 ## Authentication
 
@@ -794,16 +800,13 @@ gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 
 `gh-symphony workflow preview --issue owner/repo#123` is the fastest validation step after `workflow init`: it resolves the active managed project (or `--project-id`) and renders the exact worker prompt from the live GitHub Project issue. Linear workflows can preview a single issue with `gh-symphony workflow preview ENG-123`, which routes through the configured Linear tracker adapter and `LINEAR_API_KEY`. Keep `--sample <path-to-json>` for fixture-based debugging, and use `--attempt <n>` to inspect retry prompts before changing policy files.
 
-### Resolution order
+### Workflow policy source
 
-The orchestrator resolves the workflow policy using this fallback chain:
-
-1. **Repository WORKFLOW.md** — if the target repository has a `WORKFLOW.md` at its root, use it.
-2. **Project WORKFLOW.md** — if the repository has no `WORKFLOW.md`, fall back to the project-level `WORKFLOW.md`.
-3. **Hardcoded defaults** — if neither file exists, use built-in defaults (`Todo`, `In Progress` as active; `Done` as terminal; blocker checks enabled for `Todo`; planning states disabled).
-
-Projects may run without a `WORKFLOW.md` and rely on defaults. When present,
-the project folder's `WORKFLOW.md` is the policy source.
+The project folder's `WORKFLOW.md` is the workflow policy source. If it is
+absent, Symphony uses built-in defaults (`Todo`, `In Progress` as active;
+`Done` as terminal; blocker checks enabled for `Todo`; planning states
+disabled). A `WORKFLOW.md` in the target repository is reported as shadowed;
+it is not used as a fallback for a folder-addressed project.
 
 ### Environment Variables
 
@@ -887,7 +890,7 @@ echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 
 ## Headless orchestration
 
-The orchestrator runs independently as long as the repository has been initialized with `gh-symphony setup`.
+The orchestrator runs independently as long as the project folder has been initialized with `gh-symphony setup`.
 
 ```bash
 # Via the CLI daemon
@@ -927,7 +930,7 @@ Healthy continuation retries do not consume the failure budget.
 
 Read orchestration state via the status API (`/api/v1/state`) rather than reading status files directly.
 
-Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony project start --project-dir <path> --once` is the first production-like run: it validates the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--port [port]` when you want the JSON status API available; `--http [port]` remains a supported alias. With `--once --port`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`. `server.port` in `WORKFLOW.md` enables the same API when no CLI port is supplied. Add `--web` instead when you want the browser dashboard at `/` plus the JSON API.
+Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony project start --project-dir <path> --once` is the first production-like run: it validates the real GitHub Project binding, project `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--port [port]` when you want the JSON status API available; `--http [port]` remains a supported alias. With `--once --port`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`. `server.port` in `WORKFLOW.md` enables the same API when no CLI port is supplied. Add `--web` instead when you want the browser dashboard at `/` plus the JSON API.
 
 ## Verification
 

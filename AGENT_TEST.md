@@ -108,10 +108,10 @@ curl -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
 
 ```bash
 # Event log (structured NDJSON)
-cat .runtime/e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson | jq .
+cat .runtime/e2e/work/test-repo/.runtime/orchestrator/projects/*/runs/*/events.ndjson | jq .
 
 # Worker log (stderr capture)
-cat .runtime/e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log
+cat .runtime/e2e/work/test-repo/.runtime/orchestrator/projects/*/runs/*/worker.log
 ```
 
 ### Removing Issues (to stop retries)
@@ -291,13 +291,13 @@ to verify the following.
 docker compose -f docker-compose.e2e.yml logs symphony-e2e
 
 # Event log (structured NDJSON, tmpfs by default)
-docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
+docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/projects/*/runs/*/events.ndjson'
 
 # Host mirror log (when the events override is enabled)
 tail -f evidence/runs/*/events.ndjson
 
 # Worker log (only stderr is captured)
-docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log'
+docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/projects/*/runs/*/worker.log'
 ```
 
 ### 7. Cleanup
