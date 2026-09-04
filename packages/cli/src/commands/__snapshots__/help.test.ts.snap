@@ -13,18 +13,6 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
   [36mconfig set[0m                  Set a configuration value
   [36mconfig edit[0m                 Open config in $EDITOR
 
-[33m[1mOrchestration (current repository):[0m[0m
-  [36mrepo init[0m                   Initialize gh-symphony for the current repository
-  [36mrepo start[0m                  Start the orchestrator after validating tracker authentication
-  [36mrepo start --daemon[0m         Start the orchestrator in the background
-  [36mrepo start --assigned-only[0m  Process only issues assigned to the authenticated user
-  [36mrepo stop[0m                   Stop the background orchestrator
-  [36mrepo status[0m                 Show orchestrator status
-  [36mrepo run <issue>[0m            Dispatch a single issue
-  [36mrepo recover[0m                Recover stalled runs
-  [36mrepo logs[0m                   View orchestrator logs
-  [36mrepo explain <issue>[0m        Explain why an issue is not dispatching
-
 [33m[1mOrchestration (host):[0m[0m
   [36minstances[0m                   List registered orchestrator instances across projects
 
@@ -65,18 +53,6 @@ Setup:
   config show                 Show current configuration
   config set                  Set a configuration value
   config edit                 Open config in $EDITOR
-
-Orchestration (current repository):
-  repo init                   Initialize gh-symphony for the current repository
-  repo start                  Start the orchestrator after validating tracker authentication
-  repo start --daemon         Start the orchestrator in the background
-  repo start --assigned-only  Process only issues assigned to the authenticated user
-  repo stop                   Stop the background orchestrator
-  repo status                 Show orchestrator status
-  repo run <issue>            Dispatch a single issue
-  repo recover                Recover stalled runs
-  repo logs                   View orchestrator logs
-  repo explain <issue>        Explain why an issue is not dispatching
 
 Orchestration (host):
   instances                   List registered orchestrator instances across projects
