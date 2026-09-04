@@ -107,7 +107,7 @@ export function assertDispatchableOrchestratorProjectConfig(
     resolve(config.workspaceDir) === resolve(repositoryPath)
   ) {
     throw new Error(
-      `Project ${JSON.stringify(config.projectId)} uses legacy repo-embedded path metadata. Stop the daemon and run 'gh-symphony repo init' again before starting it.`
+      `Project ${JSON.stringify(config.projectId)} uses legacy repo-embedded path metadata. Stop the daemon and run 'gh-symphony setup' from the repository before starting it as a standalone project.`
     );
   }
 }

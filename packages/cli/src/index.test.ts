@@ -158,7 +158,7 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("workflow setup doctor upgrade repo");
+    expect(output).toContain("workflow setup doctor upgrade project");
   });
 
   it.each([
@@ -166,9 +166,18 @@ describe("Commander CLI entrypoint", () => {
     [["start"], "Use 'gh-symphony project start --project-dir <path>'."],
     [["stop"], "Use 'gh-symphony project stop --project-dir <path>'."],
     [["status"], "Use 'gh-symphony project status --project-dir <path>'."],
-    [["run", "owner/repo#1"], "Use 'gh-symphony repo run <issue>'."],
-    [["recover"], "Use 'gh-symphony repo recover'."],
-    [["logs"], "Use 'gh-symphony repo logs'."],
+    [
+      ["run", "owner/repo#1"],
+      "The 'run' command has been removed. See packages/cli/README.md#repository-command-migration.",
+    ],
+    [
+      ["recover"],
+      "The 'recover' command has been removed. See packages/cli/README.md#repository-command-migration.",
+    ],
+    [
+      ["logs"],
+      "The 'logs' command has been removed. See packages/cli/README.md#repository-command-migration.",
+    ],
   ])(
     "reports the migration path for removed top-level command %s",
     async (args, message) => {

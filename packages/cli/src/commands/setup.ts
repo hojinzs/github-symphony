@@ -213,7 +213,7 @@ async function resolveProjectDetail(
   }
 
   throw new Error(
-    "Error: non-interactive setup requires exactly one GitHub Project. Use 'gh-symphony workflow init' for project selection, then run 'gh-symphony repo init'."
+    "Error: non-interactive setup requires exactly one GitHub Project. Use 'gh-symphony workflow init' for project selection, then run 'gh-symphony project start --project-dir <path>'."
   );
 }
 

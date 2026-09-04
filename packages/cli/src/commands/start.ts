@@ -268,7 +268,7 @@ async function preflightWorkflowStart(
     }
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
       process.stderr.write(
-        `Configured workflow not found at ${workflowPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
+        `Configured workflow not found at ${workflowPath}. Restore the file or run 'gh-symphony setup' from the project repository.\n`
       );
       process.exitCode = 1;
       return { ok: false };
@@ -1081,7 +1081,7 @@ const handler = async (
   }
   if (!hasConfiguredRepository(projectConfig)) {
     process.stderr.write(
-      "No repository is configured in this project. Run 'gh-symphony repo init' from the target repository first.\n"
+      "No repository is configured in this project. Run 'gh-symphony setup' from the target repository first.\n"
     );
     process.exitCode = 1;
     return;

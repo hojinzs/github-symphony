@@ -970,8 +970,17 @@ export async function planWorkflowArtifacts(
       blockerCheckStates: defaultBlockerCheckStates,
       planningStates: defaultBlockerCheckStates,
     });
+  const repository = opts.projectDetail.linkedRepositories[0];
   const workflowMd = generateWorkflowMarkdown({
     projectId: opts.projectDetail.id,
+    ...(repository
+      ? {
+          repository: {
+            slug: `${repository.owner}/${repository.name}`,
+            cloneUrl: repository.cloneUrl,
+          },
+        }
+      : {}),
     stateFieldName: opts.statusField.name,
     priority,
     includePriorityTemplates:
@@ -1687,7 +1696,8 @@ async function runNonInteractive(
   } else {
     printEcosystemSummary(ecosystemResult, outputPath, {
       interactive: false,
-      nextSteps: "Run 'gh-symphony repo init' from the target repository.",
+      nextSteps:
+        "Run 'gh-symphony project start --project-dir <path>' for the target repository.",
     });
   }
 }
@@ -1781,7 +1791,8 @@ async function runLinearNonInteractive(
   } else {
     printEcosystemSummary(ecosystemResult, outputPath, {
       interactive: false,
-      nextSteps: "Run 'gh-symphony repo init' from the target repository.",
+      nextSteps:
+        "Run 'gh-symphony project start --project-dir <path>' for the target repository.",
     });
   }
 }
@@ -1975,7 +1986,8 @@ async function runInteractiveStandalone(
 
   printEcosystemSummary(ecosystemResult, outputPath, {
     interactive: true,
-    nextSteps: "Run 'gh-symphony repo init' from the target repository.",
+    nextSteps:
+      "Run 'gh-symphony project start --project-dir <path>' for the target repository.",
   });
 }
 

@@ -554,7 +554,7 @@ Handle {{issue.identifier}}.\n`,
     await expect(
       startModule.default([], baseOptions(configDir))
     ).rejects.toThrow(
-      "Stop the daemon and run 'gh-symphony repo init' again before starting it."
+      "Stop the daemon and run 'gh-symphony setup' from the repository before starting it as a standalone project."
     );
 
     expect(acquireProjectLock).not.toHaveBeenCalled();

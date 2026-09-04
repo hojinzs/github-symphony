@@ -259,7 +259,7 @@ describe("status command", () => {
 
     expect(stdout.output()).toContain("● Health    stopped");
     expect(stdout.output()).toContain(
-      "daemon not running — run 'gh-symphony repo start'"
+      "daemon not running — run 'gh-symphony project start --project-dir <path>'"
     );
     expect(stdout.output()).toContain("Last known state: running");
   });
@@ -540,7 +540,7 @@ describe("status command", () => {
       error: {
         code: "missing_repository_runtime_config",
         message:
-          "No repository runtime config found. Run 'gh-symphony repo init' first.",
+          "No standalone project config found. Run 'gh-symphony project start --project-dir <path>' first.",
       },
     });
   });

@@ -60,6 +60,8 @@ polling:
 agent:
   max_concurrent_agents: 2
   max_turns: 2
+repository:
+  slug: test-owner/test-repo
 codex:
   command: node $STUB_WORKER_JS
   approval_policy: never

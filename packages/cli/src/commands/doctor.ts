@@ -948,7 +948,7 @@ async function checkLinearTrackerResolution(input: {
       "linear_tracker_resolution",
       "Linear tracker resolution",
       "Linear tracker resolution could not run because the project slug is missing.",
-      "Run 'gh-symphony repo init' with WORKFLOW.md field 'tracker.project_slug' configured, then re-run 'gh-symphony doctor'.",
+      "Configure WORKFLOW.md field 'tracker.project_slug', run 'gh-symphony project start --project-dir <path>' to refresh the project, then re-run 'gh-symphony doctor'.",
       {
         reason: "missing_project_slug" satisfies LinearResolutionReason,
         adapter: tracker.adapter,
@@ -961,7 +961,7 @@ async function checkLinearTrackerResolution(input: {
       "linear_tracker_resolution",
       "Linear tracker resolution",
       "Linear tracker resolution could not run because no active states are configured.",
-      "Add at least one active state to WORKFLOW.md under 'tracker.active_states', run 'gh-symphony repo init' again, then re-run 'gh-symphony doctor'.",
+      "Add at least one active state to WORKFLOW.md under 'tracker.active_states', run 'gh-symphony project start --project-dir <path>' to refresh the project, then re-run 'gh-symphony doctor'.",
       {
         reason: "missing_active_states" satisfies LinearResolutionReason,
         projectSlug,
@@ -1757,7 +1757,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${issueRef.owner}/${issueRef.name} is not linked to GitHub Project "${githubSmoke.projectDetail.title}".`,
-          "Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.",
+          "Run 'gh-symphony setup' from inside the target repository to regenerate its standalone project workflow.",
           {
             repository: `${issueRef.owner}/${issueRef.name}`,
             projectTitle: githubSmoke.projectDetail.title,
@@ -1772,7 +1772,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${issueRef.owner}/${issueRef.name} is linked to the GitHub Project but is not configured locally.`,
-          "Run 'gh-symphony repo init' from the target repository before running start.",
+          "Run 'gh-symphony setup' from the target repository before running 'gh-symphony project start --project-dir <path>'.",
           { repository: `${issueRef.owner}/${issueRef.name}` }
         )
       );
@@ -1873,7 +1873,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${repositoryName} is not linked to GitHub Project "${githubSmoke.projectDetail.title}".`,
-          "Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.",
+          "Run 'gh-symphony setup' from inside the target repository to regenerate its standalone project workflow.",
           {
             repository: repositoryName,
             projectTitle: githubSmoke.projectDetail.title,
@@ -1892,7 +1892,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${repositoryName} is linked to the GitHub Project but is not configured locally.`,
-          "Run 'gh-symphony repo init' from the target repository before running start.",
+          "Run 'gh-symphony setup' from the target repository before running 'gh-symphony project start --project-dir <path>'.",
           { repository: repositoryName }
         )
       );
@@ -2108,7 +2108,7 @@ export async function runDoctorDiagnostics(
         "managed_project",
         "Managed project selection",
         resolvedProjectConfig.message,
-        "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config, then run this command from that folder or pass '--project-dir <path>'. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
+        "Run 'gh-symphony project start --project-dir <path>' to refresh the standalone project config, then run this command from that folder or pass '--project-dir <path>'.",
         {
           reason: resolvedProjectConfig.kind,
           ...(resolvedProjectConfig.projectId
@@ -2303,7 +2303,7 @@ export async function runDoctorDiagnostics(
         "github_project_resolution",
         "GitHub project resolution",
         `Managed project "${resolvedProjectConfig.projectId}" is not bound to a GitHub Project.`,
-        "Run 'gh-symphony workflow init' to select a valid GitHub Project binding, then run 'gh-symphony repo init' again.",
+        "Run 'gh-symphony setup' to select a valid GitHub Project binding and regenerate the standalone project workflow.",
         {
           reason: "missing_binding" satisfies ProjectResolutionReason,
           projectId: resolvedProjectConfig.projectId,
@@ -2351,7 +2351,7 @@ export async function runDoctorDiagnostics(
           "github_project_resolution",
           "GitHub project resolution",
           `Failed to resolve configured project binding '${resolvedGithubProjectBindingId}'.`,
-          "Run 'gh-symphony workflow init' to select a valid GitHub Project, then run 'gh-symphony repo init' again.",
+          "Run 'gh-symphony setup' to select a valid GitHub Project and regenerate the standalone project workflow.",
           {
             reason: "api_error" satisfies ProjectResolutionReason,
             bindingId: resolvedGithubProjectBindingId,
@@ -2408,7 +2408,7 @@ export async function runDoctorDiagnostics(
         workspaceDir,
         workspaceState,
         formatEnsureDirectoryCommand(workspaceDir, deps.platform),
-        "Update WORKFLOW.md workspace.root to a writable path, run 'gh-symphony repo init' again for repo-embedded projects, or fix the filesystem permissions."
+        "Update WORKFLOW.md workspace.root to a writable path, run 'gh-symphony project start --project-dir <path>' to refresh the project, or fix the filesystem permissions."
       )
     );
     const repositoryEnvironmentCheck = await buildRepositoryEnvironmentCheck(
@@ -2855,9 +2855,9 @@ async function runDoctorFixes(
         if (check.details?.reason === "multiple_projects_require_selection") {
           steps.push(
             runCliRemediation(
-              "Repository runtime setup",
+              "Standalone project setup",
               check.id,
-              ["repo", "init"],
+              ["setup"],
               deps,
               options,
               interactive,
@@ -2868,9 +2868,9 @@ async function runDoctorFixes(
         }
         steps.push(
           runCliRemediation(
-            "Repository runtime setup",
+            "Standalone project setup",
             check.id,
-            ["repo", "init"],
+            ["setup"],
             deps,
             options,
             interactive,

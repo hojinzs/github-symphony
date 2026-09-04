@@ -530,19 +530,19 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   registerRemovedCommand(
     program,
     "run",
-    "Use 'gh-symphony repo run <issue>'.",
+    "The 'run' command has been removed. See packages/cli/README.md#repository-command-migration.",
     markInvoked
   );
   registerRemovedCommand(
     program,
     "recover",
-    "Use 'gh-symphony repo recover'.",
+    "The 'recover' command has been removed. See packages/cli/README.md#repository-command-migration.",
     markInvoked
   );
   registerRemovedCommand(
     program,
     "logs",
-    "Use 'gh-symphony repo logs'.",
+    "The 'logs' command has been removed. See packages/cli/README.md#repository-command-migration.",
     markInvoked
   );
 

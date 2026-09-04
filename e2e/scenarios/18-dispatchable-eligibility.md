@@ -17,8 +17,6 @@ Start the Docker E2E environment with an empty issue fixture.
    `blockedBy` metadata.
 2. Trigger `/api/v1/refresh` and wait through two post-injection reconciliation ticks.
 3. Read `/api/v1/state` and the run event log.
-4. Run `node /app/packages/cli/dist/index.js repo explain test-owner/test-repo#1 --json`
-   in the container and inspect the `tracker_dispatchability` check.
 
 ## Expected
 
@@ -26,7 +24,6 @@ Start the Docker E2E environment with an empty issue fixture.
 - `test-owner/test-repo#21` is absent from `activeRuns`, and no
   `run-dispatched` event is written for that identifier. The unblocked `#20`
   fixture record may dispatch.
-- The same reason is available to the dispatch explain surface for the issue.
 - This scenario verifies that the scheduler respects adapter-provided
   dispatchability. GitHub and Linear adapter unit tests cover blocker
   derivation itself, including list and by-ID reads.

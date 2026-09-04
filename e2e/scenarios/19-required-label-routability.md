@@ -19,13 +19,11 @@ boundary. Both cases retain an explainable routability reason.
 1. Inject a `Ready` file-tracker issue without the `agent` label.
 2. Trigger `POST /api/v1/refresh` with the E2E bearer token and wait for two
    reconciliation ticks.
-3. Inspect `/api/v1/state`, `events.ndjson`, and `repo explain`.
+3. Inspect `/api/v1/state` and `events.ndjson`.
 
 ### Expected results
 
 - No worker is started and no `run-dispatched` event is written.
-- `gh-symphony repo explain <identifier>` reports
-  `not routable: Issue is missing required labels ("agent").`.
 
 ## Case B: label removed during a run
 
@@ -41,5 +39,3 @@ boundary. Both cases retain an explainable routability reason.
   `turn=2 prevented by routability refresh`; it must not begin turn two.
 - The worker exits cleanly after its state-read reports the missing required
   label as unroutable.
-- `gh-symphony repo explain <identifier>` reports
-  `not routable: Issue is missing required labels ("agent").`.

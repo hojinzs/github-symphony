@@ -38,7 +38,7 @@ export function createStatusLivenessBanner(
   snapshot: Pick<ProjectStatusSnapshot, "health" | "lastTickAt">,
   runtime: StatusLivenessRuntime,
   lastTickLabel: string = relativeTime(snapshot.lastTickAt),
-  startCommandName = "gh-symphony repo start"
+  startCommandName = "gh-symphony project start --project-dir <path>"
 ): StatusLivenessBanner {
   const stopped = !runtime.daemonRunning;
 

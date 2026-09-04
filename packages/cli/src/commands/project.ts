@@ -387,7 +387,7 @@ function parseRepository(value: Record<string, unknown> | null): RepositoryRef {
   const [owner, name] = spec?.split("/") ?? [];
   if (!owner || !name || name.includes("/")) {
     throw new Error(
-      'WORKFLOW.md repository extension requires "slug: owner/name". Repositories that embed their own workflow are started with "gh-symphony repo start".'
+      'WORKFLOW.md repository extension requires "slug: owner/name". Run "gh-symphony setup" to generate it, or add "repository: slug: owner/name" to WORKFLOW.md.'
     );
   }
   // `clone_url` lets a project point at a mirror, a GHES host, or a local path

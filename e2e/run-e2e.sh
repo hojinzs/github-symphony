@@ -316,39 +316,13 @@ if [ "$SCENARIO" = "non-dispatchable" ] || [ "$SCENARIO" = "required-label-missi
     fail "Ineligible issue started a worker"
     exit 1
   fi
-  EXPLAIN_JSON=$("${COMPOSE[@]}" exec -T -w /e2e/work/test-repo -e GITHUB_GRAPHQL_TOKEN=e2e-token symphony-e2e \
-    node /app/packages/cli/dist/index.js repo explain test-owner/test-repo#1 --json)
-  if [ "$SCENARIO" = "required-label-missing" ]; then
-    echo "$EXPLAIN_JSON" | python3 -c '
-import json
-import sys
-
-report = json.load(sys.stdin)
-assert report["dispatchable"] is False, report
-assert report["summary"] == "Not dispatchable: not routable: Issue is missing required labels (\"agent\").", report
-checks = {check["id"]: check for check in report["checks"]}
-assert checks["workflow_routability"]["status"] == "block", checks
-'
-  else
-    echo "$EXPLAIN_JSON" | python3 -c '
-import json
-import sys
-
-report = json.load(sys.stdin)
-assert report["dispatchable"] is False, report
-assert report["summary"] == "Not dispatchable: fixture eligibility gate: assigned to another agent", report
-checks = {check["id"]: check for check in report["checks"]}
-assert checks["tracker_dispatchability"]["status"] == "block", checks
-assert checks["tracker_dispatchability"]["details"]["dispatchReason"] == "fixture eligibility gate: assigned to another agent", checks
-'
-  fi
   if "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec grep -H "run-dispatched" {} + 2>/dev/null | grep -q .'; then
     fail "Non-dispatchable issue wrote a run-dispatched event"
     exit 1
   fi
   log "=== Result ==="
   log "  Worker dispatched: NO"
-  log "  Explain reason:    $( [ "$SCENARIO" = "required-label-missing" ] && echo 'missing required label' || echo 'fixture eligibility gate' )"
+  log "  Eligibility gate:  $( [ "$SCENARIO" = "required-label-missing" ] && echo 'missing required label' || echo 'fixture assignment' )"
   echo ""
   log "PASSED"
   exit 0

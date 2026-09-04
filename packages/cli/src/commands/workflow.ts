@@ -647,7 +647,7 @@ async function loadLiveIssue(
   const githubProjectId = readGitHubProjectBinding(selection.projectConfig);
   if (!githubProjectId) {
     throw new Error(
-      `Managed project "${selection.projectId}" is not bound to a GitHub Project. Run 'gh-symphony workflow init' to select a valid GitHub Project binding, then run 'gh-symphony repo init'.`
+      `Managed project "${selection.projectId}" is not bound to a GitHub Project. Run 'gh-symphony setup' to select a valid GitHub Project binding and regenerate the standalone project workflow.`
     );
   }
 
@@ -689,7 +689,7 @@ async function loadLiveIssue(
 
   if (!findLinkedRepository(detail, issue.owner, issue.name)) {
     throw new Error(
-      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.`
+      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony setup' from inside the target repository.`
     );
   }
 
@@ -757,7 +757,7 @@ async function loadLinearIssue(
 
   if (!projectConfig?.repository) {
     throw new Error(
-      "Linear live issue preview requires a repository runtime initialized with 'gh-symphony repo init'."
+      "Linear live issue preview requires a standalone project initialized with 'gh-symphony project start --project-dir <path>'."
     );
   }
 
@@ -779,7 +779,7 @@ async function loadLinearIssue(
     projectConfig.tracker.bindingId !== workflowProjectSlug
   ) {
     throw new Error(
-      `Linear live issue preview requires an active repository runtime initialized for project "${workflowProjectSlug}". Run 'gh-symphony repo init' from this repository, then re-run the preview.`
+      `Linear live issue preview requires an active standalone project initialized for project "${workflowProjectSlug}". Run 'gh-symphony project start --project-dir <path>', then re-run the preview.`
     );
   }
 

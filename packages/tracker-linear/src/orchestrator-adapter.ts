@@ -986,7 +986,7 @@ function resolveAssignedOnly(
     if (!warnedLegacyAssignedOnlyProjectIds.has(warningKey)) {
       warnedLegacyAssignedOnlyProjectIds.add(warningKey);
       console.warn(
-        "[gh-symphony] Deprecated tracker.settings.assignedOnly detected. Use 'gh-symphony repo start --assigned-only' or 'gh-symphony project start --assigned-only' instead; persisted assignedOnly support will be removed in the next major release."
+        "[gh-symphony] Deprecated tracker.settings.assignedOnly detected. Use 'gh-symphony project start --project-dir <path> --assigned-only' instead; persisted assignedOnly support will be removed in the next major release."
       );
     }
   }

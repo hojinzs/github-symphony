@@ -105,6 +105,22 @@ describe("deriveStandaloneProject", () => {
     });
   });
 
+  it("directs missing repository metadata to setup instead of the retired repo command", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await writeFile(
+      join(projectDir, "WORKFLOW.md"),
+      workflow.replace("repository:\n  slug: acme/platform\n", ""),
+      "utf8"
+    );
+
+    await expect(
+      deriveStandaloneProject(projectDir, { configDir })
+    ).rejects.toThrow(
+      'Run "gh-symphony setup" to generate it, or add "repository: slug: owner/name" to WORKFLOW.md.'
+    );
+  });
+
   it("uses the legacy file fixture environment fallback for standalone projects", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
     const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
@@ -173,7 +189,7 @@ describe("deriveStandaloneProject", () => {
     );
   });
 
-  it("points a repo-embedded workflow at repo start", async () => {
+  it("points a workflow without repository metadata at setup", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
     const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
     await writeFile(
@@ -184,7 +200,7 @@ describe("deriveStandaloneProject", () => {
 
     await expect(
       deriveStandaloneProject(projectDir, { configDir })
-    ).rejects.toThrow("gh-symphony repo start");
+    ).rejects.toThrow("gh-symphony setup");
   });
 
   it("rejects an overlapping mapping without interactive confirmation", async () => {

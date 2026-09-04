@@ -744,7 +744,7 @@ Prompt {{ issue.identifier }}
     }
 
     expect(stderr.output()).toContain(
-      'Linear live issue preview requires an active repository runtime initialized for project "symphony-0c79b11b75ea".'
+      'Linear live issue preview requires an active standalone project initialized for project "symphony-0c79b11b75ea".'
     );
     expect(resolveTrackerAdapter).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);

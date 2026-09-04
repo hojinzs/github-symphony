@@ -12,6 +12,10 @@ import { generateWorkflowMarkdown } from "./generate-workflow-md.js";
 describe("generateWorkflowMarkdown", () => {
   const defaultInput = {
     projectId: "PVT_abc123",
+    repository: {
+      slug: "acme/platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    },
     stateFieldName: "Stage",
     priority: {
       source: "project-field" as const,
@@ -57,6 +61,10 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.format).toBe("front-matter");
     expect(parsed.githubProjectId).toBe("PVT_abc123");
     expect(parsed.tracker.deprecatedKeys).toEqual([]);
+    expect(parsed.repository).toEqual({
+      slug: "acme/platform",
+      clone_url: "https://github.com/acme/platform.git",
+    });
     expect(markdown).toContain("  provider:");
     expect(markdown).not.toContain("\n  project_id:");
   });

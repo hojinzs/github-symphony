@@ -211,7 +211,7 @@ describe("lifecycle command integration", () => {
       error: {
         code: "missing_repository_runtime_config",
         message:
-          "No repository runtime config found. Run 'gh-symphony repo init' first.",
+          "No standalone project config found. Run 'gh-symphony project start --project-dir <path>' first.",
       },
     });
   });
@@ -294,7 +294,7 @@ describe("lifecycle command integration", () => {
     expect(
       stderr.mock.calls.map((call) => String(call[0])).join("")
     ).not.toContain(
-      "No repository runtime config found. Run 'gh-symphony repo init' first."
+      "No standalone project config found. Run 'gh-symphony project start --project-dir <path>' first."
     );
     expect(process.exitCode).toBe(130);
   });

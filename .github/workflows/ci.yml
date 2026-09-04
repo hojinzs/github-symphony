@@ -97,6 +97,8 @@ jobs:
             interval_ms: 30000
           agent:
             max_concurrent_agents: 1
+          repository:
+            slug: smoke-org/smoke-repo
           codex:
             command: node /app/e2e/stub-worker.js
           ---

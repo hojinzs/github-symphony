@@ -34,7 +34,7 @@ pnpm e2e:start
 ┌─────────────────────────────────────────────────┐
 │  Local Process                                   │
 │                                                  │
-│  CLI (repo start) ──→ Orchestrator ──spawn──→ Stub Worker │
+│  CLI (project start) ──→ Orchestrator ──spawn──→ Stub Worker │
 │       │                                          │
 │  Dashboard :4680     File Tracker                │
 │  /api/v1/state       (e2e/fixtures/issues.json)  │
@@ -58,7 +58,7 @@ What `e2e:init` does:
 
 1. Compiles `e2e/stub-worker.ts` → `e2e/dist/stub-worker.js`
 2. Creates the `.runtime/e2e/repos/test-owner/test-repo` seed git repo (including WORKFLOW.md)
-3. Clones into `.runtime/e2e/work/test-repo` and configures a single `repository` project via `repo init`
+3. Clones into `.runtime/e2e/work/test-repo` and starts it as a standalone project via `project start --project-dir <path>`
 4. Initializes `e2e/fixtures/issues.json` to an empty array
 
 ### Run
@@ -165,7 +165,7 @@ AI Agent
 - **Compose isolation**: runner scripts derive `COMPOSE_PROJECT_NAME`, `SYMPHONY_E2E_IMAGE`, and `SYMPHONY_E2E_PORT` from the absolute worktree path. Set `SYMPHONY_E2E_PROJECT`, `SYMPHONY_E2E_IMAGE`, or `SYMPHONY_E2E_PORT` to override a derived value. Containers, networks, volumes, images, and runner host ports are isolated across worktrees; manual Compose keeps host port `4680` by default.
 - **Docker preflight**: all Docker E2E runner scripts verify that `docker compose` resolves in the current `HOME`/`DOCKER_CONFIG` environment and that the daemon is reachable before installing cleanup traps or creating a project. An unavailable prerequisite exits with status `69`, distinct from Docker's status `125` and from scenario failures.
 - **Event mirroring (optional)**: with the `docker-compose.e2e.events.yml` override, `events.ndjson` is also replicated to the host's `./evidence/`
-- **Golden path**: the container entrypoint boots the single-repo runtime in the order `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680 --bind-all`.
+- **Golden path**: the container entrypoint boots the standalone project in the order `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → gh-symphony project start --project-dir /e2e/work/test-repo --http 4680 --bind-all`.
 - **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is a test-only environment variable used by `tracker.provider.path` in the Docker/local `kind: file` workflows; it remains a compatibility fallback for older fixture workflows.
 
 ### Stub Worker Scenarios
