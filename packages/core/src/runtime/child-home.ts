@@ -1,4 +1,15 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  readlink,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export function resolveAgentChildHome(options: {
@@ -14,6 +25,69 @@ export function resolveAgentChildHome(options: {
 export async function prepareAgentChildHome(childHome: string): Promise<void> {
   await mkdir(childHome, { recursive: true, mode: 0o700 });
   await mkdir(join(childHome, "gh"), { recursive: true, mode: 0o700 });
+}
+
+/** Stages executable Docker CLI plugins without exposing host Docker config. */
+export async function stageDockerCliPlugins(options: {
+  sourceHome: string;
+  destination: string;
+}): Promise<number> {
+  const sourceDirectory = join(options.sourceHome, ".docker", "cli-plugins");
+  let entries;
+  try {
+    entries = await readdir(sourceDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return 0;
+    }
+    throw error;
+  }
+
+  let staged = 0;
+  let destinationCreated = false;
+  for (const entry of entries) {
+    if (!entry.name.startsWith("docker-") || entry.isDirectory()) {
+      continue;
+    }
+
+    let target: string;
+    try {
+      target = await realpath(join(sourceDirectory, entry.name));
+      const targetStat = await stat(target);
+      if (!targetStat.isFile() || (targetStat.mode & 0o111) === 0) {
+        continue;
+      }
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+
+    if (!destinationCreated) {
+      await mkdir(options.destination, { recursive: true, mode: 0o700 });
+      destinationCreated = true;
+    }
+    const destination = join(options.destination, entry.name);
+    try {
+      const currentTarget = await readlink(destination);
+      if (currentTarget !== target) {
+        await rm(destination);
+        await symlink(target, destination, "file");
+      }
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        await symlink(target, destination, "file");
+      } else if (isNodeError(error) && error.code === "EINVAL") {
+        await rm(destination);
+        await symlink(target, destination, "file");
+      } else {
+        throw error;
+      }
+    }
+    staged += 1;
+  }
+  return staged;
 }
 
 /** Stages only the non-secret Git author identity for an isolated child HOME. */

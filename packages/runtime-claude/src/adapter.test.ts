@@ -355,6 +355,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
         env: {
           HOME: "/Users/operator",
           GH_CONFIG_DIR: "/Users/operator/.config/gh",
+          DOCKER_CONFIG: "/Users/operator/.docker",
           GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
           GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
           LINEAR_API_KEY: "lin-api-key",
@@ -379,6 +380,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]).toMatchObject({
       HOME: "/runtime/run-123/child-home",
       GH_CONFIG_DIR: "/runtime/run-123/child-home/gh",
+      DOCKER_CONFIG: "/runtime/run-123/child-home/.docker",
     });
     expect(calls[0]?.GIT_CONFIG_COUNT).toBeUndefined();
     expect(calls[0]?.GIT_CONFIG_KEY_0).toBeUndefined();
@@ -894,6 +896,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]).toEqual({
       HOME: "/workspace/.runtime/child-home",
       GH_CONFIG_DIR: "/workspace/.runtime/child-home/gh",
+      DOCKER_CONFIG: "/workspace/.runtime/child-home/.docker",
       GIT_TERMINAL_PROMPT: "0",
     });
   });

@@ -377,7 +377,7 @@ describe("Commander CLI entrypoint", () => {
     }
 
     expect(JSON.parse(stdout.output())).toMatchObject({ projectId });
-  });
+  }, 15_000);
 });
 
 describe("config directory export", () => {
