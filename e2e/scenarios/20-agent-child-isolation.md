@@ -34,7 +34,8 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
   and its session capability under forced strict MCP mode; query, comment, and
   Project-state calls succeed.
 - Worker stderr confirms the assigned branch was pushed by host Git transport,
-  and the authenticated remote observes upload-pack and receive-pack requests.
+  and the authenticated remote observes upload-pack and receive-pack
+  advertisements plus the receive-pack RPC.
 - Both provider lifecycles emit a final `runPhase: failed` heartbeat containing
   `git_transport_failed` and exit non-zero when the assigned branch cannot be
   published.

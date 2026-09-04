@@ -261,6 +261,13 @@ Worker prompt.
       "origin",
       authenticatedRemoteUrl
     );
+    await runGit(
+      workspace,
+      "commit",
+      "--allow-empty",
+      "-m",
+      "test: exercise authenticated Claude push"
+    );
     const fetchMockPath = join(root, "host-mcp-fetch-mock.cjs");
     await writeFile(
       fetchMockPath,
@@ -415,9 +422,8 @@ global.fetch = async (url, options) => {
     expect(result.stderr).toContain("host Git transport pushed feat/assigned");
     expect(authenticatedGitServer.authenticatedPaths).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("service=git-upload-pack"),
-        expect.stringContaining("git-upload-pack"),
-        expect.stringContaining("git-receive-pack"),
+        "/remote.git/info/refs?service=git-receive-pack",
+        "/remote.git/git-receive-pack",
       ])
     );
 
@@ -1020,18 +1026,23 @@ async function createAuthenticatedGitServer(
       });
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
+      let responded = false;
+      const fail = (message: Buffer | string) => {
+        if (responded) return;
+        responded = true;
+        response.writeHead(500);
+        response.end(message);
+      };
       backend.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
       backend.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-      backend.once("error", (error) => {
-        response.writeHead(500);
-        response.end(error.message);
-      });
+      backend.stdin.once("error", (error) => fail(error.message));
+      backend.once("error", (error) => fail(error.message));
       backend.once("close", (exitCode) => {
+        if (responded) return;
         const output = Buffer.concat(stdout);
         const separator = output.indexOf("\r\n\r\n");
         if (exitCode !== 0 || separator === -1) {
-          response.writeHead(500);
-          response.end(Buffer.concat(stderr));
+          fail(Buffer.concat(stderr));
           return;
         }
         const headerLines = output
@@ -1051,6 +1062,7 @@ async function createAuthenticatedGitServer(
             headers[name] = value;
           }
         }
+        responded = true;
         response.writeHead(status, headers);
         response.end(output.subarray(separator + 4));
       });
