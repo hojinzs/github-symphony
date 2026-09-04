@@ -550,12 +550,15 @@ and the dispatched worker.
 
 `runtime.isolation.inherit_environment: true` is a compatibility escape hatch
 for commands that cannot yet operate under the explicit contract. It restores
-the full worker environment, including raw tracker credentials and broker
-controls, but still overrides `HOME` and `GH_CONFIG_DIR` and removes host Git
-credential-helper settings. This is an intentional repository-local divergence
-from upstream Symphony §10.5, §15.3, and §17.5. It lets an arbitrary command
-read high-value credentials, so use it only during migration and remove it as
-soon as the command's required auth input can be declared.
+the non-credential worker environment, but still overrides `HOME` and
+`GH_CONFIG_DIR` and removes tracker credentials, broker/authentication controls,
+and host Git credential-helper settings. Starting with the #812 runtime context
+fix, compatibility inheritance no longer passes raw tracker or broker credentials
+through to the custom agent; commands that relied on those inherited values must
+declare a dedicated least-privilege provider credential with `runtime.auth.env`.
+This is an intentional repository-local divergence from upstream Symphony
+§10.5, §15.3, and §17.5. Use compatibility inheritance only during migration
+and remove it as soon as the command's required inputs can be declared.
 It is valid only with `runtime.kind: custom`; other runtime kinds fail workflow
 validation rather than silently ignoring it.
 
@@ -607,13 +610,13 @@ not set them manually.
 | --------------------------------- | ----------------------------------------- | ------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PROJECT_ID` / `CODEX_PROJECT_ID` | active project ID                         | Codex runtime launcher                            | Internal/injected | Runtime project identity. One of these is required when running the launcher directly.                                                                                                                                                                                        |
 | `WORKING_DIRECTORY`               | issue repository checkout path            | Worker, Codex runtime launcher                    | Internal/injected | Worker cwd / repository workspace path. Required when running a launcher directly.                                                                                                                                                                                            |
-| `SYMPHONY_ASSIGNED_BRANCH`        | orchestrator-captured checkout branch     | Worker host Git transport                         | Internal/injected | Immutable per-run push target captured before the coding-agent child starts. The host refuses to push when the child moves the worktree to another branch.                                                                                                                    |
+| `SYMPHONY_ASSIGNED_BRANCH`        | orchestrator-captured checkout branch     | Worker host Git transport                         | Internal/injected | Immutable per-run publication target captured before the coding-agent child starts. The host refuses to publish when the child moves the worktree to another branch.                                                                                                          |
 | `WORKSPACE_RUNTIME_DIR`           | issue runtime directory                   | Worker, Codex runtime, Claude runtime             | Internal/injected | Stores worker runtime artifacts such as token usage and MCP config. Claude's generated `mcp.json` uses only the worker-owned loopback Streamable HTTP URL plus an ephemeral per-run session capability; excluded HTTP, SSE, and subprocess declarations are reported by name. |
 | child `HOME` / `GH_CONFIG_DIR`    | `<WORKSPACE_RUNTIME_DIR>/child-home`      | Codex, Claude, and default custom child processes | Internal/injected | Isolates agent configuration from the operator's home, `gh auth` store, and global Git credential helpers.                                                                                                                                                                    |
 | `SYMPHONY_RENDERED_PROMPT`        | rendered issue prompt                     | Worker                                            | Internal/injected | Prompt sent to the agent runtime.                                                                                                                                                                                                                                             |
 | `SYMPHONY_RUN_ID`                 | current run ID                            | Worker, hooks                                     | Internal/injected | Unique run identifier.                                                                                                                                                                                                                                                        |
-| `SYMPHONY_ORCHESTRATOR_URL`       | internal worker API URL                   | Worker                                            | Internal/injected | Used for authenticated worker-state, turn-lease, and run-scoped tracker state requests.                                                                                                                                                                                       |
-| `SYMPHONY_ORCHESTRATOR_TOKEN`     | process-random secret                     | Worker                                            | Internal/injected | Authenticates worker-only orchestrator API calls; never exposed through status APIs.                                                                                                                                                                                          |
+| `SYMPHONY_ORCHESTRATOR_URL`       | internal worker API URL                   | Worker                                            | Internal/injected | Used for authenticated worker-state, turn-lease, run-scoped tracker state, and assigned-branch publication requests.                                                                                                                                                          |
+| `SYMPHONY_ORCHESTRATOR_TOKEN`     | process-random secret                     | Worker                                            | Internal/injected | Authenticates worker-only orchestrator API calls, including `POST /api/v1/assigned-branch/publish`; never exposed through status APIs.                                                                                                                                        |
 | `SYMPHONY_CONTINUATION_GUIDANCE`  | workflow continuation guidance            | Worker                                            | Internal/injected | Prompt guidance used on continuation turns.                                                                                                                                                                                                                                   |
 | `SYMPHONY_TRACKER_ADAPTER`        | active tracker adapter                    | Worker                                            | Internal/injected | Tracker adapter name, for example `github-project`, `linear`, or `file`.                                                                                                                                                                                                      |
 | `SYMPHONY_TRACKER_KIND`           | active tracker kind                       | Codex runtime, Claude runtime, worker routing     | Internal/injected | Enables Linear tooling when set to `linear`.                                                                                                                                                                                                                                  |
@@ -637,17 +640,17 @@ Every Codex, Claude, and custom coding-agent child receives the same explicit,
 non-secret run context. The allowlist is defined by
 `AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES` in `@gh-symphony/core`:
 
-| Variable                      | Agent-visible meaning                  |
-| ----------------------------- | -------------------------------------- |
-| `SYMPHONY_ASSIGNED_BRANCH`    | Immutable branch assigned to this run. |
-| `SYMPHONY_ISSUE_ID`           | Tracker-native issue ID.               |
-| `SYMPHONY_ISSUE_IDENTIFIER`   | Human-readable issue identifier.       |
-| `SYMPHONY_ISSUE_STATE`        | Tracker state captured for dispatch.   |
-| `SYMPHONY_TRACKER_KIND`       | Active tracker kind.                   |
-| `TARGET_REPOSITORY_CLONE_URL` | Repository clone URL.                  |
-| `TARGET_REPOSITORY_OWNER`     | Repository owner.                      |
-| `TARGET_REPOSITORY_NAME`      | Repository name.                       |
-| `TARGET_REPOSITORY_URL`       | Repository browser URL.                |
+| Variable                      | Agent-visible meaning                           |
+| ----------------------------- | ----------------------------------------------- |
+| `SYMPHONY_ASSIGNED_BRANCH`    | Immutable branch assigned to this run.          |
+| `SYMPHONY_ISSUE_ID`           | Tracker-native issue ID.                        |
+| `SYMPHONY_ISSUE_IDENTIFIER`   | Human-readable issue identifier.                |
+| `SYMPHONY_ISSUE_STATE`        | Tracker state captured for dispatch.            |
+| `SYMPHONY_TRACKER_KIND`       | Active tracker kind.                            |
+| `TARGET_REPOSITORY_CLONE_URL` | Repository clone URL with URL userinfo removed. |
+| `TARGET_REPOSITORY_OWNER`     | Repository owner.                               |
+| `TARGET_REPOSITORY_NAME`      | Repository name.                                |
+| `TARGET_REPOSITORY_URL`       | Repository browser URL.                         |
 
 Tracker-declared secret environment names and reserved broker/authentication
 variables are removed after environment composition, even if a runtime enables

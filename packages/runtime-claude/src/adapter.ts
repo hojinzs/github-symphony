@@ -15,6 +15,7 @@ import type {
 } from "@gh-symphony/core";
 import {
   collectMcpSecretEnvironmentNames,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   extractEnvForClaude,
   prepareAgentChildHome,
   readAgentVisibleSymphonyContext,
@@ -699,13 +700,7 @@ function stripTrackerSecrets(
       trustRepoConfig: configEnv?.SYMPHONY_TRUST_REPO_CONFIG === "true",
       secretEnvironmentNames: declaredNames,
     }),
-    "GH_TOKEN",
-    "GH_ENTERPRISE_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_GRAPHQL_TOKEN",
-    "GITHUB_TOKEN_BROKER_SECRET",
-    "LINEAR_API_KEY",
-    "LINEAR_AUTHORIZATION",
+    ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   ]) {
     delete env[name];
   }

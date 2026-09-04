@@ -77,4 +77,33 @@ describe("buildCustomRuntimeChildEnvironment", () => {
     expect(env.GITHUB_TOKEN).toBeUndefined();
     expect(env.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
   });
+
+  it("removes URL userinfo from agent-visible repository context", () => {
+    const env = buildCustomRuntimeChildEnvironment({
+      childHome: "/runtime/child-home",
+      source: {
+        TARGET_REPOSITORY_CLONE_URL:
+          "https://operator:secret@example.com/acme/repo.git?mirror=1#ref",
+      },
+    });
+
+    expect(env.TARGET_REPOSITORY_CLONE_URL).toBe(
+      "https://example.com/acme/repo.git?mirror=1#ref"
+    );
+  });
+
+  it("rejects runtime auth that becomes reserved at child composition", () => {
+    expect(() =>
+      buildCustomRuntimeChildEnvironment({
+        childHome: "/runtime/child-home",
+        source: {
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: '["CUSTOM_AGENT_TOKEN"]',
+        },
+        input: { CUSTOM_AGENT_TOKEN: "custom-token" },
+        authEnvKey: "CUSTOM_AGENT_TOKEN",
+      })
+    ).toThrow(
+      "Custom runtime auth environment variable CUSTOM_AGENT_TOKEN is reserved"
+    );
+  });
 });

@@ -55,6 +55,10 @@ export default defineConfig({
         packageRoot,
         "../tracker-linear/src/index.ts"
       ),
+      "@gh-symphony/worker/git-transport": resolve(
+        packageRoot,
+        "../worker/src/git-transport.ts"
+      ),
       "@gh-symphony/worker": resolve(packageRoot, "../worker/src/index.ts"),
     },
   },

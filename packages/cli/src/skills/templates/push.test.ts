@@ -25,8 +25,13 @@ describe("generatePushSkill", () => {
   it("contains Rules or Flow section", () => {
     expect(generatePushSkill(mockCtx)).toMatch(/## (Rules|Flow)/);
   });
-  it("mentions git push", () => {
-    expect(generatePushSkill(mockCtx)).toContain("git push");
+  it("publishes through the authenticated host action", () => {
+    const result = generatePushSkill(mockCtx);
+    expect(result).toContain("/api/v1/assigned-branch/publish");
+    expect(result).toContain("X-Symphony-Run-Id");
+    expect(result).toContain("X-Symphony-Orchestrator-Token");
+    expect(result).toContain("Never run `git push`");
+    expect(result).toContain("A missing remote ref alone is not a blocker");
   });
   it("no double-brace vars", () => {
     expect(generatePushSkill(mockCtx)).not.toMatch(/\{\{/);

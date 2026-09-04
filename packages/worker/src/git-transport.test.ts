@@ -431,20 +431,29 @@ describe("synchronizeAssignedBranch", { timeout: 15_000 }, () => {
 
 describe("shouldSynchronizeAssignedBranch", () => {
   it.each([
-    { userInputRequired: false, terminalFailure: false, expected: true },
-    { userInputRequired: false, terminalFailure: true, expected: false },
-    { userInputRequired: true, terminalFailure: false, expected: false },
-  ])(
-    "returns $expected for userInputRequired=$userInputRequired terminalFailure=$terminalFailure",
-    ({ userInputRequired, terminalFailure, expected }) => {
-      expect(
-        shouldSynchronizeAssignedBranch({
-          userInputRequired,
-          terminalFailure,
-        })
-      ).toBe(expected);
-    }
-  );
+    {
+      outcome: "normal completion",
+      userInputRequired: false,
+      terminalFailure: false,
+    },
+    {
+      outcome: "an abnormal terminal failure",
+      userInputRequired: false,
+      terminalFailure: true,
+    },
+    {
+      outcome: "an input-required exit",
+      userInputRequired: true,
+      terminalFailure: false,
+    },
+  ])("publishes after $outcome", ({ userInputRequired, terminalFailure }) => {
+    expect(
+      shouldSynchronizeAssignedBranch({
+        userInputRequired,
+        terminalFailure,
+      })
+    ).toBe(true);
+  });
 });
 
 describe("buildHostGitEnvironment", () => {

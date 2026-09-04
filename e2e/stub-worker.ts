@@ -18,6 +18,8 @@
  *                           same Linear workspace is reused on recovery
  *   dirty-unpublished-worktree — simulates a successful host branch push
  *                           while tracked and untracked workspace edits remain
+ *   assigned-branch-publish — commits, requests host publication twice, and
+ *                           verifies the remote ref before the worker exits
  */
 
 import { existsSync } from "node:fs";
@@ -48,7 +50,8 @@ type Scenario =
   | "api-progress-unknown"
   | "required-label-removed"
   | "linear-dirty-recovery"
-  | "dirty-unpublished-worktree";
+  | "dirty-unpublished-worktree"
+  | "assigned-branch-publish";
 const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "happy",
   "fail",
@@ -63,6 +66,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "required-label-removed",
   "linear-dirty-recovery",
   "dirty-unpublished-worktree",
+  "assigned-branch-publish",
 ]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
@@ -89,6 +93,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     "required-label-removed": { startMs: 2000, runMs: 1000 },
     "linear-dirty-recovery": { startMs: 100, runMs: 100 },
     "dirty-unpublished-worktree": { startMs: 100, runMs: 100 },
+    "assigned-branch-publish": { startMs: 100, runMs: 100 },
   };
 
 function resolveCoreModuleUrl(): string {
@@ -448,6 +453,90 @@ async function prepareDirtyUnpublishedWorktree(): Promise<void> {
   await requestAndConfirmApiProgress();
 }
 
+async function publishAssignedBranchDuringRun(): Promise<void> {
+  if (!ORCHESTRATOR_URL || !ORCHESTRATOR_TOKEN || !RUN_ID) {
+    throw new Error("stub_worker_orchestrator_context_missing");
+  }
+  const repositoryDirectory = process.env.WORKING_DIRECTORY ?? process.cwd();
+  const assignedBranch = process.env.SYMPHONY_ASSIGNED_BRANCH;
+  if (!assignedBranch) {
+    throw new Error("stub_assigned_branch_missing");
+  }
+  execFileSync("git", ["config", "user.name", "Symphony E2E"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["config", "user.email", "e2e@example.test"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  await writeFile(
+    join(repositoryDirectory, "assigned-branch-publish.txt"),
+    `published by ${RUN_ID}\n`,
+    "utf8"
+  );
+  execFileSync("git", ["add", "assigned-branch-publish.txt"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["commit", "-m", "test: publish assigned branch"], {
+    cwd: repositoryDirectory,
+    stdio: "pipe",
+  });
+  const expectedHead = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: repositoryDirectory,
+    encoding: "utf8",
+  }).trim();
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const response = await fetch(
+      `${ORCHESTRATOR_URL}/api/v1/assigned-branch/publish`,
+      {
+        method: "POST",
+        headers: {
+          "x-symphony-run-id": RUN_ID,
+          "x-symphony-orchestrator-token": ORCHESTRATOR_TOKEN,
+        },
+      }
+    );
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      outcome?: string;
+      branch?: string | null;
+      head?: string | null;
+      error?: string | null;
+    };
+    if (
+      !response.ok ||
+      payload.ok !== true ||
+      payload.outcome !== "published" ||
+      payload.branch !== assignedBranch ||
+      payload.head !== expectedHead
+    ) {
+      throw new Error(
+        `stub_assigned_branch_publish_failed:${attempt}:${JSON.stringify(payload)}`
+      );
+    }
+  }
+
+  const remoteHead = execFileSync(
+    "git",
+    ["ls-remote", "origin", `refs/heads/${assignedBranch}`],
+    { cwd: repositoryDirectory, encoding: "utf8" }
+  )
+    .trim()
+    .split(/\s+/)[0];
+  if (remoteHead !== expectedHead) {
+    throw new Error(
+      `stub_assigned_branch_remote_mismatch:${remoteHead ?? "missing"}:${expectedHead}`
+    );
+  }
+  console.error(
+    `[stub-worker] assigned branch published during run branch=${assignedBranch} head=${expectedHead} attempts=2`
+  );
+  await requestAndConfirmApiProgress();
+}
+
 async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
@@ -531,6 +620,9 @@ async function run() {
   }
   if (SCENARIO === "dirty-unpublished-worktree") {
     await prepareDirtyUnpublishedWorktree();
+  }
+  if (SCENARIO === "assigned-branch-publish") {
+    await publishAssignedBranchDuringRun();
   }
   if (SCENARIO === "recovery-fail") {
     await writeFile(

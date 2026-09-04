@@ -895,6 +895,14 @@ async function runNonCodexRuntimeAdapterLifecycle(
       convergenceDetected: false,
       maxTurnsReached: false,
     });
+    recordGitTransportAttempt(
+      await trySynchronizeAssignedBranch({
+        cwd: env.WORKING_DIRECTORY!,
+        assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+        remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
+        env,
+      })
+    );
     emitTurnFailedEvent(turnTelemetry, message);
   } finally {
     unsubscribe();
@@ -2101,6 +2109,15 @@ async function runCodexClientProtocol(
       );
       activeTurnTelemetry = null;
     }
+
+    recordGitTransportAttempt(
+      await trySynchronizeAssignedBranch({
+        cwd: plan.cwd,
+        assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+        remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
+        env,
+      })
+    );
 
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();

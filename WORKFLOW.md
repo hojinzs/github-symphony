@@ -19,6 +19,7 @@ tracker:
       exclude:
         - epic
 repository:
+  slug: hojinzs/github-symphony
   base_branch: main
   branch_template: symphony/{sanitized_issue_id}
 polling:
@@ -80,7 +81,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 - state: `{{pull_request_context.primary_pull_request.state}}` · draft: `{{pull_request_context.primary_pull_request.isDraft}}` · merged: `{{pull_request_context.primary_pull_request.merged}}`
 - head: `{{pull_request_context.primary_pull_request.headRefName}}` → base: `{{pull_request_context.primary_pull_request.baseRefName}}`
 
-Treat this PR as the current delivery PR (Posture 11) unless the newest workpad records a different open PR.{% else %}No linked pull request was resolved for this issue. Your assigned branch is a fresh branch created from `main` by the orchestrator; the Draft PR is created in Step 2 after your first commit has been pushed by the host.{% endif %}
+Treat this PR as the current delivery PR (Posture 11) unless the newest workpad records a different open PR.{% else %}No linked pull request was resolved for this issue. Your assigned branch is a fresh branch created from `main` by the orchestrator; Step 2 publishes the first committed slice through `/push` before creating the Draft PR in the same run.{% endif %}
 
 ### Task
 
@@ -93,7 +94,7 @@ These facts describe what your process can and cannot do. Every instruction belo
 1. **You have no GitHub credentials.** `gh` is not authenticated, and `git push` / authenticated `git fetch` fail. Do not try to log in, copy tokens, or edit `origin`. All GitHub reads and writes (issue comments, PR create/update/merge, reviews, checks, follow-up issues) go through the host-side **`github_graphql`** tool (one query or mutation per call, always scoped to this issue or its repository). See _GitHub GraphQL Cookbook_ below.
 2. **Tracker state is orchestrator-owned.** Read and transition the Project status only through the `/gh-project` skill (orchestrator API with `SYMPHONY_ORCHESTRATOR_URL` / `SYMPHONY_RUN_ID` / `SYMPHONY_ORCHESTRATOR_TOKEN`). Never mutate the Project through `github_graphql`.
 3. **You work on one assigned branch.** The orchestrator checked it out before you started (`$SYMPHONY_ASSIGNED_BRANCH`; a linked PR's head branch, otherwise `symphony/<issue-key>` from `main`). Never `git checkout -b`, never switch branches, never detach HEAD. The host refuses to push when the worktree is on any other branch.
-4. **The host pushes your branch after every turn, fast-forward only.** Commit locally; at the end of each turn the worker pushes `$SYMPHONY_ASSIGNED_BRANCH` to the orchestrator-owned remote. The push is refused if `origin/<branch>` is not an ancestor of your head — so **never rebase, amend, reset, or force-rewrite commits that may already be on the remote**. Bring in base-branch changes with `git merge` (see `/pull`). A branch that exists on the remote is the precondition for creating a PR, so PR creation happens in the turn **after** the first commit.
+4. **Branch publication is agent-triggered and host-owned, fast-forward only.** After committing work that must become visible, call `/push`, which sends an authenticated `POST /api/v1/assigned-branch/publish` request using the run identity already available to the child. The host retains the Git credential, verifies `$SYMPHONY_ASSIGNED_BRANCH`, disables repository hooks, and refuses publication unless `origin/<branch>` is an ancestor of local HEAD. The same transport runs at worker exit as a backstop, including abnormal exits. A missing remote ref before a successful publish request is expected and is never, by itself, a blocker or evidence of missing credentials/binding. **Never rebase, amend, reset, or force-rewrite commits that may already be on the remote.** Bring in base-branch changes with `git merge` (see `/pull`).
    Codex, Claude, and custom agent children all receive the same non-secret Symphony context allowlist: `SYMPHONY_ASSIGNED_BRANCH`, `SYMPHONY_ISSUE_ID`, `SYMPHONY_ISSUE_IDENTIFIER`, `SYMPHONY_ISSUE_STATE`, `SYMPHONY_TRACKER_KIND`, and `TARGET_REPOSITORY_*`. Tracker secrets and reserved broker/authentication variables are never part of this context.
 5. **Turns continue automatically.** After each of your turns the worker refreshes the tracker state and starts the next turn while the issue stays in an active state (`Ready`, `In progress`, `Land`), up to `agent.max_turns`. A turn ends when you finish your message. The session ends when the issue leaves the active states (your `In review` / `Backlog` / `Done` transition), when `max_turns` is reached, or after **3 consecutive non-productive turns** (no commit, no workspace change, or the same error repeated) — that convergence failure counts against the issue's failure budget. Cycles that change no files (Land, terminal repairs, verification-only work) must therefore finish within one or two turns; do the waiting (for example CI polling) **inside** a single turn.
 6. **The worktree must be clean at every turn end.** Untracked or modified files at turn end are recorded as unpublished work, block workspace cleanup, and trigger dirty-workspace recovery on the next dispatch. Write **all** scratch content (comment bodies, transition bodies, PR bodies, reply drafts, notes) outside the repository:
@@ -205,9 +206,9 @@ Entered from one of:
    - As you address each review thread, reply on that thread (`addPullRequestReviewThreadReply`) with a concrete resolution summary or rationale, then resolve it (`resolveReviewThread`). Never leave a thread unanswered; never resolve a thread without a reply.
    - If the branch is behind its base, run `/pull` (merge, never rebase) before editing.
 
-3. **Implementation — one Plan item per turn.** Explore relevant code, implement, write/update tests, commit in logical units (conventional commit format, `/commit`). The host pushes your commits at turn end; the Draft PR (once it exists) updates automatically.
+3. **Implementation — one Plan item per turn.** Explore relevant code, implement, write/update tests, commit in logical units (conventional commit format, `/commit`). Call `/push` when the committed work must become visible; the Draft PR (once it exists) updates when publication succeeds.
 
-4. **Draft PR creation — the turn after the first commit.** When the workpad still says `Draft PR: not yet created` and `prBranchOnRemote` confirms your branch exists on the remote with at least one commit ahead of the base, create the Draft PR now through `/gh-pr-writeup` (`createPullRequest` with `draft: true`, base = the recorded base branch, body scaffold with TL;DR · change-point diagram · start-here guide · risks & rollback · changed files · `## Issues — Closed #{{issue.number}}` · post-merge/human validation). Record the PR URL in the workpad. If the branch is not on the remote yet, the previous push failed: record the transport diagnostic from the worker output in the workpad and continue with the next Plan item; retry PR creation next turn.
+4. **Draft PR creation — after the first committed slice is publishable.** When the workpad still says `Draft PR: not yet created`, invoke `/push` and require a successful response for the expected branch and HEAD. Then confirm with `prBranchOnRemote` that the branch exists and is ahead of the base, and create the Draft PR in the same run through `/gh-pr-writeup` (`createPullRequest` with `draft: true`, base = the recorded base branch, body scaffold with TL;DR · change-point diagram · start-here guide · risks & rollback · changed files · `## Issues — Closed #{{issue.number}}` · post-merge/human validation). Record the PR URL in the workpad. A missing ref before `/push` succeeds is not a failure and never starts a turn-count escalation. If the publish action fails, record its concrete response and fix only that diagnosed cause.
 
 5. **Turn-end checklist.** Before ending a turn:
    - workpad Plan item marked `[x]` and a Progress Log entry added (real timestamp, Posture 9).
@@ -237,7 +238,7 @@ Entered from one of:
    - Record the Changeset file path in the workpad `### Validation` section.
 
 9. **Mandatory handoff gate.** The moment Steps 6–8 are satisfied, in **this same turn**:
-   1. Commit everything (the changeset included). The host pushes at turn end, so the PR body you write now must describe the committed state.
+   1. Commit everything (the changeset included), invoke `/push`, and require the expected branch/HEAD response. The PR body you write now must describe that published state.
    2. Run `/gh-pr-writeup` in refresh mode (`updatePullRequest`) so TL;DR · change-point diagram · start-here guide · risks & rollback · changed files · `## Issues — Closed #{{issue.number}}` · post-merge/human validation sections are current.
    3. Complete the current workpad's Completion Bar, final Validation results, and Progress Log entry, including the exact handoff reason.
    4. Mark the Draft PR ready: `markPullRequestReadyForReview`. On rework cycles, additionally request re-review from the reviewers who requested changes (`requestReviews`).
@@ -276,7 +277,7 @@ Rework feedback is initiated by a human moving the issue back to `Ready` — the
    - **Merged-PR precedence guard (always first)** — before applying any classification below, re-read the linked PR state. If it is `MERGED`, record the merged commit SHA, prepare the `🔁 Status: Land → Done` body, and transition through `/gh-project`, then exit. Never classify a merged PR as rework or transition it to `Ready`, even when its deleted head branch makes freshness or mergeability checks fail.
    - **Required CI pending or registering** — keep the issue in `Land` and wait in the current Land turn: poll `prChecks` every 10 seconds until the previously observed required checks appear on the fresh head (at most 5 minutes), then keep polling until they reach a terminal state (at most 30 minutes). If no required checks are configured, this gate passes without a registration wait. Once CI reaches a terminal state, re-run the **entire** pre-flight: merge if it passes; otherwise classify the resulting concrete failure below. Do not spend more than one turn waiting; if the limits are exceeded, classify as the external wait-only failure.
    - **Approval or other external wait-only failure** — no human `APPROVED` review on the current head (and the merge-update exemption above does not apply), or another condition awaiting human/external review after CI is terminal: complete the workpad evidence, prepare a status body stating the concrete pre-flight finding (which gate failed, on which head SHA, and what a human must do), and send it as `comment_body` while transitioning `Land` → `In review` via `/gh-project`. Do **not** write a `⛔ Blocker` comment.
-   - **Trivial conflict** — the server-side update reports a conflict confined to `.changeset/*`, `docs/**`, `CHANGELOG.md`, or `pnpm-lock.yaml`: resolve it locally with `git merge origin/<base>` (keep both changesets; regenerate the lockfile with the repository package manager (`pnpm install --lockfile-only` or `npm install --package-lock-only`) when needed), commit the merge, end the turn so the host pushes it, and re-run pre-flight next turn. No other file may be edited in a Land cycle.
+   - **Trivial conflict** — the server-side update reports a conflict confined to `.changeset/*`, `docs/**`, `CHANGELOG.md`, or `pnpm-lock.yaml`: resolve it locally with `git merge origin/<base>` (keep both changesets; regenerate the lockfile with the repository package manager (`pnpm install --lockfile-only` or `npm install --package-lock-only`) when needed), commit the merge, invoke `/push`, and re-run pre-flight. No other file may be edited in a Land cycle.
    - **Rework failure** — failed required CI, a source-file merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition that the worker can address: prepare a status body with reason `Land-return rework: <cause>`, then transition `Land` → `Ready` via `/gh-project` with that body. The Ready-return rework guard opens the next cycle and routes it to `In progress`.
    - **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment, prepare a status body stating the unblock condition, then transition `Land` → `Backlog` via `/gh-project` with that body.
 
@@ -359,12 +360,12 @@ Used for all cycles. Land-cycle workpads keep Plan/Validation/Progress Log fille
 
 ### Plan
 
-<!-- one item per turn (Step 2.3). Item 1 must produce a commit so the host
-     can push the branch; the Draft PR is opened the following turn (Step 2.4).
+<!-- one item per turn (Step 2.3). Item 1 must produce a commit; invoke /push
+     before the Draft PR step so the branch is visible in the same run (Step 2.4).
      LAST item is always the handoff. Out-of-scope items go under Delegation. -->
 
 - [ ] 1. {first shippable slice — ends with a commit}
-- [ ] 2. Open Draft PR via /gh-pr-writeup (branch is on the remote now)
+- [ ] 2. Publish via /push and open Draft PR via /gh-pr-writeup
 - [ ] N. Wrap-up: re-verify the original issue · pass the Completion Bar · changeset (if needed) · PR ready · transition to In review
 
 ### Rework / PR Feedback

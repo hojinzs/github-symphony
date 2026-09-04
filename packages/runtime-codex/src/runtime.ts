@@ -641,7 +641,7 @@ export function buildCodexRuntimePlan(
     args: agentCommand.args,
     env: {
       ...resolveRuntimeProcessEnv(),
-      ...readAgentVisibleSymphonyContext(process.env, config.extraEnv),
+      ...readAgentVisibleSymphonyContext(process.env),
       ...config.extraEnv,
       ...config.agentEnv,
       CODEX_PROJECT_ID: config.projectId,

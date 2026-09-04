@@ -30,12 +30,15 @@ export function readAgentVisibleSymphonyContext(
   ...sources: ReadonlyArray<NodeJS.ProcessEnv | undefined>
 ): NodeJS.ProcessEnv {
   const context: NodeJS.ProcessEnv = {};
-  for (const name of AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES) {
-    for (let index = sources.length - 1; index >= 0; index -= 1) {
-      const value = sources[index]?.[name];
+  // Sources are applied in order so later runtime-specific values win.
+  for (const source of sources) {
+    for (const name of AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES) {
+      const value = source?.[name];
       if (value !== undefined) {
-        context[name] = value;
-        break;
+        context[name] =
+          name === "TARGET_REPOSITORY_CLONE_URL"
+            ? sanitizeCloneUrl(value)
+            : value;
       }
     }
   }
@@ -130,11 +133,28 @@ export function buildCustomRuntimeChildEnvironment(options: {
         ...input,
       })
     ) {
+      if (name === options.authEnvKey) {
+        throw new Error(
+          `Custom runtime auth environment variable ${name} is reserved and cannot be exposed to the child.`
+        );
+      }
       delete env[name];
     }
   }
   removeChildHostCredentialEnvironment(env);
   return env;
+}
+
+function sanitizeCloneUrl(cloneUrl: string): string {
+  try {
+    const url = new URL(cloneUrl);
+    if (url.protocol === "ssh:") {
+      return cloneUrl;
+    }
+    return `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return cloneUrl.replace(/^([a-z][a-z\d+.-]*:\/\/)[^/@]*@/i, "$1");
+  }
 }
 
 function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {

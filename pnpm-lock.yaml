@@ -190,6 +190,9 @@ importers:
       '@gh-symphony/tracker-linear':
         specifier: workspace:*
         version: link:../tracker-linear
+      '@gh-symphony/worker':
+        specifier: workspace:*
+        version: link:../worker
 
   packages/runtime-claude:
     dependencies:
