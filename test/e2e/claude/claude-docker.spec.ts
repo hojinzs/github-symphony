@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -61,6 +62,7 @@ const repoRoot = resolve(__dirname, "../../..");
 const stubPath = resolve(repoRoot, "test/e2e/stubs/claude.sh");
 const stubWrapperPath = resolve(repoRoot, "test/e2e/stubs/claude");
 const createdRoots: string[] = [];
+const createdServers: Array<() => Promise<void>> = [];
 const execFileAsync = promisify(execFile);
 
 beforeAll(async () => {
@@ -69,6 +71,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
+  await Promise.all(createdServers.splice(0).map((close) => close()));
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
@@ -237,6 +240,7 @@ Worker prompt.
     );
     const remote = join(root, "remote.git");
     await runGit(root, "init", "--bare", remote);
+    await runGit(remote, "config", "http.receivepack", "true");
     await runGit(workspace, "init", "-b", "feat/assigned");
     await runGit(workspace, "config", "user.name", "Symphony E2E");
     await runGit(workspace, "config", "user.email", "e2e@example.com");
@@ -244,6 +248,26 @@ Worker prompt.
     await runGit(workspace, "commit", "-m", "test: seed Claude workspace");
     await runGit(workspace, "remote", "add", "origin", remote);
     await runGit(workspace, "push", "origin", "feat/assigned");
+    const authenticatedGitServer = await createAuthenticatedGitServer(
+      root,
+      "stub-token"
+    );
+    createdServers.push(authenticatedGitServer.close);
+    const authenticatedRemoteUrl = `${authenticatedGitServer.url}/${remote.slice(root.length + 1)}`;
+    await runGit(
+      workspace,
+      "remote",
+      "set-url",
+      "origin",
+      authenticatedRemoteUrl
+    );
+    await runGit(
+      workspace,
+      "commit",
+      "--allow-empty",
+      "-m",
+      "test: exercise authenticated Claude push"
+    );
     const fetchMockPath = join(root, "host-mcp-fetch-mock.cjs");
     await writeFile(
       fetchMockPath,
@@ -286,6 +310,11 @@ global.fetch = async (url, options) => {
       GH_TOKEN: "stub-gh-token",
       GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
       GITHUB_TOKEN_BROKER_SECRET: "stub-broker-secret",
+      GITHUB_GIT_HOST: authenticatedGitServer.host,
+      GIT_SSL_NO_VERIFY: "1",
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "credential.helper",
+      GIT_CONFIG_VALUE_0: "",
       LINEAR_API_KEY: "stub-linear-api-key",
       LINEAR_AUTHORIZATION: "Bearer stub-linear-authorization",
       SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
@@ -299,7 +328,7 @@ global.fetch = async (url, options) => {
       GITHUB_PROJECT_ID: "stub-project",
       WORKING_DIRECTORY: workspace,
       SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
-      TARGET_REPOSITORY_CLONE_URL: remote,
+      TARGET_REPOSITORY_CLONE_URL: authenticatedRemoteUrl,
       WORKSPACE_RUNTIME_DIR: runtimeRoot,
       SYMPHONY_WORKFLOW_PATH: workflowPath,
       SYMPHONY_RENDERED_PROMPT: "Handle worker runtime adapter issue.",
@@ -328,7 +357,7 @@ global.fetch = async (url, options) => {
       await leaseServer.close();
     }
 
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stderr).toContain("Claude runtime preflight");
     expect(result.stderr).toContain("claude-print/result");
     expect(result.stderr).toContain('"type":"turn_completed"');
@@ -391,6 +420,12 @@ global.fetch = async (url, options) => {
     expect(result.stderr).toContain("host MCP server started");
     expect(result.stderr).toContain("host MCP server stopped");
     expect(result.stderr).toContain("host Git transport pushed feat/assigned");
+    expect(authenticatedGitServer.authenticatedPaths).toEqual(
+      expect.arrayContaining([
+        "/remote.git/info/refs?service=git-receive-pack",
+        "/remote.git/git-receive-pack",
+      ])
+    );
 
     const competing = join(root, "competing");
     await runGit(root, "clone", remote, competing);
@@ -938,6 +973,122 @@ async function readOptional(path: string): Promise<string> {
     }
     throw error;
   }
+}
+
+async function createAuthenticatedGitServer(
+  projectRoot: string,
+  token: string
+) {
+  const authenticatedPaths: string[] = [];
+  const expectedAuthorization = `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
+  const keyPath = join(projectRoot, "git-server-key.pem");
+  const certificatePath = join(projectRoot, "git-server-cert.pem");
+  await execFileAsync("openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-keyout",
+    keyPath,
+    "-out",
+    certificatePath,
+    "-subj",
+    "/CN=127.0.0.1",
+    "-days",
+    "1",
+  ]);
+  const server = createHttpsServer(
+    {
+      key: await readFile(keyPath),
+      cert: await readFile(certificatePath),
+    },
+    (request, response) => {
+      if (request.headers.authorization !== expectedAuthorization) {
+        response.writeHead(401, { "www-authenticate": 'Basic realm="Git"' });
+        response.end();
+        return;
+      }
+      authenticatedPaths.push(request.url ?? "");
+      const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+      const backend = spawn("git", ["http-backend"], {
+        env: {
+          ...process.env,
+          GIT_PROJECT_ROOT: projectRoot,
+          GIT_HTTP_EXPORT_ALL: "1",
+          PATH_INFO: requestUrl.pathname,
+          QUERY_STRING: requestUrl.search.slice(1),
+          REQUEST_METHOD: request.method ?? "GET",
+          CONTENT_TYPE: request.headers["content-type"] ?? "",
+          CONTENT_LENGTH: request.headers["content-length"] ?? "",
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let responded = false;
+      const fail = (message: Buffer | string) => {
+        if (responded) return;
+        responded = true;
+        response.writeHead(500);
+        response.end(message);
+      };
+      backend.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+      backend.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+      backend.stdin.once("error", (error) => fail(error.message));
+      backend.once("error", (error) => fail(error.message));
+      backend.once("close", (exitCode) => {
+        if (responded) return;
+        const output = Buffer.concat(stdout);
+        const separator = output.indexOf("\r\n\r\n");
+        if (exitCode !== 0 || separator === -1) {
+          fail(Buffer.concat(stderr));
+          return;
+        }
+        const headerLines = output
+          .subarray(0, separator)
+          .toString("utf8")
+          .split("\r\n");
+        let status = 200;
+        const headers: Record<string, string> = {};
+        for (const line of headerLines) {
+          const colon = line.indexOf(":");
+          if (colon === -1) continue;
+          const name = line.slice(0, colon).trim();
+          const value = line.slice(colon + 1).trim();
+          if (name.toLowerCase() === "status") {
+            status = Number.parseInt(value, 10);
+          } else {
+            headers[name] = value;
+          }
+        }
+        responded = true;
+        response.writeHead(status, headers);
+        response.end(output.subarray(separator + 4));
+      });
+      request.pipe(backend.stdin);
+    }
+  );
+  await new Promise<void>((resolveServer, rejectServer) => {
+    server.once("error", rejectServer);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", rejectServer);
+      resolveServer();
+    });
+  });
+  const address = server.address() as AddressInfo;
+  return {
+    authenticatedPaths,
+    host: `127.0.0.1:${address.port}`,
+    url: `https://127.0.0.1:${address.port}`,
+    close: () => {
+      const closed = new Promise<void>((resolveClose) =>
+        server.close(() => resolveClose())
+      );
+      server.closeAllConnections();
+      return closed;
+    },
+  };
 }
 
 async function runGit(cwd: string, ...args: string[]) {
