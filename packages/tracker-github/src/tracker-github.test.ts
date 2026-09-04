@@ -2659,7 +2659,9 @@ Prompt`,
         expect.stringContaining("Deprecated tracker.settings.assignedOnly")
       );
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("gh-symphony project start --assigned-only")
+        expect.stringContaining(
+          "gh-symphony project start --project-dir <path> --assigned-only"
+        )
       );
     } finally {
       infoSpy.mockRestore();

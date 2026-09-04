@@ -95,7 +95,7 @@ import {
   isActiveRunRecordStatus,
   isIssueCandidateEligibleWithReason,
   isIssueOrchestrationClaimedState,
-} from "./explain.js";
+} from "./dispatch-eligibility.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 export const MIN_POLL_INTERVAL_MS = 1_000;

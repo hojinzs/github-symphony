@@ -60,6 +60,8 @@ polling:
 agent:
   max_concurrent_agents: 2
   max_turns: 2
+repository:
+  slug: test-owner/test-repo
 codex:
   command: node $STUB_WORKER_JS
   approval_policy: never
@@ -75,18 +77,11 @@ EOF
   git commit -m "Initial commit with WORKFLOW.md"
 )
 
-# ── 3. Clone work repo and initialize repo-local runtime ─────────
+# ── 3. Clone the standalone project fixture ─────────────────────
 log "Cloning work repo to $WORK_DIR"
 mkdir -p "$(dirname "$WORK_DIR")"
 git clone "$REPO_DIR" "$WORK_DIR"
 git -C "$WORK_DIR" remote set-url origin test-owner/test-repo
-
-log "Initializing repo-local runtime at $WORK_DIR/.runtime/orchestrator"
-(
-  cd "$WORK_DIR"
-  GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$ISSUES_PATH" \
-    node "$ROOT_DIR/packages/cli/dist/index.js" repo init
-)
 
 # ── 4. Generate local fixtures (Docker paths → local paths) ──────
 DOCKER_CLONE_URL="/e2e/repos/test-owner/test-repo"

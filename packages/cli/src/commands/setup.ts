@@ -41,7 +41,6 @@ import {
   toWorkflowLifecycleConfig,
   validateStateMapping,
 } from "../mapping/smart-defaults.js";
-import { initRepoRuntime } from "../repo-runtime.js";
 import {
   isSupportedInitRuntime,
   normalizeInitRuntime,
@@ -140,9 +139,9 @@ async function promptRuntimeSelection(): Promise<InitRuntimeKind> {
 function runtimeInstallHint(runtime: string): string {
   const command = resolveRuntimeCommand(runtime);
   if (runtime === "claude-print") {
-    return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Claude Code and confirm '${command} --version' works before running 'gh-symphony repo start'.`;
+    return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Claude Code and confirm '${command} --version' works before running 'gh-symphony project start --project-dir <path>'.`;
   }
-  return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Codex and confirm '${command} --version' works before running 'gh-symphony repo start'.`;
+  return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Codex and confirm '${command} --version' works before running 'gh-symphony project start --project-dir <path>'.`;
 }
 
 async function checkRuntimeInstall(runtime: string): Promise<boolean> {
@@ -214,7 +213,7 @@ async function resolveProjectDetail(
   }
 
   throw new Error(
-    "Error: non-interactive setup requires exactly one GitHub Project. Use 'gh-symphony workflow init' for project selection, then run 'gh-symphony repo init'."
+    "Error: non-interactive setup requires exactly one GitHub Project. Use 'gh-symphony workflow init' for project selection, then run 'gh-symphony project start --project-dir <path>'."
   );
 }
 
@@ -247,18 +246,16 @@ function printNonInteractiveSummary(input: {
   githubProjectTitle: string;
   githubProjectId: string;
   workflowPath: string;
-  runtimeDir: string;
   runtime: string;
-  repository: string;
+  repository?: string;
 }): void {
   process.stdout.write(
     [
       `GitHub Project   ${input.githubProjectTitle}  (${input.githubProjectId})`,
-      `Repository       ${input.repository}`,
+      ...(input.repository ? [`Repository       ${input.repository}`] : []),
       `WORKFLOW.md      ${input.workflowPath}`,
       `Agent runtime    ${input.runtime}`,
-      `Runtime          ${input.runtimeDir}`,
-      "Ready. Run 'gh-symphony repo start' to begin orchestration.",
+      "Ready. Run 'gh-symphony project start --project-dir <path>' to begin orchestration.",
     ]
       .map((line) => `  ${line}`)
       .join("\n") + "\n"
@@ -381,7 +378,15 @@ async function runNonInteractive(
   }
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
-  const { workflowPlan } = await planWorkflowArtifacts({
+  const standaloneWorkflowPath = resolve(process.cwd(), "WORKFLOW.md");
+  if (workflowPath !== standaloneWorkflowPath) {
+    process.stderr.write(
+      `Error: setup writes the standalone project workflow at ${standaloneWorkflowPath}. Use 'gh-symphony workflow init --output <path>' for a custom output file.\n`
+    );
+    process.exitCode = 2;
+    return;
+  }
+  const { workflowPlan, repository } = await planWorkflowArtifacts({
     cwd: process.cwd(),
     outputPath: workflowPath,
     projectDetail,
@@ -408,10 +413,9 @@ async function runNonInteractive(
     skipContext: flags.skipContext,
   });
 
-  const runtime = await initRepoRuntime({
-    repoDir: process.cwd(),
-    workflowFile: workflowPath,
-  });
+  const repositoryName = repository
+    ? `${repository.owner}/${repository.name}`
+    : undefined;
 
   await warnIfRuntimeMissing(selectedRuntime, options);
   if (options.json) {
@@ -420,8 +424,7 @@ async function runNonInteractive(
         status: "created",
         output: workflowPath,
         runtime: selectedRuntime,
-        runtimeDir: runtime.configDir,
-        repository: `${runtime.repository.owner}/${runtime.repository.name}`,
+        ...(repositoryName ? { repository: repositoryName } : {}),
         githubProjectId: projectDetail.id,
       }) + "\n"
     );
@@ -433,8 +436,7 @@ async function runNonInteractive(
     githubProjectId: projectDetail.id,
     workflowPath,
     runtime: selectedRuntime,
-    runtimeDir: runtime.configDir,
-    repository: `${runtime.repository.owner}/${runtime.repository.name}`,
+    repository: repositoryName,
   });
 }
 
@@ -546,20 +548,21 @@ async function runInteractive(
   });
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
-  const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
-    cwd: process.cwd(),
-    outputPath: workflowPath,
-    projectDetail,
-    statusField,
-    priorityField,
-    priority,
-    includePriorityTemplates: priority.source === "disabled",
-    mappings,
-    lifecycle,
-    runtime: selectedRuntime,
-    skipSkills: flags.skipSkills,
-    skipContext: flags.skipContext,
-  });
+  const { workflowPlan, ecosystemPlan, repository } =
+    await planWorkflowArtifacts({
+      cwd: process.cwd(),
+      outputPath: workflowPath,
+      projectDetail,
+      statusField,
+      priorityField,
+      priority,
+      includePriorityTemplates: priority.source === "disabled",
+      mappings,
+      lifecycle,
+      runtime: selectedRuntime,
+      skipSkills: flags.skipSkills,
+      skipContext: flags.skipContext,
+    });
 
   p.note(
     [
@@ -602,12 +605,10 @@ async function runInteractive(
       skipSkills: flags.skipSkills,
       skipContext: flags.skipContext,
     });
-    const runtime = await initRepoRuntime({
-      repoDir: process.cwd(),
-      workflowFile: workflowPath,
-    });
     writeSpinner.stop(
-      `Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`
+      repository
+        ? `Setup saved for ${repository.owner}/${repository.name}.`
+        : "Setup saved."
     );
   } catch (error) {
     writeSpinner.stop("Setup failed.");
@@ -618,6 +619,6 @@ async function runInteractive(
 
   await warnIfRuntimeMissing(selectedRuntime, options);
   p.outro(
-    `Repository runtime is ready for ${selectedRuntime}.\n  Run 'gh-symphony repo start' to begin orchestration.`
+    `Project runtime is ready for ${selectedRuntime}.\n  Run 'gh-symphony project start --project-dir <path>' to begin orchestration.`
   );
 }

@@ -61,4 +61,4 @@ VOLUME ["/var/lib/gh-symphony"]
 USER symphony
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["gh-symphony", "repo", "start"]
+CMD ["gh-symphony", "project", "start", "--project-dir", "/var/lib/gh-symphony/repo"]

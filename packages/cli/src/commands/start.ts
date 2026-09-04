@@ -84,8 +84,7 @@ function logLine(icon: string, msg: string): void {
   process.stdout.write(`${timestamp()} ${icon} ${msg}\n`);
 }
 
-const REPO_START_COMMAND = "gh-symphony repo start";
-const DAEMON_PROJECT_ID_ENV = "GH_SYMPHONY_DAEMON_PROJECT_ID";
+const PROJECT_START_COMMAND = "gh-symphony project start";
 const DAEMON_READY_PATH_ENV = "GH_SYMPHONY_DAEMON_READY_PATH";
 
 type RepoStartAuthPreflightResult =
@@ -98,7 +97,7 @@ function isInteractiveTerminal(): boolean {
 
 function displayGhAuthError(
   error: GitHubAuthError,
-  retryCommand = REPO_START_COMMAND
+  retryCommand = PROJECT_START_COMMAND
 ): void {
   const remediation = formatGhAuthRemediation(error, {
     retryCommand,
@@ -269,7 +268,7 @@ async function preflightWorkflowStart(
     }
     if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
       process.stderr.write(
-        `Configured workflow not found at ${workflowPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
+        `Configured workflow not found at ${workflowPath}. Restore the file or run 'gh-symphony setup' from the project repository.\n`
       );
       process.exitCode = 1;
       return { ok: false };
@@ -355,7 +354,7 @@ function displayRuntimeAuthShutdown(
   const authError = ghRuntimeErrorToAuthError(error, source);
   displayGhAuthError(authError);
   process.stderr.write(
-    "Stopping repo start because GitHub authentication can no longer be validated.\n"
+    "Stopping project start because GitHub authentication can no longer be validated.\n"
   );
 }
 
@@ -1060,7 +1059,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      `Usage: gh-symphony ${options.invocation === "project" ? "project" : "repo"} start [--daemon] [--once] [--assigned-only] [--port [port]] [--http [port]] [--web [port]] [--bind-all]${options.invocation === "project" ? " [--project-dir <path>]" : ""}\n`
+      "Usage: gh-symphony project start [--project-dir <path>] [--daemon] [--once] [--assigned-only] [--port [port]] [--http [port]] [--web [port]] [--bind-all]\n"
     );
     process.exitCode = 2;
     return;
@@ -1074,7 +1073,7 @@ const handler = async (
   }
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: options.projectId ?? process.env[DAEMON_PROJECT_ID_ENV],
+    requestedProjectId: options.projectId,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();
@@ -1082,7 +1081,7 @@ const handler = async (
   }
   if (!hasConfiguredRepository(projectConfig)) {
     process.stderr.write(
-      "No repository is configured in this project. Run 'gh-symphony repo init' from the target repository first.\n"
+      "No repository is configured in this project. Run 'gh-symphony setup' from the target repository first.\n"
     );
     process.exitCode = 1;
     return;
@@ -1099,7 +1098,7 @@ const handler = async (
     ),
     workspacePath: resolve(projectConfig.workspaceDir ?? process.cwd()),
     runtimeRoot,
-    standalone: options.invocation === "project",
+    standalone: true,
   };
   if (!parsed.allowDuplicate) {
     const duplicate = await findLiveDuplicate(instanceBase);
@@ -1125,10 +1124,7 @@ const handler = async (
 
   const authPreflight = await preflightRepoStartAuth(projectConfig, {
     daemon: parsed.daemon,
-    retryCommand:
-      options.invocation === "project"
-        ? "gh-symphony project start"
-        : REPO_START_COMMAND,
+    retryCommand: PROJECT_START_COMMAND,
   });
   if (!authPreflight.ok) {
     return;
@@ -1165,8 +1161,7 @@ const handler = async (
       parsed.bindAll,
       parsed.allowDuplicate === true,
       httpApiToken,
-      projectConfig.projectDir,
-      projectId
+      projectConfig.projectDir
     );
     return;
   }
@@ -1537,8 +1532,7 @@ async function startDaemon(
   bindAll = false,
   allowDuplicate = false,
   httpApiToken = resolveHttpApiToken(),
-  projectDir?: string,
-  selectedProjectId?: string
+  projectDir?: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -1555,8 +1549,9 @@ async function startDaemon(
     process.execPath,
     [
       process.argv[1]!,
-      "repo",
+      "project",
       "start",
+      ...(projectDir ? ["--project-dir", projectDir] : []),
       ...(options.verbose ? ["--verbose"] : []),
       ...(allowDuplicate ? ["--allow-duplicate"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
@@ -1575,9 +1570,6 @@ async function startDaemon(
         ...process.env,
         GH_SYMPHONY_CONFIG_DIR: resolve(options.configDir),
         [DAEMON_READY_PATH_ENV]: readyPath,
-        ...(selectedProjectId
-          ? { [DAEMON_PROJECT_ID_ENV]: selectedProjectId }
-          : {}),
         [HTTP_API_TOKEN_ENV]: httpApiToken,
       },
       detached: true,
@@ -1616,7 +1608,7 @@ async function startDaemon(
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
-      `Stop with: ${options.invocation === "project" ? "gh-symphony project stop" : "gh-symphony repo stop"}\n`
+      "Stop with: gh-symphony project stop\n"
   );
   if (httpPort !== undefined || webPort !== undefined) {
     process.stdout.write(`HTTP API bearer token: ${httpApiToken}\n`);

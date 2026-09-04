@@ -4,12 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveGlobalOptions, runCli } from "./index.js";
 import { standaloneProjectId } from "./commands/project.js";
-import {
-  saveGlobalConfig,
-  saveProjectConfig,
-  type CliProjectConfig,
-} from "./config.js";
-import { REMOVED_PROJECT_ID_MESSAGE } from "./removed-project-id.js";
+import { saveProjectConfig, type CliProjectConfig } from "./config.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
@@ -97,48 +92,6 @@ describe("Commander CLI entrypoint", () => {
     }
   });
 
-  it("supports global options after removed repo subcommands", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-index-"));
-    const stderr = captureWrites(process.stderr);
-
-    await saveGlobalConfig(configDir, {
-      activeProject: "tenant-a",
-      projects: ["tenant-a"],
-    });
-    await saveProjectConfig(configDir, "tenant-a", createProject("tenant-a"));
-
-    try {
-      await runCli(["repo", "list", "--json", "--config", configDir]);
-    } finally {
-      stderr.restore();
-    }
-
-    expect(process.exitCode).toBe(2);
-    expect(stderr.output()).toContain(
-      "Removed. Repository identity is shown by 'repo status'."
-    );
-  });
-
-  it.each([
-    [["repo", "add"], "repo add"],
-    [["repo", "add", "owner/name"], "repo add owner/name"],
-    [["repo", "remove"], "repo remove"],
-    [["repo", "remove", "owner/name"], "repo remove owner/name"],
-  ])("routes removed %s to the migration message", async (args) => {
-    const stderr = captureWrites(process.stderr);
-
-    try {
-      await runCli(args);
-    } finally {
-      stderr.restore();
-    }
-
-    expect(process.exitCode).toBe(2);
-    expect(stderr.output()).toContain(
-      "Removed. The orchestrator binds to the cwd repository via 'repo init'."
-    );
-  });
-
   it("prints JSON version output for global --version", async () => {
     const stdout = captureWrites(process.stdout);
 
@@ -165,6 +118,35 @@ describe("Commander CLI entrypoint", () => {
     expect(stdout.output()).toContain("gh-symphony v");
   });
 
+  it.each([
+    ["init"],
+    ["start", "--daemon"],
+    ["stop"],
+    ["status"],
+    ["run", "owner/repo#1"],
+    ["recover"],
+    ["logs"],
+    ["explain", "owner/repo#1"],
+    ["anything"],
+    ["--help"],
+  ])(
+    "retires repo %s with the project migration instruction",
+    async (...args) => {
+      const stderr = captureWrites(process.stderr);
+      try {
+        await runCli(["repo", ...args]);
+      } finally {
+        stderr.restore();
+      }
+
+      expect(process.exitCode).toBe(2);
+      expect(stderr.output()).toBe(
+        "The 'repo' command has been removed. Use 'gh-symphony project start --project-dir <path>'.\n" +
+          "Migration: packages/cli/README.md#repository-command-migration\n"
+      );
+    }
+  );
+
   it("prints completion scripts from the CLI", async () => {
     const stdout = captureWrites(process.stdout);
 
@@ -176,17 +158,26 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("workflow setup doctor upgrade repo");
+    expect(output).toContain("workflow setup doctor upgrade project");
   });
 
   it.each([
     [["init"], "Use 'gh-symphony workflow init'."],
-    [["start"], "Use 'gh-symphony repo start' from the target repository."],
-    [["stop"], "Use 'gh-symphony repo stop'."],
-    [["status"], "Use 'gh-symphony repo status'."],
-    [["run", "owner/repo#1"], "Use 'gh-symphony repo run <issue>'."],
-    [["recover"], "Use 'gh-symphony repo recover'."],
-    [["logs"], "Use 'gh-symphony repo logs'."],
+    [["start"], "Use 'gh-symphony project start --project-dir <path>'."],
+    [["stop"], "Use 'gh-symphony project stop --project-dir <path>'."],
+    [["status"], "Use 'gh-symphony project status --project-dir <path>'."],
+    [
+      ["run", "owner/repo#1"],
+      "The 'run' command has been removed. See packages/cli/README.md#repository-command-migration.",
+    ],
+    [
+      ["recover"],
+      "The 'recover' command has been removed. See packages/cli/README.md#repository-command-migration.",
+    ],
+    [
+      ["logs"],
+      "The 'logs' command has been removed. See packages/cli/README.md#repository-command-migration.",
+    ],
   ])(
     "reports the migration path for removed top-level command %s",
     async (args, message) => {
@@ -217,29 +208,6 @@ describe("Commander CLI entrypoint", () => {
       "option '--config <dir>' argument missing"
     );
   });
-
-  it.each([
-    ["start", ["repo", "start", "--project-id", "tenant-a"]],
-    ["status", ["repo", "status", "--project-id", "tenant-a"]],
-    ["stop", ["repo", "stop", "--project-id", "tenant-a"]],
-    ["run", ["repo", "run", "owner/repo#1", "--project-id", "tenant-a"]],
-    ["recover", ["repo", "recover", "--project-id", "tenant-a"]],
-    ["logs", ["repo", "logs", "--project-id", "tenant-a"]],
-  ])(
-    "routes repo %s removed project options to the deprecation handler",
-    async (_command, args) => {
-      const stderr = captureWrites(process.stderr);
-
-      try {
-        await runCli(args);
-      } finally {
-        stderr.restore();
-      }
-
-      expect(stderr.output()).toBe(`${REMOVED_PROJECT_ID_MESSAGE}\n`);
-      expect(process.exitCode).toBe(2);
-    }
-  );
 
   it("falls back to root help when no command is provided", async () => {
     const stdout = captureWrites(process.stdout);
@@ -322,143 +290,6 @@ describe("Commander CLI entrypoint", () => {
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain("unknown option '--asigned-only'");
   });
-
-  it("keeps hidden removed repo commands callable", async () => {
-    const stdout = captureWrites(process.stdout);
-    const stderr = captureWrites(process.stderr);
-
-    try {
-      await runCli(["repo", "sync"]);
-    } finally {
-      stdout.restore();
-      stderr.restore();
-    }
-
-    const output = stdout.output() + stderr.output();
-    expect(output).toContain(
-      "Removed. Single-repo model has no linked-repo set to sync."
-    );
-    expect(process.exitCode).toBe(2);
-  });
-
-  it("shows repo lifecycle and diagnostic commands in help", async () => {
-    const stdout = captureWrites(process.stdout);
-    const stderr = captureWrites(process.stderr);
-
-    try {
-      await runCli(["repo", "--help"]);
-    } finally {
-      stdout.restore();
-      stderr.restore();
-    }
-
-    const output = stdout.output() + stderr.output();
-    expect(output).toContain("run");
-    expect(output).toContain("recover");
-    expect(output).toContain("logs");
-    expect(output).toContain("explain");
-    expect(output).not.toContain("list");
-    expect(output).not.toContain("add");
-    expect(output).not.toContain("remove");
-    expect(output).not.toContain("sync");
-  });
-
-  it.each([
-    ["repo", "run", "gh-symphony repo run [options] <issue>", "owner/repo#123"],
-    [
-      "repo",
-      "explain",
-      "gh-symphony repo explain [options] <issue>",
-      "owner/repo#123",
-    ],
-  ])(
-    "shows issue format in %s %s help",
-    async (namespace, command, usage, example) => {
-      const stdout = captureWrites(process.stdout);
-      const stderr = captureWrites(process.stderr);
-
-      try {
-        await runCli([namespace, command, "--help"]);
-      } finally {
-        stdout.restore();
-        stderr.restore();
-      }
-
-      const output = stdout.output() + stderr.output();
-      expect(output).toContain(usage);
-      expect(output).toContain("Issue identifier (owner/repo#number)");
-      expect(output).toContain(example);
-    }
-  );
-
-  it.each([
-    [["repo", "run", "--json", "--watch"], "Issue identifier argument missing"],
-    [["repo", "explain", "--json"], "Issue identifier argument missing"],
-  ])("prints JSON for missing issue in %s", async (argv, message) => {
-    const stdout = captureWrites(process.stdout);
-    const stderr = captureWrites(process.stderr);
-
-    try {
-      await runCli(argv);
-    } finally {
-      stdout.restore();
-      stderr.restore();
-    }
-
-    expect(process.exitCode).toBe(2);
-    expect(stderr.output()).toBe("");
-    expect(JSON.parse(stdout.output())).toEqual({
-      error: {
-        code: "invalid_arguments",
-        message,
-      },
-    });
-  });
-
-  it.each([
-    [["repo", "badcmd"], "error: unknown command 'badcmd' for 'repo'"],
-    [["workflow", "badcmd"], "error: unknown command 'badcmd' for 'workflow'"],
-  ])("reports unknown namespace subcommands for %s", async (argv, message) => {
-    const stderr = captureWrites(process.stderr);
-
-    try {
-      await runCli(argv);
-    } finally {
-      stderr.restore();
-    }
-
-    expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain(message);
-    expect(stderr.output()).toContain("(run with --help for usage)");
-  });
-
-  it.each([
-    ["--json", "repo", "badcmd"],
-    ["repo", "--json", "badcmd"],
-    ["repo", "badcmd", "--json"],
-  ])(
-    "prints JSON for unknown repo subcommands with globals in %s",
-    async (...argv) => {
-      const stdout = captureWrites(process.stdout);
-      const stderr = captureWrites(process.stderr);
-
-      try {
-        await runCli(argv);
-      } finally {
-        stdout.restore();
-        stderr.restore();
-      }
-
-      expect(process.exitCode).toBe(1);
-      expect(stderr.output()).toBe("");
-      expect(JSON.parse(stdout.output())).toEqual({
-        error: {
-          code: "unknown_command",
-          message: "error: unknown command 'badcmd' for 'repo'",
-        },
-      });
-    }
-  );
 
   it("does not treat inherited property names as namespace commands", async () => {
     const stderr = captureWrites(process.stderr);

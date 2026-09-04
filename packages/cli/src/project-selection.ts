@@ -38,7 +38,7 @@ function isInteractiveTerminal(): boolean {
 }
 
 function explicitProjectRequiredMessage(): string {
-  return "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime.\n";
+  return "Multiple legacy repository runtime configs are present. Run 'gh-symphony setup' from the target repository to create a standalone project.\n";
 }
 
 function diagnosticProjectRequiredMessage(): string {
@@ -46,7 +46,7 @@ function diagnosticProjectRequiredMessage(): string {
 }
 
 function projectConfigRemediation(): string {
-  return "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config, then run diagnostics from that folder or select it explicitly. For a repository runtime, run 'gh-symphony repo init' from the target repository.";
+  return "Run 'gh-symphony project start --project-dir <path>' to refresh the standalone project config, then run diagnostics from that folder or select it explicitly.";
 }
 
 function missingProjectConfigMessage(projectId: string): string {
@@ -90,7 +90,8 @@ async function loadRepositoryProjectFromCwd(
     if (
       containsCwd &&
       (!bestMatch ||
-        repositoryDir.length > resolve(bestMatch.projectConfig.repositoryDir!).length)
+        repositoryDir.length >
+          resolve(bestMatch.projectConfig.repositoryDir!).length)
     ) {
       bestMatch = { projectId, projectConfig };
     }
@@ -134,7 +135,7 @@ export async function inspectManagedProjectSelection(
     return {
       kind: "missing_global_config",
       message:
-        "No repository runtime config found. Run 'gh-symphony repo init' first.",
+        "No standalone project config found. Run 'gh-symphony project start --project-dir <path>' first.",
     };
   }
 
@@ -143,7 +144,7 @@ export async function inspectManagedProjectSelection(
     return {
       kind: "no_projects",
       message:
-        "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
+        "No standalone project config is configured. Run 'gh-symphony project start --project-dir <path>' first.",
     };
   }
 
@@ -283,7 +284,7 @@ export function handleMissingManagedProjectConfig(options?: {
     code: "missing_repository_runtime_config",
     message:
       options?.message ??
-      "No repository runtime config found. Run 'gh-symphony repo init' first.",
+      "No standalone project config found. Run 'gh-symphony project start --project-dir <path>' first.",
     json: options?.json,
   });
 }

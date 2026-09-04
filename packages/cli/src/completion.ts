@@ -3,7 +3,7 @@ const TOP_LEVEL_COMMANDS = [
   "setup",
   "doctor",
   "upgrade",
-  "repo",
+  "project",
   "config",
   "completion",
   "help",
@@ -56,15 +56,23 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
     ...GLOBAL_OPTIONS,
   ],
   upgrade: [...GLOBAL_OPTIONS],
-  repo: ["init", "start", "status", "stop", "run", "recover", "logs", "explain"],
-  "repo:init": ["--repo-dir", "--workflow-file", ...GLOBAL_OPTIONS],
-  "repo:start": ["--daemon", "-d", "--once", "--assigned-only", "--port", "--http", "--web", "--bind-all", "--log-level", ...GLOBAL_OPTIONS],
-  "repo:status": ["--watch", "-w", ...GLOBAL_OPTIONS],
-  "repo:stop": ["--force", ...GLOBAL_OPTIONS],
-  "repo:run": ["--watch", ...GLOBAL_OPTIONS],
-  "repo:recover": ["--dry-run", ...GLOBAL_OPTIONS],
-  "repo:logs": ["--follow", "-f", "--issue", "--run", "--level", ...GLOBAL_OPTIONS],
-  "repo:explain": ["--json", "--workflow", ...GLOBAL_OPTIONS],
+  project: ["list", "start", "status", "stop"],
+  "project:list": [...GLOBAL_OPTIONS],
+  "project:start": [
+    "--project-dir",
+    "--daemon",
+    "-d",
+    "--once",
+    "--assigned-only",
+    "--port",
+    "--http",
+    "--web",
+    "--bind-all",
+    "--log-level",
+    ...GLOBAL_OPTIONS,
+  ],
+  "project:status": ["--project-dir", "--watch", "-w", ...GLOBAL_OPTIONS],
+  "project:stop": ["--project-dir", "--force", ...GLOBAL_OPTIONS],
   config: ["show", "set", "edit"],
   "config:show": [...GLOBAL_OPTIONS],
   "config:set": [...GLOBAL_OPTIONS],
@@ -85,7 +93,7 @@ function renderBashCasePatterns(): string {
         }
         if (
           command === "workflow" ||
-          command === "repo" ||
+          command === "project" ||
           command === "config"
         ) {
           return `    ${command})\n      COMPREPLY=( $(compgen -W "${quoteWords(values)}" -- "$cur") )\n      return\n      ;;`;
@@ -111,9 +119,9 @@ function renderFishLines(): string {
     );
   }
 
-  for (const subcommand of COMMAND_OPTIONS.repo ?? []) {
+  for (const subcommand of COMMAND_OPTIONS.project ?? []) {
     lines.push(
-      `complete -c gh-symphony -f -n '__fish_seen_subcommand_from repo' -a '${subcommand}'`
+      `complete -c gh-symphony -f -n '__fish_seen_subcommand_from project' -a '${subcommand}'`
     );
   }
 
@@ -200,7 +208,7 @@ _gh_symphony_completion() {
     return
   fi
 
-  if [[ "\${path}" == "workflow" || "\${path}" == "repo" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
+  if [[ "\${path}" == "workflow" || "\${path}" == "project" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
     if [[ -n "\${GH_SYMPHONY_SUBCOMMAND}" ]]; then
       path="\${path}:\${GH_SYMPHONY_SUBCOMMAND}"
     fi

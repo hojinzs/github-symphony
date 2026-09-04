@@ -1816,7 +1816,7 @@ Prompt body`
     ).toMatchObject({
       status: "fail",
       summary: expect.stringContaining("is not bound to a GitHub Project"),
-      remediation: expect.stringContaining("workflow init"),
+      remediation: expect.stringContaining("setup"),
     });
   });
 
@@ -2616,7 +2616,7 @@ describe("doctor command handler", () => {
         expect.objectContaining({
           checkId: "managed_project",
           status: "manual",
-          command: `gh-symphony --config ${configDir} repo init`,
+          command: `gh-symphony --config ${configDir} setup`,
         }),
       ])
     );
@@ -2779,7 +2779,7 @@ describe("doctor command handler", () => {
 
     expect(spawnSync).toHaveBeenCalledWith(
       process.execPath,
-      ["/tmp/gh-symphony.js", "--config", configDir, "repo", "init"],
+      ["/tmp/gh-symphony.js", "--config", configDir, "setup"],
       { stdio: "inherit" }
     );
   });

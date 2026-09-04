@@ -16,6 +16,10 @@ import {
 
 export type GenerateWorkflowInput = {
   projectId: string;
+  repository?: {
+    slug: string;
+    cloneUrl?: string;
+  };
   tracker?:
     | { kind: "github-project" }
     | {
@@ -69,6 +73,16 @@ type YamlQuotedString = {
 function buildFrontMatter(input: GenerateWorkflowInput): string {
   const tracker = buildTrackerFrontMatter(input);
   const restFrontMatter: Record<string, YamlFrontMatterNode> = {
+    ...(input.repository
+      ? {
+          repository: {
+            slug: input.repository.slug,
+            ...(input.repository.cloneUrl
+              ? { clone_url: input.repository.cloneUrl }
+              : {}),
+          },
+        }
+      : {}),
     polling: {
       interval_ms: input.pollIntervalMs ?? 30000,
     },

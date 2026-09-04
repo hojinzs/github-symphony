@@ -34,6 +34,7 @@ vi.mock("@clack/prompts", async (importOriginal) => {
 
 import * as p from "@clack/prompts";
 import setupCommand from "./setup.js";
+import { deriveStandaloneProject } from "./project.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
 import * as commandExists from "../utils/command-exists-on-path.js";
@@ -283,13 +284,6 @@ describe("setup command", () => {
     });
 
     const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
-    const project = JSON.parse(
-      await readFile(
-        join(cwd, ".runtime", "orchestrator", "project.json"),
-        "utf8"
-      )
-    );
-
     expect(workflow).toContain("project_id: PVT_setup_1");
     expect(workflow).toContain("source: disabled");
     expect(workflow).toContain(
@@ -300,16 +294,107 @@ describe("setup command", () => {
     await expect(
       readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
     ).rejects.toThrow();
-    expect(project.projectId).toBe("repository");
-    expect(project.workspaceDir).toBe(
-      join(process.cwd(), ".runtime", "symphony-workspaces")
+    await expect(
+      readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+    ).rejects.toThrow();
+  });
+
+  it("completes setup when the selected project has no linked repository", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-no-linked-repo-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-no-linked-repo-config-")
     );
-    expect(project.repositoryDir).toBe(process.cwd());
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+    vi.mocked(githubClient.getProjectDetail).mockResolvedValueOnce({
+      ...MOCK_PROJECT_DETAIL,
+      linkedRepositories: [],
+    });
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
+    expect(workflow).toContain("project_id: PVT_setup_1");
+    expect(workflow).toContain("slug: acme/repo-a");
+    const project = await deriveStandaloneProject(cwd, { configDir });
     expect(project.repository).toMatchObject({
       owner: "acme",
       name: "repo-a",
     });
-    expect(project).not.toHaveProperty("repositories");
+    expect(stdoutWrite.mock.calls.flat().join("")).toMatch(
+      /Repository\s+acme\/repo-a/
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("uses the checkout repository and keeps interactive setup startable", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-unlinked-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-interactive-unlinked-config-")
+    );
+    initializeGitRemote(cwd, "https://github.com/acme/repo-b.git");
+    process.chdir(cwd);
+    vi.mocked(githubClient.getProjectDetail).mockResolvedValueOnce({
+      ...MOCK_PROJECT_DETAIL,
+      linkedRepositories: [],
+    });
+    vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
+      .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("terminal" as never)
+      .mockResolvedValueOnce("disabled" as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never);
+
+    await setupCommand([], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const project = await deriveStandaloneProject(cwd, { configDir });
+    expect(project.repository).toMatchObject({
+      owner: "acme",
+      name: "repo-b",
+    });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("rejects custom setup output before writing artifacts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-custom-output-"));
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive", "--output", "custom.md"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    await expect(readFile(join(cwd, "custom.md"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(cwd, "WORKFLOW.md"), "utf8")).rejects.toThrow();
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("Use 'gh-symphony workflow init --output <path>'")
+    );
+    expect(process.exitCode).toBe(2);
   });
 
   it("writes Claude runtime config from non-interactive --runtime claude-code", async () => {
@@ -378,6 +463,7 @@ describe("setup command", () => {
       status: "created",
       runtime: "claude-print",
     });
+    expect(JSON.parse(stdout)).not.toHaveProperty("runtimeDir");
     expect(p.log.warn).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -432,18 +518,9 @@ describe("setup command", () => {
       noColor: true,
     });
 
-    const project = JSON.parse(
-      await readFile(
-        join(cwd, ".runtime", "orchestrator", "project.json"),
-        "utf8"
-      )
-    );
-
-    expect(project.workspaceDir).toBe(
-      join(process.cwd(), ".runtime", "symphony-workspaces")
-    );
-    expect(project.repositoryDir).toBe(process.cwd());
-    expect(project.repository?.name).toBe("repo-b");
+    await expect(
+      readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+    ).rejects.toThrow();
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Init dry-run preview"),
       "Final summary"
@@ -453,10 +530,13 @@ describe("setup command", () => {
       "Final summary"
     );
     expect(p.outro).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "Repository runtime is ready for codex-app-server."
-      )
+      expect.stringContaining("Project runtime is ready for codex-app-server.")
     );
+    const project = await deriveStandaloneProject(cwd, { configDir });
+    expect(project.repository).toMatchObject({
+      owner: "acme",
+      name: "repo-b",
+    });
     const selectMessages = vi
       .mocked(p.select)
       .mock.calls.map(([input]) => input.message);
@@ -628,14 +708,9 @@ describe("setup command", () => {
       noColor: true,
     });
 
-    const project = JSON.parse(
-      await readFile(
-        join(cwd, ".runtime", "orchestrator", "project.json"),
-        "utf8"
-      )
-    );
-
-    expect(project.tracker.settings?.assignedOnly).toBeUndefined();
+    await expect(
+      readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+    ).rejects.toThrow();
     expect(vi.mocked(p.confirm)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(p.confirm).mock.calls[1]?.[0]).toMatchObject({
       message: "Write files and register this managed project?",

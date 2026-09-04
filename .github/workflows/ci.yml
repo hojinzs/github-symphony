@@ -97,6 +97,8 @@ jobs:
             interval_ms: 30000
           agent:
             max_concurrent_agents: 1
+          repository:
+            slug: smoke-org/smoke-repo
           codex:
             command: node /app/e2e/stub-worker.js
           ---
@@ -113,4 +115,4 @@ jobs:
             -v "${TMPDIR}/config:/var/lib/gh-symphony" \
             -e GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/var/lib/gh-symphony/issues.json \
             gh-symphony:test \
-            sh -lc 'cd /var/lib/gh-symphony/repo && gh-symphony repo init && gh-symphony repo start --once'
+            gh-symphony project start --project-dir /var/lib/gh-symphony/repo --once

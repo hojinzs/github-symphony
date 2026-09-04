@@ -72,7 +72,7 @@ describe("renderDashboard", () => {
 
     expect(output).toContain("● Health  stopped");
     expect(output).toContain(
-      "daemon not running — run 'gh-symphony repo start'"
+      "daemon not running — run 'gh-symphony project start --project-dir <path>'"
     );
     expect(output).toContain(`Last known state: ${snapshot.health}`);
   });

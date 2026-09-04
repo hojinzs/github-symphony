@@ -176,7 +176,7 @@ describe("resolveManagedProjectConfig", () => {
 
     expect(project).toBeNull();
     expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain(
-      "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime."
+      "Multiple legacy repository runtime configs are present. Run 'gh-symphony setup' from the target repository to create a standalone project."
     );
     expect(process.exitCode).toBe(1);
   });
@@ -353,7 +353,7 @@ describe("inspectManagedProjectSelection", () => {
       kind: "active_project_missing",
       projectId: "tenant-a",
       message:
-        "Active project \"tenant-a\" is configured in config.json but its project config is missing. For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config, then run diagnostics from that folder or select it explicitly. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
+        "Active project \"tenant-a\" is configured in config.json but its project config is missing. Run 'gh-symphony project start --project-dir <path>' to refresh the standalone project config, then run diagnostics from that folder or select it explicitly.",
     });
     expect(result.message).not.toContain('Active Project "tenant-a"');
   });

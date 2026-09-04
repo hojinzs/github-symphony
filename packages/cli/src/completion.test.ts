@@ -37,10 +37,10 @@ describe("completion renderer", () => {
     expect(output).toContain("workflow setup doctor upgrade");
     expect(output).not.toContain("upgrade start stop status");
     expect(output).toContain("workflow:init");
-    expect(output).toContain("repo config completion");
+    expect(output).toContain("project config completion");
     expect(output).toContain("setup)");
-    expect(output).toContain("repo:init");
-    expect(output).toContain("repo:explain");
+    expect(output).toContain("project:start");
+    expect(output).not.toContain("repo:init");
   });
 
   it("renders zsh completion wrapper", () => {
@@ -55,7 +55,7 @@ describe("completion renderer", () => {
     expect(output).toContain("complete -c gh-symphony -f -l config");
     expect(output).toContain("complete -c gh-symphony -f -s v");
     expect(output).toContain("__fish_seen_subcommand_from workflow");
-    expect(output).toContain("__fish_seen_subcommand_from repo");
+    expect(output).toContain("__fish_seen_subcommand_from project");
     expect(output).toContain("__fish_seen_subcommand_from completion");
   });
 
@@ -66,40 +66,31 @@ describe("completion renderer", () => {
     );
   });
 
-  it("suggests repo subcommands when completing the second token", () => {
-    const suggestions = runBashCompletion(["gh-symphony", "repo", ""], 2);
+  it("suggests project subcommands when completing the second token", () => {
+    const suggestions = runBashCompletion(["gh-symphony", "project", ""], 2);
     expect(suggestions).toEqual(
-      expect.arrayContaining([
-        "init",
-        "start",
-        "status",
-        "stop",
-        "run",
-        "recover",
-        "logs",
-        "explain",
-      ])
+      expect.arrayContaining(["list", "start", "status", "stop"])
     );
   });
 
   it("skips leading global options before resolving subcommand completion", () => {
     const suggestions = runBashCompletion(
-      ["gh-symphony", "--json", "repo", ""],
+      ["gh-symphony", "--json", "project", ""],
       3
     );
     expect(suggestions).toEqual(
-      expect.arrayContaining(["init", "start", "status", "run", "logs"])
+      expect.arrayContaining(["list", "start", "status", "stop"])
     );
   });
 
-  it("does not suggest removed repo sync flags", () => {
+  it("suggests standalone project start flags", () => {
     const suggestions = runBashCompletion(
-      ["gh-symphony", "repo", "sync", ""],
+      ["gh-symphony", "project", "start", ""],
       3
     );
-    expect(suggestions).not.toEqual(expect.arrayContaining(["--dry-run"]));
-    expect(suggestions).not.toEqual(expect.arrayContaining(["--prune"]));
-    expect(suggestions).toEqual([]);
+    expect(suggestions).toEqual(
+      expect.arrayContaining(["--project-dir", "--daemon", "--once"])
+    );
   });
 
   it("suggests doctor smoke flags", () => {

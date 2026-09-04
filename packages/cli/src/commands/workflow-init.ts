@@ -30,6 +30,7 @@ import {
   listUserProjects,
   listRepositoryLabels,
   getProjectDetail,
+  findLinkedRepository,
   GitHubScopeError,
   type GitHubClient,
   type ProjectDiscoveryResult,
@@ -469,7 +470,45 @@ export type WorkflowArtifactsPlan = {
   workflowMd: string;
   workflowPlan: PlannedFileChange;
   ecosystemPlan: EcosystemPlan;
+  repository?: LinkedRepository;
 };
+
+function resolveCheckoutRepository(
+  cwd: string,
+  projectDetail: ProjectDetail
+): LinkedRepository | undefined {
+  let remote: string;
+  try {
+    remote = spawnSync(
+      "git",
+      ["-C", cwd, "config", "--get", "remote.origin.url"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).stdout.trim();
+  } catch {
+    remote = "";
+  }
+
+  const cleanedRemote = remote.replace(/\.git$/, "");
+  const match =
+    cleanedRemote.match(/github\.com[:/]([^/]+)\/([^/]+)$/) ??
+    cleanedRemote.match(/^([^/]+)\/([^/]+)$/);
+  if (!match) {
+    return projectDetail.linkedRepositories[0];
+  }
+
+  const owner = match[1]!;
+  const name = match[2]!;
+  return (
+    findLinkedRepository(projectDetail, owner, name) ?? {
+      owner,
+      name,
+      url: `https://github.com/${owner}/${name}`,
+      cloneUrl: remote.startsWith("http")
+        ? remote
+        : `https://github.com/${owner}/${name}.git`,
+    }
+  );
+}
 
 export async function findLegacyGhSymphonyFiles(
   cwd: string
@@ -970,8 +1009,17 @@ export async function planWorkflowArtifacts(
       blockerCheckStates: defaultBlockerCheckStates,
       planningStates: defaultBlockerCheckStates,
     });
+  const repository = resolveCheckoutRepository(opts.cwd, opts.projectDetail);
   const workflowMd = generateWorkflowMarkdown({
     projectId: opts.projectDetail.id,
+    ...(repository
+      ? {
+          repository: {
+            slug: `${repository.owner}/${repository.name}`,
+            cloneUrl: repository.cloneUrl,
+          },
+        }
+      : {}),
     stateFieldName: opts.statusField.name,
     priority,
     includePriorityTemplates:
@@ -1008,6 +1056,7 @@ export async function planWorkflowArtifacts(
     workflowMd,
     workflowPlan,
     ecosystemPlan,
+    ...(repository ? { repository } : {}),
   };
 }
 
@@ -1687,7 +1736,8 @@ async function runNonInteractive(
   } else {
     printEcosystemSummary(ecosystemResult, outputPath, {
       interactive: false,
-      nextSteps: "Run 'gh-symphony repo init' from the target repository.",
+      nextSteps:
+        "Run 'gh-symphony project start --project-dir <path>' for the target repository.",
     });
   }
 }
@@ -1781,7 +1831,8 @@ async function runLinearNonInteractive(
   } else {
     printEcosystemSummary(ecosystemResult, outputPath, {
       interactive: false,
-      nextSteps: "Run 'gh-symphony repo init' from the target repository.",
+      nextSteps:
+        "Run 'gh-symphony project start --project-dir <path>' for the target repository.",
     });
   }
 }
@@ -1975,7 +2026,8 @@ async function runInteractiveStandalone(
 
   printEcosystemSummary(ecosystemResult, outputPath, {
     interactive: true,
-    nextSteps: "Run 'gh-symphony repo init' from the target repository.",
+    nextSteps:
+      "Run 'gh-symphony project start --project-dir <path>' for the target repository.",
   });
 }
 

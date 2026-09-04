@@ -21,7 +21,8 @@ describe("status liveness banner", () => {
       health: "stopped",
       lastTickLabel: "22d ago",
       stale: false,
-      restartGuidance: "daemon not running — run 'gh-symphony repo start'",
+      restartGuidance:
+        "daemon not running — run 'gh-symphony project start --project-dir <path>'",
       lastKnownState: "Last known state: running",
     });
   });
@@ -37,7 +38,7 @@ describe("status liveness banner", () => {
       renderStatusLivenessBanner(banner, { layout: "legacy", noColor: true })
     ).toEqual([
       "  ● Health    stopped           Last tick  22d ago",
-      "  daemon not running — run 'gh-symphony repo start'",
+      "  daemon not running — run 'gh-symphony project start --project-dir <path>'",
       "  Last known state: running",
     ]);
     expect(
@@ -47,7 +48,7 @@ describe("status liveness banner", () => {
       })
     ).toEqual([
       "  ● Health  stopped     Last tick  22d ago",
-      "  daemon not running — run 'gh-symphony repo start'  Last known state: running",
+      "  daemon not running — run 'gh-symphony project start --project-dir <path>'  Last known state: running",
     ]);
   });
 

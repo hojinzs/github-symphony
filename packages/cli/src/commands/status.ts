@@ -122,7 +122,7 @@ function renderLegacyStatus(
   snapshot: ProjectStatusSnapshot,
   noColor: boolean,
   runtimeStatus: RuntimeStatus,
-  startCommandName = "gh-symphony repo start"
+  startCommandName = "gh-symphony project start --project-dir <path>"
 ): string {
   const apply = noColor ? (s: string) => stripAnsi(s) : (s: string) => s;
 
@@ -216,7 +216,8 @@ function renderLegacyStatus(
   const idleLegacyWorkspaces = (snapshot.issueWorkspaces ?? []).filter(
     (workspace) =>
       workspace.status === "active" &&
-      workspace.workspaceKey === deriveLegacyWorkspaceKey(workspace.issueIdentifier) &&
+      workspace.workspaceKey ===
+        deriveLegacyWorkspaceKey(workspace.issueIdentifier) &&
       workspace.workspaceKey !== workspace.issueIdentifier &&
       !snapshot.activeRuns.some(
         (run) => run.issueWorkspaceKey === workspace.workspaceKey
@@ -464,7 +465,7 @@ const handler = async (
           runtimeStatus,
           options.invocation === "project"
             ? "gh-symphony project start"
-            : "gh-symphony repo start"
+            : "gh-symphony project start --project-dir <path>"
         ) + "\n"
       );
     }

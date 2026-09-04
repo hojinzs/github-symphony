@@ -96,7 +96,8 @@ export function formatGhAuthRemediation(
   error: GitHubAuthError,
   opts?: { retryCommand?: string }
 ): GhAuthRemediation {
-  const retryCommand = opts?.retryCommand ?? "gh-symphony repo start";
+  const retryCommand =
+    opts?.retryCommand ?? "gh-symphony project start --project-dir <path>";
 
   switch (error.code) {
     case "not_installed":
