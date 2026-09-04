@@ -148,8 +148,10 @@ the tracker adapter:
 - Tracker adapters also resolve tenant-scoped worker credentials from separate
   project and daemon scopes. The orchestrator injects only the selected values
   into the worker's explicit environment; adapter-declared secret names preserve
-  the agent-child stripping boundary. Missing credentials emit a structured
-  `worker-credential-missing` run event and operator warning.
+  the agent-child stripping boundary. Initial dispatch is skipped when adapter
+  credential resolution is empty and the project status snapshot carries an
+  operator warning; the worker repeats the provider-aware check before runtime
+  launch as a defense-in-depth startup failure.
 
 ### 6. Observability — events and status surfaces
 
