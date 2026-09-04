@@ -697,6 +697,40 @@ Prompt body`
     });
   });
 
+  it("warns for a repository-root environment file in migrated config", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(join(repoDir, ".env"), "APP_SECRET=repository-only\n");
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, "PVT_test", {
+            owner: "acme",
+            name: "platform",
+            path: repoDir,
+          }),
+        }),
+        getProjectDetail: (async () => createProjectDetail()) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "repository_environment")
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("is not loaded"),
+      details: { path: join(repoDir, ".env") },
+    });
+  });
+
   it("validates GitHub auth against the configured GraphQL endpoint", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

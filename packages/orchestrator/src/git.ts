@@ -56,7 +56,6 @@ export async function ensureIssueWorkspaceRepository(input: {
   issueWorkspacePath: string;
   existingWorkspace: boolean;
   pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
-  allowDirtyExistingWorkspace?: boolean;
   projectSlug?: string;
   issueIdentifier?: string;
   branchTemplate?: string | null;

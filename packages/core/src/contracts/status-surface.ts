@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
+import { isPathWithinRoot } from "../workspace/path-safety.js";
 import type {
   WorkflowDefinition,
   WorkflowPriorityConfig,
@@ -65,6 +66,21 @@ export function normalizeOrchestratorProjectConfig(
     ...current,
     ...(workflowSource ? { workflowSource } : {}),
   };
+}
+
+/** Prevents issue workspaces from being created in the repository checkout. */
+export function assertIssueWorkspaceRootOutsideRepository(
+  projectId: string,
+  workspaceDir: string,
+  repositoryDir: string
+): void {
+  if (!isPathWithinRoot(workspaceDir, repositoryDir)) {
+    return;
+  }
+
+  throw new Error(
+    `Project ${JSON.stringify(projectId)} workspace.root ${JSON.stringify(workspaceDir)} must not equal or contain the repository checkout ${JSON.stringify(repositoryDir)}.`
+  );
 }
 
 function assertAbsoluteProjectDir(config: OrchestratorProjectConfig): void {

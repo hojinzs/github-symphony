@@ -13,6 +13,7 @@ import {
   NonRetryableTrackerAdapterError,
   TrackerRateLimitError,
   assertIssueOrchestrationTransition,
+  assertIssueWorkspaceRootOutsideRepository,
   attributeDirtyWorkToIssue,
   buildHookEnv,
   buildIssueIdentityHeader,
@@ -355,6 +356,21 @@ function trackerItemId(
   return adapter.getTrackerItemId?.(issue) ?? legacyItemId ?? null;
 }
 
+function assertIssueWorkspaceRootIsOutsideRepository(
+  projectConfig: OrchestratorProjectConfig
+): void {
+  const repositoryDir = projectConfig.repository?.path;
+  if (!repositoryDir) {
+    return;
+  }
+
+  assertIssueWorkspaceRootOutsideRepository(
+    projectConfig.projectId,
+    projectConfig.workspaceDir,
+    repositoryDir
+  );
+}
+
 class RestartRunFailure extends Error {
   constructor(
     readonly originalError: unknown,
@@ -478,6 +494,7 @@ export class OrchestratorService {
       assignedBranchPublishTimeoutMs?: number;
     } = {}
   ) {
+    assertIssueWorkspaceRootIsOutsideRepository(projectConfig);
     this.ownerToken = dependencies.ownerToken ?? null;
     this.ownerProcessIdentity = dependencies.ownerProcessIdentity ?? null;
   }
@@ -3206,8 +3223,6 @@ export class OrchestratorService {
       issueWorkspacePath,
       existingWorkspace: !createdNow && !workspaceQuarantined,
       pullRequestBranch,
-      allowDirtyExistingWorkspace:
-        recovery?.kind === "incomplete-turn-dirty-workspace",
       projectSlug: tenant.slug,
       issueIdentifier: issue.identifier,
       branchTemplate,

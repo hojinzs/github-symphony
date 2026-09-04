@@ -15618,6 +15618,26 @@ Handle Linear issue.`,
     expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
   });
 
+  it("rejects issue-workspace roots that contain the repository checkout", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-unsafe-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const projectConfig = createProjectConfig(tempRoot, repository, tempRoot);
+
+    expect(
+      () =>
+        new OrchestratorService(
+          new OrchestratorFsStore(tempRoot),
+          projectConfig
+        )
+    ).toThrow("workspace.root");
+  });
+
   it("does not adopt a colliding legacy workspace owned by another issue", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-legacy-workspace-collision-")
