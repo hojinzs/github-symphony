@@ -182,6 +182,7 @@ describe("buildCodexRuntimePlan", () => {
       extraEnv: {
         HOME: "/Users/operator",
         GH_CONFIG_DIR: "/Users/operator/.config/gh",
+        DOCKER_CONFIG: "/Users/operator/.docker",
         WORKSPACE_RUNTIME_DIR: "/tmp/runtime-123",
         GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
         GITHUB_TOKEN_CACHE_PATH: "/tmp/runtime-123/github-token.json",
@@ -202,6 +203,7 @@ describe("buildCodexRuntimePlan", () => {
       HOME: "/tmp/runtime-123/child-home",
       GH_CONFIG_DIR: "/tmp/runtime-123/child-home/gh",
       CODEX_HOME: "/tmp/runtime-123/child-home/.codex",
+      DOCKER_CONFIG: "/tmp/runtime-123/child-home/.docker",
     });
     expect(plan.env.GIT_CONFIG_COUNT).toBeUndefined();
     expect(plan.env.GIT_CONFIG_KEY_0).toBeUndefined();
@@ -217,6 +219,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.SSH_ASKPASS).toBeUndefined();
     expect(plan.env.GIT_CONFIG_GLOBAL).toBeUndefined();
     expect(plan.env.XDG_CONFIG_HOME).toBeUndefined();
+    expect(plan.env.DOCKER_CONFIG).toBe("/tmp/runtime-123/child-home/.docker");
   });
 
   it("removes direct Git credentials without a broker", () => {

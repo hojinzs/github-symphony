@@ -13,6 +13,7 @@ import {
   readAgentCredentialCache,
   resolveAgentChildHome,
   shouldReuseAgentCredentialCache,
+  stageDockerCliPlugins,
   stageJsonCredentialFile,
   stageGitUserIdentity,
   writeAgentCredentialCache,
@@ -651,6 +652,7 @@ export function buildCodexRuntimePlan(
       HOME: childHome,
       GH_CONFIG_DIR: join(childHome, "gh"),
       CODEX_HOME: join(childHome, ".codex"),
+      DOCKER_CONFIG: join(childHome, ".docker"),
     } as NodeJS.ProcessEnv,
     tools: [],
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
@@ -717,6 +719,10 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
     await stageGitUserIdentity({
       sourceHome: resolveHostHome(this.config),
       destination: join(this.plan.env.HOME!, ".gitconfig"),
+    });
+    await stageDockerCliPlugins({
+      sourceHome: resolveHostHome(this.config),
+      destination: join(this.plan.env.DOCKER_CONFIG!, "cli-plugins"),
     });
     if (!this.plan.env.OPENAI_API_KEY) {
       await stageJsonCredentialFile({
