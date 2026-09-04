@@ -491,6 +491,7 @@ export class OrchestratorService {
         remoteUrl: string;
         env: NodeJS.ProcessEnv;
       }) => Promise<GitTransportAttempt>;
+      assignedBranchPublishTimeoutMs?: number;
     } = {}
   ) {
     assertIssueWorkspaceRootIsOutsideRepository(projectConfig);
@@ -584,15 +585,30 @@ export class OrchestratorService {
         project: projectEnvironment,
         daemon: process.env,
       }) ?? {};
-    const attempt = await publish({
-      cwd: run.workingDirectory,
-      assignedBranch,
-      remoteUrl: run.repository.cloneUrl,
-      env: this.buildProjectExecutionEnv(
-        this.projectConfig,
-        hostGitCredentials,
-        projectEnvironment
-      ),
+    const publishTimeoutMs =
+      this.dependencies.assignedBranchPublishTimeoutMs ?? 10_000;
+    let publishTimeout: ReturnType<typeof setTimeout> | null = null;
+    const attempt = await Promise.race<GitTransportAttempt>([
+      publish({
+        cwd: run.workingDirectory,
+        assignedBranch,
+        remoteUrl: run.repository.cloneUrl,
+        env: this.buildProjectExecutionEnv(
+          this.projectConfig,
+          hostGitCredentials,
+          projectEnvironment
+        ),
+      }),
+      new Promise<GitTransportAttempt>((resolve) => {
+        publishTimeout = setTimeout(() => {
+          resolve({
+            ok: false,
+            error: `assigned branch publication timed out after ${publishTimeoutMs}ms`,
+          });
+        }, publishTimeoutMs);
+      }),
+    ]).finally(() => {
+      if (publishTimeout) clearTimeout(publishTimeout);
     });
     if (!attempt.ok) {
       const error = `git_transport_failed: ${attempt.error}`;
@@ -1369,7 +1385,19 @@ export class OrchestratorService {
       this.cancelPendingSleep();
 
       const workerPids = [...this.activeWorkerPids];
+      const runsByPid = new Map(
+        (await this.store.loadAllRuns())
+          .filter(
+            (run) =>
+              run.projectId === this.projectConfig.projectId &&
+              run.processId !== null &&
+              workerPids.includes(run.processId)
+          )
+          .map((run) => [run.processId!, run])
+      );
       for (const pid of workerPids) {
+        const run = runsByPid.get(pid);
+        if (run) await this.publishAssignedBranchForRun(run);
         this.sendSignal(pid, "SIGTERM");
       }
 
@@ -2098,6 +2126,10 @@ export class OrchestratorService {
           if (!activeRun || activeRun.processId === null) {
             continue;
           }
+          if (this.isRunProtectedByLiveOwner(activeRun)) {
+            await this.recordOwnershipSkip(activeRun, "signal");
+            continue;
+          }
           const publication = await this.publishAssignedBranchForRun(activeRun);
           if (
             (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
@@ -2185,6 +2217,10 @@ export class OrchestratorService {
           continue;
         }
 
+        if (this.isRunProtectedByLiveOwner(activeRun)) {
+          await this.recordOwnershipSkip(activeRun, "signal");
+          continue;
+        }
         const publication = await this.publishAssignedBranchForRun(activeRun);
         if (
           (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
@@ -3595,6 +3631,11 @@ export class OrchestratorService {
     );
 
     if (issueRecord?.currentRunId && issueRecord.currentRunId !== run.runId) {
+      if (this.isRunProtectedByLiveOwner(run)) {
+        await this.recordOwnershipSkip(run, "signal");
+        return { issueRecords, recovered: false };
+      }
+      await this.publishAssignedBranchForRun(run);
       if ((await this.signalRunProcess(run, "SIGTERM")) === "protected") {
         return { issueRecords, recovered: false };
       }
@@ -3655,9 +3696,12 @@ export class OrchestratorService {
             `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${elapsedSeconds}s > ${timeoutSeconds}s) — sending SIGTERM`
           );
         }
-        if ((await this.signalRunProcess(run, "SIGTERM")) === "protected") {
+        if (this.isRunProtectedByLiveOwner(run)) {
+          await this.recordOwnershipSkip(run, "signal");
           return { issueRecords, recovered: false };
         }
+        await this.publishAssignedBranchForRun(run);
+        await this.signalRunProcess(run, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
         const runningRecord: OrchestratorRunRecord = {

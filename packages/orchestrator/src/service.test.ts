@@ -2040,10 +2040,8 @@ describe("OrchestratorService", () => {
     });
     const service = new OrchestratorService(store, projectConfig, {
       now: () => new Date("2026-07-30T13:01:00.000Z"),
-      publishAssignedBranch: vi.fn().mockResolvedValue({
-        ok: false,
-        error: "remote unavailable",
-      }),
+      publishAssignedBranch: vi.fn().mockReturnValue(new Promise(() => {})),
+      assignedBranchPublishTimeoutMs: 1,
     });
 
     const result = await service.requestAssignedBranchPublish({
@@ -2053,7 +2051,8 @@ describe("OrchestratorService", () => {
     expect(result).toMatchObject({
       ok: false,
       outcome: "failed",
-      error: "git_transport_failed: remote unavailable",
+      error:
+        "git_transport_failed: assigned branch publication timed out after 1ms",
     });
     await expect(
       store.loadRun("run-1", projectConfig.projectId)
@@ -6233,6 +6232,15 @@ Prefer focused changes.
         livePids.delete(pid);
       }
     });
+    const publishAssignedBranch = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        branch: "symphony/acme-platform-1",
+        pushed: true,
+        head: "abc123",
+        unpublishedWorktreeChanges: null,
+      },
+    });
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: vi.fn().mockReturnValue({
@@ -6240,6 +6248,7 @@ Prefer focused changes.
         unref: vi.fn(),
       }) as never,
       killImpl,
+      publishAssignedBranch,
       isProcessRunning: (pid) => livePids.has(pid),
       waitImpl: vi.fn().mockResolvedValue(undefined),
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -6250,6 +6259,10 @@ Prefer focused changes.
 
     expect(killImpl).toHaveBeenNthCalledWith(1, 4101, "SIGTERM");
     expect(killImpl).toHaveBeenNthCalledWith(2, 4101, "SIGKILL");
+    expect(publishAssignedBranch).toHaveBeenCalledOnce();
+    expect(publishAssignedBranch.mock.invocationCallOrder[0]).toBeLessThan(
+      killImpl.mock.invocationCallOrder[0]!
+    );
   });
 
   it("removes suppressed worker pids from shutdown tracking", async () => {
@@ -11870,6 +11883,7 @@ Prefer focused changes.
         processId: 4111,
         port: 4601,
         workingDirectory: join(tempRoot, "active-run"),
+        assignedBranch: "symphony/acme-platform-1",
         issueWorkspaceKey: null,
         workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
         workflowPath: null,
@@ -11884,6 +11898,15 @@ Prefer focused changes.
       });
 
       const killImpl = vi.fn();
+      const publishAssignedBranch = vi.fn().mockResolvedValue({
+        ok: true,
+        result: {
+          branch: "symphony/acme-platform-1",
+          pushed: true,
+          head: "abc123",
+          unpublishedWorktreeChanges: null,
+        },
+      });
       let currentTime = new Date("2026-03-08T00:04:00.000Z");
       const fetchImpl = vi
         .fn()
@@ -11895,6 +11918,7 @@ Prefer focused changes.
           unref: vi.fn(),
         }) as never,
         killImpl,
+        publishAssignedBranch,
         isProcessRunning: (pid) => pid === 4111,
         now: () => currentTime,
       });
@@ -11906,8 +11930,12 @@ Prefer focused changes.
       const updatedRun = await store.loadRun("run-1");
 
       expect(killImpl).toHaveBeenCalledWith(4111, "SIGTERM");
+      expect(publishAssignedBranch).toHaveBeenCalledOnce();
+      expect(publishAssignedBranch.mock.invocationCallOrder[0]).toBeLessThan(
+        killImpl.mock.invocationCallOrder[0]!
+      );
       expect(updatedRun?.status).toBe("retrying");
-      expect(updatedRun?.lastEventAt).toBeUndefined();
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:09:00.000Z");
       expect(updatedRun?.lastEventAtSource).toBeUndefined();
       expect(updatedRun?.runtimeSession?.threadId).toBeNull();
     } finally {
