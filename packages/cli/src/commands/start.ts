@@ -1,7 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   createServer,
@@ -36,11 +35,7 @@ import type {
   TrackerStateResult,
   UnpublishedWorktree,
 } from "@gh-symphony/core";
-import {
-  assertDispatchableOrchestratorProjectConfig,
-  parseWorkflowMarkdown,
-  type ParsedWorkflow,
-} from "@gh-symphony/core";
+import { parseWorkflowMarkdown, type ParsedWorkflow } from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -240,11 +235,7 @@ async function preflightWorkflowStart(
   runtimeRoot: string
 ): Promise<{ ok: true; workflow: ParsedWorkflow | null } | { ok: false }> {
   const configuredPath = projectConfig.workflowSource?.path;
-  const workflowPath =
-    configuredPath ??
-    (projectConfig.workflowSource?.type === "repo"
-      ? join(resolveWorkflowRepositoryDirectory(projectConfig), "WORKFLOW.md")
-      : undefined);
+  const workflowPath = configuredPath;
   if (!workflowPath) return { ok: true, workflow: null };
 
   try {
@@ -279,27 +270,6 @@ async function preflightWorkflowStart(
     process.exitCode = 1;
     return { ok: false };
   }
-}
-
-function resolveWorkflowRepositoryDirectory(
-  projectConfig: OrchestratorProjectConfig
-): string {
-  const { repository } = projectConfig;
-  if (repository.path) return repository.path;
-
-  try {
-    const url = new URL(repository.cloneUrl);
-    if (url.protocol === "file:") return fileURLToPath(url);
-  } catch {
-    if (
-      isAbsolute(repository.cloneUrl) ||
-      repository.cloneUrl.startsWith(".")
-    ) {
-      return repository.cloneUrl;
-    }
-  }
-
-  return process.cwd();
 }
 
 type GitHubAuthRuntimeError =
@@ -1086,16 +1056,12 @@ const handler = async (
     process.exitCode = 1;
     return;
   }
-  assertDispatchableOrchestratorProjectConfig(projectConfig);
-
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
   const instanceBase = {
     projectId,
     repo: `${projectConfig.repository.owner}/${projectConfig.repository.name}`,
-    repoPath: resolve(
-      projectConfig.repositoryDir ?? projectConfig.projectDir ?? process.cwd()
-    ),
+    repoPath: resolve(projectConfig.projectDir ?? process.cwd()),
     workspacePath: resolve(projectConfig.workspaceDir ?? process.cwd()),
     runtimeRoot,
     standalone: true,

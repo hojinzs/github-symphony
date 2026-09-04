@@ -2,8 +2,7 @@ import { createServer } from "node:http";
 import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import * as configModule from "../config.js";
@@ -323,7 +322,7 @@ describe("start command foreground locking", () => {
     const project = JSON.parse(
       await readFile(projectPath, "utf8")
     ) as CliProjectConfig;
-    project.workflowSource = { type: "repo", path: workflowPath };
+    project.workflowSource = { type: "external", path: workflowPath };
     await writeFile(projectPath, JSON.stringify(project), "utf8");
     await writeFile(
       workflowPath,
@@ -361,7 +360,7 @@ Handle {{issue.identifier}}.\n`,
     const project = JSON.parse(
       await readFile(projectPath, "utf8")
     ) as CliProjectConfig;
-    project.workflowSource = { type: "repo", path: workflowPath };
+    project.workflowSource = { type: "external", path: workflowPath };
     await writeFile(projectPath, JSON.stringify(project), "utf8");
     await writeFile(
       projectDir + "/.env",
@@ -404,7 +403,7 @@ Handle {{issue.identifier}}.\n`,
       await readFile(projectPath, "utf8")
     ) as CliProjectConfig;
     project.workflowSource = {
-      type: "repo",
+      type: "external",
       path: join(configDir, "missing-workflow.md"),
     };
     await writeFile(projectPath, JSON.stringify(project), "utf8");
@@ -503,63 +502,6 @@ Handle {{issue.identifier}}.\n`,
 
     expect(process.env.GITHUB_GRAPHQL_TOKEN).toBe("validated-token");
     expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
-  it("normalizes legacy project config before constructing the orchestrator", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [createProject("tenant-a", "acme", "platform")],
-    });
-    const lock = {
-      lockPath: join(configDir, ".lock"),
-      ownerToken: "owner",
-      pid: 1234,
-      startedAt: "2026-03-17T00:00:00.000Z",
-    };
-    acquireProjectLock.mockResolvedValue(lock);
-    run.mockImplementation(async () => {
-      process.emit("SIGINT");
-    });
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(
-        ((_code?: number) => undefined) as (code?: number) => never
-      );
-
-    await startModule.default([], baseOptions(configDir));
-
-    expect(serviceProjectConfigs.at(-1)).toMatchObject({
-      workflowSource: { type: "repo" },
-      populateStrategy: "clone",
-    });
-    expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
-  it("rejects legacy repo metadata before constructing the orchestrator", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [createProject("tenant-a", "acme", "platform")],
-    });
-    const projectPath = join(configDir, "projects", "tenant-a", "project.json");
-    const project = JSON.parse(
-      await readFile(projectPath, "utf8")
-    ) as CliProjectConfig;
-    const repositoryPath = join(configDir, "legacy-repository");
-    project.repository.path = repositoryPath;
-    project.workspaceDir = repositoryPath;
-    project.workflowSource = { type: "repo" };
-    delete project.repositoryDir;
-    await writeFile(projectPath, JSON.stringify(project), "utf8");
-
-    await expect(
-      startModule.default([], baseOptions(configDir))
-    ).rejects.toThrow(
-      "Stop the daemon and run 'gh-symphony setup' from the repository before starting it as a standalone project."
-    );
-
-    expect(acquireProjectLock).not.toHaveBeenCalled();
-    expect(run).not.toHaveBeenCalled();
-    expect(serviceProjectConfigs).toHaveLength(0);
   });
 
   it("reports the env token source when GitHub auth resolves from GITHUB_GRAPHQL_TOKEN", async () => {
@@ -998,66 +940,6 @@ Handle {{issue.identifier}}.\n`,
       cwd: process.cwd(),
     });
     expect(Date.parse(pidRecord.startedAt)).not.toBeNaN();
-  });
-
-  it("starts the active external project daemon from its project directory", async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), "standalone-project-"));
-    const workflowPath = join(projectDir, "WORKFLOW.md");
-    await writeFile(
-      workflowPath,
-      `---
-tracker:
-  kind: github-project
-  provider:
-    project_id: project-1
-codex:
-  command: codex app-server
----
-Handle {{issue.identifier}}.\n`,
-      "utf8"
-    );
-    const configDir = await createConfigFixture({
-      activeProject: "standalone",
-      projects: [
-        {
-          ...createProject("standalone", "acme", "platform"),
-          projectDir,
-          workflowSource: {
-            type: "external",
-            path: workflowPath,
-          },
-        },
-        createProject("other-project", "beta", "api"),
-      ],
-    });
-
-    const stdout = captureWrites(process.stdout);
-    try {
-      await startModule.default(["--daemon"], {
-        ...baseOptions(configDir),
-        invocation: "project",
-      });
-    } finally {
-      stdout.restore();
-    }
-
-    expect(childProcessMocks.spawn.mock.calls[0]?.[1]).toEqual(
-      expect.arrayContaining(["project", "start", "--project-dir", projectDir])
-    );
-    expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
-      cwd: projectDir,
-      env: expect.objectContaining({
-        GH_SYMPHONY_CONFIG_DIR: resolve(configDir),
-      }),
-    });
-    const pidRecord = JSON.parse(
-      await readFile(
-        join(configDir, "projects", "standalone", "daemon.pid"),
-        "utf8"
-      )
-    ) as { cwd: string };
-    expect(pidRecord.cwd).toBe(projectDir);
-    expect(stdout.output()).toContain("Stop with: gh-symphony project stop");
   });
 
   it("does not leave a PID file when daemon spawn fails", async () => {
@@ -2174,86 +2056,6 @@ Handle {{issue.identifier}}.\n`,
 
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
-
-  it("reads server.port from a legacy repository workflow fallback", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [createProject("tenant-a", "acme", "platform")],
-    });
-    const probe = createServer();
-    await new Promise<void>((resolve) =>
-      probe.listen(0, "127.0.0.1", () => resolve())
-    );
-    const address = probe.address();
-    if (!address || typeof address === "string") {
-      probe.close();
-      throw new Error("Expected TCP address");
-    }
-    await new Promise<void>((resolve, reject) =>
-      probe.close((error) => (error ? reject(error) : resolve()))
-    );
-    await configureLegacyWorkflow(configDir, address.port);
-    acquireProjectLock.mockResolvedValue({
-      lockPath: join(configDir, ".lock"),
-      ownerToken: "owner",
-      pid: 1234,
-      startedAt: "2026-03-17T00:00:00.000Z",
-    });
-    let resolveRun: (() => void) | undefined;
-    run.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveRun = resolve;
-        })
-    );
-    shutdown.mockImplementation(async () => {
-      resolveRun?.();
-    });
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(
-        ((_code?: number) => undefined) as (code?: number) => never
-      );
-    const stdout = captureWrites(process.stdout);
-
-    try {
-      const startPromise = startModule.default([], baseOptions(configDir));
-      const url = await waitForHttpUrl(stdout.output);
-      expect(new URL(url).port).toBe(String(address.port));
-
-      process.emit("SIGINT");
-      await startPromise;
-    } finally {
-      stdout.restore();
-    }
-
-    expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
-  it("continues when an implicit legacy workflow is invalid", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [createProject("tenant-a", "acme", "platform")],
-    });
-    await configureInvalidLegacyWorkflow(configDir);
-    acquireProjectLock.mockResolvedValue({
-      lockPath: join(configDir, ".lock"),
-      ownerToken: "owner",
-      pid: 1234,
-      startedAt: "2026-03-17T00:00:00.000Z",
-    });
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(
-        ((_code?: number) => undefined) as (code?: number) => never
-      );
-
-    await startModule.default(["--once"], baseOptions(configDir));
-
-    expect(run).toHaveBeenCalledOnce();
-    expect(exitSpy).toHaveBeenCalledWith(0);
-  });
-
   it("fails when a requested port is already in use", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -2513,7 +2315,7 @@ async function configureWorkflow(
     await readFile(projectPath, "utf8")
   ) as CliProjectConfig;
   const workflowPath = join(configDir, "projects", "tenant-a", "WORKFLOW.md");
-  project.workflowSource = { type: "repo", path: workflowPath };
+  project.workflowSource = { type: "external", path: workflowPath };
   await writeFile(projectPath, JSON.stringify(project), "utf8");
   await writeFile(
     workflowPath,
@@ -2526,53 +2328,6 @@ codex:
   command: codex app-server
 ---
 Prompt\n`,
-    "utf8"
-  );
-}
-
-async function configureLegacyWorkflow(
-  configDir: string,
-  port: number
-): Promise<void> {
-  const projectPath = join(configDir, "projects", "tenant-a", "project.json");
-  const project = JSON.parse(
-    await readFile(projectPath, "utf8")
-  ) as CliProjectConfig;
-  const repositoryDir = join(configDir, "legacy-repository");
-  project.repository.cloneUrl = pathToFileURL(repositoryDir).href;
-  project.workflowSource = { type: "repo" };
-  await mkdir(repositoryDir, { recursive: true });
-  await writeFile(projectPath, JSON.stringify(project), "utf8");
-  await writeFile(
-    join(repositoryDir, "WORKFLOW.md"),
-    `---
-tracker:
-  kind: github-project
-server:
-  port: ${port}
-codex:
-  command: codex app-server
----
-Prompt\n`,
-    "utf8"
-  );
-}
-
-async function configureInvalidLegacyWorkflow(
-  configDir: string
-): Promise<void> {
-  const projectPath = join(configDir, "projects", "tenant-a", "project.json");
-  const project = JSON.parse(
-    await readFile(projectPath, "utf8")
-  ) as CliProjectConfig;
-  const repositoryDir = join(configDir, "invalid-legacy-repository");
-  project.repository.cloneUrl = pathToFileURL(repositoryDir).href;
-  project.workflowSource = { type: "repo" };
-  await mkdir(repositoryDir, { recursive: true });
-  await writeFile(projectPath, JSON.stringify(project), "utf8");
-  await writeFile(
-    join(repositoryDir, "WORKFLOW.md"),
-    "---\nserver:\n  port: invalid\n---\nPrompt\n",
     "utf8"
   );
 }

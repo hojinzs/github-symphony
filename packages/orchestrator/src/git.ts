@@ -47,114 +47,9 @@ export type RepositoryLockHeartbeat = {
   stop: () => Promise<void>;
 };
 
-export type RepositorySyncResult = {
-  repositoryDirectory: string;
-  changed: boolean;
-};
-
 export type PullRequestBranchCheckoutTarget = {
   headRefName: string;
 };
-
-export async function cloneRepositoryForRun(input: {
-  repository: RepositoryRef;
-  targetDirectory: string;
-  requiredRef?: string;
-  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
-}): Promise<string> {
-  const result = await syncRepositoryForRun(input);
-  return result.repositoryDirectory;
-}
-
-export async function syncRepositoryForRun(input: {
-  repository: RepositoryRef;
-  targetDirectory: string;
-  requiredRef?: string;
-  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
-}): Promise<RepositorySyncResult> {
-  await mkdir(input.targetDirectory, { recursive: true });
-  const repositoryDirectory = join(input.targetDirectory, "repository");
-  const lockDirectory = join(input.targetDirectory, "repository.lock");
-
-  return withRepositoryLock(lockDirectory, async () => {
-    // Check if the repository directory already has a valid .git
-    let hasGit = false;
-    try {
-      await access(join(repositoryDirectory, ".git"), constants.R_OK);
-      hasGit = true;
-    } catch {
-      // .git not accessible
-    }
-
-    if (hasGit) {
-      try {
-        await migrateShallowRepository(repositoryDirectory);
-        const beforeHead = await readGitHead(repositoryDirectory);
-        await runCommand("git", [
-          "-C",
-          repositoryDirectory,
-          "pull",
-          "--ff-only",
-        ]);
-        const afterHead = await readGitHead(repositoryDirectory);
-        return {
-          repositoryDirectory,
-          changed: beforeHead !== afterHead,
-        };
-      } catch {
-        // Pull failed — remove the corrupted/stale directory and re-clone
-        await rm(repositoryDirectory, { recursive: true, force: true });
-      }
-    } else {
-      // Partial clone debris can leave a non-empty directory without .git.
-      await rm(repositoryDirectory, { recursive: true, force: true });
-    }
-
-    const tempRepositoryDirectory = join(
-      input.targetDirectory,
-      `repository.tmp-${process.pid}-${Date.now()}`
-    );
-    await rm(tempRepositoryDirectory, { recursive: true, force: true });
-
-    try {
-      try {
-        await withGlobalBareRepositoryCache(
-          {
-            repository: input.repository,
-            requiredRef: input.requiredRef,
-          },
-          async (bareRepositoryDirectory) => {
-            await runCommand("git", [
-              "clone",
-              "--filter=blob:none",
-              "--reference-if-able",
-              bareRepositoryDirectory,
-              "--dissociate",
-              sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
-              tempRepositoryDirectory,
-            ]);
-          }
-        );
-      } catch (error) {
-        if (!(error instanceof RepositoryCacheUnavailableError)) {
-          throw error;
-        }
-        input.onCacheUnavailable?.(error);
-        await cloneRepositoryDirectly(
-          input.repository,
-          tempRepositoryDirectory
-        );
-      }
-      await rename(tempRepositoryDirectory, repositoryDirectory);
-      return {
-        repositoryDirectory,
-        changed: true,
-      };
-    } finally {
-      await rm(tempRepositoryDirectory, { recursive: true, force: true });
-    }
-  });
-}
 
 export async function ensureIssueWorkspaceRepository(input: {
   repository: RepositoryRef;
@@ -162,45 +57,13 @@ export async function ensureIssueWorkspaceRepository(input: {
   existingWorkspace: boolean;
   pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
   allowDirtyExistingWorkspace?: boolean;
-  populateStrategy?: "clone" | "worktree-cache";
   projectSlug?: string;
   issueIdentifier?: string;
   branchTemplate?: string | null;
   baseBranch?: string | null;
   onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<string> {
-  if (input.populateStrategy === "worktree-cache") {
-    return ensureIssueWorkspaceWorktree(input);
-  }
-  let dirtyExistingWorkspaceAllowed = false;
-  const repositoryDirectory = input.existingWorkspace
-    ? await syncExistingIssueWorkspaceRepository(
-        {
-          ...input,
-          skipPull: Boolean(input.pullRequestBranch),
-          allowDirty: input.allowDirtyExistingWorkspace,
-        },
-        (dirtyAllowed) => {
-          dirtyExistingWorkspaceAllowed = dirtyAllowed;
-        }
-      )
-    : await cloneRepositoryForRun({
-        repository: input.repository,
-        targetDirectory: input.issueWorkspacePath,
-        requiredRef: input.pullRequestBranch
-          ? `refs/heads/${input.pullRequestBranch.headRefName}`
-          : undefined,
-        onCacheUnavailable: input.onCacheUnavailable,
-      });
-
-  if (input.pullRequestBranch && !dirtyExistingWorkspaceAllowed) {
-    await checkoutPullRequestBranch(
-      repositoryDirectory,
-      input.pullRequestBranch
-    );
-  }
-
-  return repositoryDirectory;
+  return ensureIssueWorkspaceWorktree(input);
 }
 
 export async function removeIssueWorkspaceWorktree(input: {
@@ -723,227 +586,6 @@ function runCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
-async function readGitHead(
-  repositoryDirectory: string
-): Promise<string | null> {
-  try {
-    return await runCommandCapture("git", [
-      "-C",
-      repositoryDirectory,
-      "rev-parse",
-      "HEAD",
-    ]);
-  } catch {
-    return null;
-  }
-}
-
-async function syncExistingIssueWorkspaceRepository(
-  input: {
-    repository: RepositoryRef;
-    issueWorkspacePath: string;
-    skipPull?: boolean;
-    allowDirty?: boolean;
-  },
-  onDirtyAllowed?: (dirtyAllowed: boolean) => void
-): Promise<string> {
-  await mkdir(input.issueWorkspacePath, { recursive: true });
-  const repositoryDirectory = join(input.issueWorkspacePath, "repository");
-  const lockDirectory = join(input.issueWorkspacePath, "repository.lock");
-
-  return withRepositoryLock(lockDirectory, async () => {
-    const repositoryExists = await pathExists(repositoryDirectory);
-    const hasGit = await pathExists(join(repositoryDirectory, ".git"));
-
-    if (hasGit) {
-      let dirtyStatus: string;
-      try {
-        dirtyStatus = await readGitStatusPorcelain(repositoryDirectory);
-      } catch (error) {
-        throw createIssueWorkspacePreservedError(
-          repositoryDirectory,
-          `could not be inspected: ${formatCommandError(error, "git status --porcelain failed")}`
-        );
-      }
-
-      try {
-        await migrateShallowRepository(repositoryDirectory);
-      } catch (error) {
-        throw createIssueWorkspacePreservedError(
-          repositoryDirectory,
-          `could not be migrated from a shallow checkout: ${formatCommandError(error, "git fetch --unshallow failed")}`
-        );
-      }
-
-      if (dirtyStatus.trim() && input.allowDirty) {
-        onDirtyAllowed?.(true);
-        return repositoryDirectory;
-      }
-
-      if (dirtyStatus.trim()) {
-        throw createIssueWorkspacePreservedError(
-          repositoryDirectory,
-          `has uncommitted changes: ${summarizeGitStatus(dirtyStatus)}`
-        );
-      }
-
-      if (!input.skipPull) {
-        try {
-          await runCommand("git", [
-            "-C",
-            repositoryDirectory,
-            "pull",
-            "--ff-only",
-          ]);
-        } catch (error) {
-          const message = formatCommandError(
-            error,
-            "git pull --ff-only failed"
-          );
-          throw createIssueWorkspacePreservedError(
-            repositoryDirectory,
-            `could not be fast-forwarded: ${message}`
-          );
-        }
-      }
-
-      return repositoryDirectory;
-    }
-
-    if (repositoryExists) {
-      throw createIssueWorkspacePreservedError(
-        repositoryDirectory,
-        "exists but is not a git checkout"
-      );
-    }
-
-    const tempRepositoryDirectory = join(
-      input.issueWorkspacePath,
-      `repository.tmp-${process.pid}-${Date.now()}`
-    );
-    await rm(tempRepositoryDirectory, { recursive: true, force: true });
-
-    try {
-      await runCommand("git", [
-        "clone",
-        "--filter=blob:none",
-        sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
-        tempRepositoryDirectory,
-      ]);
-      await rename(tempRepositoryDirectory, repositoryDirectory);
-      return repositoryDirectory;
-    } finally {
-      await rm(tempRepositoryDirectory, { recursive: true, force: true });
-    }
-  });
-}
-
-async function checkoutPullRequestBranch(
-  repositoryDirectory: string,
-  target: PullRequestBranchCheckoutTarget
-): Promise<void> {
-  const branchName = target.headRefName.trim();
-
-  if (!branchName) {
-    throw new Error(
-      "Cannot checkout pull request branch because headRefName is empty."
-    );
-  }
-
-  try {
-    await runCommand("git", ["check-ref-format", "--branch", branchName]);
-  } catch (error) {
-    throw new Error(
-      `Cannot checkout pull request branch ${branchName}: invalid branch name (${formatCommandError(error, "git check-ref-format failed")}).`
-    );
-  }
-
-  const remoteRef = `refs/remotes/origin/${branchName}`;
-  try {
-    await runCommand("git", [
-      "-C",
-      repositoryDirectory,
-      "fetch",
-      "origin",
-      `+refs/heads/${branchName}:${remoteRef}`,
-      "--filter=blob:none",
-    ]);
-  } catch (error) {
-    throw new Error(
-      `Cannot checkout pull request branch ${branchName}: git fetch origin ${branchName} failed (${formatCommandError(error, "git fetch failed")}).`
-    );
-  }
-
-  try {
-    await runCommand("git", [
-      "-C",
-      repositoryDirectory,
-      "config",
-      "--replace-all",
-      "remote.origin.fetch",
-      "+refs/heads/*:refs/remotes/origin/*",
-    ]);
-  } catch (error) {
-    throw new Error(
-      `Cannot checkout pull request branch ${branchName}: git config remote.origin.fetch failed (${formatCommandError(error, "git config failed")}).`
-    );
-  }
-
-  try {
-    await runCommand("git", [
-      "-C",
-      repositoryDirectory,
-      "checkout",
-      "-B",
-      branchName,
-      remoteRef,
-    ]);
-  } catch (error) {
-    throw new Error(
-      `Cannot checkout pull request branch ${branchName}: git checkout failed (${formatCommandError(error, "git checkout failed")}).`
-    );
-  }
-
-  try {
-    await runCommand("git", [
-      "-C",
-      repositoryDirectory,
-      "branch",
-      "--set-upstream-to",
-      `origin/${branchName}`,
-      branchName,
-    ]);
-  } catch (error) {
-    throw new Error(
-      `Cannot checkout pull request branch ${branchName}: git branch --set-upstream-to failed (${formatCommandError(error, "git branch --set-upstream-to failed")}).`
-    );
-  }
-}
-
-async function migrateShallowRepository(
-  repositoryDirectory: string
-): Promise<void> {
-  const isShallow = await runCommandCapture("git", [
-    "-C",
-    repositoryDirectory,
-    "rev-parse",
-    "--is-shallow-repository",
-  ]);
-
-  if (isShallow.trim() !== "true") {
-    return;
-  }
-
-  await runCommand("git", [
-    "-C",
-    repositoryDirectory,
-    "fetch",
-    "--unshallow",
-    "--filter=blob:none",
-    "origin",
-  ]);
-}
-
 function createIssueWorkspacePreservedError(
   repositoryDirectory: string,
   reason: string
@@ -954,11 +596,6 @@ function createIssueWorkspacePreservedError(
       "Resolve or commit the local workspace changes, or run a configured recovery hook, before retrying.",
     ].join(" ")
   );
-}
-
-function formatCommandError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : fallback;
-  return normalizeWhitespace(message) || fallback;
 }
 
 function summarizeGitStatus(status: string): string {
@@ -1034,18 +671,6 @@ function runCommandCapture(command: string, args: string[]): Promise<string> {
       );
     });
   });
-}
-
-async function withRepositoryLock<T>(
-  lockDirectory: string,
-  fn: () => Promise<T>
-): Promise<T> {
-  const ownerToken = await acquireRepositoryLock(lockDirectory);
-  try {
-    return await fn();
-  } finally {
-    await releaseRepositoryLock(lockDirectory, ownerToken);
-  }
 }
 
 export async function acquireRepositoryLock(

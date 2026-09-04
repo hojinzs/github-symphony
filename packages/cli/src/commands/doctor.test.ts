@@ -489,7 +489,7 @@ beforeEach(() => {
 });
 
 describe("runDoctorDiagnostics", () => {
-  it("reads the registered project WORKFLOW.md for repo sources", async () => {
+  it("reads the registered external project WORKFLOW.md", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await prepareDoctorPaths(configDir, workspaceDir);
@@ -519,8 +519,8 @@ describe("runDoctorDiagnostics", () => {
           projectConfig: {
             ...createProjectConfig(workspaceDir),
             projectDir,
-            workflowSource: { type: "repo", path: projectWorkflowPath },
-          } as never,
+            workflowSource: { type: "external", path: projectWorkflowPath },
+          },
         }),
         getProjectDetail: (async () =>
           ({
@@ -597,43 +597,6 @@ describe("runDoctorDiagnostics", () => {
       details: expect.objectContaining({
         version: expect.stringContaining("git version"),
       }),
-    });
-  });
-
-  it("warns that a repository-root .env is not loaded in repo mode", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
-    const workspaceDir = join(configDir, "workspaces");
-    await prepareDoctorPaths(configDir, workspaceDir);
-    const { repoDir, pathEnv } = await createWorkflowFixture();
-    await writeFile(join(repoDir, ".env"), "APP_SECRET=repository-only\n");
-
-    const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(baseOptions(configDir), [], {
-        ...authDependencies(),
-        inspectManagedProjectSelection: async () => ({
-          kind: "resolved",
-          projectId: "tenant-a",
-          projectConfig: {
-            ...createProjectConfig(workspaceDir),
-            repositoryDir: repoDir,
-            workflowSource: {
-              type: "repo",
-              path: join(repoDir, "WORKFLOW.md"),
-            },
-          },
-        }),
-        getProjectDetail: (async () => createProjectDetail()) as never,
-        execFileSync: (() => "git version 2.43.0") as never,
-        pathEnv,
-      })
-    );
-
-    expect(
-      report.checks.find((check) => check.id === "repository_environment")
-    ).toMatchObject({
-      status: "warn",
-      summary: expect.stringContaining("is not loaded"),
-      details: { path: join(repoDir, ".env") },
     });
   });
 
@@ -1720,7 +1683,7 @@ Prompt body`
     });
   });
 
-  it("checks the issue workspace root instead of the repo-embedded checkout", async () => {
+  it("ignores a legacy repositoryDir when checking the workspace root", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "doctor-embedded-root-"));
     const configDir = join(rootDir, "config");
     const workspaceDir = join(rootDir, "configured-workspaces");
@@ -1738,7 +1701,7 @@ Prompt body`
           projectConfig: {
             ...createProjectConfig(workspaceDir),
             repositoryDir,
-          },
+          } as never,
         }),
         getProjectDetail: (async () =>
           ({

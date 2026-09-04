@@ -96,7 +96,6 @@ type DoctorCheckId =
   | "config_directory"
   | "runtime_root"
   | "workspace_root"
-  | "repository_environment"
   | "workflow_file"
   | "provider_deprecation"
   | "runtime_command"
@@ -645,42 +644,6 @@ function buildPathCheck(
     path: targetPath,
     reason,
   });
-}
-
-async function buildRepositoryEnvironmentCheck(
-  projectConfig: CliProjectConfig,
-  deps: Pick<DoctorDependencies, "stat">
-): Promise<DoctorCheckResult | null> {
-  if (
-    projectConfig.workflowSource?.type === "external" ||
-    !projectConfig.repositoryDir
-  ) {
-    return null;
-  }
-
-  const envPath = join(projectConfig.repositoryDir, ".env");
-  try {
-    await deps.stat(envPath);
-    return warnCheck(
-      "repository_environment",
-      "Repository environment file",
-      `Repository-root .env exists at ${envPath} and is not loaded by Symphony.`,
-      "Move Symphony-specific values to the managed project .env; keep application secrets in the repository-root .env.",
-      { path: envPath }
-    );
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code !== "ENOENT" && err.code !== "ENOTDIR") {
-      throw error;
-    }
-  }
-
-  return passCheck(
-    "repository_environment",
-    "Repository environment file",
-    `No repository-root .env exists at ${envPath}.`,
-    { path: envPath }
-  );
 }
 
 function quotePosixShellArg(value: string): string {
@@ -2411,13 +2374,6 @@ export async function runDoctorDiagnostics(
         "Update WORKFLOW.md workspace.root to a writable path, run 'gh-symphony project start --project-dir <path>' to refresh the project, or fix the filesystem permissions."
       )
     );
-    const repositoryEnvironmentCheck = await buildRepositoryEnvironmentCheck(
-      resolvedProjectConfig.projectConfig,
-      deps
-    );
-    if (repositoryEnvironmentCheck) {
-      checks.push(repositoryEnvironmentCheck);
-    }
   } else {
     checks.push(
       failCheck(

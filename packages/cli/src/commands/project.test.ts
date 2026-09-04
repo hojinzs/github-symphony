@@ -79,7 +79,6 @@ describe("deriveStandaloneProject", () => {
       },
       projectDir,
       workspaceDir: join(projectDir, ".runners"),
-      populateStrategy: "worktree-cache",
     });
     expect(project.projectId).toBe(standaloneProjectId(projectDir));
   });
@@ -355,49 +354,5 @@ describe("deriveStandaloneProject", () => {
     expect(JSON.parse(writes.join(""))).toEqual([
       expect.objectContaining({ projectId: project.projectId, projectDir }),
     ]);
-  });
-
-  it("stops a legacy repo-local daemon before standalone project registration", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-global-config-"));
-    const projectDir = await mkdtemp(join(tmpdir(), "cli-legacy-project-"));
-    const legacyConfigDir = join(projectDir, ".runtime", "orchestrator");
-    await mkdir(join(legacyConfigDir, "projects", "repository"), {
-      recursive: true,
-    });
-    await writeFile(
-      join(legacyConfigDir, "projects", "repository", "project.json"),
-      JSON.stringify({
-        projectId: "repository",
-        slug: "repository",
-        displayName: "Legacy repository",
-        projectDir,
-        workspaceDir: projectDir,
-        repository: { owner: "acme", name: "platform" },
-        populateStrategy: "worktree-cache",
-        workflowSource: {
-          type: "external",
-          path: join(projectDir, "WORKFLOW.md"),
-        },
-        tracker: { adapter: "github-project", bindingId: "PVT_example" },
-      })
-    );
-
-    await projectCommand(["stop", "--project-dir", projectDir], {
-      configDir,
-      configDirOverride: false,
-      verbose: false,
-      json: false,
-      noColor: true,
-    });
-
-    expect(stopMock).toHaveBeenCalledWith([], {
-      configDir: legacyConfigDir,
-      configDirOverride: false,
-      verbose: false,
-      json: false,
-      noColor: true,
-      invocation: "project",
-      projectId: "repository",
-    });
   });
 });

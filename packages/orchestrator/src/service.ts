@@ -13,7 +13,6 @@ import {
   NonRetryableTrackerAdapterError,
   TrackerRateLimitError,
   assertIssueOrchestrationTransition,
-  assertIssueWorkspaceRootOutsideRepository,
   attributeDirtyWorkToIssue,
   buildHookEnv,
   buildIssueIdentityHeader,
@@ -356,22 +355,6 @@ function trackerItemId(
   return adapter.getTrackerItemId?.(issue) ?? legacyItemId ?? null;
 }
 
-function assertIssueWorkspaceRootIsOutsideRepository(
-  projectConfig: OrchestratorProjectConfig
-): void {
-  const repositoryDir =
-    projectConfig.repositoryDir ?? projectConfig.repository?.path;
-  if (!repositoryDir) {
-    return;
-  }
-
-  assertIssueWorkspaceRootOutsideRepository(
-    projectConfig.projectId,
-    projectConfig.workspaceDir,
-    repositoryDir
-  );
-}
-
 class RestartRunFailure extends Error {
   constructor(
     readonly originalError: unknown,
@@ -495,7 +478,6 @@ export class OrchestratorService {
       assignedBranchPublishTimeoutMs?: number;
     } = {}
   ) {
-    assertIssueWorkspaceRootIsOutsideRepository(projectConfig);
     this.ownerToken = dependencies.ownerToken ?? null;
     this.ownerProcessIdentity = dependencies.ownerProcessIdentity ?? null;
   }
@@ -2994,10 +2976,7 @@ export class OrchestratorService {
       return [];
     }
 
-    const workflowSourceLabel =
-      tenant.workflowSource.type === "external"
-        ? "External workflow source"
-        : "Configured workflow source";
+    const workflowSourceLabel = "External workflow source";
 
     const localRepositoryDirectory = this.resolveLocalRepositoryDirectory(
       tenant.repository
@@ -3229,7 +3208,6 @@ export class OrchestratorService {
       pullRequestBranch,
       allowDirtyExistingWorkspace:
         recovery?.kind === "incomplete-turn-dirty-workspace",
-      populateStrategy: tenant.populateStrategy,
       projectSlug: tenant.slug,
       issueIdentifier: issue.identifier,
       branchTemplate,
@@ -6169,29 +6147,27 @@ export class OrchestratorService {
       workflowResolution
     );
 
-    if (tenant.populateStrategy === "worktree-cache") {
-      try {
-        await removeIssueWorkspaceWorktree({
-          repository: issue.repository,
-          repositoryDirectory: workspaceRecord.repositoryPath,
-          projectSlug: tenant.slug,
-          issueIdentifier: issue.identifier,
-          onBranchCleanup: (result) => {
-            this.writeStderr(
-              `${JSON.stringify({
-                event: "cache-agent-branch-cleanup",
-                issueIdentifier: issue.identifier,
-                ...result,
-              })}\n`
-            );
-          },
-        });
-      } catch (error) {
-        const removalError = this.formatErrorMessage(error);
-        this.writeStderr(
-          `[orchestrator] failed to remove worktree for ${issue.identifier}: ${removalError}\n`
-        );
-      }
+    try {
+      await removeIssueWorkspaceWorktree({
+        repository: issue.repository,
+        repositoryDirectory: workspaceRecord.repositoryPath,
+        projectSlug: tenant.slug,
+        issueIdentifier: issue.identifier,
+        onBranchCleanup: (result) => {
+          this.writeStderr(
+            `${JSON.stringify({
+              event: "cache-agent-branch-cleanup",
+              issueIdentifier: issue.identifier,
+              ...result,
+            })}\n`
+          );
+        },
+      });
+    } catch (error) {
+      const removalError = this.formatErrorMessage(error);
+      this.writeStderr(
+        `[orchestrator] failed to remove worktree for ${issue.identifier}: ${removalError}\n`
+      );
     }
 
     // Hook failures are observable but do not block removal per spec 9.4.

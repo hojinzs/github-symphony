@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import {
   normalizeLabels,
@@ -17,7 +17,6 @@ import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
 import {
   loadProjectConfig,
-  REPO_RUNTIME_DIR,
   saveProjectConfigWithinLock,
   type CliProjectConfig,
   withConfigLock,
@@ -87,7 +86,6 @@ export async function deriveStandaloneProject(
       : resolve(projectDir, ".runtime", "workspaces"),
     repository,
     workflowSource: { type: "external", path: workflowPath },
-    populateStrategy: "worktree-cache",
     tracker: {
       adapter,
       bindingId,
@@ -164,8 +162,7 @@ async function listStandaloneProjects(
     entries.map((projectId) => loadProjectConfig(configDir, projectId))
   );
   return configs.filter(
-    (config): config is CliProjectConfig =>
-      config?.workflowSource?.type === "external"
+    (config): config is CliProjectConfig => config?.projectDir !== undefined
   );
 }
 
@@ -239,13 +236,13 @@ async function findOverlappingProjects(
     const liveness = await resolveDaemonLiveness({
       configDir,
       projectId: existing.projectId,
-      workspaceDir: existing.repositoryDir ?? existing.workspaceDir,
+      workspaceDir: existing.workspaceDir,
     });
     overlaps.push({
       projectId: existing.projectId,
       label: existing.projectDir ?? existing.projectId,
       running: liveness.running,
-      workspaceDir: existing.repositoryDir ?? existing.workspaceDir,
+      workspaceDir: existing.workspaceDir,
     });
   }
   return overlaps;
@@ -467,21 +464,8 @@ const handler = async (
     // Status and stop only need to address the runtime, which the folder path
     // identifies on its own — a removed or broken WORKFLOW.md must not block
     // stopping a running daemon.
-    let projectId = standaloneProjectId(resolvedProjectDir);
-    let runtimeConfigDir = options.configDir;
-    let project = await loadProjectConfig(runtimeConfigDir, projectId);
-    if (!project && subcommand === "stop") {
-      const legacyConfigDir = join(resolvedProjectDir, REPO_RUNTIME_DIR);
-      const legacyProject = await loadProjectConfig(
-        legacyConfigDir,
-        "repository"
-      );
-      if (legacyProject) {
-        project = legacyProject;
-        projectId = "repository";
-        runtimeConfigDir = legacyConfigDir;
-      }
-    }
+    const projectId = standaloneProjectId(resolvedProjectDir);
+    const project = await loadProjectConfig(options.configDir, projectId);
     if (!project) {
       const known = await listStandaloneProjects(options.configDir);
       process.stderr.write(
@@ -496,7 +480,7 @@ const handler = async (
 
     const runtimeOptions = {
       ...options,
-      configDir: runtimeConfigDir,
+      configDir: options.configDir,
       invocation: "project" as const,
       projectId,
     };

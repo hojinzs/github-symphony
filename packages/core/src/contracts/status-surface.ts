@@ -1,6 +1,5 @@
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
-import { isPathWithinRoot } from "../workspace/path-safety.js";
 import type {
   WorkflowDefinition,
   WorkflowPriorityConfig,
@@ -27,25 +26,17 @@ export type OrchestratorTrackerConfig = {
   settings?: Record<string, OrchestratorTrackerSettingValue>;
 };
 
-export type WorkflowSource =
-  | { type: "repo"; path?: string }
-  | { type: "external"; path: string };
-
-export type PopulateStrategy = "clone" | "worktree-cache";
+export type WorkflowSource = { type: "external"; path: string };
 
 export type OrchestratorProjectConfig = {
   projectId: string;
   slug: string;
   /** Root directory containing persistent per-issue workspaces. */
   workspaceDir: string;
-  /** Repository checkout used as the daemon cwd for repo-embedded projects. */
-  repositoryDir?: string;
   repository: RepositoryRef;
   tracker: OrchestratorTrackerConfig;
-  /** Defaults to the repository-local workflow for legacy project configs. */
+  /** External workflow used by this standalone project. */
   workflowSource?: WorkflowSource;
-  /** Defaults to cloning for legacy project configs. */
-  populateStrategy?: PopulateStrategy;
   /** Standalone project directory, when configuration is managed externally. */
   projectDir?: string;
 };
@@ -59,57 +50,21 @@ export function normalizeOrchestratorProjectConfig(
 ): OrchestratorProjectConfig {
   assertAbsoluteProjectDir(config);
   const workflowSource = normalizeWorkflowSource(config);
-  const populateStrategy = normalizePopulateStrategy(config);
-  if (workflowSource.type === "repo" && config.repositoryDir) {
-    assertIssueWorkspaceRootOutsideRepository(
-      config.projectId,
-      config.workspaceDir,
-      config.repositoryDir
-    );
-  }
+  const legacy = config as OrchestratorProjectConfig & {
+    repositoryDir?: unknown;
+    populateStrategy?: unknown;
+  };
+  const {
+    repositoryDir: _repositoryDir,
+    populateStrategy: _populateStrategy,
+    workflowSource: _workflowSource,
+    ...current
+  } = legacy;
 
   return {
-    ...config,
-    workflowSource,
-    populateStrategy,
+    ...current,
+    ...(workflowSource ? { workflowSource } : {}),
   };
-}
-
-/**
- * Prevents issue workspaces from being created in the repository checkout.
- * Paths are resolved through existing filesystem ancestors so symlink aliases
- * cannot bypass this containment check while still allowing a missing root.
- */
-export function assertIssueWorkspaceRootOutsideRepository(
-  projectId: string,
-  workspaceDir: string,
-  repositoryDir: string
-): void {
-  if (!isPathWithinRoot(workspaceDir, repositoryDir)) {
-    return;
-  }
-
-  throw new Error(
-    `Project ${JSON.stringify(projectId)} workspace.root ${JSON.stringify(resolve(workspaceDir))} must not equal or contain the repository checkout ${JSON.stringify(resolve(repositoryDir))}.`
-  );
-}
-
-/** Rejects legacy repo metadata on daemon startup without blocking CLI migration commands. */
-export function assertDispatchableOrchestratorProjectConfig(
-  config: OrchestratorProjectConfig
-): void {
-  const workflowSource = normalizeWorkflowSource(config);
-  const repositoryPath = config.repository?.path;
-  if (
-    workflowSource.type === "repo" &&
-    !config.repositoryDir &&
-    repositoryPath &&
-    resolve(config.workspaceDir) === resolve(repositoryPath)
-  ) {
-    throw new Error(
-      `Project ${JSON.stringify(config.projectId)} uses legacy repo-embedded path metadata. Stop the daemon and run 'gh-symphony setup' from the repository before starting it as a standalone project.`
-    );
-  }
 }
 
 function assertAbsoluteProjectDir(config: OrchestratorProjectConfig): void {
@@ -125,10 +80,10 @@ function assertAbsoluteProjectDir(config: OrchestratorProjectConfig): void {
 
 function normalizeWorkflowSource(
   config: OrchestratorProjectConfig
-): WorkflowSource {
+): WorkflowSource | undefined {
   const workflowSource = config.workflowSource as unknown;
   if (workflowSource === undefined) {
-    return { type: "repo" };
+    return undefined;
   }
   if (!isRecord(workflowSource)) {
     throw new Error(
@@ -136,20 +91,7 @@ function normalizeWorkflowSource(
     );
   }
   if (workflowSource.type === "repo") {
-    if (workflowSource.path === undefined) {
-      return { type: "repo" };
-    }
-    if (typeof workflowSource.path !== "string" || !workflowSource.path) {
-      throw new Error(
-        `Project ${JSON.stringify(config.projectId)} repository workflow source path must be a non-empty absolute path.`
-      );
-    }
-    if (!isAbsolute(workflowSource.path)) {
-      throw new Error(
-        `Project ${JSON.stringify(config.projectId)} repository workflow source path ${JSON.stringify(workflowSource.path)} must be absolute.`
-      );
-    }
-    return { type: "repo", path: workflowSource.path };
+    return undefined;
   }
   if (workflowSource.type !== "external") {
     throw new Error(
@@ -168,21 +110,6 @@ function normalizeWorkflowSource(
   }
 
   return { type: "external", path: workflowSource.path };
-}
-
-function normalizePopulateStrategy(
-  config: OrchestratorProjectConfig
-): PopulateStrategy {
-  const populateStrategy = config.populateStrategy;
-  if (populateStrategy === undefined) {
-    return "clone";
-  }
-  if (populateStrategy === "clone" || populateStrategy === "worktree-cache") {
-    return populateStrategy;
-  }
-  throw new Error(
-    `Project ${JSON.stringify(config.projectId)} has unsupported populate strategy ${JSON.stringify(populateStrategy)}.`
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

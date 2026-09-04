@@ -62,7 +62,7 @@ const handler = async (
   const liveness = await resolveDaemonLiveness({
     configDir: options.configDir,
     projectId: resolvedProjectId,
-    workspaceDir: projectConfig.repositoryDir ?? projectConfig.workspaceDir,
+    workspaceDir: projectConfig.workspaceDir,
   });
   if (!liveness.running && liveness.reason === "missing-pid") {
     process.stderr.write(

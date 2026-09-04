@@ -353,10 +353,8 @@ async function discoverUnregistered(
         projectConfigPath(runtimeRoot, projectId)
       ).catch(() => null)) as {
         repository?: { owner?: string; name?: string };
-        repositoryDir?: string;
         projectDir?: string;
         workspaceDir?: string;
-        workflowSource?: { type?: string };
       } | null;
       discovered.push({
         projectId,
@@ -365,8 +363,7 @@ async function discoverUnregistered(
             ? `${config.repository.owner}/${config.repository.name}`
             : "unknown",
         repoPath: resolve(
-          config?.repositoryDir ??
-            config?.projectDir ??
+          config?.projectDir ??
             (typeof lock.cwd === "string" ? lock.cwd : runtimeRoot)
         ),
         workspacePath: resolve(config?.workspaceDir ?? runtimeRoot),
@@ -379,7 +376,7 @@ async function discoverUnregistered(
           typeof lock.processIdentity === "string"
             ? lock.processIdentity
             : null,
-        standalone: config?.workflowSource?.type === "external",
+        standalone: true,
         phase: await readCurrentPhase(runtimeRoot, projectId),
         status: "unregistered",
         uptimeMs: uptimeMs(lock.startedAt, now),

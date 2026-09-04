@@ -214,16 +214,6 @@ export async function saveProjectConfigWithinLock(
   );
 }
 
-export async function loadActiveProjectConfig(
-  configDir: string
-): Promise<CliProjectConfig | null> {
-  const global = await loadGlobalConfig(configDir);
-  if (!global?.activeProject) {
-    return null;
-  }
-  return loadProjectConfig(configDir, global.activeProject);
-}
-
 async function readJsonFile<T>(path: string): Promise<T | null> {
   try {
     const raw = await readFile(path, "utf8");
