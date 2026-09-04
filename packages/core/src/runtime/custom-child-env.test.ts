@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCustomRuntimeChildEnvironment } from "./custom-child-env.js";
 
 describe("buildCustomRuntimeChildEnvironment", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("forwards only portable values and declared authentication by default", () => {
     const env = buildCustomRuntimeChildEnvironment({
       childHome: "/runtime/child-home",
@@ -76,6 +80,37 @@ describe("buildCustomRuntimeChildEnvironment", () => {
     expect(env.GIT_CONFIG_VALUE_0).toBeUndefined();
     expect(env.GITHUB_TOKEN).toBeUndefined();
     expect(env.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
+  });
+
+  it("sanitizes process-only repository context in compatibility mode", () => {
+    vi.stubEnv(
+      "TARGET_REPOSITORY_CLONE_URL",
+      "https://operator:secret@example.com/acme/repo.git"
+    );
+
+    const env = buildCustomRuntimeChildEnvironment({
+      childHome: "/runtime/child-home",
+      inheritEnvironment: true,
+    });
+
+    expect(env.TARGET_REPOSITORY_CLONE_URL).toBe(
+      "https://example.com/acme/repo.git"
+    );
+  });
+
+  it("strips process-only tracker secrets in compatibility mode", () => {
+    vi.stubEnv(
+      "SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES",
+      '["PROCESS_ONLY_TRACKER_SECRET"]'
+    );
+    vi.stubEnv("PROCESS_ONLY_TRACKER_SECRET", "tracker-secret");
+
+    const env = buildCustomRuntimeChildEnvironment({
+      childHome: "/runtime/child-home",
+      inheritEnvironment: true,
+    });
+
+    expect(env.PROCESS_ONLY_TRACKER_SECRET).toBeUndefined();
   });
 
   it("removes URL userinfo from agent-visible repository context", () => {

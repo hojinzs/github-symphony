@@ -37,7 +37,7 @@ export function readAgentVisibleSymphonyContext(
       if (value !== undefined) {
         context[name] =
           name === "TARGET_REPOSITORY_CLONE_URL"
-            ? sanitizeCloneUrl(value)
+            ? sanitizeRepositoryCloneUrl(value)
             : value;
       }
     }
@@ -100,8 +100,12 @@ export function buildCustomRuntimeChildEnvironment(options: {
 }): NodeJS.ProcessEnv {
   const source = options.source ?? {};
   const input = options.input ?? {};
+  const decisionSources = options.inheritEnvironment
+    ? [process.env, source, input]
+    : [source, input];
+  const decisionEnvironment = Object.assign({}, ...decisionSources);
   const env: NodeJS.ProcessEnv = options.inheritEnvironment
-    ? { ...process.env, ...source, ...input }
+    ? { ...decisionEnvironment }
     : {};
 
   if (!options.inheritEnvironment) {
@@ -121,18 +125,13 @@ export function buildCustomRuntimeChildEnvironment(options: {
     }
   }
 
-  Object.assign(env, readAgentVisibleSymphonyContext(source, input));
+  Object.assign(env, readAgentVisibleSymphonyContext(...decisionSources));
 
   env.HOME = options.childHome;
   env.USERPROFILE = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
   for (const name of Object.keys(env)) {
-    if (
-      isCustomRuntimeReservedAuthEnvironmentName(name, {
-        ...source,
-        ...input,
-      })
-    ) {
+    if (isCustomRuntimeReservedAuthEnvironmentName(name, decisionEnvironment)) {
       if (name === options.authEnvKey) {
         throw new Error(
           `Custom runtime auth environment variable ${name} is reserved and cannot be exposed to the child.`
@@ -145,7 +144,11 @@ export function buildCustomRuntimeChildEnvironment(options: {
   return env;
 }
 
-function sanitizeCloneUrl(cloneUrl: string): string {
+/**
+ * Removes URL userinfo before a clone URL is persisted or exposed to a child.
+ * Authentication remains the responsibility of configured credential helpers.
+ */
+export function sanitizeRepositoryCloneUrl(cloneUrl: string): string {
   try {
     const url = new URL(cloneUrl);
     if (url.protocol === "ssh:") {
@@ -153,6 +156,8 @@ function sanitizeCloneUrl(cloneUrl: string): string {
     }
     return `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
   } catch {
+    // Git accepts URL forms that the WHATWG parser rejects. Remove only
+    // leading URL userinfo; SCP-like SSH remotes remain untouched.
     return cloneUrl.replace(/^([a-z][a-z\d+.-]*:\/\/)[^/@]*@/i, "$1");
   }
 }
