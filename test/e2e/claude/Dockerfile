@@ -5,7 +5,7 @@ WORKDIR /app
 COPY . /app
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git bash && \
+    apt-get install -y --no-install-recommends git bash openssl && \
     rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate

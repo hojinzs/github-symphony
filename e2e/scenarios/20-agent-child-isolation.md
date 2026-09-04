@@ -13,7 +13,9 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 3. Spawn the real custom-child fixture once in default mode and once with the
    documented compatibility escape hatch.
 4. Inspect the stub invocation's environment and generated MCP configuration.
-5. Let the successful worker lifecycle fetch and push its checked-out assigned branch.
+5. Let the successful worker lifecycle authenticate to a smart-HTTP Git remote,
+   then fetch and push its checked-out assigned branch through the shared Codex
+   credential helper.
 6. Advance the remote assigned branch independently, then run successful Claude
    and Codex agent lifecycles whose local commits can no longer fast-forward it.
 
@@ -30,7 +32,8 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 - Generated `mcp.json` exposes only the worker-owned `symphony` HTTP endpoint
   and its session capability under forced strict MCP mode; query, comment, and
   Project-state calls succeed.
-- Worker stderr confirms the assigned branch was pushed by host Git transport.
+- Worker stderr confirms the assigned branch was pushed by host Git transport,
+  and the authenticated remote observes upload-pack and receive-pack requests.
 - Both provider lifecycles emit a final `runPhase: failed` heartbeat containing
   `git_transport_failed` and exit non-zero when the assigned branch cannot be
   published.
