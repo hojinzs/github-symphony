@@ -2,8 +2,10 @@ import {
   access,
   mkdir,
   readFile,
+  readlink,
   readdir,
   realpath,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -42,6 +44,7 @@ export async function stageDockerCliPlugins(options: {
   }
 
   let staged = 0;
+  let destinationCreated = false;
   for (const entry of entries) {
     if (!entry.name.startsWith("docker-") || entry.isDirectory()) {
       continue;
@@ -50,7 +53,8 @@ export async function stageDockerCliPlugins(options: {
     let target: string;
     try {
       target = await realpath(join(sourceDirectory, entry.name));
-      if (!(await stat(target)).isFile()) {
+      const targetStat = await stat(target);
+      if (!targetStat.isFile() || (targetStat.mode & 0o111) === 0) {
         continue;
       }
     } catch (error) {
@@ -60,15 +64,28 @@ export async function stageDockerCliPlugins(options: {
       throw error;
     }
 
-    await mkdir(options.destination, { recursive: true, mode: 0o700 });
+    if (!destinationCreated) {
+      await mkdir(options.destination, { recursive: true, mode: 0o700 });
+      destinationCreated = true;
+    }
+    const destination = join(options.destination, entry.name);
     try {
-      await symlink(target, join(options.destination, entry.name), "file");
-      staged += 1;
+      const currentTarget = await readlink(destination);
+      if (currentTarget !== target) {
+        await rm(destination);
+        await symlink(target, destination, "file");
+      }
     } catch (error) {
-      if (!isNodeError(error) || error.code !== "EEXIST") {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        await symlink(target, destination, "file");
+      } else if (isNodeError(error) && error.code === "EINVAL") {
+        await rm(destination);
+        await symlink(target, destination, "file");
+      } else {
         throw error;
       }
     }
+    staged += 1;
   }
   return staged;
 }

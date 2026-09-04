@@ -140,4 +140,48 @@ describe("agent child home preparation", () => {
     ).resolves.toBe(0);
     await expect(stat(destination)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it("refreshes staged plugins and reports all executable links present", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-child-docker-refresh-"));
+    roots.push(root);
+    const hostHome = join(root, "host");
+    const plugins = join(hostHome, ".docker", "cli-plugins");
+    const firstTarget = join(root, "docker-compose-v1");
+    const secondTarget = join(root, "docker-compose-v2");
+    const source = join(plugins, "docker-compose");
+    const destination = join(root, "child", ".docker", "cli-plugins");
+    await mkdir(plugins, { recursive: true });
+    await writeFile(firstTarget, "#!/bin/sh\n", { mode: 0o755 });
+    await writeFile(secondTarget, "#!/bin/sh\n", { mode: 0o755 });
+    await symlink(firstTarget, source);
+
+    await expect(
+      stageDockerCliPlugins({ sourceHome: hostHome, destination })
+    ).resolves.toBe(1);
+    await rm(source);
+    await symlink(secondTarget, source);
+    await expect(
+      stageDockerCliPlugins({ sourceHome: hostHome, destination })
+    ).resolves.toBe(1);
+    expect(await readlink(join(destination, "docker-compose"))).toBe(
+      await realpath(secondTarget)
+    );
+  });
+
+  it("ignores non-executable Docker plugin files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-child-docker-mode-"));
+    roots.push(root);
+    const hostHome = join(root, "host");
+    const plugins = join(hostHome, ".docker", "cli-plugins");
+    const destination = join(root, "child", ".docker", "cli-plugins");
+    await mkdir(plugins, { recursive: true });
+    await writeFile(join(plugins, "docker-compose"), "not executable", {
+      mode: 0o644,
+    });
+
+    await expect(
+      stageDockerCliPlugins({ sourceHome: hostHome, destination })
+    ).resolves.toBe(0);
+    await expect(stat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
