@@ -823,6 +823,11 @@ scripts. Symphony never loads the target repository's `.env`; it is reserved
 for the application. The project `.env` is the base environment for workspace
 hooks and worker processes.
 
+Symphony reads the project `.env` when each hook or worker consumes it.
+Therefore an approved `after_create` or `before_run` hook may refresh the file
+for the worker spawned in the same run; credential checks and worker launch use
+one post-hook snapshot.
+
 ```bash
 # /path/to/project/.env
 STAGING_API_HOST=https://staging.example.com

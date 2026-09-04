@@ -220,6 +220,8 @@ export type OrchestratorRunRecord = {
   issueWorkspaceKey: string | null;
   workspaceRuntimeDir: string;
   workflowPath: string | null;
+  /** SHA-256 digest of the effective worker host environment at spawn time. */
+  environmentDigest?: string | null;
   retryKind: RetryKind | null;
   /** Persisted thread state shared across worker sessions. */
   threadId?: string | null;

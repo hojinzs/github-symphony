@@ -10863,62 +10863,6 @@ Prefer focused changes.
     ]);
   });
 
-  it("keeps a due retry queued when the worker credential is missing", async () => {
-    const {
-      store,
-      service,
-      advanceToRetryDue,
-      resolveWorkerCredentials,
-      spawnImpl,
-    } = await createSuccessfulFinalizationFixture("Todo");
-
-    await service.runOnce();
-    const queuedRun = await store.loadRun("run-1");
-    const queuedRecord = (
-      await store.loadProjectIssueOrchestrations("tenant-1")
-    )[0];
-    expect(queuedRun).toMatchObject({
-      status: "retrying",
-      attempt: 1,
-      retryKind: "continuation",
-    });
-
-    resolveWorkerCredentials.mockReturnValue({});
-    advanceToRetryDue();
-    const snapshot = await service.runOnce();
-
-    expect(spawnImpl).not.toHaveBeenCalled();
-    expect(await store.loadRun("run-1")).toMatchObject({
-      status: "retrying",
-      retryKind: "continuation",
-    });
-    expect(
-      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
-    ).toMatchObject({
-      state: "retry_queued",
-      failureRetryCount: queuedRecord?.failureRetryCount,
-      retryEntry: {
-        attempt: queuedRecord?.retryEntry?.attempt,
-        dueAt: queuedRecord?.retryEntry?.dueAt,
-        error: expect.stringContaining("no worker credential resolved"),
-      },
-    });
-    expect(snapshot.warnings).toContain(
-      "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it."
-    );
-
-    const credentialGatedRun = await store.loadRun("run-1");
-    await service.runOnce();
-    expect(await store.loadRun("run-1")).toMatchObject({
-      status: "retrying",
-      attempt: credentialGatedRun?.attempt,
-    });
-    expect(
-      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
-        ?.failureRetryCount
-    ).toBe(queuedRecord?.failureRetryCount);
-  });
-
   it("recovers a transient unknown finalization read and later succeeds", async () => {
     const { store, service, fetchIssueStatesByIds } =
       await createSuccessfulFinalizationFixture(null);
@@ -16700,7 +16644,127 @@ Prefer focused changes.
     );
   });
 
-  it("skips dispatch and exposes a status warning when no worker credential resolves", async () => {
+  it("snapshots project env after hooks for credentials and worker spawn", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "tracker-list-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-post-hook-project-env-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+hooks:
+  before_run: ${join(tempRoot, "refresh-project-env.sh")}
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    await writeFile(
+      join(tempRoot, "refresh-project-env.sh"),
+      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$HOOK_INPUT" > .before_run_input\nprintf "LATE_WORKER_VALUE=refreshed\\nGITHUB_GRAPHQL_TOKEN=late-token\\n" > "$PROJECT_ENV_PATH"\n',
+      "utf8"
+    );
+    await chmod(join(tempRoot, "refresh-project-env.sh"), 0o755);
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const projectEnvPath = join(
+      store.projectDir(projectConfig.projectId),
+      ".env"
+    );
+    await writeFile(
+      projectEnvPath,
+      `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\nSYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=HOOK_INPUT,PROJECT_ENV_PATH\nHOOK_INPUT=visible-before-refresh\nPROJECT_ENV_PATH=${projectEnvPath}\n`,
+      "utf8"
+    );
+
+    const adapter = trackerAdapters.resolveTrackerAdapter(
+      projectConfig.tracker
+    );
+    const resolveWorkerCredentials = vi.fn(
+      (_tenant, environment: { project: NodeJS.ProcessEnv }) =>
+        environment.project.GITHUB_GRAPHQL_TOKEN
+          ? {
+              GITHUB_GRAPHQL_TOKEN: environment.project.GITHUB_GRAPHQL_TOKEN,
+            }
+          : {}
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      ...adapter,
+      resolveWorkerCredentials,
+    });
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4306, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+    expect(spawnEnv?.LATE_WORKER_VALUE).toBe("refreshed");
+    expect(spawnEnv?.GITHUB_GRAPHQL_TOKEN).toBe("late-token");
+    expect(resolveWorkerCredentials).toHaveBeenCalledTimes(1);
+    expect(resolveWorkerCredentials.mock.calls[0]?.[1]?.project).toMatchObject({
+      LATE_WORKER_VALUE: "refreshed",
+      GITHUB_GRAPHQL_TOKEN: "late-token",
+    });
+
+    const [run] = await store.loadAllRuns();
+    expect(run?.environmentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(JSON.stringify(run)).not.toContain("late-token");
+    expect(
+      await store.loadRecentRunEvents(run?.runId ?? "", 20, run?.projectId)
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: "worker-credential-missing" }),
+      ])
+    );
+    const workspaceKey = (
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    )[0]?.workspaceKey;
+    const repositoryPath = join(
+      resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey ?? ""
+      ),
+      "repository"
+    );
+    await expect(
+      readFile(join(repositoryPath, ".before_run_input"), "utf8")
+    ).resolves.toBe("visible-before-refresh\n");
+  });
+
+  it("records a spawn-time event when no worker credential resolves", async () => {
     const originalBrokerUrl = process.env.GITHUB_TOKEN_BROKER_URL;
     const originalBrokerSecret = process.env.GITHUB_TOKEN_BROKER_SECRET;
     process.env.GITHUB_GRAPHQL_TOKEN = "tracker-list-token";
@@ -16735,19 +16799,27 @@ Prefer focused changes.
       });
 
       const snapshot = await service.runOnce();
-      const nextSnapshot = await service.runOnce();
 
-      expect(spawnImpl).not.toHaveBeenCalled();
-      expect(await store.loadAllRuns()).toEqual([]);
-      expect(snapshot.summary).toMatchObject({ dispatched: 0, skipped: 1 });
-      expect(snapshot.warnings).toEqual([
-        "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it.",
-      ]);
-      expect(nextSnapshot.warnings).toEqual(snapshot.warnings);
-      expect(stderrWrite).toHaveBeenCalledWith(
-        expect.stringContaining("Dispatch skipped for acme/platform#1")
+      expect(spawnImpl).toHaveBeenCalledTimes(1);
+      const [run] = await store.loadAllRuns();
+      expect(run).toBeDefined();
+      expect(snapshot.summary).toMatchObject({ dispatched: 1, skipped: 0 });
+      expect(snapshot.warnings).toEqual([]);
+      expect(
+        await store.loadRecentRunEvents(run!.runId, 20, run!.projectId)
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "worker-credential-missing" }),
+        ])
       );
-      expect(stderrWrite).toHaveBeenCalledTimes(1);
+      expect(stderrWrite).toHaveBeenCalledWith(
+        expect.stringContaining("No worker credential resolved")
+      );
+      expect(
+        stderrWrite.mock.calls.filter(([message]) =>
+          String(message).includes("No worker credential resolved")
+        )
+      ).toHaveLength(1);
     } finally {
       if (originalBrokerUrl === undefined) {
         delete process.env.GITHUB_TOKEN_BROKER_URL;

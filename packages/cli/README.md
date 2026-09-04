@@ -295,6 +295,10 @@ Symphony-specific values belong in the project folder's `.env`, which is merged
 before the daemon environment and Symphony-injected run context. A repository's
 own `.env` remains application-owned and is never loaded by Symphony.
 
+The project `.env` is read at each consumption point. Approved workspace hooks
+may update it, and the worker spawned after those hooks observes the same-run
+update from one post-hook environment snapshot.
+
 If your hooks or worker runs need staging hosts, database URLs, Playwright base
 URLs, or other runtime-only values, store them in the project `.env` instead of
 hardcoding them in `WORKFLOW.md`.
