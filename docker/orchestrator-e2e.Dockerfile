@@ -40,10 +40,6 @@ COPY --chown=node:node e2e/seed /e2e/seed
 # Initialize bare git repo for E2E
 RUN bash /e2e/seed/init-repo.sh
 
-# Prepare entrypoint
-COPY --chown=node:node e2e/seed/entrypoint.sh /e2e/entrypoint.sh
-RUN chmod +x /e2e/entrypoint.sh
-
 # Ensure fixtures directory exists
 RUN mkdir -p /e2e/fixtures /e2e/workspaces /e2e/evidence /e2e/repos && \
     chown -R node:node /e2e/fixtures /e2e/workspaces /e2e/evidence /e2e/repos
@@ -54,5 +50,3 @@ ENV NODE_ENV=production
 ENV SYMPHONY_WORKER_COMMAND="node /app/e2e/stub-worker.js"
 
 EXPOSE 4680
-
-ENTRYPOINT ["/e2e/entrypoint.sh"]

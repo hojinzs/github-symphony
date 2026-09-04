@@ -24,7 +24,7 @@ Start the runtime with `LINEAR_API_KEY` set and the `linear_graphql` worker tool
 ## Steps
 
 1. Create a sandbox Linear issue in `Todo`.
-2. Start `gh-symphony repo start --http 4680`.
+2. Start `gh-symphony project start --project-dir <path> --http 4680`.
 3. Trigger reconciliation with `curl -X POST http://localhost:4680/api/v1/refresh`.
 4. Verify the worker, not orchestrator coordination code, moves the issue from `Todo` to `In Progress` using `linear_graphql`.
 5. Keep a healthy worker active for at least three turn boundaries; after each boundary, inspect the run's tracker-state event and verify it reports a confirmed active state with a boolean `routable` value rather than an unsupported or unknown response.

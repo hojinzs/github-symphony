@@ -14,22 +14,8 @@ cleanup() {
 assert_docker_runtime_is_available
 trap cleanup EXIT
 
-"${COMPOSE[@]}" up -d --build >/dev/null
-healthy=false
-for _ in $(seq 1 30); do
-  if "${COMPOSE[@]}" exec -T symphony-e2e curl -sf http://localhost:4680/healthz >/dev/null; then
-    healthy=true
-    break
-  fi
-  sleep 1
-done
-if [ "$healthy" != true ]; then
-  echo "Timed out waiting for the E2E service health check." >&2
-  exit 1
-fi
-
 set +e
-output=$("${COMPOSE[@]}" exec -T symphony-e2e sh -lc '
+output=$("${COMPOSE[@]}" run --build --rm --no-deps --entrypoint sh symphony-e2e -lc '
   workflow=/tmp/flat-tracker-WORKFLOW.md
   printf "%s\\n" \
     "---" \

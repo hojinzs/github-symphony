@@ -2,9 +2,9 @@
 
 ## Repository command migration
 
-The `gh-symphony repo` command surface has been retired. Every `repo`
-subcommand now exits non-zero with migration guidance. Start a standalone
-project explicitly instead:
+The CLI now prints: “The `repo` command has been removed. Use
+`gh-symphony project start --project-dir <path>`.” Every removed `repo`
+subcommand exits non-zero. Start the project explicitly:
 
 ```bash
 gh-symphony project start --project-dir /path/to/project
@@ -94,11 +94,12 @@ If your `zsh` config does not already initialize completion, add this before the
 autoload -Uz compinit && compinit
 ```
 
-## 2. Set Repository
+## 2. Create a Project Folder
 
-Navigate to the repository you want to orchestrate, then run:
+Create a project folder outside the target repository, then run:
 
 ```bash
+mkdir my-symphony-project && cd my-symphony-project
 gh-symphony workflow init
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
@@ -111,7 +112,7 @@ The interactive wizard will:
 1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project** to bind
 3. Map project status columns to workflow phases (active / wait / terminal)
-4. Generate `WORKFLOW.md` and supporting files in the repository
+4. Generate `WORKFLOW.md` and supporting files in the project folder
 
 Project discovery is pagination-aware for larger GitHub accounts, so viewer projects plus organization-owned projects are collected across multiple API pages before the selection prompt. If a discovery safety cap is hit, the wizard keeps the partial list and prints a warning.
 
@@ -263,9 +264,9 @@ prints the normalized provider block for migration.
 
 Run `gh-symphony workflow validate` for local schema errors and warnings. Ignored `agent.max_concurrent_agents_by_state` entries warn with their paths and reasons, while valid entries in the same map remain active; `gh-symphony doctor` reports the same warning alongside live drift checks such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`. Strict front-matter failures use stable workflow error codes; `workflow validate --json` also emits the failing `error.path`.
 
-### Linear Tracker Repositories
+### Linear Tracker Projects
 
-For Linear, configure the tracker in `WORKFLOW.md` and initialize the repository runtime from the target GitHub repository:
+For Linear, configure the tracker in the project folder's `WORKFLOW.md`:
 
 ```yaml
 tracker:
@@ -283,21 +284,21 @@ Linear runs are polling-only. There is no webhook setup command. Put state trans
 gh-symphony workflow preview ENG-123
 ```
 
-### Repository `.env` Mapping
+### Project `.env` Mapping
 
-Symphony does not load the repository-root `.env`; that file remains owned by
-the application. `gh-symphony doctor` warns when it exists in repo mode.
-Symphony-specific values belong in the managed project `.env`, which is merged
-before the daemon environment and Symphony-injected run context.
+Symphony-specific values belong in the project folder's `.env`, which is merged
+before the daemon environment and Symphony-injected run context. A repository's
+own `.env` remains application-owned and is never loaded by Symphony.
 
-If your hooks or worker runs need staging hosts, database URLs, Playwright base URLs, or other runtime-only values, store them in the repository runtime directory instead of hardcoding them in `WORKFLOW.md`.
+If your hooks or worker runs need staging hosts, database URLs, Playwright base
+URLs, or other runtime-only values, store them in the project `.env` instead of
+hardcoding them in `WORKFLOW.md`.
 
-1. Initialize the repository runtime with `gh-symphony setup`.
-2. Create the runtime env file:
+1. Initialize the project folder with `gh-symphony setup`.
+2. Create the project env file:
 
 ```bash
-mkdir -p .runtime/orchestrator
-cat > .runtime/orchestrator/.env <<'EOF'
+cat > .env <<'EOF'
 STAGING_API_HOST=https://staging.example.com
 DATABASE_URL=postgres://user:pass@staging-db:5432/app
 PLAYWRIGHT_BASE_URL=http://localhost:3000
@@ -316,11 +317,12 @@ Env precedence during hook execution and worker spawn is:
 - system env as the override layer
 - Symphony context vars such as `SYMPHONY_*` as the highest-priority layer
 
-The repository runtime always lives under `.runtime/orchestrator/`.
+Cached runtime state lives under the configured Symphony directory; the
+project folder remains the source of truth.
 
-## 3. Set Orchestrator Runner (Repository)
+## 3. Set Up the Project Folder
 
-From inside the cloned repository that should run orchestration, initialize the workflow and repository runtime:
+From inside the project folder, initialize the workflow:
 
 ```bash
 gh-symphony setup
@@ -331,7 +333,7 @@ The interactive wizard will:
 1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project**
 3. Optionally limit processing to issues assigned to the authenticated user
-4. Write `WORKFLOW.md`, support files, and `.runtime/orchestrator/` in the repository
+4. Write `WORKFLOW.md` and support files in the project folder
 
 This wizard uses the same pagination-aware discovery path as `workflow init`, so it can enumerate large personal and organization-backed GitHub accounts more reliably. If the CLI stops at a safety limit, it warns that the visible project list may be incomplete.
 
@@ -352,16 +354,16 @@ export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 gh-symphony setup
 ```
 
-### Repository Management
+### Project Management
 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Apply safe fixes and guide/launch follow-up recovery commands
 gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
-gh-symphony setup                # Bind .runtime/orchestrator to the cwd repository
-gh-symphony project status --project-dir <path>              # Show current repository orchestration status
-gh-symphony project start --project-dir <path>               # Start this repository
-gh-symphony project stop --project-dir <path>                # Stop this repository
+gh-symphony setup                # Generate the cwd project configuration
+gh-symphony project status --project-dir <path>              # Show current project orchestration status
+gh-symphony project start --project-dir <path>               # Start this project
+gh-symphony project stop --project-dir <path>                # Stop this project
 ```
 
 `gh-symphony setup` generates `WORKFLOW.md` and support files in the cwd project folder. `project start --project-dir <path>` derives and refreshes runtime configuration from that folder on every start.
@@ -425,13 +427,16 @@ gh-symphony project start                # Derive WORKFLOW.md and start this fol
 gh-symphony project status               # Address this folder's runtime
 gh-symphony project stop
 gh-symphony project start --project-dir <projectDir>
-gh-symphony project list                 # List cached standalone projects
+gh-symphony project list                 # List cached projects
 gh-symphony doctor --project-dir <projectDir>
 ```
 
 ### Host Instances
 
-`gh-symphony instances` lists repository and standalone orchestrators registered on this host. Use `--json` for automation. A verified live cross-runtime duplicate is rejected by default; pass `--allow-duplicate` to `project start` only when intentional isolation is required.
+`gh-symphony instances` lists project orchestrators registered on this host. Use
+`--json` for automation. A verified live cross-runtime duplicate is rejected by
+default; pass `--allow-duplicate` to `project start` only when intentional
+isolation is required.
 
 ```bash
 gh-symphony instances
@@ -454,12 +459,16 @@ Without `--issue`, doctor auto-selects one active live issue from the managed pr
 
 `gh-symphony doctor --fix` extends the regular diagnostic flow with safe remediation and guided follow-up:
 
-When cwd is a standalone project folder whose runtime config was cached by `project start`, diagnostics resolve that project before the registry's `activeProject`. Explicit `doctor --project-dir <path>` or `workflow preview --project-id <projectId>` selection wins over cwd; outside such a standalone folder, `activeProject` remains the fallback.
+When cwd is a project folder whose runtime config was cached by `project start`,
+diagnostics resolve that project before the registry's `activeProject`. Explicit
+`doctor --project-dir <path>` or `workflow preview --project-id <projectId>`
+selection wins over cwd; outside such a folder, `activeProject` remains the
+fallback.
 
 - creates missing config/runtime/workspace directories
 - launches `gh auth login` or `gh auth refresh` when a TTY is available, otherwise prints the exact command to run
 - launches `gh-symphony workflow init` when `WORKFLOW.md` is missing or invalid
-- launches `gh-symphony setup` when repository runtime setup or GitHub Project binding must be repaired
+- launches `gh-symphony setup` when project setup or GitHub Project binding must be repaired
 - prints concrete runtime install guidance when the configured command is missing on `PATH`
 
 `gh-symphony doctor --bundle` creates a redacted support bundle for bug reports:
@@ -484,7 +493,7 @@ The diagnostic checks cover:
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
 - Git installation availability on `PATH`, including `git --version` when available
 - GitHub authentication via `GITHUB_GRAPHQL_TOKEN` or `gh`, including required scopes
-- repository runtime selection plus GitHub Project binding resolution
+- project runtime selection plus GitHub Project binding resolution
 - runtime/workspace path writability
 - repository `WORKFLOW.md` presence and parse validity
 - runtime command availability on `PATH`
@@ -506,7 +515,7 @@ JSON output includes the resolved auth source as `env` or `gh`.
 
 ```
 Setup:
-  setup               Generate WORKFLOW.md and initialize the cwd repository runtime
+  setup               Generate WORKFLOW.md and initialize the cwd project
   workflow init       Interactive repository setup wizard
   workflow validate   Parse and strictly validate WORKFLOW.md
   workflow preview    Render the final worker prompt from a sample or live issue
@@ -518,12 +527,12 @@ Setup:
 Orchestration (host):
   instances           List registered orchestrator instances on this host
 
-Orchestration (standalone project):
-  project list        List cached standalone projects as JSON
+Orchestration (project):
+  project list        List cached projects as JSON
   project start       Start the cwd project folder (`project start --help` lists runtime flags)
   project status      Show the cwd project folder's status
   project stop        Stop the cwd project folder's daemon
-  --project-dir <dir> Address an explicit standalone project folder
+  --project-dir <dir> Address an explicit project folder
 
 Global Options:
   --config <dir>      Config directory (default: initialized cwd runtime, then ~/.gh-symphony)

@@ -3,7 +3,7 @@
 ## Setup
 
 `pnpm e2e:standalone-project` creates `project-alpha` and `project-beta`, which reference the same
-local seed repository, in a one-shot container that bypasses the entrypoint. Each folder contains
+local seed repository in a one-shot container. Each folder contains
 `WORKFLOW.md`, `.mcp.json`, `.env`, and `.agent/skills/<name>/SKILL.md`.
 
 ## Steps

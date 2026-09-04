@@ -32,18 +32,15 @@ the effective `workflow.revision` (a short SHA-256-derived identifier) and
 values. See [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md) for
 the decision and scope.
 
-Human-readable `gh-symphony repo status`, `gh-symphony project status`, and
-their `--watch` dashboards show the applied revision; `--json` exposes the
-same metadata for automation.
+Human-readable `gh-symphony project status` and its `--watch` dashboard show
+the applied revision; `--json` exposes the same metadata for automation.
 
 ### Tracker provider binding and live reload
 
-`repo init` writes the runtime's selected tracker adapter and repository/project
-binding to `config.json` and its project record. Changing that binding — for
-example, switching `tracker.kind`, moving to a different initialized project,
-or changing a runtime-owned provider path — requires running `gh-symphony repo
-init` again and restarting the daemon. A `WORKFLOW.md` edit never rewrites
-`config.json`.
+`project start` derives the runtime's selected tracker adapter and repository
+binding from the project folder. Changing that binding — for example, switching
+`tracker.kind` or changing a runtime-owned provider path — requires restarting
+the project. A `WORKFLOW.md` edit never rewrites cached runtime configuration.
 
 The workflow policy passed to the already-selected adapter is live-reloaded on
 every reconciliation tick: core `tracker.active_states`,
@@ -51,8 +48,8 @@ every reconciliation tick: core `tracker.active_states`,
 `blocker_check_states` and `planning_states` apply on the next tick. The
 remaining provider settings — `project_id` or `project_slug`, `endpoint`,
 `priority`, `priority_field_name`, and `pickup_labels` — are read from the
-project record that `repo init` wrote, so editing them in `WORKFLOW.md` has no
-effect until the runtime is initialized again and the daemon restarts. Existing
+cached project record, so editing them in `WORKFLOW.md` has no effect until the
+project restarts. Existing
 workers keep the policy and tracker dependencies captured for their own run.
 This is the same tick-based reload boundary described above, not a
 watcher-driven update.
@@ -131,7 +128,7 @@ can be corrected without changing dispatch behavior.
 ## Optional HTTP Server
 
 Set `server.port` in `WORKFLOW.md` to enable the HTTP status API on that port.
-`0` requests an ephemeral port. `gh-symphony repo start --port [port]` is the
+`0` requests an ephemeral port. `gh-symphony project start --port [port]` is the
 preferred CLI form and overrides `server.port`; `--http [port]` remains a
 supported alias. A configured or explicit CLI port fails startup when it is
 already occupied. A bare `--port` or `--http` keeps the legacy default-port
@@ -239,28 +236,13 @@ To tolerate a transient partial read while a bind-mounted fixture is being
 replaced, the adapter retries one JSON syntax failure once. A persistently
 malformed fixture still fails loudly rather than being treated as an empty tracker.
 
-## `GH_SYMPHONY_CONFIG_DIR` and Repository Runtimes
-
-`GH_SYMPHONY_CONFIG_DIR` (or `--config <dir>`) selects the shared CLI registry
-used by repository lifecycle commands. `gh-symphony repo init` always writes the
-repo-embedded runtime under `<repo>/.runtime/orchestrator`; when a config
-directory is explicitly selected, it also writes a repository-path-scoped project
-record and makes that record active under the directory. This keeps a subsequent
-`gh-symphony repo start` in the same environment consistent with initialization.
-Records for other repositories in the same shared directory are preserved; each
-subsequent `repo init` makes its own repository the active project.
-Without an explicit config directory, repository lifecycle commands use the
-repo-embedded runtime directly. The environment variable does not relocate the
-repository's orchestrator state.
-
 ## Standalone Projects
 
 `gh-symphony project start` runs the project folder in the working directory as
 an independent orchestration instance; `--project-dir <path>` names a different
 folder. The folder owns `WORKFLOW.md`, optional `.mcp.json`, `.env`, and
 `.agent/skills/`; the referenced repository remains unmodified. `WORKFLOW.md`
-must declare `repository.slug`, which is also what distinguishes a standalone
-project from a repository that embeds its own workflow. Configuration is derived
+must declare `repository.slug`. Configuration is derived
 from the folder on every start and cached under
 `<config-dir>/projects/<project-id>/`, where the project id is a stable function
 of the folder path — there is no registration step, and folder-addressed lifecycle does not rely
@@ -272,13 +254,8 @@ The cached `projectDir` is always absolute; persisted relative values are
 rejected instead of being resolved against the daemon working directory. Issue workspaces are
 created under the project's `workspace.root` (spec 9.1), resolved relative to
 the project folder and defaulting to `<project-dir>/.runtime/workspaces`; the
-directory is created with mode `0700` when it does not exist. Repo-embedded
-projects apply the same rule relative to the repository checkout. Their
-orchestrator state remains under `.runtime/orchestrator`, while populated issue
-workspaces live at `<workspace.root>/<sanitized-issue-identifier>`; when omitted,
-`workspace.root` defaults to `.runtime/symphony-workspaces`. `repo init` creates
-the resolved root with mode `0700`, and rejects a root that equals or contains
-the repository checkout. Each issue is
+directory is created with mode `0700` when it does not exist. Populated issue
+workspaces live at `<workspace.root>/<sanitized-issue-identifier>`. Each issue is
 populated from the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git`
 using a worktree. Branches default to
 `symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
@@ -298,38 +275,13 @@ clone. `gh-symphony cache status` inventories cache size and safety state;
 `gh-symphony cache prune` applies an operator-triggered 30-day default age
 policy and skips locked caches, linked worktrees, and unverifiable entries.
 
-### Repo-embedded workspace-root migration
+Changing `workspace.root` emits a `workspace-root-relocated` event and a stderr
+warning naming the previous and new paths before replacing the workspace
+record; inspect the previous path for work to recover or delete.
 
-After upgrading an existing repo-embedded installation, `repo stop` remains
-available for legacy metadata. Run it before `repo init` so project metadata records
-the repository checkout and `workspace.root` separately. Existing issue
-worktrees are not moved in place because their administrative paths are also
-recorded in the shared bare cache. Startup rejects legacy metadata that still
-uses `workspaceDir` as the repository checkout instead of risking workspace
-population inside that checkout. Use this recoverable one-time reset:
-
-```bash
-gh-symphony repo stop
-mv .runtime/orchestrator .runtime/orchestrator.pre-workspace-root
-gh-symphony repo init
-gh-symphony repo start
-```
-
-`repo init --workflow-file <path>` stores the resolved absolute path as the repository workflow source. Both `repo start` and `project start` validate that configured workflow before daemon startup; an invalid workflow exits with a clear preflight error instead of repeatedly failing dispatch ticks.
-
-The first dispatch re-populates worktrees beneath the configured root. Keep the
-archived directory until needed branches or uncommitted files have been
-recovered; then remove it. Archiving the state and its cache together avoids
-leaving stale `git worktree` registrations behind. If no reusable workspace
-state exists, simply stopping, re-running `repo init`, and starting is enough.
-If `workspace.root` is changed again later, dispatch emits both a structured
-`workspace-root-relocated` event and a stderr warning naming the previous and
-new paths before replacing the workspace record; inspect the previous path for
-work to recover or delete.
-
-When a standalone project targets a repository that also commits its own
+When a project targets a repository that also commits its own
 `WORKFLOW.md`, the status surface reports a shadow warning naming the
-repository. The repository file is never executed — only the registered project
+repository. The repository file is never executed — only the project-folder
 policy is. The check reads the shared bare cache rather than the working
 directory, so it reflects the repository as of the cache's last fetch and
 catches up on the next issue populate.
@@ -445,16 +397,9 @@ Linear requires `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`. `doctor` applies
 the GitHub adapter's same project-first selection and reports the managed
 project `.env` path when remediation is required.
 
-For standalone projects, the project `.env` lives in the registered external
-project folder. For registry-backed or repo-embedded projects it lives at
-`<config-dir>/projects/<project-id>/.env` (or the default config directory
-when no `--config <dir>`/`GH_SYMPHONY_CONFIG_DIR` override is set).
-
-This managed project `.env` is Symphony's only `.env` source. Symphony does
-not load `<repository>/.env`; that file remains application-owned even when the
-daemon is started from the repository. In repo mode, `gh-symphony doctor`
-warns when the repository-root file exists and points operators to the managed
-project file. Each worker host is also spawned from its run-scoped runtime
+The project `.env` lives in the project folder and is Symphony's only `.env`
+file source. Symphony does not load `<repository>/.env`; that file remains
+application-owned. Each worker host is spawned from its run-scoped runtime
 directory rather than inheriting the daemon's working directory.
 
 ## Auth And API Endpoints
@@ -473,7 +418,7 @@ operator's credential stores.
 | `GITHUB_GRAPHQL_TOKEN`   | unset                                                                                                            | CLI, orchestrator, GitHub tracker, worker host tools and Git transport | User-facing                                         | Token-only GitHub auth source. Requires `repo`, `read:org`, and `project` scopes. Not inherited by agent children by default.                                       |
 | `GITHUB_GRAPHQL_API_URL` | unset; GitHub tooling falls back to the public GitHub GraphQL endpoint unless tracker config injects an endpoint | CLI doctor, Codex runtime, Claude runtime                              | User-facing, GHES                                   | Process-level GraphQL endpoint override. For GHES, prefer `tracker.provider.endpoint` in `WORKFLOW.md`; if both are set, keep them identical.                       |
 | `GITHUB_PROJECT_ID`      | unset; injected from project config for workers                                                                  | Codex runtime, Claude runtime                                          | Internal unless running a runtime launcher manually | Passed to GitHub GraphQL tooling so agent tools can target the active Project.                                                                                      |
-| `LINEAR_API_KEY`         | unset                                                                                                            | CLI, Linear tracker, worker host tools                                 | User-facing for Linear tracker projects             | Required for Linear repo startup. Retained at the host boundary and not inherited by agent children by default.                                                     |
+| `LINEAR_API_KEY`         | unset                                                                                                            | CLI, Linear tracker, worker host tools                                 | User-facing for Linear tracker projects             | Required for Linear project startup. Retained at the host boundary and not inherited by agent children by default.                                                  |
 | `LINEAR_AUTHORIZATION`   | unset                                                                                                            | Linear tracker, worker host tools                                      | Advanced                                            | Optional raw Linear authorization value for host-side Linear operations; it takes priority over `LINEAR_API_KEY` and is not inherited by agent children by default. |
 | `LINEAR_GRAPHQL_URL`     | `https://api.linear.app/graphql` when the Linear tool is enabled                                                 | Codex runtime, Claude runtime                                          | User-facing for Linear Enterprise/proxy setups      | Overrides the Linear GraphQL endpoint.                                                                                                                              |
 
@@ -573,9 +518,9 @@ and remove it as soon as the command's required inputs can be declared.
 It is valid only with `runtime.kind: custom`; other runtime kinds fail workflow
 validation rather than silently ignoring it.
 
-## CLI And Repository Runtime
+## CLI And Project Runtime
 
-These variables affect the local `gh-symphony` process or repository runtime
+These variables affect the local `gh-symphony` process or project runtime
 layout.
 
 | Variable                               | Default                                                                                       | Read by                       | Audience           | Notes                                                                                                                                                                                                                                                                                   |
@@ -583,7 +528,7 @@ layout.
 | `GH_SYMPHONY_CONFIG_DIR`               | CLI default config directory; official container sets `/var/lib/gh-symphony`                  | CLI                           | User-facing/ops    | Overrides the global runtime config directory. `--config <dir>` takes precedence. It also selects the explicit global `instances/` registry namespace; `--config` alone never splits that index.                                                                                        |
 | `GH_SYMPHONY_INSTANCES_DIR`            | `${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances`                                         | CLI daemon + `instances`      | User-facing/ops    | Host-global instance registry namespace. Captured before a `--config` runtime override and inherited by daemon children.                                                                                                                                                                |
 | `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` | unset                                                                                         | CLI file tracker              | Internal/E2E       | Compatibility fallback for a file workflow without `tracker.provider.path`; provider paths may also use this variable or another environment reference. Not needed for GitHub or Linear trackers.                                                                                       |
-| `GH_SYMPHONY_HTTP_TOKEN`               | random per `repo start` process                                                               | CLI HTTP servers              | User-facing/ops    | Shared bearer secret for all `/api/v1/*` routes. Set this for scripts, daemon clients, or a stable dashboard URL.                                                                                                                                                                       |
+| `GH_SYMPHONY_HTTP_TOKEN`               | random per `project start` process                                                            | CLI HTTP servers              | User-facing/ops    | Shared bearer secret for all `/api/v1/*` routes. Set this for scripts, daemon clients, or a stable dashboard URL.                                                                                                                                                                       |
 | `SYMPHONY_EVENTS_DIR`                  | runtime-managed event storage                                                                 | Orchestrator package CLI      | User-facing/ops    | Optional override for where orchestrator events are written.                                                                                                                                                                                                                            |
 | `SYMPHONY_LOG_LEVEL`                   | `normal`                                                                                      | CLI, orchestrator package CLI | User-facing/ops    | Supports `normal` and `verbose`. CLI flags override the env value.                                                                                                                                                                                                                      |
 | `SYMPHONY_WORKER_COMMAND`              | auto-resolved `@gh-symphony/worker`, bundled worker entry, then `gh-symphony-worker` fallback | Orchestrator                  | User-facing/ops    | Shell command used to start worker processes. Useful for local E2E, debugging, or custom worker wrappers. The command runs from the run-scoped runtime directory, so use an absolute path or one derived from `$WORKING_DIRECTORY`; repository-relative wrapper paths are not resolved. |
@@ -685,9 +630,8 @@ New issue workspaces preserve readable sanitized identifiers and append a stable
 64-bit SHA-256 suffix whenever sanitization changes the identifier, for example
 `acme/platform#42` becomes `acme_platform_42-cbb20472b0ece3db`. Existing
 suffixless workspace directories are checked after the new key and are reused
-in place; Symphony does not rename directories. `gh-symphony repo status` and
-`repo explain` display `workspace key: legacy` when a suffixless directory is
-being reused.
+in place; Symphony does not rename directories. `gh-symphony project status`
+displays `workspace key: legacy` when a suffixless directory is being reused.
 
 The `In review` → `Land` move is a human-owned project-board transition that happens before the Land worker is dispatched. The worker must not synthesize a no-op `Land` → `Land` request or publish a duplicate comment for that external trigger; the orchestrator-owned publication guarantee applies to transitions requested through `/gh-project`.
 

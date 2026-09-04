@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This bypasses the repo-embedded entrypoint and dispatches two folder-addressed
-# standalone projects once against the same local seed repository.
+# Dispatch two folder-addressed projects once against the same local seed
+# repository.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/e2e/lib/compose-project.sh"
 configure_e2e_compose_project "$ROOT_DIR"

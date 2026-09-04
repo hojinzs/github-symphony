@@ -1,7 +1,7 @@
 # GitHub Symphony
 
-> **CLI migration:** the `gh-symphony repo` surface is retired. Use
-> `gh-symphony project start --project-dir <path>`; see the
+> **CLI migration:** “The `repo` command has been removed. Use
+> `gh-symphony project start --project-dir <path>`.” See the
 > [CLI migration note](packages/cli/README.md#repository-command-migration),
 > including the required daemon restart after upgrading.
 
@@ -42,9 +42,9 @@ Prerequisites: Node.js 24+, Git, GitHub auth with `repo`, `read:org`, and `proje
 npm install -g @gh-symphony/cli
 gh-symphony doctor
 
-cd your-repo
+mkdir my-symphony-project && cd my-symphony-project
 gh-symphony setup
-gh-symphony project start --project-dir <path> --once
+gh-symphony project start --project-dir "$PWD" --once
 ```
 
 If `doctor` reports missing prerequisites, run `gh-symphony doctor --fix` for safe local remediation guidance. After the one-shot run succeeds, start continuous orchestration with:
@@ -101,10 +101,10 @@ auto-injected worker variables, see
 
 ### 2. Run Setup
 
-Navigate to the repository you want to orchestrate, then run:
+Create a project folder outside the target repository, then run:
 
 ```bash
-cd your-repo
+mkdir my-symphony-project && cd my-symphony-project
 gh-symphony setup
 ```
 
@@ -113,7 +113,7 @@ The one-command setup flow will:
 1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project**
 3. Map project status columns to workflow phases (active / wait / terminal)
-4. Configure the repository runtime for the orchestrator
+4. Configure the project folder for the orchestrator
 5. Generate the following files:
 
 | File                                    | Description                                                       |
@@ -121,7 +121,8 @@ The one-command setup flow will:
 | `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
 | `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
 
-Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the repository runtime that will be saved under `.runtime/orchestrator/`.
+Before writing anything, the interactive wizard shows a final summary of the
+project folder and generated workflow.
 
 Non-interactive mode:
 
@@ -226,12 +227,13 @@ If the issue does not dispatch, inspect `project status --watch`, the dashboard,
 
 ## Advanced Setup Options
 
-### Repository Workflow Only
+### Workflow Only
 
-Use `workflow init` when you want to generate or update repository workflow files without running the full repository runtime setup:
+Use `workflow init` when you want to generate or update project workflow files
+without running the full setup:
 
 ```bash
-cd your-repo
+cd my-symphony-project
 gh-symphony workflow init
 ```
 
@@ -355,26 +357,34 @@ export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 gh-symphony setup
 ```
 
-### Repository Commands
+### Project Commands
 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Create safe missing paths and print/run remediation follow-ups
 gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
 gh-symphony doctor --bundle          # Export a redacted support bundle for bug reports
-gh-symphony setup                # Bind .runtime/orchestrator to the cwd repository
-gh-symphony project status --project-dir <path>              # Show current repository orchestration status
-gh-symphony project start --project-dir <path>               # Start this repository
-gh-symphony project start --project-dir <path> --once        # Run one orchestration tick for this repository
-gh-symphony project stop --project-dir <path>                # Stop this repository
+gh-symphony setup                # Generate the cwd project configuration
+gh-symphony project status --project-dir <path>              # Show project orchestration status
+gh-symphony project start --project-dir <path>               # Start this project
+gh-symphony project start --project-dir <path> --once        # Run one orchestration tick
+gh-symphony project stop --project-dir <path>                # Stop this project
 gh-symphony cache status             # Inspect shared bare caches, sizes, locks, and worktrees
 gh-symphony cache prune --dry-run    # Preview 30-day cache eviction
 gh-symphony cache prune --max-age-days 30 # Remove old idle caches safely
 ```
 
-### Standalone Projects
+### Projects
 
-A standalone project is a project folder used as an independent orchestration instance, decoupled from the repository it targets. The folder owns `WORKFLOW.md` (which must declare `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository itself stays unmodified. Issue workspaces are created under the project's `workspace.root`, relative to the project folder and defaulting to `<project-dir>/.runtime/workspaces`. Issue workspaces are populated as worktrees from a shared bare clone cache, and branches default to `symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the same repository without branch collisions.
+A project folder is an independent orchestration instance, decoupled from the
+repository it targets. The folder owns `WORKFLOW.md` (which must declare
+`repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and
+`.agent/skills/`; the referenced repository itself stays unmodified. Issue
+workspaces are created under the project's `workspace.root`, relative to the
+project folder and defaulting to `<project-dir>/.runtime/workspaces`. They are
+populated as worktrees from a shared bare clone cache, and branches default to
+`symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the
+same repository without branch collisions.
 
 If cache storage is unavailable or lock acquisition times out, workspace population falls back to an isolated direct clone. Cache locks heartbeat during long clone/fetch operations. Cleanup is operator-driven: `cache prune` defaults to entries at least 30 days old and skips every locked cache, linked worktree, or cache whose worktree state cannot be verified.
 
@@ -383,8 +393,8 @@ cd <projectDir> && gh-symphony project start   # Start the project in this folde
 gh-symphony project start --project-dir <dir>  # ...or name the folder explicitly
 gh-symphony project status                     # Status for the project in this folder
 gh-symphony project stop                       # Stop its daemon
-gh-symphony project list                       # List cached standalone projects (with live instance metadata when available)
-gh-symphony instances --json                    # List active repository and standalone instances
+gh-symphony project list                       # List cached projects (with live instance metadata when available)
+gh-symphony instances --json                    # List active project instances
 ```
 
 The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--allow-duplicate`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. `--assigned-only` is input to the tracker adapter's `dispatchable` derivation; the scheduler consumes that normalized eligibility result rather than interpreting provider-specific assignment rules. A verified live instance for the same project in another runtime is rejected by default; use `--allow-duplicate` only for intentional isolation. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.provider.pickup_labels.include`, which GitHub and Linear apply as an any-match candidate pre-filter. `tracker.required_labels` is separate: every configured label must remain present for an issue to be routable, including between worker turns. Label comparison is case-insensitive and ignores surrounding whitespace, so `Agent`, `agent`, and `" AGENT "` are the same label. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
@@ -394,7 +404,7 @@ The project folder is the source of truth and the address: every command derives
 The official image is designed for headless orchestration and defaults to:
 
 - image: `ghcr.io/hojinzs/github-symphony:<tag>`
-- repository runtime volume: `<repo>/.runtime/orchestrator`
+- project folder mount: `/project`
 - default command: `gh-symphony project start --project-dir <path>`
 - runtime user: `symphony` (`UID:GID 1000:1000`)
 
@@ -410,7 +420,7 @@ containerized workers.
 
 Supported volume mounts:
 
-- a cloned repository directory: persists `WORKFLOW.md` and `.runtime/orchestrator/` across restarts
+- a project folder: persists `WORKFLOW.md`, `.env`, optional skills, and runtime state across restarts
 
 Named Docker volumes work as-is. If you use a host bind mount such as `-v ./data:/var/lib/gh-symphony`, the host directory must be writable by `UID:GID 1000:1000` or the container will fail to persist state.
 
@@ -432,28 +442,27 @@ docker run --rm -it \
   gh-symphony project start --project-dir <path> --once
 ```
 
-Initialize the repository runtime from inside the mounted repository once:
+Initialize the mounted project folder once:
 
 ```bash
 docker run --rm -it \
   -e GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
-  -v "$(pwd):/repo" \
-  -w /repo \
+  -v "$(pwd):/project" \
+  -w /project \
   ghcr.io/hojinzs/github-symphony:latest \
   gh-symphony setup --non-interactive
 ```
 
-Then start the long-running orchestrator from the initialized repository. The image
-default command is `gh-symphony project start --project-dir <path>`, so the mounted working directory must
-already contain `WORKFLOW.md` and the repository runtime config created by setup.
+Then start the long-running orchestrator from the initialized project folder.
+The mounted directory must already contain the generated `WORKFLOW.md`.
 
 ```bash
 docker run -d \
   --name gh-symphony \
   --restart unless-stopped \
   -e GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
-  -v "$(pwd):/repo" \
-  -w /repo \
+  -v "$(pwd):/project" \
+  -w /project \
   ghcr.io/hojinzs/github-symphony:latest
 ```
 
@@ -519,11 +528,11 @@ instead of failing the export.
 
 Use `gh-symphony project status --project-dir <path> --watch`, `gh-symphony doctor --smoke`, and `gh-symphony workflow preview` to inspect an idle Project issue.
 
-### Repository Runtime
+### Project Runtime
 
 `gh-symphony setup` generates `WORKFLOW.md` and its support files in the cwd project folder. `project start --project-dir <path>` derives and refreshes runtime configuration from that folder on every start.
 
-For Linear tracker repositories, `WORKFLOW.md` remains the source of truth:
+For Linear tracker projects, `WORKFLOW.md` remains the source of truth:
 
 ```yaml
 tracker:
@@ -562,7 +571,11 @@ gh-symphony config edit             # Open config in $EDITOR
 
 `gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony project start --project-dir <path> --once`: it resolves the active managed project, reads a target issue through the configured tracker integration, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker. GitHub projects retain the GitHub Project read path and require `owner/repo#number` for explicit issues; Linear projects read through the Linear adapter, use identifiers such as `DEV-54`, and do not require a GitHub Project binding.
 
-When cwd is a standalone project folder whose runtime config was cached by `project start`, `doctor` and live `workflow preview` diagnose that project even if another registry project is active. Explicit `--project-dir <path>` (`doctor`) or `--project-id <projectId>` (`workflow preview`) selection wins over cwd; outside such a standalone folder, diagnostics fall back to the registry's `activeProject`.
+When cwd is a project folder whose runtime config was cached by `project start`,
+`doctor` and live `workflow preview` diagnose that project even if another
+registry project is active. Explicit `--project-dir <path>` (`doctor`) or
+`--project-id <projectId>` (`workflow preview`) selection wins over cwd;
+outside such a folder, diagnostics fall back to the registry's `activeProject`.
 
 Use an explicit issue when you want a deterministic check:
 
@@ -579,7 +592,7 @@ Without `--issue`, doctor auto-selects one active live issue from the managed pr
 - create missing config, runtime, and workspace directories
 - launch `gh auth login` / `gh auth refresh` in TTY environments, or print the exact command in non-interactive environments
 - launch `gh-symphony workflow init` when `WORKFLOW.md` is missing or invalid
-- launch `gh-symphony setup` when the repository runtime or GitHub Project binding must be reconfigured
+- launch `gh-symphony setup` when the project configuration or GitHub Project binding must be reconfigured
 - print environment-specific runtime install guidance when the configured command is missing from `PATH`
 
 The diagnostic checks cover:
@@ -587,9 +600,9 @@ The diagnostic checks cover:
 - the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes (`repo`, `read:org`, `project`)
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
 - Git installation availability on `PATH`, including `git --version` when available
-- repository runtime resolution and GitHub Project binding lookup
-- runtime root and repository workspace writability
-- repository `WORKFLOW.md` presence and parse validity
+- project runtime resolution and GitHub Project binding lookup
+- runtime root and workspace writability
+- project `WORKFLOW.md` presence and parse validity
 - configured runtime command availability on `PATH`
 - with `--smoke`: linked repository readiness, live issue readability, strict prompt rendering, and hook path resolution
 
@@ -668,7 +681,7 @@ tracker:
     project_id: PVT_xxx
 ```
 
-Then initialize and validate the repository runtime:
+Then initialize and validate the project:
 
 ```bash
 export GITHUB_GRAPHQL_TOKEN=ghp_your_enterprise_token
@@ -770,7 +783,7 @@ without writing anything.
 
 When `gh-symphony workflow init` detects repository validation entry points, it bakes that information back into the generated policy files so the out-of-the-box workflow already tells agents which test/lint/build commands to prefer and whether workspace-aware validation is expected. That includes non-Node repositories when the detector can prove a conservative command from `Makefile`, `justfile`, Python tooling, `go.mod`, or `Cargo.toml`.
 
-Without a project (standalone):
+With an explicit output path:
 
 ```bash
 gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.md
@@ -789,11 +802,8 @@ The orchestrator resolves the workflow policy using this fallback chain:
 2. **Project WORKFLOW.md** — if the repository has no `WORKFLOW.md`, fall back to the project-level `WORKFLOW.md`.
 3. **Hardcoded defaults** — if neither file exists, use built-in defaults (`Todo`, `In Progress` as active; `Done` as terminal; blocker checks enabled for `Todo`; planning states disabled).
 
-This means you can:
-
-- Run without any `WORKFLOW.md` and rely on defaults
-- Use a single project-level `WORKFLOW.md` for all repositories
-- Override per-repository by committing a `WORKFLOW.md` to the repo root
+Projects may run without a `WORKFLOW.md` and rely on defaults. When present,
+the project folder's `WORKFLOW.md` is the policy source.
 
 ### Environment Variables
 
@@ -804,18 +814,14 @@ worker, and runtimes, see
 
 #### Project `.env` File
 
-For project-specific secrets or staging settings, place a `.env` file under the orchestrator runtime project directory instead of committing values into `WORKFLOW.md` or repository scripts.
-
-Symphony never loads the repository-root `.env`; it is reserved for the
-application. In repo mode, `gh-symphony doctor` warns when that file exists and
-directs Symphony-specific values to the managed project `.env` below.
-
-- Default path: `~/.gh-symphony/projects/<project-id>/.env`
-- If you run the CLI with a custom `--config <dir>`, the path becomes `<dir>/projects/<project-id>/.env`
-- The file is loaded as base env for workspace hooks and worker processes
+For project-specific secrets or staging settings, place a `.env` file in the
+project folder instead of committing values into `WORKFLOW.md` or repository
+scripts. Symphony never loads the target repository's `.env`; it is reserved
+for the application. The project `.env` is the base environment for workspace
+hooks and worker processes.
 
 ```bash
-# ~/.gh-symphony/projects/my-project/.env
+# /path/to/project/.env
 STAGING_API_HOST=https://staging.example.com
 PLAYWRIGHT_BASE_URL=http://localhost:3000
 API_SECRET_KEY=sk-secret-xxx
@@ -901,12 +907,12 @@ pnpm --filter @gh-symphony/orchestrator start -- recover
 pnpm --filter @gh-symphony/orchestrator start -- status
 ```
 
-Runtime state lives under `.runtime/orchestrator/`:
+Cached runtime state lives under the configured Symphony directory:
 
 | Path                          | Contents                                     |
 | ----------------------------- | -------------------------------------------- |
-| `project.json`                | Repository runtime metadata                  |
-| `config.json`                 | Active repository runtime pointer            |
+| `project.json`                | Project runtime metadata                     |
+| `config.json`                 | Active project runtime pointer               |
 | `leases.json`                 | Active or released issue-phase leases        |
 | `status.json`                 | Latest repository status snapshot            |
 | `runs/<run-id>/run.json`      | Run snapshot, retry state, worker assignment |
@@ -946,9 +952,9 @@ the worker-owned loopback endpoint and its per-run capability. The host-owned
 transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
 At dispatch, tracker adapters resolve host-only credentials from the tenant's
-project `.env` before the daemon environment. This lets repo-mode workers use
-the daemon-resolved tracker identity for host tools and Git transport without
-restoring blanket environment inheritance.
+project `.env` before the daemon environment. Workers use that daemon-resolved
+tracker identity for host tools and Git transport without restoring blanket
+environment inheritance.
 GitHub and Linear workers fail startup before launching an agent when this
 effective environment has no provider credential. Candidate dispatch is also
 skipped when the orchestrator can determine the credential is missing, and

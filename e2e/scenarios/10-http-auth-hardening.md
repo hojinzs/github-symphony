@@ -10,7 +10,7 @@ curl --fail --retry-all-errors --retry 20 --retry-delay 2 \
   http://localhost:4680/healthz
 ```
 
-The Docker entrypoint uses `--bind-all` because publishing a container port is
+The Docker test process uses `--bind-all` because publishing a container port is
 an explicit all-interface opt-in. Unit tests cover the production default
 `127.0.0.1` binding without that flag.
 
