@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { isAbsolute, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import {
   loadGlobalConfig,
   loadProjectConfig,
@@ -26,7 +26,6 @@ export type ManagedProjectResolution =
         | "missing_global_config"
         | "no_projects"
         | "requested_project_missing"
-        | "active_project_missing"
         | "configured_project_missing"
         | "multiple_projects_require_selection";
       message: string;
@@ -67,36 +66,6 @@ async function loadStandaloneProjectFromCwd(
     return { projectId, projectConfig };
   }
   return null;
-}
-
-async function loadRepositoryProjectFromCwd(
-  configDir: string,
-  cwd: string,
-  projectIds: readonly string[]
-): Promise<{ projectId: string; projectConfig: CliProjectConfig } | null> {
-  const resolvedCwd = resolve(cwd);
-  let bestMatch: { projectId: string; projectConfig: CliProjectConfig } | null =
-    null;
-  for (const projectId of projectIds) {
-    const projectConfig = await loadProjectConfig(configDir, projectId);
-    if (!projectConfig?.repositoryDir) {
-      continue;
-    }
-    const repositoryDir = resolve(projectConfig.repositoryDir);
-    const pathToCwd = relative(repositoryDir, resolvedCwd);
-    const containsCwd =
-      pathToCwd === "" ||
-      (!pathToCwd.startsWith("..") && !isAbsolute(pathToCwd));
-    if (
-      containsCwd &&
-      (!bestMatch ||
-        repositoryDir.length >
-          resolve(bestMatch.projectConfig.repositoryDir!).length)
-    ) {
-      bestMatch = { projectId, projectConfig };
-    }
-  }
-  return bestMatch;
 }
 
 export async function inspectManagedProjectSelection(
@@ -148,35 +117,6 @@ export async function inspectManagedProjectSelection(
     };
   }
 
-  const cwdRepository = await loadRepositoryProjectFromCwd(
-    input.configDir,
-    input.cwd ?? process.cwd(),
-    projectIds
-  );
-  if (cwdRepository) {
-    return { kind: "resolved", ...cwdRepository };
-  }
-
-  if (global.activeProject) {
-    const projectConfig = await loadProjectConfig(
-      input.configDir,
-      global.activeProject
-    );
-    if (!projectConfig) {
-      return {
-        kind: "active_project_missing",
-        projectId: global.activeProject,
-        message: `Active project "${global.activeProject}" is configured in config.json but its project config is missing. ${projectConfigRemediation()}`,
-      };
-    }
-
-    return {
-      kind: "resolved",
-      projectId: global.activeProject,
-      projectConfig,
-    };
-  }
-
   if (projectIds.length === 1) {
     const projectId = projectIds[0]!;
     const projectConfig = await loadProjectConfig(input.configDir, projectId);
@@ -215,21 +155,8 @@ export async function resolveManagedProjectConfig(
     return null;
   }
 
-  const cwdRepository = await loadRepositoryProjectFromCwd(
-    input.configDir,
-    input.cwd ?? process.cwd(),
-    projectIds
-  );
-  if (cwdRepository) {
-    return cwdRepository.projectConfig;
-  }
-
   if (projectIds.length === 1) {
     return loadProjectConfig(input.configDir, projectIds[0]!);
-  }
-
-  if (global?.activeProject) {
-    return loadProjectConfig(input.configDir, global.activeProject);
   }
 
   if (!isInteractiveTerminal()) {

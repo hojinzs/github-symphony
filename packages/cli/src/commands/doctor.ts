@@ -651,14 +651,12 @@ async function buildRepositoryEnvironmentCheck(
   projectConfig: CliProjectConfig,
   deps: Pick<DoctorDependencies, "stat">
 ): Promise<DoctorCheckResult | null> {
-  if (
-    projectConfig.workflowSource?.type === "external" ||
-    !projectConfig.repositoryDir
-  ) {
+  const repositoryDir = projectConfig.repository?.path;
+  if (projectConfig.workflowSource?.type === "external" || !repositoryDir) {
     return null;
   }
 
-  const envPath = join(projectConfig.repositoryDir, ".env");
+  const envPath = join(repositoryDir, ".env");
   try {
     await deps.stat(envPath);
     return warnCheck(

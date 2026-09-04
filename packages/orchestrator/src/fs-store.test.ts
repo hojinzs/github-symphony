@@ -57,7 +57,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     }
   });
 
-  it("defaults legacy project configs to repository workflows and cloning", async () => {
+  it("loads legacy project configs with removed fields ignored", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
     const projectDir = store.projectDir("project-1");
@@ -68,39 +68,21 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         projectId: "project-1",
         slug: "project-1",
         workspaceDir: "/tmp/workspaces/project-1",
+        repositoryDir: "/repos/acme",
         repository: { owner: "acme", name: "repo" },
         tracker: { adapter: "file", bindingId: "file-project-1" },
+        workflowSource: { type: "repo" },
+        populateStrategy: "clone",
       }),
       "utf8"
     );
 
     await expect(store.loadProjectConfig("project-1")).resolves.toEqual(
-      expect.objectContaining({
-        workflowSource: { type: "repo" },
-        populateStrategy: "clone",
+      expect.not.objectContaining({
+        repositoryDir: expect.anything(),
+        workflowSource: expect.anything(),
+        populateStrategy: expect.anything(),
       })
-    );
-  });
-
-  it("rejects legacy repo configs that use workspaceDir as the checkout", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
-    const store = new OrchestratorFsStore(runtimeRoot);
-    const projectDir = store.projectDir("project-1");
-    await mkdir(projectDir, { recursive: true });
-    await writeFile(
-      join(projectDir, "project.json"),
-      JSON.stringify({
-        projectId: "project-1",
-        slug: "project-1",
-        workspaceDir: "/repos/acme",
-        repository: { owner: "acme", name: "repo", path: "/repos/acme" },
-        tracker: { adapter: "file", bindingId: "file-project-1" },
-      }),
-      "utf8"
-    );
-
-    await expect(store.loadProjectConfig("project-1")).rejects.toThrow(
-      "legacy repo-embedded path metadata"
     );
   });
 
@@ -117,7 +99,6 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         type: "external" as const,
         path: "/projects/project-1/WORKFLOW.md",
       },
-      populateStrategy: "worktree-cache" as const,
       projectDir: "/projects/project-1",
     };
 
@@ -145,10 +126,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     ).rejects.toThrow("external workflow source");
   });
 
-  it.each([
-    ["workflow source type", { type: "externel" }],
-    ["populate strategy", "copy"],
-  ])("rejects an unsupported %s", async (_label, value) => {
+  it("rejects an unsupported workflow source type", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
 
@@ -159,9 +137,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         workspaceDir: "/tmp/workspaces/project-1",
         repository: { owner: "acme", name: "repo" },
         tracker: { adapter: "file", bindingId: "file-project-1" },
-        ...(typeof value === "string"
-          ? { populateStrategy: value as never }
-          : { workflowSource: value as never }),
+        workflowSource: { type: "externel" } as never,
       })
     ).rejects.toThrow("project-1");
   });

@@ -104,64 +104,6 @@ describe("resolveManagedProjectConfig", () => {
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it("uses the active project in non-interactive multi-project mode", async () => {
-    const configDir = await createConfigFixture(
-      [createProject("tenant-a"), createProject("tenant-b")],
-      "tenant-b"
-    );
-    setTty(false, false);
-
-    const project = await resolveManagedProjectConfig({ configDir });
-
-    expect(project?.projectId).toBe("tenant-b");
-    expect(selectMock).not.toHaveBeenCalled();
-  });
-
-  it("prefers the repository record matching cwd over another active repository", async () => {
-    const repositoryA = await mkdtemp(join(tmpdir(), "repository-a-"));
-    const repositoryB = await mkdtemp(join(tmpdir(), "repository-b-"));
-    const projectA = {
-      ...createProject("repository-a"),
-      repositoryDir: repositoryA,
-    };
-    const projectB = {
-      ...createProject("repository-b"),
-      repositoryDir: repositoryB,
-    };
-    const configDir = await createConfigFixture(
-      [projectA, projectB],
-      projectB.projectId
-    );
-
-    await expect(
-      resolveManagedProjectConfig({ configDir, cwd: repositoryA })
-    ).resolves.toMatchObject({ projectId: projectA.projectId });
-  });
-
-  it("prefers the deepest repository record containing cwd", async () => {
-    const repositoryDir = await mkdtemp(join(tmpdir(), "repository-root-"));
-    const nestedRepositoryDir = join(repositoryDir, "packages", "cli");
-    const projectA = {
-      ...createProject("repository-root"),
-      repositoryDir,
-    };
-    const projectB = {
-      ...createProject("repository-nested"),
-      repositoryDir: nestedRepositoryDir,
-    };
-    const configDir = await createConfigFixture(
-      [projectA, projectB],
-      projectA.projectId
-    );
-
-    await expect(
-      resolveManagedProjectConfig({
-        configDir,
-        cwd: join(nestedRepositoryDir, "src"),
-      })
-    ).resolves.toMatchObject({ projectId: projectB.projectId });
-  });
-
   it("requires interactive selection when multiple projects have no active project", async () => {
     const configDir = await createConfigFixture([
       createProject("tenant-a"),
@@ -292,21 +234,6 @@ describe("inspectManagedProjectSelection", () => {
     });
   });
 
-  it("uses the active project in non-interactive multi-project mode", async () => {
-    const configDir = await createConfigFixture(
-      [createProject("tenant-a"), createProject("tenant-b")],
-      "tenant-b"
-    );
-    setTty(false, false);
-
-    const result = await inspectManagedProjectSelection({ configDir });
-
-    expect(result).toMatchObject({
-      kind: "resolved",
-      projectId: "tenant-b",
-    });
-  });
-
   it("reports standalone selection guidance when multiple projects have no active project", async () => {
     const configDir = await createConfigFixture([
       createProject("tenant-a"),
@@ -323,38 +250,5 @@ describe("inspectManagedProjectSelection", () => {
     expect(result.message).toContain("gh-symphony project list");
     expect(result.message).toContain("run the diagnostic from that folder");
     expect(result.message).not.toContain("repo init");
-  });
-
-  it("uses the active project when one is configured", async () => {
-    const configDir = await createConfigFixture(
-      [createProject("tenant-a"), createProject("tenant-b")],
-      "tenant-b"
-    );
-    setTty(true, true);
-
-    const result = await inspectManagedProjectSelection({ configDir });
-
-    expect(result).toMatchObject({
-      kind: "resolved",
-      projectId: "tenant-b",
-    });
-  });
-
-  it("reports a missing project config for the active project", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "project-selection-"));
-    await saveGlobalConfig(configDir, {
-      activeProject: "tenant-a",
-      projects: ["tenant-a"],
-    });
-
-    const result = await inspectManagedProjectSelection({ configDir });
-
-    expect(result).toMatchObject({
-      kind: "active_project_missing",
-      projectId: "tenant-a",
-      message:
-        "Active project \"tenant-a\" is configured in config.json but its project config is missing. Run 'gh-symphony project start --project-dir <path>' to refresh the standalone project config, then run diagnostics from that folder or select it explicitly.",
-    });
-    expect(result.message).not.toContain('Active Project "tenant-a"');
   });
 });

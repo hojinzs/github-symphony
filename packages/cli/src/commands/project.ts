@@ -87,7 +87,6 @@ export async function deriveStandaloneProject(
       : resolve(projectDir, ".runtime", "workspaces"),
     repository,
     workflowSource: { type: "external", path: workflowPath },
-    populateStrategy: "worktree-cache",
     tracker: {
       adapter,
       bindingId,
@@ -164,8 +163,8 @@ async function listStandaloneProjects(
     entries.map((projectId) => loadProjectConfig(configDir, projectId))
   );
   return configs.filter(
-    (config): config is CliProjectConfig =>
-      config?.workflowSource?.type === "external"
+    // After repo-mode migration, projectDir is the standalone-project marker.
+    (config): config is CliProjectConfig => config?.projectDir !== undefined
   );
 }
 
@@ -239,13 +238,13 @@ async function findOverlappingProjects(
     const liveness = await resolveDaemonLiveness({
       configDir,
       projectId: existing.projectId,
-      workspaceDir: existing.repositoryDir ?? existing.workspaceDir,
+      workspaceDir: existing.workspaceDir,
     });
     overlaps.push({
       projectId: existing.projectId,
       label: existing.projectDir ?? existing.projectId,
       running: liveness.running,
-      workspaceDir: existing.repositoryDir ?? existing.workspaceDir,
+      workspaceDir: existing.workspaceDir,
     });
   }
   return overlaps;

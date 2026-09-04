@@ -79,7 +79,7 @@ describe("resolveConfigDir", () => {
 });
 
 describe("config persistence", () => {
-  it("normalizes legacy project configs and rejects invalid standalone values", async () => {
+  it("loads legacy project configs with removed fields ignored", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-project-config-"));
     const projectId = "project-1";
     const projectDir = join(configDir, "projects", projectId);
@@ -90,17 +90,18 @@ describe("config persistence", () => {
         projectId,
         slug: projectId,
         workspaceDir: "/tmp/project-1",
+        repositoryDir: "/repos/project-1",
         tracker: { adapter: "file", bindingId: "project-1" },
+        workflowSource: { type: "repo" },
+        populateStrategy: "clone",
       }),
       "utf8"
     );
 
-    await expect(
-      loadProjectConfig(configDir, projectId)
-    ).resolves.toMatchObject({
-      workflowSource: { type: "repo" },
-      populateStrategy: "clone",
-    });
+    const loaded = await loadProjectConfig(configDir, projectId);
+    expect(loaded).not.toHaveProperty("repositoryDir");
+    expect(loaded).not.toHaveProperty("workflowSource");
+    expect(loaded).not.toHaveProperty("populateStrategy");
 
     await expect(
       saveProjectConfig(configDir, projectId, {
@@ -124,30 +125,6 @@ describe("config persistence", () => {
         tracker: { adapter: "file", bindingId: "project-1" },
       })
     ).rejects.toThrow('Project "project-1" project directory');
-  });
-
-  it("loads legacy repo metadata so stop and diagnostic commands can migrate it", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-legacy-repo-config-"));
-    const projectDir = join(configDir, "projects", "repository");
-    await mkdir(projectDir, { recursive: true });
-    await writeFile(
-      join(projectDir, "project.json"),
-      JSON.stringify({
-        projectId: "repository",
-        slug: "repository",
-        workspaceDir: "/repos/acme",
-        repository: { owner: "acme", name: "platform", path: "/repos/acme" },
-        tracker: { adapter: "file", bindingId: "repository" },
-      }),
-      "utf8"
-    );
-
-    await expect(
-      loadProjectConfig(configDir, "repository")
-    ).resolves.toMatchObject({
-      workspaceDir: "/repos/acme",
-      workflowSource: { type: "repo" },
-    });
   });
 
   it("serializes concurrent load-modify-save updates", async () => {

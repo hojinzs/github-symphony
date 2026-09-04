@@ -359,8 +359,7 @@ function trackerItemId(
 function assertIssueWorkspaceRootIsOutsideRepository(
   projectConfig: OrchestratorProjectConfig
 ): void {
-  const repositoryDir =
-    projectConfig.repositoryDir ?? projectConfig.repository?.path;
+  const repositoryDir = projectConfig.repository?.path;
   if (!repositoryDir) {
     return;
   }
@@ -2994,10 +2993,7 @@ export class OrchestratorService {
       return [];
     }
 
-    const workflowSourceLabel =
-      tenant.workflowSource.type === "external"
-        ? "External workflow source"
-        : "Configured workflow source";
+    const workflowSourceLabel = "External workflow source";
 
     const localRepositoryDirectory = this.resolveLocalRepositoryDirectory(
       tenant.repository
@@ -3227,9 +3223,6 @@ export class OrchestratorService {
       issueWorkspacePath,
       existingWorkspace: !createdNow && !workspaceQuarantined,
       pullRequestBranch,
-      allowDirtyExistingWorkspace:
-        recovery?.kind === "incomplete-turn-dirty-workspace",
-      populateStrategy: tenant.populateStrategy,
       projectSlug: tenant.slug,
       issueIdentifier: issue.identifier,
       branchTemplate,
@@ -5884,9 +5877,7 @@ export class OrchestratorService {
 
   /**
    * Per-issue workspaces live under the project's configured `workspace.root`
-   * (spec 9.1), carried as `workspaceDir` in every project mode. Persisted
-   * repo-embedded configs that still use this field for the checkout are
-   * rejected during normalization until `repo init` migrates them.
+   * (spec 9.1), carried as `workspaceDir` in the standalone project config.
    */
   private resolveIssueWorkspaceRoot(tenant: OrchestratorProjectConfig): string {
     return resolve(tenant.workspaceDir);
@@ -6169,29 +6160,27 @@ export class OrchestratorService {
       workflowResolution
     );
 
-    if (tenant.populateStrategy === "worktree-cache") {
-      try {
-        await removeIssueWorkspaceWorktree({
-          repository: issue.repository,
-          repositoryDirectory: workspaceRecord.repositoryPath,
-          projectSlug: tenant.slug,
-          issueIdentifier: issue.identifier,
-          onBranchCleanup: (result) => {
-            this.writeStderr(
-              `${JSON.stringify({
-                event: "cache-agent-branch-cleanup",
-                issueIdentifier: issue.identifier,
-                ...result,
-              })}\n`
-            );
-          },
-        });
-      } catch (error) {
-        const removalError = this.formatErrorMessage(error);
-        this.writeStderr(
-          `[orchestrator] failed to remove worktree for ${issue.identifier}: ${removalError}\n`
-        );
-      }
+    try {
+      await removeIssueWorkspaceWorktree({
+        repository: issue.repository,
+        repositoryDirectory: workspaceRecord.repositoryPath,
+        projectSlug: tenant.slug,
+        issueIdentifier: issue.identifier,
+        onBranchCleanup: (result) => {
+          this.writeStderr(
+            `${JSON.stringify({
+              event: "cache-agent-branch-cleanup",
+              issueIdentifier: issue.identifier,
+              ...result,
+            })}\n`
+          );
+        },
+      });
+    } catch (error) {
+      const removalError = this.formatErrorMessage(error);
+      this.writeStderr(
+        `[orchestrator] failed to remove worktree for ${issue.identifier}: ${removalError}\n`
+      );
     }
 
     // Hook failures are observable but do not block removal per spec 9.4.

@@ -79,7 +79,6 @@ describe("deriveStandaloneProject", () => {
       },
       projectDir,
       workspaceDir: join(projectDir, ".runners"),
-      populateStrategy: "worktree-cache",
     });
     expect(project.projectId).toBe(standaloneProjectId(projectDir));
   });
@@ -357,7 +356,7 @@ describe("deriveStandaloneProject", () => {
     ]);
   });
 
-  it("stops a legacy repo-local daemon before standalone project registration", async () => {
+  it("stops a daemon registered in the legacy repo runtime", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-global-config-"));
     const projectDir = await mkdtemp(join(tmpdir(), "cli-legacy-project-"));
     const legacyConfigDir = join(projectDir, ".runtime", "orchestrator");
@@ -368,14 +367,19 @@ describe("deriveStandaloneProject", () => {
       join(legacyConfigDir, "projects", "repository", "project.json"),
       JSON.stringify({
         projectId: "repository",
-        slug: "repository",
+        slug: "acme-platform",
         displayName: "Legacy repository",
-        projectDir,
-        workspaceDir: projectDir,
-        repository: { owner: "acme", name: "platform" },
-        populateStrategy: "worktree-cache",
+        repositoryDir: projectDir,
+        populateStrategy: "clone",
+        workspaceDir: join(projectDir, ".runners"),
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+          path: projectDir,
+        },
         workflowSource: {
-          type: "external",
+          type: "repo",
           path: join(projectDir, "WORKFLOW.md"),
         },
         tracker: { adapter: "github-project", bindingId: "PVT_example" },

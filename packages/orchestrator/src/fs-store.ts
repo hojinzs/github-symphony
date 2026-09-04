@@ -3,7 +3,6 @@ import { chmod, mkdir, open, rm, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
-  assertDispatchableOrchestratorProjectConfig,
   isFileMissing,
   type IssueOrchestrationRecord,
   type IssueWorkspaceRecord,
@@ -87,7 +86,6 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
       return null;
     }
     const normalized = normalizeOrchestratorProjectConfig(config);
-    assertDispatchableOrchestratorProjectConfig(normalized);
     return normalized;
   }
 

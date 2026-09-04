@@ -249,30 +249,6 @@ describe("lifecycle command integration", () => {
     );
   });
 
-  it("uses the active project when run omits --project-id in multi-project mode", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [
-        createTenant("tenant-a", "acme", "platform"),
-        createTenant("tenant-b", "beta", "api"),
-      ],
-    });
-    setTty(false, false);
-
-    await runModule.default(["acme/platform#42"], baseOptions(configDir));
-
-    expect(selectMock).not.toHaveBeenCalled();
-    expect(orchestratorRunCli).toHaveBeenCalledWith([
-      "run-issue",
-      "--runtime-root",
-      configDir,
-      "--project-id",
-      "tenant-a",
-      "--issue",
-      "acme/platform#42",
-    ]);
-  });
-
   it("preserves the cancel exit code when no active project selection is aborted", async () => {
     const configDir = await createConfigFixture({
       activeProject: null,
@@ -297,29 +273,6 @@ describe("lifecycle command integration", () => {
       "No standalone project config found. Run 'gh-symphony project start --project-dir <path>' first."
     );
     expect(process.exitCode).toBe(130);
-  });
-
-  it("uses the active project in non-interactive multi-project mode", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [
-        createTenant("tenant-a", "acme", "platform"),
-        createTenant("tenant-b", "beta", "api"),
-      ],
-    });
-    setTty(false, false);
-    await runModule.default(["acme/platform#7"], baseOptions(configDir));
-
-    expect(orchestratorRunCli).toHaveBeenCalledWith([
-      "run-issue",
-      "--runtime-root",
-      configDir,
-      "--project-id",
-      "tenant-a",
-      "--issue",
-      "acme/platform#7",
-    ]);
-    expect(process.exitCode).toBeUndefined();
   });
 
   it("rejects removed project selection flags in daemon mode", async () => {
