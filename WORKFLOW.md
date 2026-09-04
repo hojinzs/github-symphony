@@ -19,6 +19,7 @@ tracker:
       exclude:
         - epic
 repository:
+  slug: hojinzs/github-symphony
   base_branch: main
   branch_template: symphony/{sanitized_issue_id}
 polling:
