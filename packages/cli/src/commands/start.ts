@@ -84,7 +84,7 @@ function logLine(icon: string, msg: string): void {
   process.stdout.write(`${timestamp()} ${icon} ${msg}\n`);
 }
 
-const REPO_START_COMMAND = "gh-symphony repo start";
+const PROJECT_START_COMMAND = "gh-symphony project start";
 const DAEMON_READY_PATH_ENV = "GH_SYMPHONY_DAEMON_READY_PATH";
 
 type RepoStartAuthPreflightResult =
@@ -97,7 +97,7 @@ function isInteractiveTerminal(): boolean {
 
 function displayGhAuthError(
   error: GitHubAuthError,
-  retryCommand = REPO_START_COMMAND
+  retryCommand = PROJECT_START_COMMAND
 ): void {
   const remediation = formatGhAuthRemediation(error, {
     retryCommand,
@@ -354,7 +354,7 @@ function displayRuntimeAuthShutdown(
   const authError = ghRuntimeErrorToAuthError(error, source);
   displayGhAuthError(authError);
   process.stderr.write(
-    "Stopping repo start because GitHub authentication can no longer be validated.\n"
+    "Stopping project start because GitHub authentication can no longer be validated.\n"
   );
 }
 
@@ -1059,7 +1059,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      `Usage: gh-symphony ${options.invocation === "project" ? "project" : "repo"} start [--daemon] [--once] [--assigned-only] [--port [port]] [--http [port]] [--web [port]] [--bind-all]${options.invocation === "project" ? " [--project-dir <path>]" : ""}\n`
+      "Usage: gh-symphony project start [--project-dir <path>] [--daemon] [--once] [--assigned-only] [--port [port]] [--http [port]] [--web [port]] [--bind-all]\n"
     );
     process.exitCode = 2;
     return;
@@ -1098,7 +1098,7 @@ const handler = async (
     ),
     workspacePath: resolve(projectConfig.workspaceDir ?? process.cwd()),
     runtimeRoot,
-    standalone: options.invocation === "project",
+    standalone: true,
   };
   if (!parsed.allowDuplicate) {
     const duplicate = await findLiveDuplicate(instanceBase);
@@ -1124,10 +1124,7 @@ const handler = async (
 
   const authPreflight = await preflightRepoStartAuth(projectConfig, {
     daemon: parsed.daemon,
-    retryCommand:
-      options.invocation === "project"
-        ? "gh-symphony project start"
-        : REPO_START_COMMAND,
+    retryCommand: PROJECT_START_COMMAND,
   });
   if (!authPreflight.ok) {
     return;
@@ -1611,7 +1608,7 @@ async function startDaemon(
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
-      `Stop with: ${options.invocation === "project" ? "gh-symphony project stop" : "gh-symphony repo stop"}\n`
+      "Stop with: gh-symphony project stop\n"
   );
   if (httpPort !== undefined || webPort !== undefined) {
     process.stdout.write(`HTTP API bearer token: ${httpApiToken}\n`);

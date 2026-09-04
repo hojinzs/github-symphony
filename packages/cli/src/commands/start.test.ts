@@ -431,22 +431,22 @@ Handle {{issue.identifier}}.\n`,
     [
       "not_authenticated",
       "gh CLI is not authenticated.",
-      "Run 'gh auth login --scopes repo,read:org,project', then re-run 'gh-symphony repo start'.",
+      "Run 'gh auth login --scopes repo,read:org,project', then re-run 'gh-symphony project start'.",
     ],
     [
       "missing_scopes",
       "Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: project",
-      "Run 'gh auth refresh --scopes project', then re-run 'gh-symphony repo start'.",
+      "Run 'gh auth refresh --scopes project', then re-run 'gh-symphony project start'.",
     ],
     [
       "invalid_token",
       "GITHUB_GRAPHQL_TOKEN is invalid or expired.",
-      "Run 'gh auth login --scopes repo,read:org,project' to re-authenticate, then re-run 'gh-symphony repo start'.",
+      "Run 'gh auth login --scopes repo,read:org,project' to re-authenticate, then re-run 'gh-symphony project start'.",
     ],
     [
       "token_failed",
       "gh CLI token could not be validated.",
-      "Run 'gh auth login --scopes repo,read:org,project' to re-authenticate, then re-run 'gh-symphony repo start'.",
+      "Run 'gh auth login --scopes repo,read:org,project' to re-authenticate, then re-run 'gh-symphony project start'.",
     ],
   ] as const)(
     "fails fast before constructing the orchestrator when GitHub auth returns %s",
@@ -766,7 +766,7 @@ Handle {{issue.identifier}}.\n`,
     }
 
     expect(stderr.output()).toContain(
-      "Set LINEAR_API_KEY in the environment before running 'gh-symphony repo start'."
+      "Set LINEAR_API_KEY in the environment before running 'gh-symphony project start'."
     );
     expect(ghAuthMocks.resolveGitHubAuth).not.toHaveBeenCalled();
     expect(acquireProjectLock).not.toHaveBeenCalled();
@@ -1257,7 +1257,7 @@ Handle {{issue.identifier}}.\n`,
     }
 
     expect(stderr.output()).not.toContain(
-      "Stopping repo start because GitHub authentication can no longer be validated."
+      "Stopping project start because GitHub authentication can no longer be validated."
     );
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
@@ -1317,7 +1317,7 @@ Handle {{issue.identifier}}.\n`,
 
     expect(stderr.output()).not.toContain("gh auth");
     expect(stderr.output()).not.toContain(
-      "Stopping repo start because GitHub authentication can no longer be validated."
+      "Stopping project start because GitHub authentication can no longer be validated."
     );
     expect(run).toHaveBeenCalledTimes(1);
     expect(exitSpy).not.toHaveBeenCalledWith(1);
@@ -1356,7 +1356,7 @@ Handle {{issue.identifier}}.\n`,
     }
 
     expect(stderr.output()).toContain(
-      "Run 'gh auth refresh --scopes project', then re-run 'gh-symphony repo start'."
+      "Run 'gh auth refresh --scopes project', then re-run 'gh-symphony project start'."
     );
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
@@ -1456,7 +1456,7 @@ Handle {{issue.identifier}}.\n`,
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(stderr.output()).not.toContain(
-      "Stopping repo start because GitHub authentication can no longer be validated."
+      "Stopping project start because GitHub authentication can no longer be validated."
     );
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
     expect(shutdown).toHaveBeenCalledTimes(1);
