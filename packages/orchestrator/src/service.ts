@@ -577,25 +577,35 @@ export class OrchestratorService {
     }
     const publish =
       this.dependencies.publishAssignedBranch ?? trySynchronizeAssignedBranch;
+    const projectEnvironment = this.readProjectEnv(this.projectConfig);
+    const trackerAdapter = resolveTrackerAdapter(this.projectConfig.tracker);
+    const hostGitCredentials =
+      trackerAdapter.resolveWorkerCredentials?.(this.projectConfig, {
+        project: projectEnvironment,
+        daemon: process.env,
+      }) ?? {};
     const attempt = await publish({
       cwd: run.workingDirectory,
       assignedBranch,
       remoteUrl: run.repository.cloneUrl,
-      env: this.buildProjectExecutionEnv(this.projectConfig, {}),
+      env: this.buildProjectExecutionEnv(
+        this.projectConfig,
+        hostGitCredentials,
+        projectEnvironment
+      ),
     });
     if (!attempt.ok) {
       const error = `git_transport_failed: ${attempt.error}`;
       await this.persistAssignedBranchPublishResult(run, {
         lastEvent: "assigned-branch-publish-failed",
         lastError: error,
-        unpublishedWorktree: null,
       });
       return {
         ok: false,
         outcome: "failed",
         branch: assignedBranch,
         head: null,
-        unpublishedWorktree: null,
+        unpublishedWorktree: run.unpublishedWorktree ?? null,
         error,
       };
     }
@@ -625,10 +635,8 @@ export class OrchestratorService {
 
   private async persistAssignedBranchPublishResult(
     run: OrchestratorRunRecord,
-    result: Pick<
-      OrchestratorRunRecord,
-      "lastEvent" | "lastError" | "unpublishedWorktree"
-    >
+    result: Pick<OrchestratorRunRecord, "lastEvent" | "lastError"> &
+      Pick<Partial<OrchestratorRunRecord>, "unpublishedWorktree">
   ): Promise<void> {
     const latest =
       (await this.store.loadRun(run.runId, this.projectConfig.projectId)) ??

@@ -707,7 +707,6 @@ describe("OrchestratorService", () => {
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-
     const listIssues = vi.fn().mockResolvedValue([
       {
         id: "issue-1",
@@ -1881,6 +1880,15 @@ describe("OrchestratorService", () => {
     };
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
+    const trackerAdapter = trackerAdapters.resolveTrackerAdapter(
+      projectConfig.tracker
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      ...trackerAdapter,
+      resolveWorkerCredentials: vi.fn().mockReturnValue({
+        GITHUB_GRAPHQL_TOKEN: "daemon-token",
+      }),
+    });
     await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
       {
         issueId: "issue-1",
@@ -1959,13 +1967,103 @@ describe("OrchestratorService", () => {
       cwd: tempRoot,
       assignedBranch: "symphony/acme-platform-1",
       remoteUrl: "https://github.com/acme/platform.git",
-      env: expect.any(Object),
+      env: expect.objectContaining({
+        GITHUB_GRAPHQL_TOKEN: "daemon-token",
+      }),
     });
     await expect(
       store.loadRun("run-1", projectConfig.projectId)
     ).resolves.toMatchObject({
       lastEvent: "assigned-branch-published",
       unpublishedWorktree: null,
+    });
+  });
+
+  it("preserves unpublished worktree diagnostics when assigned branch publication fails", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-assigned-branch-publish-failure-")
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "issue-1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-07-30T13:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: tempRoot,
+      assignedBranch: "symphony/acme-platform-1",
+      issueWorkspaceKey: "issue-1",
+      workspaceRuntimeDir: join(tempRoot, "runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-07-30T13:00:00.000Z",
+      updatedAt: "2026-07-30T13:00:00.000Z",
+      startedAt: "2026-07-30T13:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      unpublishedWorktree: {
+        branch: "symphony/acme-platform-1",
+        head: "abc123",
+        tracked: [" M partial.txt"],
+        untracked: [],
+        trackedOmitted: 0,
+        untrackedOmitted: 0,
+      },
+      nextRetryAt: null,
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-07-30T13:01:00.000Z"),
+      publishAssignedBranch: vi.fn().mockResolvedValue({
+        ok: false,
+        error: "remote unavailable",
+      }),
+    });
+
+    const result = await service.requestAssignedBranchPublish({
+      runId: "run-1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      outcome: "failed",
+      error: "git_transport_failed: remote unavailable",
+    });
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      lastEvent: "assigned-branch-publish-failed",
+      unpublishedWorktree: {
+        branch: "symphony/acme-platform-1",
+        head: "abc123",
+        tracked: [" M partial.txt"],
+      },
     });
   });
 
@@ -14364,6 +14462,7 @@ Handle archived item reconciliation.`,
       processId: 4209,
       port: 4604,
       workingDirectory: join(tempRoot, "active-run"),
+      assignedBranch: "symphony/acme-platform-1",
       issueWorkspaceKey: null,
       workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
       workflowPath: null,
