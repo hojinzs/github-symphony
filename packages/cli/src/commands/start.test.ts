@@ -979,7 +979,7 @@ Handle {{issue.identifier}}.\n`,
     const childArgs = childProcessMocks.spawn.mock.calls[0]?.[1];
     expect(childArgs).toEqual(
       expect.arrayContaining([
-        "repo",
+        "project",
         "start",
         "--verbose",
         "--log-level",
@@ -1041,11 +1041,13 @@ Handle {{issue.identifier}}.\n`,
       stdout.restore();
     }
 
+    expect(childProcessMocks.spawn.mock.calls[0]?.[1]).toEqual(
+      expect.arrayContaining(["project", "start", "--project-dir", projectDir])
+    );
     expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
       cwd: projectDir,
       env: expect.objectContaining({
         GH_SYMPHONY_CONFIG_DIR: resolve(configDir),
-        GH_SYMPHONY_DAEMON_PROJECT_ID: "standalone",
       }),
     });
     const pidRecord = JSON.parse(

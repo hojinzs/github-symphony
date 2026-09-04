@@ -6,6 +6,12 @@ modules. When code moves, update the matching slice. The "why" lives in
 [adr/](adr/), the "what to build" in [designs/](designs/); this document only
 answers "where is it now".
 
+The CLI exposes standalone orchestration through `project start`, `status`, and
+`stop`. The former `repo` namespace is retained only as a non-zero deprecation
+stub. Daemon respawn launches `project start` with an explicit project
+directory; shared dispatch eligibility remains internal to the orchestrator in
+`dispatch-eligibility.ts`.
+
 ## Spec components → implementation (spec §3.1)
 
 | Spec component       | Implementation                                                                                                                  |

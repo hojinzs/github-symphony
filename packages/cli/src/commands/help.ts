@@ -53,52 +53,6 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
-    title: "Orchestration (current repository)",
-    entries: [
-      {
-        name: "repo init",
-        description: "Initialize gh-symphony for the current repository",
-      },
-      {
-        name: "repo start",
-        description:
-          "Start the orchestrator after validating tracker authentication",
-      },
-      {
-        name: "repo start --daemon",
-        description: "Start the orchestrator in the background",
-      },
-      {
-        name: "repo start --assigned-only",
-        description: "Process only issues assigned to the authenticated user",
-      },
-      {
-        name: "repo stop",
-        description: "Stop the background orchestrator",
-      },
-      {
-        name: "repo status",
-        description: "Show orchestrator status",
-      },
-      {
-        name: "repo run <issue>",
-        description: "Dispatch a single issue",
-      },
-      {
-        name: "repo recover",
-        description: "Recover stalled runs",
-      },
-      {
-        name: "repo logs",
-        description: "View orchestrator logs",
-      },
-      {
-        name: "repo explain <issue>",
-        description: "Explain why an issue is not dispatching",
-      },
-    ],
-  },
-  {
     title: "Orchestration (host)",
     entries: [
       {

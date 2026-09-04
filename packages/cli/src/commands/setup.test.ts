@@ -283,13 +283,6 @@ describe("setup command", () => {
     });
 
     const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
-    const project = JSON.parse(
-      await readFile(
-        join(cwd, ".runtime", "orchestrator", "project.json"),
-        "utf8"
-      )
-    );
-
     expect(workflow).toContain("project_id: PVT_setup_1");
     expect(workflow).toContain("source: disabled");
     expect(workflow).toContain(
@@ -300,16 +293,9 @@ describe("setup command", () => {
     await expect(
       readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
     ).rejects.toThrow();
-    expect(project.projectId).toBe("repository");
-    expect(project.workspaceDir).toBe(
-      join(process.cwd(), ".runtime", "symphony-workspaces")
-    );
-    expect(project.repositoryDir).toBe(process.cwd());
-    expect(project.repository).toMatchObject({
-      owner: "acme",
-      name: "repo-a",
-    });
-    expect(project).not.toHaveProperty("repositories");
+    await expect(
+      readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+    ).rejects.toThrow();
   });
 
   it("writes Claude runtime config from non-interactive --runtime claude-code", async () => {
@@ -432,18 +418,9 @@ describe("setup command", () => {
       noColor: true,
     });
 
-    const project = JSON.parse(
-      await readFile(
-        join(cwd, ".runtime", "orchestrator", "project.json"),
-        "utf8"
-      )
-    );
-
-    expect(project.workspaceDir).toBe(
-      join(process.cwd(), ".runtime", "symphony-workspaces")
-    );
-    expect(project.repositoryDir).toBe(process.cwd());
-    expect(project.repository?.name).toBe("repo-b");
+    await expect(
+      readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+    ).rejects.toThrow();
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Init dry-run preview"),
       "Final summary"
@@ -454,7 +431,7 @@ describe("setup command", () => {
     );
     expect(p.outro).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Repository runtime is ready for codex-app-server."
+        "Project runtime is ready for codex-app-server."
       )
     );
     const selectMessages = vi
@@ -628,14 +605,9 @@ describe("setup command", () => {
       noColor: true,
     });
 
-    const project = JSON.parse(
-      await readFile(
-        join(cwd, ".runtime", "orchestrator", "project.json"),
-        "utf8"
-      )
-    );
-
-    expect(project.tracker.settings?.assignedOnly).toBeUndefined();
+    await expect(
+      readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+    ).rejects.toThrow();
     expect(vi.mocked(p.confirm)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(p.confirm).mock.calls[1]?.[0]).toMatchObject({
       message: "Write files and register this managed project?",

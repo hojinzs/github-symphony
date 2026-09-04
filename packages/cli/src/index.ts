@@ -37,7 +37,6 @@ type LoaderKey =
   | "setup"
   | "doctor"
   | "upgrade"
-  | "repo"
   | "project"
   | "config"
   | "cache"
@@ -94,7 +93,6 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     setup: () => import("./commands/setup.js"),
     doctor: () => import("./commands/doctor.js"),
     upgrade: () => import("./commands/upgrade.js"),
-    repo: () => import("./commands/repo.js"),
     project: () => import("./commands/project.js"),
     config: () => import("./commands/config-cmd.js"),
     cache: () => import("./commands/cache.js"),
@@ -269,7 +267,7 @@ function handleUnknownNamespaceCommand(
   const namespaceCommand = program.commands.find(
     (command) => command.name() === namespace
   );
-  if (!namespaceCommand || !["repo", "workflow"].includes(namespace)) {
+  if (!namespaceCommand || namespace !== "workflow") {
     return false;
   }
 
@@ -514,19 +512,19 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   registerRemovedCommand(
     program,
     "start",
-    "Use 'gh-symphony repo start' from the target repository.",
+    "Use 'gh-symphony project start --project-dir <path>'.",
     markInvoked
   );
   registerRemovedCommand(
     program,
     "stop",
-    "Use 'gh-symphony repo stop'.",
+    "Use 'gh-symphony project stop --project-dir <path>'.",
     markInvoked
   );
   registerRemovedCommand(
     program,
     "status",
-    "Use 'gh-symphony repo status'.",
+    "Use 'gh-symphony project status --project-dir <path>'.",
     markInvoked
   );
   registerRemovedCommand(
@@ -633,247 +631,20 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     });
   }
 
-  const repo = addGlobalOptions(
+  addGlobalOptions(
     program
       .command("repo")
-      .description("Manage the current repository runtime")
-      .showHelpAfterError("(run with --help for usage)")
-  );
-
-  repo.action(async function (this: Command) {
-    markInvoked();
-    await invokeHandler("repo", [], this.optsWithGlobals<CliOptionValues>());
-  });
-
-  addGlobalOptions(
-    repo.command("list", { hidden: true }).description("Removed")
+      .description("Deprecated repository command surface")
+      .helpOption(false)
+      .argument("[args...]")
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
   ).action(async function (this: Command) {
     markInvoked();
     await invokeRemovedCommand(
-      "Removed. Repository identity is shown by 'repo status'.",
+      "The 'repo' command has been removed. Use 'gh-symphony project start --project-dir <path>'.\nMigration: packages/cli/README.md#repository-command-migration",
       this.optsWithGlobals<CliOptionValues>()
     );
-  });
-
-  addGlobalOptions(
-    repo
-      .command("add", { hidden: true })
-      .description("Removed")
-      .argument("[owner/name]", "Repository spec")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    await invokeRemovedCommand(
-      "Removed. The orchestrator binds to the cwd repository via 'repo init'.",
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-
-  addGlobalOptions(
-    repo
-      .command("remove", { hidden: true })
-      .description("Removed")
-      .argument("[owner/name]", "Repository spec")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    await invokeRemovedCommand(
-      "Removed. The orchestrator binds to the cwd repository via 'repo init'.",
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-
-  addGlobalOptions(
-    repo
-      .command("sync", { hidden: true })
-      .description("Removed")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    await invokeRemovedCommand(
-      "Removed. Single-repo model has no linked-repo set to sync.",
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-
-  addGlobalOptions(
-    repo
-      .command("init")
-      .description("Initialize gh-symphony for the current repository")
-      .option("--repo-dir <path>", "Repository directory")
-      .option("--workflow-file <path>", "Use a custom WORKFLOW.md path")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["init"];
-    pushOption(args, "--repo-dir", values.repoDir);
-    pushOption(args, "--workflow-file", values.workflowFile);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("start")
-      .description("Start the orchestrator for the current repository")
-      .option("-d, --daemon", "Start in daemon mode")
-      .option("--once", "Run a single orchestration tick and exit")
-      .option("--assigned-only", "Limit this run to assigned issues")
-      .option(
-        "--allow-duplicate",
-        "Allow a verified live instance for the same project in another runtime"
-      )
-      .option(
-        "--bind-all",
-        "Bind HTTP servers to all interfaces instead of localhost"
-      )
-      .option(
-        "--port [port]",
-        "Expose the JSON status API and refresh endpoints over HTTP"
-      )
-      .option(
-        "--http [port]",
-        "Expose the JSON status API and refresh endpoints over HTTP"
-      )
-      .option(
-        "--web [port]",
-        "Expose the control plane web dashboard and API over HTTP"
-      )
-      .option("--log-level <level>", "Orchestrator lifecycle log level")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["start", ...this.args];
-    pushOption(args, "--daemon", values.daemon);
-    pushOption(args, "--once", values.once);
-    pushOption(args, "--assigned-only", values.assignedOnly);
-    pushOption(args, "--allow-duplicate", values.allowDuplicate);
-    pushOption(args, "--bind-all", values.bindAll);
-    pushOption(args, "--port", values.port);
-    pushOption(args, "--http", values.http);
-    pushOption(args, "--web", values.web);
-    pushOption(args, "--log-level", values.logLevel);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("status")
-      .description("Show current repository orchestrator status")
-      .option("-w, --watch", "Watch status continuously")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["status", ...this.args];
-    pushOption(args, "--watch", values.watch);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("stop")
-      .description("Stop the current repository background orchestrator")
-      .option("--force", "Force stop with SIGKILL")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["stop", ...this.args];
-    pushOption(args, "--force", values.force);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("run")
-      .description("Dispatch a single issue from the current repository")
-      .usage("[options] <issue>")
-      .argument("[issue]", "Issue identifier (owner/repo#number)")
-      .option("--log-level <level>", "Orchestrator lifecycle log level")
-      .option("-w, --watch", "Watch status after dispatch")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-      .addHelpText(
-        "after",
-        "\nExamples:\n  $ gh-symphony repo run owner/repo#123\n"
-      )
-  ).action(async function (this: Command, issue: string | undefined) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["run"];
-    if (issue) {
-      args.push(issue);
-    }
-    args.push(...this.args.slice(issue ? 1 : 0));
-    pushOption(args, "--log-level", values.logLevel);
-    pushOption(args, "--watch", values.watch);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("recover")
-      .description("Recover stalled runs for the current repository")
-      .option("--dry-run", "Show recoverable runs without recovering")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["recover", ...this.args];
-    pushOption(args, "--dry-run", values.dryRun);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("logs")
-      .description("View current repository orchestrator logs")
-      .option("-f, --follow", "Follow new log lines")
-      .option("--issue <issue>", "Filter by issue identifier")
-      .option("--run <runId>", "Read events for a specific run")
-      .option("--level <level>", "Filter by log level")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["logs", ...this.args];
-    pushOption(args, "--follow", values.follow);
-    pushOption(args, "--issue", values.issue);
-    pushOption(args, "--run", values.run);
-    pushOption(args, "--level", values.level);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("explain")
-      .description("Explain why a repository issue is not dispatching")
-      .usage("[options] <issue>")
-      .argument("[issue]", "Issue identifier (owner/repo#number)")
-      .option("--workflow <path>", "Path to the WORKFLOW.md file to evaluate")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-      .addHelpText(
-        "after",
-        "\nExamples:\n  $ gh-symphony repo explain owner/repo#123\n"
-      )
-  ).action(async function (this: Command, issue: string | undefined) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["explain"];
-    if (issue) {
-      args.push(issue);
-    }
-    args.push(...this.args.slice(issue ? 1 : 0));
-    pushOption(args, "--workflow", values.workflow);
-    await invokeHandler("repo", args, values);
   });
 
   const config = addGlobalOptions(

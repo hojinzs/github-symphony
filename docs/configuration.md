@@ -6,6 +6,11 @@ committed `WORKFLOW.md` settings for workflow policy, and use environment
 variables for host-specific authentication, Enterprise endpoints, local paths,
 and operational overrides.
 
+The retired `repo` namespace no longer initializes or selects repository-local
+runtime state. Use `gh-symphony project start --project-dir <path>`; daemon
+children receive the same explicit directory on respawn. The former internal
+`GH_SYMPHONY_DAEMON_PROJECT_ID` environment handoff is no longer used.
+
 ## WORKFLOW.md Reload Semantics
 
 The orchestrator does not need a restart to apply a valid `WORKFLOW.md` edit.

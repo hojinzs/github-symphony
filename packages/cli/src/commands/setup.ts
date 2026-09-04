@@ -41,7 +41,6 @@ import {
   toWorkflowLifecycleConfig,
   validateStateMapping,
 } from "../mapping/smart-defaults.js";
-import { initRepoRuntime } from "../repo-runtime.js";
 import {
   isSupportedInitRuntime,
   normalizeInitRuntime,
@@ -140,9 +139,9 @@ async function promptRuntimeSelection(): Promise<InitRuntimeKind> {
 function runtimeInstallHint(runtime: string): string {
   const command = resolveRuntimeCommand(runtime);
   if (runtime === "claude-print") {
-    return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Claude Code and confirm '${command} --version' works before running 'gh-symphony repo start'.`;
+    return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Claude Code and confirm '${command} --version' works before running 'gh-symphony project start --project-dir <path>'.`;
   }
-  return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Codex and confirm '${command} --version' works before running 'gh-symphony repo start'.`;
+  return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Codex and confirm '${command} --version' works before running 'gh-symphony project start --project-dir <path>'.`;
 }
 
 async function checkRuntimeInstall(runtime: string): Promise<boolean> {
@@ -258,7 +257,7 @@ function printNonInteractiveSummary(input: {
       `WORKFLOW.md      ${input.workflowPath}`,
       `Agent runtime    ${input.runtime}`,
       `Runtime          ${input.runtimeDir}`,
-      "Ready. Run 'gh-symphony repo start' to begin orchestration.",
+      "Ready. Run 'gh-symphony project start --project-dir <path>' to begin orchestration.",
     ]
       .map((line) => `  ${line}`)
       .join("\n") + "\n"
@@ -408,10 +407,10 @@ async function runNonInteractive(
     skipContext: flags.skipContext,
   });
 
-  const runtime = await initRepoRuntime({
-    repoDir: process.cwd(),
-    workflowFile: workflowPath,
-  });
+  const repository = projectDetail.linkedRepositories[0];
+  if (!repository) {
+    throw new Error("The selected GitHub Project has no linked repository.");
+  }
 
   await warnIfRuntimeMissing(selectedRuntime, options);
   if (options.json) {
@@ -420,8 +419,8 @@ async function runNonInteractive(
         status: "created",
         output: workflowPath,
         runtime: selectedRuntime,
-        runtimeDir: runtime.configDir,
-        repository: `${runtime.repository.owner}/${runtime.repository.name}`,
+        runtimeDir: options.configDir,
+        repository: `${repository.owner}/${repository.name}`,
         githubProjectId: projectDetail.id,
       }) + "\n"
     );
@@ -433,8 +432,8 @@ async function runNonInteractive(
     githubProjectId: projectDetail.id,
     workflowPath,
     runtime: selectedRuntime,
-    runtimeDir: runtime.configDir,
-    repository: `${runtime.repository.owner}/${runtime.repository.name}`,
+    runtimeDir: options.configDir,
+    repository: `${repository.owner}/${repository.name}`,
   });
 }
 
@@ -602,12 +601,12 @@ async function runInteractive(
       skipSkills: flags.skipSkills,
       skipContext: flags.skipContext,
     });
-    const runtime = await initRepoRuntime({
-      repoDir: process.cwd(),
-      workflowFile: workflowPath,
-    });
+    const repository = projectDetail.linkedRepositories[0];
+    if (!repository) {
+      throw new Error("The selected GitHub Project has no linked repository.");
+    }
     writeSpinner.stop(
-      `Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`
+      `Setup saved for ${repository.owner}/${repository.name}.`
     );
   } catch (error) {
     writeSpinner.stop("Setup failed.");
@@ -618,6 +617,6 @@ async function runInteractive(
 
   await warnIfRuntimeMissing(selectedRuntime, options);
   p.outro(
-    `Repository runtime is ready for ${selectedRuntime}.\n  Run 'gh-symphony repo start' to begin orchestration.`
+    `Project runtime is ready for ${selectedRuntime}.\n  Run 'gh-symphony project start --project-dir <path>' to begin orchestration.`
   );
 }

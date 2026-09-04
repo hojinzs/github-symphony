@@ -244,7 +244,7 @@ describe("lifecycle command integration", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      [process.argv[1], "repo", "start"],
+      [process.argv[1], "project", "start"],
       expect.any(Object)
     );
   });
@@ -456,6 +456,35 @@ describe("lifecycle command integration", () => {
       readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
     ).rejects.toMatchObject({ code: "ENOENT" });
     expect(process.exitCode).toBe(1);
+  });
+
+  it("stops a legacy repo daemon when its recorded identity no longer matches", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
+    });
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      JSON.stringify({
+        pid: 111,
+        startedAt: "2026-07-15T00:00:00.000Z",
+        processIdentity: "stale-recorded-identity",
+        cwd: process.cwd(),
+      }) + "\n"
+    );
+    getProcessIdentityMock.mockReturnValue(
+      "node /opt/gh-symphony/dist/index.js repo start --assigned-only"
+    );
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation((() => true) as typeof process.kill);
+
+    await stopModule.default([], baseOptions(configDir));
+
+    expect(killSpy).toHaveBeenCalledWith(111, "SIGTERM");
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("recovers a repository daemon from the project lock when daemon.pid is stale", async () => {

@@ -1,5 +1,10 @@
 # GitHub Symphony
 
+> **CLI migration:** the `gh-symphony repo` surface is retired. Use
+> `gh-symphony project start --project-dir <path>`; see the
+> [CLI migration note](packages/cli/README.md#repository-command-migration),
+> including the required daemon restart after upgrading.
+
 [![CI](https://github.com/hojinzs/github-symphony/actions/workflows/ci.yml/badge.svg)](https://github.com/hojinzs/github-symphony/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@gh-symphony/cli?logo=npm)](https://www.npmjs.com/package/@gh-symphony/cli)
 [![Node.js 24+](https://img.shields.io/badge/node-24%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)

@@ -139,7 +139,7 @@ export function validateDaemonProcess(
 
   const identity = getProcessIdentity(pid);
   const identityMatches = recordedIdentity
-    ? identity === recordedIdentity
+    ? identity === recordedIdentity || isLegacyOrchestratorIdentity(identity)
     : isLegacyOrchestratorIdentity(identity);
   const cwd = getProcessCwd(pid);
   if (!identity || !identityMatches || !cwd || resolve(cwd) !== expectedCwd) {
@@ -198,7 +198,7 @@ function validateProjectLockProcess(
 
   const identity = getProcessIdentity(pid);
   const identityMatches = recordedIdentity
-    ? identity === recordedIdentity
+    ? identity === recordedIdentity || isLegacyOrchestratorIdentity(identity)
     : identity
       ? isLegacyOrchestratorIdentity(identity)
       : isFreshProjectLockHeartbeat(heartbeatAt);

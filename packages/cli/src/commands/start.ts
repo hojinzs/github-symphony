@@ -85,7 +85,6 @@ function logLine(icon: string, msg: string): void {
 }
 
 const REPO_START_COMMAND = "gh-symphony repo start";
-const DAEMON_PROJECT_ID_ENV = "GH_SYMPHONY_DAEMON_PROJECT_ID";
 const DAEMON_READY_PATH_ENV = "GH_SYMPHONY_DAEMON_READY_PATH";
 
 type RepoStartAuthPreflightResult =
@@ -1074,7 +1073,7 @@ const handler = async (
   }
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: options.projectId ?? process.env[DAEMON_PROJECT_ID_ENV],
+    requestedProjectId: options.projectId,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();
@@ -1165,8 +1164,7 @@ const handler = async (
       parsed.bindAll,
       parsed.allowDuplicate === true,
       httpApiToken,
-      projectConfig.projectDir,
-      projectId
+      projectConfig.projectDir
     );
     return;
   }
@@ -1537,8 +1535,7 @@ async function startDaemon(
   bindAll = false,
   allowDuplicate = false,
   httpApiToken = resolveHttpApiToken(),
-  projectDir?: string,
-  selectedProjectId?: string
+  projectDir?: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -1555,8 +1552,9 @@ async function startDaemon(
     process.execPath,
     [
       process.argv[1]!,
-      "repo",
+      "project",
       "start",
+      ...(projectDir ? ["--project-dir", projectDir] : []),
       ...(options.verbose ? ["--verbose"] : []),
       ...(allowDuplicate ? ["--allow-duplicate"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
@@ -1575,9 +1573,6 @@ async function startDaemon(
         ...process.env,
         GH_SYMPHONY_CONFIG_DIR: resolve(options.configDir),
         [DAEMON_READY_PATH_ENV]: readyPath,
-        ...(selectedProjectId
-          ? { [DAEMON_PROJECT_ID_ENV]: selectedProjectId }
-          : {}),
         [HTTP_API_TOKEN_ENV]: httpApiToken,
       },
       detached: true,

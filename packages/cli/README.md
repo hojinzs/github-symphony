@@ -1,5 +1,29 @@
 # @gh-symphony/cli
 
+## Repository command migration
+
+The `gh-symphony repo` command surface has been retired. Every `repo`
+subcommand now exits non-zero with migration guidance. Start a standalone
+project explicitly instead:
+
+```bash
+gh-symphony project start --project-dir /path/to/project
+```
+
+After upgrading, restart daemonized projects so their process command line uses
+`project start` rather than the legacy `repo start`. A daemon started by an
+older CLI can still be stopped safely with the new project command, even when
+its saved process identity differs from the platform-reported command line:
+
+```bash
+gh-symphony project stop --project-dir /path/to/project
+gh-symphony project start --daemon --project-dir /path/to/project
+```
+
+The internal `GH_SYMPHONY_DAEMON_PROJECT_ID` handoff has been removed; daemon
+children now receive project identity through the explicit `--project-dir`
+argument.
+
 Interactive CLI for GitHub Symphony — a multi-tenant AI coding agent orchestration platform.
 
 ## Requirements
