@@ -434,6 +434,11 @@ not combine values across project and daemon scopes. Linear likewise treats
 each scope atomically: when either `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`
 is present in the project `.env`, only values from that project scope are
 forwarded and daemon values are not mixed into the credential set.
+The worker validates this effective credential set before runtime launch.
+GitHub requires `GITHUB_GRAPHQL_TOKEN` or a complete broker URL/secret pair;
+Linear requires `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`. `doctor` applies
+the GitHub adapter's same project-first selection and reports the managed
+project `.env` path when remediation is required.
 
 For standalone projects, the project `.env` lives in the registered external
 project folder. For registry-backed or repo-embedded projects it lives at

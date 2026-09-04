@@ -167,6 +167,10 @@ The orchestrator does retain a tenant-scoped tracker credential at the worker
 host boundary. Project `.env` credentials take precedence over the daemon's
 resolved credential, enabling host-side tracker tools and authenticated Git
 transport while the agent child remains credential-free.
+`gh-symphony doctor` reports a required `Worker GitHub credential` check for
+the selected tenant using that same precedence. Without a usable GitHub or
+Linear worker credential, startup fails before the agent launches; known-empty
+dispatches are skipped and surfaced in status snapshot warnings.
 
 Custom commands are isolated by default: they receive portable process values,
 a private `HOME`/`GH_CONFIG_DIR`, the rendered prompt, and only the dedicated
