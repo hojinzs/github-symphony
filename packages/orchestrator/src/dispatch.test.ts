@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrchestratorService, sortCandidatesForDispatch } from "./service.js";
-import { isIssueCandidateEligibleWithReason } from "./dispatch-eligibility.js";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorRunRecord,
