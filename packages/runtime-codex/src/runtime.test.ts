@@ -132,6 +132,8 @@ describe("buildCodexRuntimePlan", () => {
       },
       extraEnv: {
         WORKER_PROFILE: "test",
+        SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+        SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
       },
     });
 
@@ -148,6 +150,8 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GIT_CONFIG_KEY_0).toBeUndefined();
     expect(plan.env.GIT_CONFIG_VALUE_0).toBeUndefined();
     expect(plan.env.WORKER_PROFILE).toBe("test");
+    expect(plan.env.SYMPHONY_ASSIGNED_BRANCH).toBe("symphony/acme-42");
+    expect(plan.env.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/repo#42");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
     expect(plan.env.CODEX_HOME).toBe(
       "/tmp/workspace-123/.runtime/child-home/.codex"

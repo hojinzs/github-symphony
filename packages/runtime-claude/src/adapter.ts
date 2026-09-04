@@ -15,8 +15,10 @@ import type {
 } from "@gh-symphony/core";
 import {
   collectMcpSecretEnvironmentNames,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   extractEnvForClaude,
   prepareAgentChildHome,
+  readAgentVisibleSymphonyContext,
   resolveAgentChildHome,
   stageDockerCliPlugins,
   stageGitUserIdentity,
@@ -651,11 +653,17 @@ function buildClaudeSpawnEnv(options: {
   inputEnv?: NodeJS.ProcessEnv;
   childHome: string;
 }): NodeJS.ProcessEnv {
+  const agentVisibleContext = readAgentVisibleSymphonyContext(
+    process.env,
+    options.configEnv,
+    options.inputEnv
+  );
   if (options.inheritProcessEnv) {
     const env = {
       ...process.env,
       ...options.configEnv,
       ...options.inputEnv,
+      ...agentVisibleContext,
     };
     stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
     env.HOME = options.childHome;
@@ -675,6 +683,7 @@ function buildClaudeSpawnEnv(options: {
   }
 
   Object.assign(env, options.configEnv, options.inputEnv);
+  Object.assign(env, agentVisibleContext);
   stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
   env.HOME = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
@@ -698,13 +707,7 @@ function stripTrackerSecrets(
       trustRepoConfig: configEnv?.SYMPHONY_TRUST_REPO_CONFIG === "true",
       secretEnvironmentNames: declaredNames,
     }),
-    "GH_TOKEN",
-    "GH_ENTERPRISE_TOKEN",
-    "GITHUB_TOKEN",
-    "GITHUB_GRAPHQL_TOKEN",
-    "GITHUB_TOKEN_BROKER_SECRET",
-    "LINEAR_API_KEY",
-    "LINEAR_AUTHORIZATION",
+    ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   ]) {
     delete env[name];
   }

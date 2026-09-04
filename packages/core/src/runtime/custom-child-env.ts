@@ -13,6 +13,38 @@ const PORTABLE_ENVIRONMENT_NAMES = [
   "USER",
 ] as const;
 
+/** Non-secret worker context intentionally exposed to every agent runtime. */
+export const AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES = [
+  "SYMPHONY_ASSIGNED_BRANCH",
+  "SYMPHONY_ISSUE_ID",
+  "SYMPHONY_ISSUE_IDENTIFIER",
+  "SYMPHONY_ISSUE_STATE",
+  "SYMPHONY_TRACKER_KIND",
+  "TARGET_REPOSITORY_CLONE_URL",
+  "TARGET_REPOSITORY_NAME",
+  "TARGET_REPOSITORY_OWNER",
+  "TARGET_REPOSITORY_URL",
+] as const;
+
+export function readAgentVisibleSymphonyContext(
+  ...sources: ReadonlyArray<NodeJS.ProcessEnv | undefined>
+): NodeJS.ProcessEnv {
+  const context: NodeJS.ProcessEnv = {};
+  // Sources are applied in order so later runtime-specific values win.
+  for (const source of sources) {
+    for (const name of AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES) {
+      const value = source?.[name];
+      if (value !== undefined) {
+        context[name] =
+          name === "TARGET_REPOSITORY_CLONE_URL"
+            ? sanitizeRepositoryCloneUrl(value)
+            : value;
+      }
+    }
+  }
+  return context;
+}
+
 const CHILD_HOST_CREDENTIAL_ENVIRONMENT_NAMES = [
   "GIT_ASKPASS",
   "GIT_CONFIG_COUNT",
@@ -68,8 +100,12 @@ export function buildCustomRuntimeChildEnvironment(options: {
 }): NodeJS.ProcessEnv {
   const source = options.source ?? {};
   const input = options.input ?? {};
+  const decisionSources = options.inheritEnvironment
+    ? [process.env, source, input]
+    : [source, input];
+  const decisionEnvironment = Object.assign({}, ...decisionSources);
   const env: NodeJS.ProcessEnv = options.inheritEnvironment
-    ? { ...process.env, ...source, ...input }
+    ? { ...decisionEnvironment }
     : {};
 
   if (!options.inheritEnvironment) {
@@ -89,11 +125,41 @@ export function buildCustomRuntimeChildEnvironment(options: {
     }
   }
 
+  Object.assign(env, readAgentVisibleSymphonyContext(...decisionSources));
+
   env.HOME = options.childHome;
   env.USERPROFILE = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
+  for (const name of Object.keys(env)) {
+    if (isCustomRuntimeReservedAuthEnvironmentName(name, decisionEnvironment)) {
+      if (name === options.authEnvKey) {
+        throw new Error(
+          `Custom runtime auth environment variable ${name} is reserved and cannot be exposed to the child.`
+        );
+      }
+      delete env[name];
+    }
+  }
   removeChildHostCredentialEnvironment(env);
   return env;
+}
+
+/**
+ * Removes URL userinfo before a clone URL is persisted or exposed to a child.
+ * Authentication remains the responsibility of configured credential helpers.
+ */
+export function sanitizeRepositoryCloneUrl(cloneUrl: string): string {
+  try {
+    const url = new URL(cloneUrl);
+    if (url.protocol === "ssh:") {
+      return cloneUrl;
+    }
+    return `${url.protocol}//${url.host}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    // Git accepts URL forms that the WHATWG parser rejects. Remove only
+    // leading URL userinfo; SCP-like SSH remotes remain untouched.
+    return cloneUrl.replace(/^([a-z][a-z\d+.-]*:\/\/)[^/@]*@/i, "$1");
+  }
 }
 
 function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {

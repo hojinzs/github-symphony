@@ -556,12 +556,15 @@ and the dispatched worker.
 
 `runtime.isolation.inherit_environment: true` is a compatibility escape hatch
 for commands that cannot yet operate under the explicit contract. It restores
-the full worker environment, including raw tracker credentials and broker
-controls, but still overrides `HOME` and `GH_CONFIG_DIR` and removes host Git
-credential-helper settings. This is an intentional repository-local divergence
-from upstream Symphony §10.5, §15.3, and §17.5. It lets an arbitrary command
-read high-value credentials, so use it only during migration and remove it as
-soon as the command's required auth input can be declared.
+the non-credential worker environment, but still overrides `HOME` and
+`GH_CONFIG_DIR` and removes tracker credentials, broker/authentication controls,
+and host Git credential-helper settings. Starting with the #812 runtime context
+fix, compatibility inheritance no longer passes raw tracker or broker credentials
+through to the custom agent; commands that relied on those inherited values must
+declare a dedicated least-privilege provider credential with `runtime.auth.env`.
+This is an intentional repository-local divergence from upstream Symphony
+§10.5, §15.3, and §17.5. Use compatibility inheritance only during migration
+and remove it as soon as the command's required inputs can be declared.
 It is valid only with `runtime.kind: custom`; other runtime kinds fail workflow
 validation rather than silently ignoring it.
 
@@ -637,6 +640,29 @@ not set them manually.
 | `TARGET_REPOSITORY_OWNER`         | target repo owner                            | Worker                                            | Internal/injected | Repository owner.                                                                                                                                                                                                                                                             |
 | `TARGET_REPOSITORY_NAME`          | target repo name                             | Worker                                            | Internal/injected | Repository name.                                                                                                                                                                                                                                                              |
 | `TARGET_REPOSITORY_URL`           | target repo URL                              | Worker                                            | Internal/injected | Browser URL for the repository.                                                                                                                                                                                                                                               |
+
+### Agent-visible Symphony context
+
+Every Codex, Claude, and custom coding-agent child receives the same explicit,
+non-secret run context. The allowlist is defined by
+`AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES` in `@gh-symphony/core`:
+
+| Variable                      | Agent-visible meaning                           |
+| ----------------------------- | ----------------------------------------------- |
+| `SYMPHONY_ASSIGNED_BRANCH`    | Immutable branch assigned to this run.          |
+| `SYMPHONY_ISSUE_ID`           | Tracker-native issue ID.                        |
+| `SYMPHONY_ISSUE_IDENTIFIER`   | Human-readable issue identifier.                |
+| `SYMPHONY_ISSUE_STATE`        | Tracker state captured for dispatch.            |
+| `SYMPHONY_TRACKER_KIND`       | Active tracker kind.                            |
+| `TARGET_REPOSITORY_CLONE_URL` | Repository clone URL with URL userinfo removed. |
+| `TARGET_REPOSITORY_OWNER`     | Repository owner.                               |
+| `TARGET_REPOSITORY_NAME`      | Repository name.                                |
+| `TARGET_REPOSITORY_URL`       | Repository browser URL.                         |
+
+Tracker-declared secret environment names and reserved broker/authentication
+variables are removed after environment composition, even if a runtime enables
+process-environment compatibility inheritance. Runtime authentication explicitly
+configured for the coding agent remains separate from this context allowlist.
 
 ### GitHub tracker transition extension
 
