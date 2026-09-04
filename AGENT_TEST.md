@@ -355,10 +355,13 @@ to verify the following.
   generated child configuration contains only its endpoint capability
 - The child receives a runtime-owned `HOME`/`GH_CONFIG_DIR`, no raw GitHub or
   Linear credential, no broker secret, and no inherited Git credential helper
-- The successful worker lifecycle fetches and pushes the assigned branch from
-  the host after the agent turns complete; unit fixtures additionally prove a
-  child-mutated `origin` and executable pre-push hook cannot affect or observe
-  the credential-bearing transport
+- The successful worker lifecycle fetches and pushes the assigned branch through
+  an authenticated smart-HTTP remote after the agent turns complete, observing
+  authenticated upload-pack and receive-pack advertisements plus the
+  receive-pack RPC. This exercises the shared Codex Git credential helper for
+  the Claude runtime; unit fixtures additionally prove a child-mutated `origin`
+  and executable pre-push hook cannot affect or observe the credential-bearing
+  transport
 
 ### 6. Check logs
 
