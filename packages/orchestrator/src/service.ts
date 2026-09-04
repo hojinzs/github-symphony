@@ -5862,9 +5862,7 @@ export class OrchestratorService {
 
   /**
    * Per-issue workspaces live under the project's configured `workspace.root`
-   * (spec 9.1), carried as `workspaceDir` in every project mode. Persisted
-   * repo-embedded configs that still use this field for the checkout are
-   * rejected during normalization until `repo init` migrates them.
+   * (spec 9.1), carried as `workspaceDir` in the standalone project config.
    */
   private resolveIssueWorkspaceRoot(tenant: OrchestratorProjectConfig): string {
     return resolve(tenant.workspaceDir);

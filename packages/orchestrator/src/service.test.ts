@@ -3043,7 +3043,7 @@ describe("OrchestratorService", () => {
     expect(upsertIssueComment).not.toHaveBeenCalled();
   });
 
-  it("passes worktree-cache settings into issue populate", async () => {
+  it("passes project and branch settings into issue population", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-worktree-settings-")

@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrchestratorService, sortCandidatesForDispatch } from "./service.js";
@@ -41,7 +41,7 @@ function makeIssue(
     createdAt: null,
     updatedAt: null,
     repository: {
-      owner: "acme",
+      owner: "dispatch-acme",
       name: "repo",
       cloneUrl: "https://github.com/acme/repo.git",
     },
@@ -72,7 +72,7 @@ function makeRun(
     issueTitle: "Test",
     issueState: "Todo",
     repository: {
-      owner: "acme",
+      owner: "dispatch-acme",
       name: "repo",
       cloneUrl: "https://github.com/acme/repo.git",
     },
@@ -294,7 +294,7 @@ describe("per-state concurrency limits", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-dispatch-"));
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform",
       {
         maxConcurrentByState: {
@@ -333,7 +333,7 @@ describe("per-state concurrency limits", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-dispatch-"));
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform",
       {
         maxConcurrentByState: {
@@ -372,7 +372,7 @@ describe("per-state concurrency limits", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-dispatch-"));
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform",
       {
         maxConcurrentByState: {
@@ -418,7 +418,7 @@ describe("blocker eligibility", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -431,7 +431,7 @@ describe("blocker eligibility", () => {
     await store.saveProjectConfig(projectConfig);
 
     const issue = makeIssue({
-      identifier: "acme/platform#1",
+      identifier: "dispatch-acme/platform#1",
       state: "Todo",
       dispatchable: false,
       dispatchReason: "assigned to another agent",
@@ -462,7 +462,7 @@ describe("blocker eligibility", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-blocker-"));
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -476,7 +476,7 @@ describe("blocker eligibility", () => {
 
     const issueA = makeIssue({
       id: "issue-1",
-      identifier: "acme/platform#1",
+      identifier: "dispatch-acme/platform#1",
       number: 1,
       state: "Todo",
       repository: {
@@ -492,15 +492,16 @@ describe("blocker eligibility", () => {
     });
     const issueB = makeIssue({
       id: "issue-2",
-      identifier: "acme/platform#2",
+      identifier: "dispatch-acme/platform#2",
       number: 2,
       state: "Todo",
       dispatchable: false,
-      dispatchReason: "Blocked by unresolved GitHub issue: acme/platform#1.",
+      dispatchReason:
+        "Blocked by unresolved GitHub issue: dispatch-acme/platform#1.",
       blockedBy: [
         {
           id: "issue-1",
-          identifier: "acme/platform#1",
+          identifier: "dispatch-acme/platform#1",
           state: "Todo",
         },
       ],
@@ -569,7 +570,7 @@ describe("blocker eligibility", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-blocker-"));
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -583,7 +584,7 @@ describe("blocker eligibility", () => {
 
     const issueA = makeIssue({
       id: "issue-1",
-      identifier: "acme/platform#1",
+      identifier: "dispatch-acme/platform#1",
       number: 1,
       state: "Done",
       repository: {
@@ -599,13 +600,13 @@ describe("blocker eligibility", () => {
     });
     const issueB = makeIssue({
       id: "issue-2",
-      identifier: "acme/platform#2",
+      identifier: "dispatch-acme/platform#2",
       number: 2,
       state: "Todo",
       blockedBy: [
         {
           id: "issue-1",
-          identifier: "acme/platform#1",
+          identifier: "dispatch-acme/platform#1",
           state: "Done",
         },
       ],
@@ -674,7 +675,7 @@ describe("blocker eligibility", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-blocker-"));
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -688,7 +689,7 @@ describe("blocker eligibility", () => {
 
     const issue = makeIssue({
       id: "issue-2",
-      identifier: "acme/platform#2",
+      identifier: "dispatch-acme/platform#2",
       number: 2,
       state: "Todo",
       blockedBy: [
@@ -774,7 +775,7 @@ describe("routability reconciliation", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform",
       { requiredLabels: ["agent"] }
     );
@@ -789,7 +790,7 @@ describe("routability reconciliation", () => {
 
     const issue = makeIssue({
       id: "issue-routable-1",
-      identifier: "acme/platform#1",
+      identifier: "dispatch-acme/platform#1",
       state: "Todo",
       labels: [],
       repository,
@@ -897,7 +898,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -911,14 +912,14 @@ describe("targeted canonical subject dispatch", () => {
 
     const targetIssue = makeIssue({
       id: "issue-7",
-      identifier: "acme/platform#7",
+      identifier: "dispatch-acme/platform#7",
       number: 7,
       state: "In review",
       repository,
     });
     const activeIssue = makeIssue({
       id: "issue-8",
-      identifier: "acme/platform#8",
+      identifier: "dispatch-acme/platform#8",
       number: 8,
       state: "Todo",
       repository,
@@ -993,7 +994,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const defaultRepository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const alternateRepository = await createRepositoryFixture(
@@ -1013,7 +1014,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const defaultIssue = makeIssue({
       id: "issue-default",
-      identifier: "acme/platform#9",
+      identifier: "dispatch-acme/platform#9",
       number: 9,
       state: "Done",
       repository: defaultRepository,
@@ -1111,7 +1112,7 @@ describe("targeted canonical subject dispatch", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-targeted-pr-"));
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -1126,7 +1127,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const issue = makeIssue({
       id: "issue-7",
-      identifier: "acme/platform#7",
+      identifier: "dispatch-acme/platform#7",
       number: 7,
       state: "Todo",
       repository,
@@ -1144,7 +1145,7 @@ describe("targeted canonical subject dispatch", () => {
     });
     const linkedPullRequest = makeIssue({
       id: "pr-107",
-      identifier: "acme/platform#107",
+      identifier: "dispatch-acme/platform#107",
       number: 107,
       state: "Todo",
       repository,
@@ -1169,7 +1170,7 @@ describe("targeted canonical subject dispatch", () => {
     });
 
     const result = await service.runOnce({
-      issueIdentifier: "acme/platform#107",
+      issueIdentifier: "dispatch-acme/platform#107",
     });
 
     expect(result.summary.dispatched).toBe(1);
@@ -1179,7 +1180,7 @@ describe("targeted canonical subject dispatch", () => {
       ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
-          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#7",
+          SYMPHONY_ISSUE_IDENTIFIER: "dispatch-acme/platform#7",
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-7",
         }),
       })
@@ -1194,7 +1195,7 @@ describe("targeted canonical subject dispatch", () => {
       );
       const repository = await createRepositoryFixture(
         tempRoot,
-        "acme",
+        "dispatch-acme",
         "platform"
       );
       const store = new OrchestratorFsStore(tempRoot);
@@ -1208,7 +1209,7 @@ describe("targeted canonical subject dispatch", () => {
 
       const issue = makeIssue({
         id: "issue-8",
-        identifier: "acme/platform#8",
+        identifier: "dispatch-acme/platform#8",
         number: 8,
         state,
         repository,
@@ -1226,7 +1227,7 @@ describe("targeted canonical subject dispatch", () => {
       });
       const linkedPullRequest = makeIssue({
         id: "pr-108",
-        identifier: "acme/platform#108",
+        identifier: "dispatch-acme/platform#108",
         number: 108,
         state: "Todo",
         repository,
@@ -1255,7 +1256,7 @@ describe("targeted canonical subject dispatch", () => {
       });
 
       const result = await service.runOnce({
-        issueIdentifier: "acme/platform#108",
+        issueIdentifier: "dispatch-acme/platform#108",
       });
 
       expect(result.summary.dispatched).toBe(0);
@@ -1271,7 +1272,7 @@ describe("targeted canonical subject dispatch", () => {
       );
       const repository = await createRepositoryFixture(
         tempRoot,
-        "acme",
+        "dispatch-acme",
         "platform"
       );
       const store = new OrchestratorFsStore(tempRoot);
@@ -1285,7 +1286,7 @@ describe("targeted canonical subject dispatch", () => {
 
       const issue = makeIssue({
         id: "issue-9",
-        identifier: "acme/platform#9",
+        identifier: "dispatch-acme/platform#9",
         number: 9,
         state: "In review",
         repository,
@@ -1303,7 +1304,7 @@ describe("targeted canonical subject dispatch", () => {
       });
       const linkedPullRequest = makeIssue({
         id: "pr-109",
-        identifier: "acme/platform#109",
+        identifier: "dispatch-acme/platform#109",
         number: 109,
         state: pullRequestState,
         repository,
@@ -1338,7 +1339,7 @@ describe("targeted canonical subject dispatch", () => {
       });
 
       const result = await service.runOnce({
-        issueIdentifier: "acme/platform#109",
+        issueIdentifier: "dispatch-acme/platform#109",
       });
 
       expect(result.summary.dispatched).toBe(0);
@@ -1348,7 +1349,7 @@ describe("targeted canonical subject dispatch", () => {
         projectConfig,
         expect.objectContaining({
           id: "issue-9",
-          identifier: "acme/platform#9",
+          identifier: "dispatch-acme/platform#9",
         }),
         expect.objectContaining({
           marker:
@@ -1371,7 +1372,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -1385,7 +1386,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const issue = makeIssue({
       id: "issue-active",
-      identifier: "acme/platform#10",
+      identifier: "dispatch-acme/platform#10",
       state: "Todo",
       repository,
       metadata: {
@@ -1397,7 +1398,7 @@ describe("targeted canonical subject dispatch", () => {
     });
     const linkedPullRequest = makeIssue({
       id: "pr-active",
-      identifier: "acme/platform#110",
+      identifier: "dispatch-acme/platform#110",
       state: "In Progress",
       repository,
       metadata: {
@@ -1434,7 +1435,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -1447,7 +1448,7 @@ describe("targeted canonical subject dispatch", () => {
     await store.saveProjectConfig(projectConfig);
     const issue = makeIssue({
       id: "issue-9",
-      identifier: "acme/platform#9",
+      identifier: "dispatch-acme/platform#9",
       number: 9,
       state: "In review",
       repository,
@@ -1460,7 +1461,7 @@ describe("targeted canonical subject dispatch", () => {
     });
     const linkedPullRequest = makeIssue({
       id: "pr-109",
-      identifier: "acme/platform#109",
+      identifier: "dispatch-acme/platform#109",
       number: 109,
       state: "Todo",
       repository,
@@ -1493,7 +1494,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const result = await new OrchestratorService(store, projectConfig, {
       now: () => new Date("2026-03-08T00:00:00.000Z"),
-    }).runOnce({ issueIdentifier: "acme/platform#109" });
+    }).runOnce({ issueIdentifier: "dispatch-acme/platform#109" });
 
     expect(result.summary.dispatched).toBe(0);
     expect(result.rateLimits).toMatchObject({
@@ -1513,7 +1514,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -1526,7 +1527,7 @@ describe("targeted canonical subject dispatch", () => {
     await store.saveProjectConfig(projectConfig);
     const issue = makeIssue({
       id: "issue-9",
-      identifier: "acme/platform#9",
+      identifier: "dispatch-acme/platform#9",
       number: 9,
       state: "In review",
       repository,
@@ -1539,7 +1540,7 @@ describe("targeted canonical subject dispatch", () => {
     });
     const linkedPullRequest = makeIssue({
       id: "pr-109",
-      identifier: "acme/platform#109",
+      identifier: "dispatch-acme/platform#109",
       number: 109,
       state: "Todo",
       repository,
@@ -1589,7 +1590,7 @@ describe("targeted canonical subject dispatch", () => {
     const result = await new OrchestratorService(store, projectConfig, {
       isProcessRunning: (pid) => pid === 5409,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
-    }).runOnce({ issueIdentifier: "acme/platform#109" });
+    }).runOnce({ issueIdentifier: "dispatch-acme/platform#109" });
 
     expect(result.rateLimits).toMatchObject({
       cycleCost: 16,
@@ -1628,7 +1629,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const defaultRepository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const alternateRepository = await createRepositoryFixture(
@@ -1648,7 +1649,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const defaultIssue = makeIssue({
       id: "issue-10",
-      identifier: "acme/platform#10",
+      identifier: "dispatch-acme/platform#10",
       number: 10,
       state: "Done",
       repository: defaultRepository,
@@ -1725,7 +1726,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -1740,7 +1741,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const pullRequest = makeIssue({
       id: "pr-109",
-      identifier: "acme/platform#109",
+      identifier: "dispatch-acme/platform#109",
       number: 109,
       state: "Todo",
       repository,
@@ -1765,7 +1766,7 @@ describe("targeted canonical subject dispatch", () => {
     });
 
     const result = await service.runOnce({
-      issueIdentifier: "acme/platform#109",
+      issueIdentifier: "dispatch-acme/platform#109",
     });
 
     expect(result.summary.dispatched).toBe(1);
@@ -1774,7 +1775,7 @@ describe("targeted canonical subject dispatch", () => {
       ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
-          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#109",
+          SYMPHONY_ISSUE_IDENTIFIER: "dispatch-acme/platform#109",
           SYMPHONY_ISSUE_SUBJECT_ID: "pr-109",
         }),
       })
@@ -1787,7 +1788,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -1801,7 +1802,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const issue = makeIssue({
       id: "issue-10",
-      identifier: "acme/platform#10",
+      identifier: "dispatch-acme/platform#10",
       number: 10,
       state: "Todo",
       repository,
@@ -1825,7 +1826,7 @@ describe("targeted canonical subject dispatch", () => {
     });
 
     const result = await service.runOnce({
-      issueIdentifier: "acme/platform#10",
+      issueIdentifier: "dispatch-acme/platform#10",
     });
 
     expect(result.summary.dispatched).toBe(1);
@@ -1834,7 +1835,7 @@ describe("targeted canonical subject dispatch", () => {
       ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
-          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#10",
+          SYMPHONY_ISSUE_IDENTIFIER: "dispatch-acme/platform#10",
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-10",
         }),
       })
@@ -1847,7 +1848,7 @@ describe("targeted canonical subject dispatch", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -1862,7 +1863,7 @@ describe("targeted canonical subject dispatch", () => {
 
     const issue = makeIssue({
       id: "issue-11",
-      identifier: "acme/platform#11",
+      identifier: "dispatch-acme/platform#11",
       number: 11,
       state: "Todo",
       repository,
@@ -1880,7 +1881,7 @@ describe("targeted canonical subject dispatch", () => {
     });
     const linkedPullRequest = makeIssue({
       id: "pr-111",
-      identifier: "acme/platform#111",
+      identifier: "dispatch-acme/platform#111",
       number: 111,
       state: "Todo",
       repository,
@@ -1913,7 +1914,7 @@ describe("targeted canonical subject dispatch", () => {
       ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
-          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#11",
+          SYMPHONY_ISSUE_IDENTIFIER: "dispatch-acme/platform#11",
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-11",
         }),
       })
@@ -1939,7 +1940,7 @@ describe("codex policy propagation", () => {
     );
     const repository = await createRepositoryFixture(
       tempRoot,
-      "acme",
+      "dispatch-acme",
       "platform",
       {
         codex: {
@@ -2125,7 +2126,10 @@ function createProjectConfig(
 ) {
   return {
     projectId: "tenant-1",
-    slug: "tenant-1",
+    // Clone-era tests could reuse one branch name across temporary project
+    // roots. Worktree population requires each independently running fixture
+    // to own a distinct branch in the shared bare cache.
+    slug: basename(tempRoot),
     workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
     repository: {
       owner,
