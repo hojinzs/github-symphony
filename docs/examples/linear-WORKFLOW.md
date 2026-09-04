@@ -57,7 +57,11 @@ runtime:
 
 `WORKFLOW.md` is the source of truth for Linear tracker setup. Use `tracker.kind: linear` with `tracker.provider.project_slug`; do not use `tracker.project_id`, `projectId`, `project_id`, `teamId`, or `.gh-symphony/config.json` as Linear configuration inputs.
 
-`LINEAR_API_KEY` must be available when running `gh-symphony repo init`, `gh-symphony repo start`, or `gh-symphony workflow preview ENG-123`. The orchestrator reads Linear by polling the configured project. Linear webhook setup is a non-goal and no webhook command is expected.
+`LINEAR_API_KEY` must be available when running
+`gh-symphony project start --project-dir <path>` or
+`gh-symphony workflow preview ENG-123`. The orchestrator reads Linear by
+polling the configured project. Linear webhook setup is a non-goal and no
+webhook command is expected.
 
 `tracker.provider.pickup_labels` only controls whether active-state issues are eligible for new worker pickup. Exclude labels win over include labels. If `include` is omitted or empty, active-state issues remain pickup-eligible unless excluded. Do not use label changes to stop already running workers; move the Linear issue state to control interruption, review, and completion.
 

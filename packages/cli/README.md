@@ -2,9 +2,14 @@
 
 ## Repository command migration
 
-The CLI now prints: “The `repo` command has been removed. Use
-`gh-symphony project start --project-dir <path>`.” Every removed `repo`
-subcommand exits non-zero. Start the project explicitly:
+The CLI prints this migration instruction exactly:
+
+```text
+The 'repo' command has been removed. Use 'gh-symphony project start --project-dir <path>'.
+Migration: packages/cli/README.md#repository-command-migration
+```
+
+Every removed `repo` subcommand exits non-zero. Start the project explicitly:
 
 ```bash
 gh-symphony project start --project-dir /path/to/project

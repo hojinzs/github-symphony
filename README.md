@@ -1,7 +1,7 @@
 # GitHub Symphony
 
-> **CLI migration:** “The `repo` command has been removed. Use
-> `gh-symphony project start --project-dir <path>`.” See the
+> **CLI migration:** `The 'repo' command has been removed. Use 'gh-symphony
+project start --project-dir <path>'.` See the
 > [CLI migration note](packages/cli/README.md#repository-command-migration),
 > including the required daemon restart after upgrading.
 

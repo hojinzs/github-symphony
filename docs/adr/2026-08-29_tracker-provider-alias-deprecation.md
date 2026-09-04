@@ -15,14 +15,14 @@ The upstream configuration model places adapter-owned tracker settings in the
 opaque `tracker.provider` object. Existing GitHub Symphony workflows used flat
 `tracker.*` keys such as `project_id`, `endpoint`, `state_field`, `priority`,
 and `pickup_labels`. Removing those keys immediately would break committed
-workflows and installed repository runtimes.
+workflows and installed project runtimes.
 
 ## Decision
 
 New generated workflows, reference workflows, and skill templates use
 `tracker.provider`. The parser continues to promote supported flat tracker keys
 into that provider object as deprecated, non-breaking aliases. Diagnostics from
-`gh-symphony workflow validate` and `gh-symphony repo doctor` identify the
+`gh-symphony workflow validate` and `gh-symphony doctor` identify the
 aliases and print a copyable normalized provider block.
 
 The aliases are scheduled for removal in the next major release. The removal
