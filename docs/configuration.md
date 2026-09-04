@@ -626,6 +626,29 @@ not set them manually.
 | `TARGET_REPOSITORY_NAME`          | target repo name                          | Worker                                            | Internal/injected | Repository name.                                                                                                                                                                                                                                                              |
 | `TARGET_REPOSITORY_URL`           | target repo URL                           | Worker                                            | Internal/injected | Browser URL for the repository.                                                                                                                                                                                                                                               |
 
+### Agent-visible Symphony context
+
+Every Codex, Claude, and custom coding-agent child receives the same explicit,
+non-secret run context. The allowlist is defined by
+`AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES` in `@gh-symphony/core`:
+
+| Variable                      | Agent-visible meaning                  |
+| ----------------------------- | -------------------------------------- |
+| `SYMPHONY_ASSIGNED_BRANCH`    | Immutable branch assigned to this run. |
+| `SYMPHONY_ISSUE_ID`           | Tracker-native issue ID.               |
+| `SYMPHONY_ISSUE_IDENTIFIER`   | Human-readable issue identifier.       |
+| `SYMPHONY_ISSUE_STATE`        | Tracker state captured for dispatch.   |
+| `SYMPHONY_TRACKER_KIND`       | Active tracker kind.                   |
+| `TARGET_REPOSITORY_CLONE_URL` | Repository clone URL.                  |
+| `TARGET_REPOSITORY_OWNER`     | Repository owner.                      |
+| `TARGET_REPOSITORY_NAME`      | Repository name.                       |
+| `TARGET_REPOSITORY_URL`       | Repository browser URL.                |
+
+Tracker-declared secret environment names and reserved broker/authentication
+variables are removed after environment composition, even if a runtime enables
+process-environment compatibility inheritance. Runtime authentication explicitly
+configured for the coding agent remains separate from this context allowlist.
+
 ### GitHub tracker transition extension
 
 GitHub Project state writes are a repository extension to upstream Symphony SPEC §11.5. Workers send issue-scoped intent to the internal orchestrator API; the orchestrator authorizes the current `SYMPHONY_RUN_ID`, uses its persisted canonical tracker item, serializes requests against the shared GraphQL budget, and confirms an exact-item readback.

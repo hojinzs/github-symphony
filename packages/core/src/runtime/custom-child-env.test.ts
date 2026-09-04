@@ -9,6 +9,8 @@ describe("buildCustomRuntimeChildEnvironment", () => {
         HOME: "/operator-home",
         USERPROFILE: "C:\\operator-home",
         PATH: "/bin",
+        SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+        SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
         GITHUB_TOKEN: "github-secret",
         LINEAR_API_KEY: "linear-secret",
         GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
@@ -26,6 +28,8 @@ describe("buildCustomRuntimeChildEnvironment", () => {
 
     expect(env).toMatchObject({
       PATH: "/bin",
+      SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
       CUSTOM_AGENT_TOKEN: "custom-token",
       HOME: "/runtime/child-home",
       USERPROFILE: "/runtime/child-home",
@@ -45,7 +49,7 @@ describe("buildCustomRuntimeChildEnvironment", () => {
     }
   });
 
-  it("keeps private home and strips Git credential helpers in compatibility mode", () => {
+  it("keeps private home and strips credentials in compatibility mode", () => {
     const env = buildCustomRuntimeChildEnvironment({
       childHome: "/runtime/child-home",
       source: {
@@ -53,6 +57,8 @@ describe("buildCustomRuntimeChildEnvironment", () => {
         USERPROFILE: "C:\\operator-home",
         GH_CONFIG_DIR: "/operator-home/.config/gh",
         GITHUB_TOKEN: "github-secret",
+        GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+        SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
         GIT_CONFIG_KEY_0: "credential.helper",
         GIT_CONFIG_VALUE_0: "store",
       },
@@ -60,7 +66,7 @@ describe("buildCustomRuntimeChildEnvironment", () => {
     });
 
     expect(env).toMatchObject({
-      GITHUB_TOKEN: "github-secret",
+      SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
       HOME: "/runtime/child-home",
       USERPROFILE: "/runtime/child-home",
       GH_CONFIG_DIR: "/runtime/child-home/gh",
@@ -68,5 +74,7 @@ describe("buildCustomRuntimeChildEnvironment", () => {
     });
     expect(env.GIT_CONFIG_KEY_0).toBeUndefined();
     expect(env.GIT_CONFIG_VALUE_0).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
   });
 });

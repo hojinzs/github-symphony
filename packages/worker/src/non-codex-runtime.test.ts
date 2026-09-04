@@ -75,7 +75,12 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
       workflowWithRuntime("claude-print", "claude", []),
       {
         workingDirectory: root,
-        env: {},
+        env: {
+          SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+          SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
+          GITHUB_GRAPHQL_TOKEN: "tracker-secret",
+          GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+        },
         runtimeRoot: join(root, "runtime"),
         claudeDependencies: {
           spawnImpl,
@@ -120,6 +125,13 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
         },
       })}\n`
     );
+    const spawnedEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+    expect(spawnedEnv).toMatchObject({
+      SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
+    });
+    expect(spawnedEnv?.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(spawnedEnv?.GITHUB_TOKEN_BROKER_SECRET).toBeUndefined();
     expect(result.result).toBe("success");
   });
 
@@ -156,6 +168,8 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
           WORKSPACE_RUNTIME_DIR: runtimeDirectory,
           CUSTOM_AGENT_TOKEN: "custom-runtime-token",
           SYMPHONY_TRACKER_KIND: "github",
+          SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+          SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
           GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
           GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
           AGENT_CREDENTIAL_BROKER_URL:
@@ -192,6 +206,8 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
     const spawnedEnv = spawnImpl.mock.calls[0]?.[2]?.env;
     expect(spawnedEnv).toMatchObject({
       CUSTOM_AGENT_TOKEN: "custom-runtime-token",
+      SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
       HOME: join(runtimeDirectory, "child-home"),
       GH_CONFIG_DIR: join(runtimeDirectory, "child-home", "gh"),
     });

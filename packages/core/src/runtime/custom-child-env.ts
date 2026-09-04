@@ -13,6 +13,35 @@ const PORTABLE_ENVIRONMENT_NAMES = [
   "USER",
 ] as const;
 
+/** Non-secret worker context intentionally exposed to every agent runtime. */
+export const AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES = [
+  "SYMPHONY_ASSIGNED_BRANCH",
+  "SYMPHONY_ISSUE_ID",
+  "SYMPHONY_ISSUE_IDENTIFIER",
+  "SYMPHONY_ISSUE_STATE",
+  "SYMPHONY_TRACKER_KIND",
+  "TARGET_REPOSITORY_CLONE_URL",
+  "TARGET_REPOSITORY_NAME",
+  "TARGET_REPOSITORY_OWNER",
+  "TARGET_REPOSITORY_URL",
+] as const;
+
+export function readAgentVisibleSymphonyContext(
+  ...sources: ReadonlyArray<NodeJS.ProcessEnv | undefined>
+): NodeJS.ProcessEnv {
+  const context: NodeJS.ProcessEnv = {};
+  for (const name of AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES) {
+    for (let index = sources.length - 1; index >= 0; index -= 1) {
+      const value = sources[index]?.[name];
+      if (value !== undefined) {
+        context[name] = value;
+        break;
+      }
+    }
+  }
+  return context;
+}
+
 const CHILD_HOST_CREDENTIAL_ENVIRONMENT_NAMES = [
   "GIT_ASKPASS",
   "GIT_CONFIG_COUNT",
@@ -89,9 +118,21 @@ export function buildCustomRuntimeChildEnvironment(options: {
     }
   }
 
+  Object.assign(env, readAgentVisibleSymphonyContext(source, input));
+
   env.HOME = options.childHome;
   env.USERPROFILE = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
+  for (const name of Object.keys(env)) {
+    if (
+      isCustomRuntimeReservedAuthEnvironmentName(name, {
+        ...source,
+        ...input,
+      })
+    ) {
+      delete env[name];
+    }
+  }
   removeChildHostCredentialEnvironment(env);
   return env;
 }
