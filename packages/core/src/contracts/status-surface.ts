@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
 import { isPathWithinRoot } from "../workspace/path-safety.js";
 import type {
@@ -79,7 +79,7 @@ export function assertIssueWorkspaceRootOutsideRepository(
   }
 
   throw new Error(
-    `Project ${JSON.stringify(projectId)} workspace.root ${JSON.stringify(workspaceDir)} must not equal or contain the repository checkout ${JSON.stringify(repositoryDir)}.`
+    `Project ${JSON.stringify(projectId)} workspace.root ${JSON.stringify(resolve(workspaceDir))} must not equal or contain the repository checkout ${JSON.stringify(resolve(repositoryDir))}.`
   );
 }
 

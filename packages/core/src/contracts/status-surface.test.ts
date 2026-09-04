@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { normalizeOrchestratorProjectConfig } from "./status-surface.js";
+import {
+  assertIssueWorkspaceRootOutsideRepository,
+  normalizeOrchestratorProjectConfig,
+} from "./status-surface.js";
 
 const baseConfig = {
   projectId: "tenant-1",
@@ -44,5 +47,19 @@ describe("normalizeOrchestratorProjectConfig", () => {
         path: "/projects/tenant-1/WORKFLOW.md",
       },
     });
+  });
+});
+
+describe("assertIssueWorkspaceRootOutsideRepository", () => {
+  it("reports resolved paths when the workspace root contains the checkout", () => {
+    expect(() =>
+      assertIssueWorkspaceRootOutsideRepository(
+        "tenant-1",
+        "/tmp/workspaces/../workspaces",
+        "/tmp/workspaces/repository/.."
+      )
+    ).toThrow(
+      'Project "tenant-1" workspace.root "/tmp/workspaces" must not equal or contain the repository checkout "/tmp/workspaces".'
+    );
   });
 });
