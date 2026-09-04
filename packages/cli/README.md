@@ -40,7 +40,10 @@ subprocesses; provider tools and authenticated Git transport execute in the
 worker host. Git transport uses the orchestrator-owned target URL from a
 temporary bare repository with checkout hooks disabled, so child-authored
 remote and hook configuration is outside the credential-bearing path. These
-entry points are not standalone user-facing commands.
+entry points are not standalone user-facing commands. Agents publish committed
+work through the authenticated run-scoped host action documented by the
+generated `/push` skill; the same transport runs again at worker exit as a
+backstop.
 
 Validate the machine and repo prerequisites before first use:
 
@@ -164,6 +167,10 @@ The orchestrator does retain a tenant-scoped tracker credential at the worker
 host boundary. Project `.env` credentials take precedence over the daemon's
 resolved credential, enabling host-side tracker tools and authenticated Git
 transport while the agent child remains credential-free.
+`gh-symphony doctor` reports a required `Worker GitHub credential` check for
+the selected tenant using that same precedence. Without a usable GitHub or
+Linear worker credential, startup fails before the agent launches; known-empty
+dispatches are skipped and surfaced in status snapshot warnings.
 
 Custom commands are isolated by default: they receive portable process values,
 a private `HOME`/`GH_CONFIG_DIR`, the rendered prompt, and only the dedicated

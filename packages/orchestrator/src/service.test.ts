@@ -707,7 +707,6 @@ describe("OrchestratorService", () => {
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-
     const listIssues = vi.fn().mockResolvedValue([
       {
         id: "issue-1",
@@ -1867,6 +1866,204 @@ describe("OrchestratorService", () => {
         rateLimits: expect.objectContaining({ remaining: 0 }),
       }),
     ]);
+  });
+
+  it("publishes only the immutable assigned branch repeatedly through the host transport", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-assigned-branch-publish-")
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const trackerAdapter = trackerAdapters.resolveTrackerAdapter(
+      projectConfig.tracker
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      ...trackerAdapter,
+      resolveWorkerCredentials: vi.fn().mockReturnValue({
+        GITHUB_GRAPHQL_TOKEN: "daemon-token",
+      }),
+    });
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "issue-1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-07-30T13:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: tempRoot,
+      assignedBranch: "symphony/acme-platform-1",
+      issueWorkspaceKey: "issue-1",
+      workspaceRuntimeDir: join(tempRoot, "runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-07-30T13:00:00.000Z",
+      updatedAt: "2026-07-30T13:00:00.000Z",
+      startedAt: "2026-07-30T13:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+    const readCurrentBranch = vi
+      .spyOn(gitModule, "readGitCurrentBranch")
+      .mockResolvedValue("main");
+    const publishAssignedBranch = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        branch: "symphony/acme-platform-1",
+        pushed: true,
+        head: "abc123",
+        unpublishedWorktreeChanges: null,
+      },
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-07-30T13:01:00.000Z"),
+      publishAssignedBranch,
+    });
+
+    const first = await service.requestAssignedBranchPublish({
+      runId: "run-1",
+    });
+    const second = await service.requestAssignedBranchPublish({
+      runId: "run-1",
+    });
+
+    expect(first).toEqual({
+      ok: true,
+      outcome: "published",
+      branch: "symphony/acme-platform-1",
+      head: "abc123",
+      unpublishedWorktree: null,
+      error: null,
+    });
+    expect(second).toEqual(first);
+    expect(publishAssignedBranch).toHaveBeenCalledTimes(2);
+    expect(readCurrentBranch).not.toHaveBeenCalled();
+    expect(publishAssignedBranch).toHaveBeenCalledWith({
+      cwd: tempRoot,
+      assignedBranch: "symphony/acme-platform-1",
+      remoteUrl: "https://github.com/acme/platform.git",
+      env: expect.objectContaining({
+        GITHUB_GRAPHQL_TOKEN: "daemon-token",
+      }),
+    });
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      lastEvent: "assigned-branch-published",
+      unpublishedWorktree: null,
+    });
+  });
+
+  it("preserves unpublished worktree diagnostics when assigned branch publication fails", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-assigned-branch-publish-failure-")
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "issue-1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-07-30T13:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: tempRoot,
+      assignedBranch: "symphony/acme-platform-1",
+      issueWorkspaceKey: "issue-1",
+      workspaceRuntimeDir: join(tempRoot, "runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-07-30T13:00:00.000Z",
+      updatedAt: "2026-07-30T13:00:00.000Z",
+      startedAt: "2026-07-30T13:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      unpublishedWorktree: {
+        branch: "symphony/acme-platform-1",
+        head: "abc123",
+        tracked: [" M partial.txt"],
+        untracked: [],
+        trackedOmitted: 0,
+        untrackedOmitted: 0,
+      },
+      nextRetryAt: null,
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-07-30T13:01:00.000Z"),
+      publishAssignedBranch: vi.fn().mockReturnValue(new Promise(() => {})),
+      assignedBranchPublishTimeoutMs: 1,
+    });
+
+    const result = await service.requestAssignedBranchPublish({
+      runId: "run-1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      outcome: "failed",
+      error:
+        "git_transport_failed: assigned branch publication timed out after 1ms",
+    });
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      lastEvent: "assigned-branch-publish-failed",
+      unpublishedWorktree: {
+        branch: "symphony/acme-platform-1",
+        head: "abc123",
+        tracked: [" M partial.txt"],
+      },
+    });
   });
 
   it("publishes transition comments only after confirmation and preserves transition failures", async () => {
@@ -6035,6 +6232,15 @@ Prefer focused changes.
         livePids.delete(pid);
       }
     });
+    const publishAssignedBranch = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        branch: "symphony/acme-platform-1",
+        pushed: true,
+        head: "abc123",
+        unpublishedWorktreeChanges: null,
+      },
+    });
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: vi.fn().mockReturnValue({
@@ -6042,6 +6248,7 @@ Prefer focused changes.
         unref: vi.fn(),
       }) as never,
       killImpl,
+      publishAssignedBranch,
       isProcessRunning: (pid) => livePids.has(pid),
       waitImpl: vi.fn().mockResolvedValue(undefined),
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -6052,6 +6259,10 @@ Prefer focused changes.
 
     expect(killImpl).toHaveBeenNthCalledWith(1, 4101, "SIGTERM");
     expect(killImpl).toHaveBeenNthCalledWith(2, 4101, "SIGKILL");
+    expect(publishAssignedBranch).toHaveBeenCalledOnce();
+    expect(publishAssignedBranch.mock.invocationCallOrder[0]).toBeLessThan(
+      killImpl.mock.invocationCallOrder[0]!
+    );
   });
 
   it("removes suppressed worker pids from shutdown tracking", async () => {
@@ -10399,6 +10610,9 @@ Prefer focused changes.
     const trackerAdapter = trackerAdapters.resolveTrackerAdapter(
       projectConfig.tracker
     );
+    const resolveWorkerCredentials = vi.fn(
+      trackerAdapter.resolveWorkerCredentials?.bind(trackerAdapter)
+    );
     const fetchIssueStatesByIds = vi.fn();
     if (trackerState instanceof Error) {
       fetchIssueStatesByIds.mockRejectedValue(trackerState);
@@ -10412,6 +10626,7 @@ Prefer focused changes.
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       ...trackerAdapter,
       fetchIssueStatesByIds,
+      resolveWorkerCredentials,
     });
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4105,
@@ -10429,6 +10644,7 @@ Prefer focused changes.
       store,
       service,
       fetchIssueStatesByIds,
+      resolveWorkerCredentials,
       spawnImpl,
       advanceToRetryDue: () => {
         currentTime = new Date("2026-03-08T00:00:07.000Z");
@@ -10722,6 +10938,62 @@ Prefer focused changes.
         failureRetrySuppressedState: null,
       },
     ]);
+  });
+
+  it("keeps a due retry queued when the worker credential is missing", async () => {
+    const {
+      store,
+      service,
+      advanceToRetryDue,
+      resolveWorkerCredentials,
+      spawnImpl,
+    } = await createSuccessfulFinalizationFixture("Todo");
+
+    await service.runOnce();
+    const queuedRun = await store.loadRun("run-1");
+    const queuedRecord = (
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    )[0];
+    expect(queuedRun).toMatchObject({
+      status: "retrying",
+      attempt: 1,
+      retryKind: "continuation",
+    });
+
+    resolveWorkerCredentials.mockReturnValue({});
+    advanceToRetryDue();
+    const snapshot = await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "continuation",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: queuedRecord?.failureRetryCount,
+      retryEntry: {
+        attempt: queuedRecord?.retryEntry?.attempt,
+        dueAt: queuedRecord?.retryEntry?.dueAt,
+        error: expect.stringContaining("no worker credential resolved"),
+      },
+    });
+    expect(snapshot.warnings).toContain(
+      "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it."
+    );
+
+    const credentialGatedRun = await store.loadRun("run-1");
+    await service.runOnce();
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      attempt: credentialGatedRun?.attempt,
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+        ?.failureRetryCount
+    ).toBe(queuedRecord?.failureRetryCount);
   });
 
   it("recovers a transient unknown finalization read and later succeeds", async () => {
@@ -11672,6 +11944,7 @@ Prefer focused changes.
         processId: 4111,
         port: 4601,
         workingDirectory: join(tempRoot, "active-run"),
+        assignedBranch: "symphony/acme-platform-1",
         issueWorkspaceKey: null,
         workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
         workflowPath: null,
@@ -11686,6 +11959,15 @@ Prefer focused changes.
       });
 
       const killImpl = vi.fn();
+      const publishAssignedBranch = vi.fn().mockResolvedValue({
+        ok: true,
+        result: {
+          branch: "symphony/acme-platform-1",
+          pushed: true,
+          head: "abc123",
+          unpublishedWorktreeChanges: null,
+        },
+      });
       let currentTime = new Date("2026-03-08T00:04:00.000Z");
       const fetchImpl = vi
         .fn()
@@ -11697,6 +11979,7 @@ Prefer focused changes.
           unref: vi.fn(),
         }) as never,
         killImpl,
+        publishAssignedBranch,
         isProcessRunning: (pid) => pid === 4111,
         now: () => currentTime,
       });
@@ -11708,8 +11991,12 @@ Prefer focused changes.
       const updatedRun = await store.loadRun("run-1");
 
       expect(killImpl).toHaveBeenCalledWith(4111, "SIGTERM");
+      expect(publishAssignedBranch).toHaveBeenCalledOnce();
+      expect(publishAssignedBranch.mock.invocationCallOrder[0]).toBeLessThan(
+        killImpl.mock.invocationCallOrder[0]!
+      );
       expect(updatedRun?.status).toBe("retrying");
-      expect(updatedRun?.lastEventAt).toBeUndefined();
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:09:00.000Z");
       expect(updatedRun?.lastEventAtSource).toBeUndefined();
       expect(updatedRun?.runtimeSession?.threadId).toBeNull();
     } finally {
@@ -14264,6 +14551,7 @@ Handle archived item reconciliation.`,
       processId: 4209,
       port: 4604,
       workingDirectory: join(tempRoot, "active-run"),
+      assignedBranch: "symphony/acme-platform-1",
       issueWorkspaceKey: null,
       workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
       workflowPath: null,
@@ -14303,6 +14591,23 @@ Handle archived item reconciliation.`,
     const listIssues = vi.fn().mockResolvedValue([]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([archivedIssue]);
     const killImpl = vi.fn();
+    const publishAssignedBranch = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        branch: "symphony/acme-platform-1",
+        pushed: true,
+        head: "abc123",
+        unpublishedWorktreeChanges: {
+          tracked: [" M partial.txt"],
+          untracked: [],
+          trackedOmitted: 0,
+          untrackedOmitted: 0,
+        },
+      },
+    });
+    vi.spyOn(gitModule, "readGitCurrentBranch").mockResolvedValue(
+      "symphony/acme-platform-1"
+    );
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
@@ -14320,6 +14625,7 @@ Handle archived item reconciliation.`,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
       killImpl,
       isProcessRunning: vi.fn().mockReturnValue(true),
+      publishAssignedBranch,
     });
 
     const snapshot = await service.runOnce();
@@ -14332,6 +14638,15 @@ Handle archived item reconciliation.`,
       expect.any(Object)
     );
     expect(killImpl).toHaveBeenCalledWith(4209, "SIGTERM");
+    expect(publishAssignedBranch).toHaveBeenCalledWith({
+      cwd: join(tempRoot, "active-run"),
+      assignedBranch: "symphony/acme-platform-1",
+      remoteUrl: repository.cloneUrl,
+      env: expect.any(Object),
+    });
+    expect(publishAssignedBranch.mock.invocationCallOrder[0]).toBeLessThan(
+      killImpl.mock.invocationCallOrder[0]!
+    );
     expect(updatedRun).toMatchObject({
       status: "suppressed",
       issueState: "Archived",
@@ -14339,6 +14654,11 @@ Handle archived item reconciliation.`,
       runPhase: "canceled_by_reconciliation",
       lastError:
         "Run suppressed because the tracker state is no longer actionable.",
+      unpublishedWorktree: {
+        branch: "symphony/acme-platform-1",
+        head: "abc123",
+        tracked: [" M partial.txt"],
+      },
     });
     expect(issueRecords[0]?.state).toBe("released");
     expect(snapshot.activeRuns).toHaveLength(0);
@@ -16773,7 +17093,7 @@ Prefer focused changes.
     );
   });
 
-  it("records a structured warning when no worker credential resolves", async () => {
+  it("skips dispatch and exposes a status warning when no worker credential resolves", async () => {
     const originalBrokerUrl = process.env.GITHUB_TOKEN_BROKER_URL;
     const originalBrokerSecret = process.env.GITHUB_TOKEN_BROKER_SECRET;
     process.env.GITHUB_GRAPHQL_TOKEN = "tracker-list-token";
@@ -16799,32 +17119,28 @@ Prefer focused changes.
         resolveWorkerCredentials: () => ({}),
       });
       const stderrWrite = vi.fn().mockReturnValue(true);
+      const spawnImpl = vi.fn().mockReturnValue({ pid: 4307, unref: vi.fn() });
       const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
-        spawnImpl: vi
-          .fn()
-          .mockReturnValue({ pid: 4307, unref: vi.fn() }) as never,
+        spawnImpl: spawnImpl as never,
         now: () => new Date("2026-03-08T00:00:00.000Z"),
         stderr: { write: stderrWrite } as never,
       });
 
-      await service.runOnce();
+      const snapshot = await service.runOnce();
+      const nextSnapshot = await service.runOnce();
 
-      const run = (await store.loadAllRuns()).find(
-        (candidate) => candidate.projectId === projectConfig.projectId
-      );
-      await expect(
-        store.loadRecentRunEvents(run!.runId, 20, projectConfig.projectId)
-      ).resolves.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            event: "worker-credential-missing",
-          }),
-        ])
-      );
+      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(await store.loadAllRuns()).toEqual([]);
+      expect(snapshot.summary).toMatchObject({ dispatched: 0, skipped: 1 });
+      expect(snapshot.warnings).toEqual([
+        "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it.",
+      ]);
+      expect(nextSnapshot.warnings).toEqual(snapshot.warnings);
       expect(stderrWrite).toHaveBeenCalledWith(
-        expect.stringContaining("No worker credential resolved")
+        expect.stringContaining("Dispatch skipped for acme/platform#1")
       );
+      expect(stderrWrite).toHaveBeenCalledTimes(1);
     } finally {
       if (originalBrokerUrl === undefined) {
         delete process.env.GITHUB_TOKEN_BROKER_URL;

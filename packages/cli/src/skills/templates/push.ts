@@ -2,44 +2,45 @@ import type { SkillTemplateContext } from "../types.js";
 import { renderSkillDocument } from "./document.js";
 
 export function generatePushSkill(_ctx: SkillTemplateContext): string {
-  const lines: string[] = [];
-
-  lines.push("# /push — Git Push Workflow");
-  lines.push("");
-  lines.push("## Trigger");
-  lines.push("");
-  lines.push(
-    "Use this skill when publishing local commits to the remote branch."
-  );
-  lines.push("");
-  lines.push("## Flow");
-  lines.push("");
-  lines.push("1. Run local tests and lint — ensure they pass before pushing");
-  lines.push("2. Push to remote:");
-  lines.push("   ```bash");
-  lines.push("   git push origin <branch>        # subsequent pushes");
-  lines.push("   git push -u origin <branch>     # first push (sets upstream)");
-  lines.push("   ```");
-  lines.push("3. If push is rejected (non-fast-forward):");
-  lines.push("   - Run `git fetch origin && git merge origin/main`");
-  lines.push("   - Resolve any conflicts");
-  lines.push("   - Re-run tests");
-  lines.push("   - Push again");
-  lines.push("4. Record push result in workpad Notes");
-  lines.push("");
-  lines.push("## Rules");
-  lines.push("");
-  lines.push("- Never use `--force` (destructive)");
-  lines.push(
-    "- Only use `--force-with-lease` if absolutely necessary — record the reason in workpad"
-  );
-  lines.push("- Verify CI starts after push (check GitHub Actions tab)");
-  lines.push("- Do not push directly to `main` or `master`");
+  const lines = [
+    "# /push — Host-owned Branch Publication",
+    "",
+    "## Trigger",
+    "",
+    "Use this skill after committing work that must become visible on the assigned remote branch, including before creating or refreshing a pull request.",
+    "",
+    "## Flow",
+    "",
+    "1. Run the relevant tests and confirm the worktree is clean.",
+    "2. Confirm `git branch --show-current` equals `$SYMPHONY_ASSIGNED_BRANCH`.",
+    "3. Request publication from the authenticated host:",
+    "   ```bash",
+    "   curl --fail-with-body --silent --show-error \\",
+    '     -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/assigned-branch/publish" \\',
+    '     -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \\',
+    '     -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN"',
+    "   ```",
+    "4. Require `ok: true`, `outcome: published`, and the expected branch/head in the response before relying on the remote ref.",
+    "5. A missing remote ref alone is not a blocker and must never trigger a turn-count escalation. If publication was not requested yet, request it; if the action fails, record its concrete error.",
+    "",
+    "## Host guarantees",
+    "",
+    "- The host alone holds Git credentials.",
+    "- The host verifies the assigned branch, refuses non-fast-forward publication, disables repository hooks, and reports tracked or untracked work left unpublished.",
+    "- Repeating the action at the same HEAD is safe and idempotent.",
+    "- The worker also publishes at session exit as a backstop, including abnormal exits.",
+    "",
+    "## Rules",
+    "",
+    "- Never run `git push`, add credentials, or edit `origin` from the agent child.",
+    "- Never rebase, amend, reset, or force-rewrite commits that may already be remote.",
+    "- Never publish `main`; the assigned branch is the only publication target.",
+  ];
 
   return renderSkillDocument({
     name: "push",
     description:
-      "Publish verified local commits to the remote branch without unsafe force pushes.",
+      "Publish the assigned branch through the authenticated host action and verify its concrete result.",
     bodyLines: lines,
   });
 }

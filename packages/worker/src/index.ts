@@ -55,6 +55,7 @@ import {
 } from "./runtime-routing.js";
 import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
+import { resolveTrackerCredentialPreflight } from "./tracker-credential-preflight.js";
 import {
   applyGitTransportAttempt,
   shouldSynchronizeAssignedBranch,
@@ -539,6 +540,13 @@ async function startAssignedRun() {
       return;
     }
 
+    const trackerCredentialPreflight =
+      resolveTrackerCredentialPreflight(launcherEnv);
+    if (!trackerCredentialPreflight.ok) {
+      await exitWorkerStartupFailure(trackerCredentialPreflight.reason);
+      return;
+    }
+
     const workflowPath =
       launcherEnv.SYMPHONY_WORKFLOW_PATH ||
       join(launcherEnv.WORKING_DIRECTORY!, "WORKFLOW.md");
@@ -887,6 +895,14 @@ async function runNonCodexRuntimeAdapterLifecycle(
       convergenceDetected: false,
       maxTurnsReached: false,
     });
+    recordGitTransportAttempt(
+      await trySynchronizeAssignedBranch({
+        cwd: env.WORKING_DIRECTORY!,
+        assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+        remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
+        env,
+      })
+    );
     emitTurnFailedEvent(turnTelemetry, message);
   } finally {
     unsubscribe();
@@ -2093,6 +2109,15 @@ async function runCodexClientProtocol(
       );
       activeTurnTelemetry = null;
     }
+
+    recordGitTransportAttempt(
+      await trySynchronizeAssignedBranch({
+        cwd: plan.cwd,
+        assignedBranch: env.SYMPHONY_ASSIGNED_BRANCH ?? "",
+        remoteUrl: env.TARGET_REPOSITORY_CLONE_URL ?? "",
+        env,
+      })
+    );
 
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();

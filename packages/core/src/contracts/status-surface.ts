@@ -272,6 +272,8 @@ export type OrchestratorRunRecord = {
   ownerProcessIdentity?: string | null;
   port: number | null;
   workingDirectory: string;
+  /** Immutable branch assigned before worker launch for host-side publication confinement. */
+  assignedBranch?: string | null;
   issueWorkspaceKey: string | null;
   workspaceRuntimeDir: string;
   workflowPath: string | null;

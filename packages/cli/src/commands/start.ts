@@ -34,6 +34,7 @@ import type {
   ProjectStatusSnapshot,
   TrackerStateRequest,
   TrackerStateResult,
+  UnpublishedWorktree,
 } from "@gh-symphony/core";
 import {
   assertDispatchableOrchestratorProjectConfig,
@@ -709,6 +710,14 @@ async function startHttpServer(input: {
       runId: string;
       request: TrackerStateRequest;
     }): Promise<TrackerStateResult>;
+    requestAssignedBranchPublish(request: { runId: string }): Promise<{
+      ok: boolean;
+      outcome: "published" | "rejected" | "failed";
+      branch: string | null;
+      head: string | null;
+      unpublishedWorktree: UnpublishedWorktree | null;
+      error: string | null;
+    }>;
   };
   trackerStateToken: string;
 }): Promise<{ server: Server; port: number; url: string }> {
@@ -725,9 +734,12 @@ async function startHttpServer(input: {
             url.pathname === "/api/v1/worker-state" ||
             url.pathname === "/api/v1/worker-turn-lease";
           const isTrackerStateApi = url.pathname === "/api/v1/tracker-state";
+          const isAssignedBranchPublishApi =
+            url.pathname === "/api/v1/assigned-branch/publish";
           if (
             url.pathname.startsWith("/api/v1/") &&
             !isTrackerStateApi &&
+            !isAssignedBranchPublishApi &&
             !isAuthorizedApiRequest(
               request,
               isWorkerApi ? input.trackerStateToken : input.apiToken
@@ -831,6 +843,57 @@ async function startHttpServer(input: {
                   ? 409
                   : result.outcome === "rejected"
                     ? 403
+                    : 503,
+              result
+            );
+            return;
+          }
+
+          if (
+            request.method === "POST" &&
+            url.pathname === "/api/v1/assigned-branch/publish"
+          ) {
+            request.resume();
+            const runIdHeader = request.headers["x-symphony-run-id"];
+            const runId =
+              typeof runIdHeader === "string" ? runIdHeader.trim() : "";
+            const tokenHeader =
+              request.headers["x-symphony-orchestrator-token"];
+            const token =
+              typeof tokenHeader === "string" ? tokenHeader.trim() : "";
+            if (!runId) {
+              respondJson(response, 400, {
+                ok: false,
+                outcome: "rejected",
+                branch: null,
+                head: null,
+                unpublishedWorktree: null,
+                error: "invalid_assigned_branch_publish_request",
+              });
+              return;
+            }
+            if (!secretsEqual(token, input.trackerStateToken)) {
+              respondJson(response, 401, {
+                ok: false,
+                outcome: "rejected",
+                branch: null,
+                head: null,
+                unpublishedWorktree: null,
+                error: "assigned_branch_publish_authentication_failed",
+              });
+              return;
+            }
+            const result = await input.service.requestAssignedBranchPublish({
+              runId,
+            });
+            respondJson(
+              response,
+              result.ok
+                ? 200
+                : result.error === "run_not_current"
+                  ? 403
+                  : result.outcome === "rejected"
+                    ? 409
                     : 503,
               result
             );
