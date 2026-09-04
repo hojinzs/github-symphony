@@ -1869,7 +1869,7 @@ describe("OrchestratorService", () => {
     ]);
   });
 
-  it("publishes the current run branch repeatedly through the host transport", async () => {
+  it("publishes only the immutable assigned branch repeatedly through the host transport", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-assigned-branch-publish-")
     );
@@ -1908,6 +1908,7 @@ describe("OrchestratorService", () => {
       processId: null,
       port: null,
       workingDirectory: tempRoot,
+      assignedBranch: "symphony/acme-platform-1",
       issueWorkspaceKey: "issue-1",
       workspaceRuntimeDir: join(tempRoot, "runtime"),
       workflowPath: null,
@@ -1919,9 +1920,9 @@ describe("OrchestratorService", () => {
       lastError: null,
       nextRetryAt: null,
     });
-    vi.spyOn(gitModule, "readGitCurrentBranch").mockResolvedValue(
-      "symphony/acme-platform-1"
-    );
+    const readCurrentBranch = vi
+      .spyOn(gitModule, "readGitCurrentBranch")
+      .mockResolvedValue("main");
     const publishAssignedBranch = vi.fn().mockResolvedValue({
       ok: true,
       result: {
@@ -1953,6 +1954,7 @@ describe("OrchestratorService", () => {
     });
     expect(second).toEqual(first);
     expect(publishAssignedBranch).toHaveBeenCalledTimes(2);
+    expect(readCurrentBranch).not.toHaveBeenCalled();
     expect(publishAssignedBranch).toHaveBeenCalledWith({
       cwd: tempRoot,
       assignedBranch: "symphony/acme-platform-1",

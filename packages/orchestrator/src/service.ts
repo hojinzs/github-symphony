@@ -564,7 +564,7 @@ export class OrchestratorService {
     unpublishedWorktree: import("@gh-symphony/core").UnpublishedWorktree | null;
     error: string | null;
   }> {
-    const assignedBranch = await readGitCurrentBranch(run.workingDirectory);
+    const assignedBranch = run.assignedBranch;
     if (!assignedBranch) {
       return {
         ok: false,
@@ -3290,6 +3290,7 @@ export class OrchestratorService {
       ownerProcessIdentity: this.ownerProcessIdentity,
       port: null,
       workingDirectory: repositoryDirectory,
+      assignedBranch,
       issueWorkspaceKey: workspaceKey,
       workspaceRuntimeDir,
       workflowPath: workflow.workflowPath,
