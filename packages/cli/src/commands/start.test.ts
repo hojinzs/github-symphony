@@ -1598,6 +1598,45 @@ Handle {{issue.identifier}}.\n`,
       expect(requestAssignedBranchPublish).toHaveBeenCalledWith({
         runId: "run-1",
       });
+      requestAssignedBranchPublish.mockResolvedValueOnce({
+        ok: false,
+        outcome: "rejected",
+        branch: null,
+        head: null,
+        unpublishedWorktree: null,
+        error: "assigned_branch_unavailable",
+      });
+      const unavailableBranchResponse = await fetch(
+        `${url}/api/v1/assigned-branch/publish`,
+        {
+          method: "POST",
+          headers: {
+            "x-symphony-run-id": "run-1",
+            "x-symphony-orchestrator-token": workerApiToken,
+          },
+        }
+      );
+      expect(unavailableBranchResponse.status).toBe(409);
+
+      requestAssignedBranchPublish.mockResolvedValueOnce({
+        ok: false,
+        outcome: "rejected",
+        branch: null,
+        head: null,
+        unpublishedWorktree: null,
+        error: "run_not_current",
+      });
+      const staleRunResponse = await fetch(
+        `${url}/api/v1/assigned-branch/publish`,
+        {
+          method: "POST",
+          headers: {
+            "x-symphony-run-id": "run-1",
+            "x-symphony-orchestrator-token": workerApiToken,
+          },
+        }
+      );
+      expect(staleRunResponse.status).toBe(403);
       expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);
       expect(setWorkerOrchestratorToken).toHaveBeenCalledWith(workerApiToken);
 

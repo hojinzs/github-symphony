@@ -217,6 +217,10 @@ export function shouldSynchronizeAssignedBranch(options: {
   userInputRequired: boolean;
   terminalFailure: boolean;
 }): boolean {
+  // Publication is intentionally unconditional, including abnormal exits.
+  // Keeping the outcome-shaped predicate makes that #826 invariant explicit
+  // at both worker completion sites and prevents the old exit-only gate from
+  // being restored as an apparent cleanup.
   void options;
   return true;
 }

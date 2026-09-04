@@ -888,7 +888,13 @@ async function startHttpServer(input: {
             });
             respondJson(
               response,
-              result.ok ? 200 : result.outcome === "rejected" ? 403 : 503,
+              result.ok
+                ? 200
+                : result.error === "run_not_current"
+                  ? 403
+                  : result.outcome === "rejected"
+                    ? 409
+                    : 503,
               result
             );
             return;

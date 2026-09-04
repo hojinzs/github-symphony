@@ -179,11 +179,11 @@ authoritative tests for repository behavior.
 entry, its package build emits `dist/mcp-server.js`, which dispatches exactly one
 built-in GraphQL MCP implementation from an explicit server argument, and
 `dist/git-credential-helper.js`, which supplies runtime-scoped GitHub credentials
-only to worker-host Git subprocesses. Agent-triggered publication and the
-worker-exit backstop transfer the checked-out assigned ref into a temporary
-host-owned bare repository, fetch and verify fast-forward ancestry against the
-orchestrator-owned clone URL, and push that exact branch with hooks disabled
-before reporting success. The
+only to host Git subprocesses. Agent-triggered publication, bounded
+orchestrator teardown backstops, and the worker-exit backstop transfer the
+checked-out assigned ref into a temporary host-owned bare repository, fetch and
+verify fast-forward ancestry against the orchestrator-owned clone URL, and push
+that exact branch with hooks disabled before reporting success. The
 credential-bearing commands never read the child-controlled checkout's remote
 or hook configuration.
 

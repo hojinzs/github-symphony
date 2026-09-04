@@ -47,7 +47,7 @@ All work must be classified against these layers (per `AGENTS.md`):
 
 ```
 cli (published entrypoint; bundles the rest via devDependencies)
-orchestrator ──→ core, runtime-claude, runtime-codex, tracker-file, tracker-github, tracker-linear
+orchestrator ──→ core, worker, runtime-claude, runtime-codex, tracker-file, tracker-github, tracker-linear
 worker ────────→ core, extension-github-workflow, runtime-claude, runtime-codex, tool-github-graphql, tracker-github, tracker-linear
 control-plane ─→ core, dashboard
 runtime-{claude,codex} ─→ core, tool-github-graphql, tool-linear-graphql (Claude also uses tracker adapters for host-side tools)
