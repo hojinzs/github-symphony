@@ -298,6 +298,55 @@ describe("setup command", () => {
     ).rejects.toThrow();
   });
 
+  it("completes setup when the selected project has no linked repository", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-no-linked-repo-"));
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+    vi.mocked(githubClient.getProjectDetail).mockResolvedValueOnce({
+      ...MOCK_PROJECT_DETAIL,
+      linkedRepositories: [],
+    });
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(await readFile(join(cwd, "WORKFLOW.md"), "utf8")).toContain(
+      "project_id: PVT_setup_1"
+    );
+    expect(stdoutWrite.mock.calls.flat().join("")).not.toContain("Repository");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("rejects custom setup output before writing artifacts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-custom-output-"));
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive", "--output", "custom.md"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    await expect(readFile(join(cwd, "custom.md"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(cwd, "WORKFLOW.md"), "utf8")).rejects.toThrow();
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("Use 'gh-symphony workflow init --output <path>'")
+    );
+    expect(process.exitCode).toBe(2);
+  });
+
   it("writes Claude runtime config from non-interactive --runtime claude-code", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-claude-"));
     const configDir = await mkdtemp(
@@ -364,6 +413,7 @@ describe("setup command", () => {
       status: "created",
       runtime: "claude-print",
     });
+    expect(JSON.parse(stdout)).not.toHaveProperty("runtimeDir");
     expect(p.log.warn).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -430,9 +480,7 @@ describe("setup command", () => {
       "Final summary"
     );
     expect(p.outro).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "Project runtime is ready for codex-app-server."
-      )
+      expect.stringContaining("Project runtime is ready for codex-app-server.")
     );
     const selectMessages = vi
       .mocked(p.select)

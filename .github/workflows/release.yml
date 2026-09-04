@@ -153,7 +153,7 @@ jobs:
             -v "${TMPDIR}/config:/var/lib/gh-symphony" \
             -e GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/var/lib/gh-symphony/issues.json \
             "${IMAGE_REF}" \
-            sh -lc 'cd /var/lib/gh-symphony/repo && gh-symphony repo init && gh-symphony repo start --once'
+            gh-symphony project start --project-dir /var/lib/gh-symphony/repo --once
 
           default_container="$(docker run -d \
             -v "${TMPDIR}/config:/var/lib/gh-symphony" \

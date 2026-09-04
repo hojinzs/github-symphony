@@ -246,17 +246,15 @@ function printNonInteractiveSummary(input: {
   githubProjectTitle: string;
   githubProjectId: string;
   workflowPath: string;
-  runtimeDir: string;
   runtime: string;
-  repository: string;
+  repository?: string;
 }): void {
   process.stdout.write(
     [
       `GitHub Project   ${input.githubProjectTitle}  (${input.githubProjectId})`,
-      `Repository       ${input.repository}`,
+      ...(input.repository ? [`Repository       ${input.repository}`] : []),
       `WORKFLOW.md      ${input.workflowPath}`,
       `Agent runtime    ${input.runtime}`,
-      `Runtime          ${input.runtimeDir}`,
       "Ready. Run 'gh-symphony project start --project-dir <path>' to begin orchestration.",
     ]
       .map((line) => `  ${line}`)
@@ -380,6 +378,14 @@ async function runNonInteractive(
   }
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
+  const standaloneWorkflowPath = resolve(process.cwd(), "WORKFLOW.md");
+  if (workflowPath !== standaloneWorkflowPath) {
+    process.stderr.write(
+      `Error: setup writes the standalone project workflow at ${standaloneWorkflowPath}. Use 'gh-symphony workflow init --output <path>' for a custom output file.\n`
+    );
+    process.exitCode = 2;
+    return;
+  }
   const { workflowPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
     outputPath: workflowPath,
@@ -408,9 +414,9 @@ async function runNonInteractive(
   });
 
   const repository = projectDetail.linkedRepositories[0];
-  if (!repository) {
-    throw new Error("The selected GitHub Project has no linked repository.");
-  }
+  const repositoryName = repository
+    ? `${repository.owner}/${repository.name}`
+    : undefined;
 
   await warnIfRuntimeMissing(selectedRuntime, options);
   if (options.json) {
@@ -419,8 +425,7 @@ async function runNonInteractive(
         status: "created",
         output: workflowPath,
         runtime: selectedRuntime,
-        runtimeDir: options.configDir,
-        repository: `${repository.owner}/${repository.name}`,
+        ...(repositoryName ? { repository: repositoryName } : {}),
         githubProjectId: projectDetail.id,
       }) + "\n"
     );
@@ -432,8 +437,7 @@ async function runNonInteractive(
     githubProjectId: projectDetail.id,
     workflowPath,
     runtime: selectedRuntime,
-    runtimeDir: options.configDir,
-    repository: `${repository.owner}/${repository.name}`,
+    repository: repositoryName,
   });
 }
 

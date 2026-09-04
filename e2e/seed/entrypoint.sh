@@ -34,12 +34,6 @@ if [ -n "${E2E_MAX_FAILURE_RETRIES:-}" ]; then
   mv /tmp/e2e-workflow.md "$WORK_DIR/WORKFLOW.md"
 fi
 
-# GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH is intentionally limited to the
-# file-tracker E2E workflow so repo init can bind the mounted fixture file.
-cd "$WORK_DIR"
-GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="/e2e/fixtures/issues.json" \
-node /app/packages/cli/dist/index.js repo init
-
 # Create an empty issues.json if none mounted
 if [ ! -f /e2e/fixtures/issues.json ]; then
   echo "[]" > /e2e/fixtures/issues.json
@@ -48,13 +42,19 @@ fi
 # The orchestrator intentionally passes only allowlisted host environment keys
 # to workers. Keep the stub scenario in the project-scoped env so the Docker
 # TC can select a deterministic worker behavior without widening that allowlist.
-printf 'STUB_SCENARIO=%s\n' "${STUB_SCENARIO:-happy}" > \
-  "$WORK_DIR/.runtime/orchestrator/projects/repository/.env"
+PROJECT_ID="$(node --input-type=module -e \
+  'import { standaloneProjectId } from "/app/packages/cli/dist/standalone-project.js"; process.stdout.write(standaloneProjectId(process.argv[1]));' \
+  "$WORK_DIR")"
+PROJECT_RUNTIME_DIR="$WORK_DIR/.runtime/orchestrator/projects/$PROJECT_ID"
+mkdir -p "$PROJECT_RUNTIME_DIR"
+printf 'STUB_SCENARIO=%s\n' "${STUB_SCENARIO:-happy}" > "$PROJECT_RUNTIME_DIR/.env"
 printf 'GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/e2e/fixtures/issues.json\n' >> \
-  "$WORK_DIR/.runtime/orchestrator/projects/repository/.env"
+  "$PROJECT_RUNTIME_DIR/.env"
 
 echo "[entrypoint] Starting CLI orchestrator with HTTP composition..."
-node /app/packages/cli/dist/index.js repo start \
+node /app/packages/cli/dist/index.js \
+  --config "$WORK_DIR/.runtime/orchestrator" \
+  project start --project-dir "$WORK_DIR" \
   --http 4680 \
   --bind-all &
 CLI_PID=$!
