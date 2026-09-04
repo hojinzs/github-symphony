@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, recovery-fail, non-dispatchable, required-label-missing, required-label-removed, linear-dirty-recovery, dirty-unpublished-worktree
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, recovery-fail, non-dispatchable, required-label-missing, required-label-removed, linear-dirty-recovery, dirty-unpublished-worktree, assigned-branch-publish
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -201,6 +201,15 @@ if [ "$SCENARIO" = "recovery-fail" ]; then
 fi
 E2E_REQUIRED_LABELS="$E2E_REQUIRED_LABELS" E2E_MAX_FAILURE_RETRIES="$E2E_MAX_FAILURE_RETRIES" STUB_SCENARIO="$SCENARIO" "${COMPOSE[@]}" up -d --build 2>&1 | tail -1
 configure_fixture_replacement
+
+# The standard fixture clone source is a non-bare repository with main checked
+# out. Production assigned branches do not update a checked-out target ref, so
+# permit the fixture to update its worktree only for the publication scenario.
+if [ "$SCENARIO" = "assigned-branch-publish" ]; then
+  "${COMPOSE[@]}" exec -T symphony-e2e git \
+    -C /e2e/repos/test-owner/test-repo \
+    config receive.denyCurrentBranch updateInstead
+fi
 
 log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
@@ -511,7 +520,7 @@ PY
   exit 0
 fi
 
-if [ "$SCENARIO" = "api-progress" ] || [ "$SCENARIO" = "prompt-phase" ] || [ "$SCENARIO" = "retry-attempt" ]; then
+if [ "$SCENARIO" = "api-progress" ] || [ "$SCENARIO" = "prompt-phase" ] || [ "$SCENARIO" = "retry-attempt" ] || [ "$SCENARIO" = "assigned-branch-publish" ]; then
   if [ "$SAW_RUNNING" != true ]; then
     fail "Worker did not reach running state"
     exit 1
@@ -575,6 +584,10 @@ PY
   fi
   if [ "$SCENARIO" = "prompt-phase" ] && ! "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "scenario=prompt-phase" /e2e/work'; then
     fail "Stub worker did not start under the prompt-phase scenario"
+    exit 1
+  fi
+  if [ "$SCENARIO" = "assigned-branch-publish" ] && ! "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "assigned branch published during run.*attempts=2" /e2e/work'; then
+    fail "Stub worker did not observe the assigned branch before exit"
     exit 1
   fi
   log "=== Result ==="

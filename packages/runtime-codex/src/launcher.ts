@@ -1,6 +1,10 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractEnvForCodex, readEnvFile } from "@gh-symphony/core";
+import {
+  extractEnvForCodex,
+  readAgentVisibleSymphonyContext,
+  readEnvFile,
+} from "@gh-symphony/core";
 import {
   launchCodexAppServer,
   prepareCodexRuntimePlan,
@@ -38,6 +42,7 @@ export function resolveLocalRuntimeLaunchConfig(
     githubTokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
     agentEnv: readDirectAgentEnvironment(env),
     extraEnv: {
+      ...readAgentVisibleSymphonyContext(env),
       ...(env.HOME ? { HOME: env.HOME } : {}),
       ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}),
       ...(env.WORKSPACE_RUNTIME_DIR
