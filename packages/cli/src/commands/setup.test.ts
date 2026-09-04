@@ -34,6 +34,7 @@ vi.mock("@clack/prompts", async (importOriginal) => {
 
 import * as p from "@clack/prompts";
 import setupCommand from "./setup.js";
+import { deriveStandaloneProject } from "./project.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
 import * as commandExists from "../utils/command-exists-on-path.js";
@@ -300,6 +301,9 @@ describe("setup command", () => {
 
   it("completes setup when the selected project has no linked repository", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-no-linked-repo-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-no-linked-repo-config-")
+    );
     initializeGitRemote(cwd);
     process.chdir(cwd);
     vi.mocked(githubClient.getProjectDetail).mockResolvedValueOnce({
@@ -317,10 +321,56 @@ describe("setup command", () => {
       noColor: true,
     });
 
-    expect(await readFile(join(cwd, "WORKFLOW.md"), "utf8")).toContain(
-      "project_id: PVT_setup_1"
+    const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
+    expect(workflow).toContain("project_id: PVT_setup_1");
+    expect(workflow).toContain("slug: acme/repo-a");
+    const project = await deriveStandaloneProject(cwd, { configDir });
+    expect(project.repository).toMatchObject({
+      owner: "acme",
+      name: "repo-a",
+    });
+    expect(stdoutWrite.mock.calls.flat().join("")).toMatch(
+      /Repository\s+acme\/repo-a/
     );
-    expect(stdoutWrite.mock.calls.flat().join("")).not.toContain("Repository");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("uses the checkout repository and keeps interactive setup startable", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-unlinked-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-interactive-unlinked-config-")
+    );
+    initializeGitRemote(cwd, "https://github.com/acme/repo-b.git");
+    process.chdir(cwd);
+    vi.mocked(githubClient.getProjectDetail).mockResolvedValueOnce({
+      ...MOCK_PROJECT_DETAIL,
+      linkedRepositories: [],
+    });
+    vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
+      .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("terminal" as never)
+      .mockResolvedValueOnce("disabled" as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never);
+
+    await setupCommand([], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const project = await deriveStandaloneProject(cwd, { configDir });
+    expect(project.repository).toMatchObject({
+      owner: "acme",
+      name: "repo-b",
+    });
     expect(process.exitCode).toBeUndefined();
   });
 
@@ -482,6 +532,11 @@ describe("setup command", () => {
     expect(p.outro).toHaveBeenCalledWith(
       expect.stringContaining("Project runtime is ready for codex-app-server.")
     );
+    const project = await deriveStandaloneProject(cwd, { configDir });
+    expect(project.repository).toMatchObject({
+      owner: "acme",
+      name: "repo-b",
+    });
     const selectMessages = vi
       .mocked(p.select)
       .mock.calls.map(([input]) => input.message);

@@ -30,6 +30,7 @@ import {
   listUserProjects,
   listRepositoryLabels,
   getProjectDetail,
+  findLinkedRepository,
   GitHubScopeError,
   type GitHubClient,
   type ProjectDiscoveryResult,
@@ -469,7 +470,45 @@ export type WorkflowArtifactsPlan = {
   workflowMd: string;
   workflowPlan: PlannedFileChange;
   ecosystemPlan: EcosystemPlan;
+  repository?: LinkedRepository;
 };
+
+function resolveCheckoutRepository(
+  cwd: string,
+  projectDetail: ProjectDetail
+): LinkedRepository | undefined {
+  let remote: string;
+  try {
+    remote = spawnSync(
+      "git",
+      ["-C", cwd, "config", "--get", "remote.origin.url"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+    ).stdout.trim();
+  } catch {
+    remote = "";
+  }
+
+  const cleanedRemote = remote.replace(/\.git$/, "");
+  const match =
+    cleanedRemote.match(/github\.com[:/]([^/]+)\/([^/]+)$/) ??
+    cleanedRemote.match(/^([^/]+)\/([^/]+)$/);
+  if (!match) {
+    return projectDetail.linkedRepositories[0];
+  }
+
+  const owner = match[1]!;
+  const name = match[2]!;
+  return (
+    findLinkedRepository(projectDetail, owner, name) ?? {
+      owner,
+      name,
+      url: `https://github.com/${owner}/${name}`,
+      cloneUrl: remote.startsWith("http")
+        ? remote
+        : `https://github.com/${owner}/${name}.git`,
+    }
+  );
+}
 
 export async function findLegacyGhSymphonyFiles(
   cwd: string
@@ -970,7 +1009,7 @@ export async function planWorkflowArtifacts(
       blockerCheckStates: defaultBlockerCheckStates,
       planningStates: defaultBlockerCheckStates,
     });
-  const repository = opts.projectDetail.linkedRepositories[0];
+  const repository = resolveCheckoutRepository(opts.cwd, opts.projectDetail);
   const workflowMd = generateWorkflowMarkdown({
     projectId: opts.projectDetail.id,
     ...(repository
@@ -1017,6 +1056,7 @@ export async function planWorkflowArtifacts(
     workflowMd,
     workflowPlan,
     ecosystemPlan,
+    ...(repository ? { repository } : {}),
   };
 }
 

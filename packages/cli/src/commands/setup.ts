@@ -386,7 +386,7 @@ async function runNonInteractive(
     process.exitCode = 2;
     return;
   }
-  const { workflowPlan } = await planWorkflowArtifacts({
+  const { workflowPlan, repository } = await planWorkflowArtifacts({
     cwd: process.cwd(),
     outputPath: workflowPath,
     projectDetail,
@@ -413,7 +413,6 @@ async function runNonInteractive(
     skipContext: flags.skipContext,
   });
 
-  const repository = projectDetail.linkedRepositories[0];
   const repositoryName = repository
     ? `${repository.owner}/${repository.name}`
     : undefined;
@@ -549,20 +548,21 @@ async function runInteractive(
   });
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
-  const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
-    cwd: process.cwd(),
-    outputPath: workflowPath,
-    projectDetail,
-    statusField,
-    priorityField,
-    priority,
-    includePriorityTemplates: priority.source === "disabled",
-    mappings,
-    lifecycle,
-    runtime: selectedRuntime,
-    skipSkills: flags.skipSkills,
-    skipContext: flags.skipContext,
-  });
+  const { workflowPlan, ecosystemPlan, repository } =
+    await planWorkflowArtifacts({
+      cwd: process.cwd(),
+      outputPath: workflowPath,
+      projectDetail,
+      statusField,
+      priorityField,
+      priority,
+      includePriorityTemplates: priority.source === "disabled",
+      mappings,
+      lifecycle,
+      runtime: selectedRuntime,
+      skipSkills: flags.skipSkills,
+      skipContext: flags.skipContext,
+    });
 
   p.note(
     [
@@ -605,12 +605,10 @@ async function runInteractive(
       skipSkills: flags.skipSkills,
       skipContext: flags.skipContext,
     });
-    const repository = projectDetail.linkedRepositories[0];
-    if (!repository) {
-      throw new Error("The selected GitHub Project has no linked repository.");
-    }
     writeSpinner.stop(
-      `Setup saved for ${repository.owner}/${repository.name}.`
+      repository
+        ? `Setup saved for ${repository.owner}/${repository.name}.`
+        : "Setup saved."
     );
   } catch (error) {
     writeSpinner.stop("Setup failed.");
