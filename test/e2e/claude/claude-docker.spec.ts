@@ -79,11 +79,11 @@ afterEach(async () => {
 
 describe("Claude Docker E2E with stub claude binary", () => {
   it.each([
-    { name: "default isolation", inheritEnvironment: false, rawSecrets: false },
-    { name: "compatibility mode", inheritEnvironment: true, rawSecrets: true },
+    { name: "default isolation", inheritEnvironment: false },
+    { name: "compatibility mode", inheritEnvironment: true },
   ])(
     "runs a real custom child with $name credential semantics",
-    async ({ inheritEnvironment, rawSecrets }) => {
+    async ({ inheritEnvironment }) => {
       const root = await mkdtemp(join(tmpdir(), "worker-custom-e2e-"));
       createdRoots.push(root);
       const workspace = join(root, "workspace");
@@ -179,8 +179,8 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
         agentBrokerSecret: "agent-broker-secret",
         trackerSecret: "tracker-secret",
       } as const;
-      for (const [name, value] of Object.entries(rawSecretValues)) {
-        expect(child[name]).toBe(rawSecrets ? value : null);
+      for (const name of Object.keys(rawSecretValues)) {
+        expect(child[name]).toBeNull();
       }
     }
   );

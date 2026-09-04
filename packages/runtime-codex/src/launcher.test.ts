@@ -49,6 +49,9 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
       HOME: "/Users/operator",
       CODEX_HOME: "/tmp/launcher-codex-home",
       WORKSPACE_RUNTIME_DIR: "/tmp/runtime-run",
+      SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
       OPENAI_API_KEY: "sk-direct-runtime",
     });
 
@@ -56,6 +59,8 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
       HOME: "/Users/operator",
       CODEX_HOME: "/tmp/launcher-codex-home",
       WORKSPACE_RUNTIME_DIR: "/tmp/runtime-run",
+      SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
     });
     expect(config.agentEnv).toEqual({
       OPENAI_API_KEY: "sk-direct-runtime",
