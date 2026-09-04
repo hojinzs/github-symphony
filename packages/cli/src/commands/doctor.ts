@@ -55,7 +55,11 @@ import {
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
-import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
+import {
+  resolveManagedProjectDirectory,
+  resolveManagedProjectEnvironment,
+  resolveManagedProjectFileEnvironment,
+} from "../managed-project-environment.js";
 import {
   buildProviderDeprecationDiagnostics,
   buildPriorityConfigDiagnostics,
@@ -84,6 +88,7 @@ type DoctorCheckId =
   | "gh_installation"
   | "gh_authentication"
   | "gh_scopes"
+  | "worker_github_credential"
   | "managed_project"
   | "github_graphql_endpoint"
   | "github_project_resolution"
@@ -420,6 +425,67 @@ function normalizeGitHubGraphqlEndpoint(value?: string): string | null {
   } catch {
     return trimmed.replace(/\/+$/, "");
   }
+}
+
+function buildWorkerGitHubCredentialCheck(input: {
+  projectConfig: CliProjectConfig;
+  runtimeRoot: string;
+  auth: ResolvedGitHubAuth | null;
+  deps: DoctorDependencies;
+}): DoctorCheckResult {
+  // Credential resolution only reads the tracker/project identity fields. A
+  // CLI project may omit its repository until GitHub Project resolution has
+  // completed, while the orchestrator config makes that field required.
+  const trackerProject = input.projectConfig as OrchestratorProjectConfig;
+  const projectEnvironment = resolveManagedProjectFileEnvironment(
+    input.projectConfig,
+    input.runtimeRoot
+  );
+  const trackerAdapter = input.deps.resolveTrackerAdapter(
+    trackerProject.tracker
+  );
+  const projectCredentials =
+    trackerAdapter.resolveWorkerCredentials?.(trackerProject, {
+      project: projectEnvironment,
+      daemon: {},
+    }) ?? {};
+  const daemonEnvironment = { ...process.env };
+  delete daemonEnvironment.GITHUB_GRAPHQL_TOKEN;
+  if (input.auth) {
+    daemonEnvironment.GITHUB_GRAPHQL_TOKEN = input.auth.token;
+  }
+  const workerCredentials =
+    trackerAdapter.resolveWorkerCredentials?.(trackerProject, {
+      project: projectEnvironment,
+      daemon: daemonEnvironment,
+    }) ?? {};
+  const projectEnvPath = join(
+    resolveManagedProjectDirectory(input.projectConfig, input.runtimeRoot),
+    ".env"
+  );
+
+  if (Object.keys(workerCredentials).length > 0) {
+    return passCheck(
+      "worker_github_credential",
+      "Worker GitHub credential",
+      `The selected tenant will provide a GitHub credential to its worker from ${Object.keys(projectCredentials).length > 0 ? "the project .env" : "daemon authentication"}.`,
+      {
+        source:
+          Object.keys(projectCredentials).length > 0
+            ? "project_env"
+            : "daemon_auth",
+        projectEnvPath,
+      }
+    );
+  }
+
+  return failCheck(
+    "worker_github_credential",
+    "Worker GitHub credential",
+    "The selected tenant's worker-effective environment has no GitHub credential.",
+    `Add GITHUB_GRAPHQL_TOKEN or a complete GITHUB_TOKEN_BROKER_URL/GITHUB_TOKEN_BROKER_SECRET pair to ${projectEnvPath}, or authenticate the daemon and restart it.`,
+    { projectEnvPath }
+  );
 }
 
 function deriveGhHostnameFromGraphqlEndpoint(
@@ -2181,6 +2247,20 @@ export async function runDoctorDiagnostics(
 
   if (
     resolvedProjectConfig.kind === "resolved" &&
+    resolvedProjectConfig.projectConfig.tracker.adapter === "github-project"
+  ) {
+    checks.push(
+      buildWorkerGitHubCredentialCheck({
+        projectConfig: resolvedProjectConfig.projectConfig,
+        runtimeRoot,
+        auth,
+        deps,
+      })
+    );
+  }
+
+  if (
+    resolvedProjectConfig.kind === "resolved" &&
     resolvedProjectConfig.projectConfig.tracker.adapter === "linear"
   ) {
     checks.push(
@@ -2934,6 +3014,20 @@ async function runDoctorFixes(
             "manual",
             check.remediation ??
               "Fix the Linear tracker configuration or credentials.",
+            undefined,
+            check.details
+          )
+        );
+        break;
+      case "worker_github_credential":
+        steps.push(
+          remediationStep(
+            `remediate_${check.id}`,
+            check.id,
+            check.title,
+            "manual",
+            check.remediation ??
+              "Configure a worker-effective GitHub credential for this tenant.",
             undefined,
             check.details
           )

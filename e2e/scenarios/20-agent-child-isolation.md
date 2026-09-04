@@ -18,6 +18,7 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
    credential helper.
 6. Advance the remote assigned branch independently, then run successful Claude
    and Codex agent lifecycles whose local commits can no longer fast-forward it.
+7. Start the built GitHub worker with no direct token or complete broker pair.
 
 ## Expected
 
@@ -37,6 +38,8 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 - Both provider lifecycles emit a final `runPhase: failed` heartbeat containing
   `git_transport_failed` and exit non-zero when the assigned branch cannot be
   published.
+- The credential-free GitHub worker exits non-zero with the managed project
+  `.env` / daemon-auth remediation before Codex or Claude initialization.
 - Unit fixtures prove a child-mutated `origin` cannot redirect that push and a
   child-authored pre-push hook cannot observe the host credential.
 - The companion Codex Docker lifecycle remains healthy.

@@ -638,6 +638,39 @@ Worker prompt.
       runPhase: "failed",
       lastError: "startup failed: PROJECT_ID or CODEX_PROJECT_ID is required.",
     });
+
+    const credentialResult = await runWorkerProcess({
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PROJECT_ID: "e2e-project",
+        CODEX_PROJECT_ID: undefined,
+        GITHUB_GRAPHQL_TOKEN: undefined,
+        GITHUB_TOKEN_BROKER_URL: undefined,
+        GITHUB_TOKEN_BROKER_SECRET: undefined,
+        WORKING_DIRECTORY: workspace,
+        SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
+        SYMPHONY_TRACKER_ADAPTER: "github-project",
+        SYMPHONY_PROJECT_DIR: join(runtimeRoot, "managed-project"),
+        TARGET_REPOSITORY_CLONE_URL: remote,
+        WORKSPACE_RUNTIME_DIR: runtimeRoot,
+        SYMPHONY_WORKFLOW_PATH: workflowPath,
+        SYMPHONY_RENDERED_PROMPT: "Handle worker credential startup issue.",
+        SYMPHONY_RUN_ID: "run-worker-credential-startup-failure",
+        SYMPHONY_ISSUE_ID: "issue-worker-credential-startup",
+        SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#813",
+        SYMPHONY_ISSUE_STATE: "In progress",
+      },
+    });
+
+    expect(credentialResult.exitCode).toBe(1);
+    expect(credentialResult.stderr).toContain(
+      "Worker GitHub credential preflight failed"
+    );
+    expect(credentialResult.stderr).toContain(
+      `${join(runtimeRoot, "managed-project")}/.env`
+    );
+    expect(credentialResult.stderr).not.toContain("sending codex initialize");
   });
 
   it("keeps --resume within an intra-run continuation without --fork-session", async () => {
