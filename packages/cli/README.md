@@ -40,7 +40,10 @@ subprocesses; provider tools and authenticated Git transport execute in the
 worker host. Git transport uses the orchestrator-owned target URL from a
 temporary bare repository with checkout hooks disabled, so child-authored
 remote and hook configuration is outside the credential-bearing path. These
-entry points are not standalone user-facing commands.
+entry points are not standalone user-facing commands. Agents publish committed
+work through the authenticated run-scoped host action documented by the
+generated `/push` skill; the same transport runs again at worker exit as a
+backstop.
 
 Validate the machine and repo prerequisites before first use:
 

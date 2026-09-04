@@ -114,7 +114,7 @@ the tracker adapter:
   Symphony §14.3 does not restore scheduler state. This is an intentional
   repository-local persistence divergence.
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`), heartbeat locks, direct-clone degradation, safe inventory/eviction, worktree populate, and conservative agent-branch collection (only refs fully reachable from `origin/*` and not linked to a worktree): `repository-cache.ts`, `git.ts`; operator diagnostics and cleanup: `packages/cli/src/commands/cache.ts`
-- Issue workspace records remain in orchestrator state, while population, quarantine, terminal cleanup, and worktree removal operate on `<workspace.root>/<issue-key>` in repo-embedded and standalone modes. A successful assigned-branch push is not a complete-publication claim when the worktree still has tracked or untracked changes: the worker records a bounded, dedicated `unpublishedWorktree` publication outcome with the pushed branch/commit and file lists while preserving successful transport status. Terminal and startup cleanup retain a workspace carrying either this outcome or a Git transport failure until recovery. This retention is an intentional repository-level divergence from upstream Symphony §8.6: unrecoverable unpublished agent work must not be destroyed by otherwise unconditional terminal cleanup.
+- Issue workspace records remain in orchestrator state, while population, quarantine, terminal cleanup, and worktree removal operate on `<workspace.root>/<issue-key>` in repo-embedded and standalone modes. The authenticated `/api/v1/assigned-branch/publish` action authorizes the current run and invokes the worker-owned Git transport from the orchestrator host, allowing the agent to publish before pull-request creation; worker exit invokes the same transport as a backstop. A successful assigned-branch push is not a complete-publication claim when the worktree still has tracked or untracked changes: the worker records a bounded, dedicated `unpublishedWorktree` publication outcome with the pushed branch/commit and file lists while preserving successful transport status. Terminal and startup cleanup retain a workspace carrying either this outcome or a Git transport failure until recovery. This retention is an intentional repository-level divergence from upstream Symphony §8.6: unrecoverable unpublished agent work must not be destroyed by otherwise unconditional terminal cleanup.
 - Dirty-workspace recovery attribution is tracker-neutral core behavior in `packages/core/src/workflow/issue-identity.ts`, consumed by `packages/orchestrator/src/service.ts`. GitHub numeric identifiers and normalized `TEAM-123` identifiers both accept positive branch/workpad evidence; a different full tracker identifier overrides same-number evidence, and missing positive evidence remains fail-closed.
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config. The file is defensively re-read on every reconciliation tick; no filesystem watcher is installed (an explicit upstream divergence documented in [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md)).
 
@@ -181,7 +181,8 @@ authoritative tests for repository behavior.
 entry, its package build emits `dist/mcp-server.js`, which dispatches exactly one
 built-in GraphQL MCP implementation from an explicit server argument, and
 `dist/git-credential-helper.js`, which supplies runtime-scoped GitHub credentials
-only to worker-host Git subprocesses. Successful worker runs transfer the
+only to host Git subprocesses. Agent-triggered publication, bounded
+orchestrator teardown backstops, and the worker-exit backstop transfer the
 checked-out assigned ref into a temporary host-owned bare repository, fetch and
 verify fast-forward ancestry against the orchestrator-owned clone URL, and push
 that exact branch with hooks disabled before reporting success. The
@@ -190,7 +191,7 @@ or hook configuration.
 
 ```
 cli (bundles: orchestrator, worker, control-plane, dashboard, runtime-claude, tracker-github, core)
-orchestrator ──→ core, runtime-claude, runtime-codex, tracker-file, tracker-github, tracker-linear
+orchestrator ──→ core, worker, runtime-claude, runtime-codex, tracker-file, tracker-github, tracker-linear
 worker ────────→ core, extension-github-workflow, runtime-claude, runtime-codex, tool-github-graphql, tracker-github, tracker-linear
 control-plane ─→ core, dashboard
 dashboard ─────→ core
