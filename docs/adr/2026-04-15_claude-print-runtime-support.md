@@ -1,5 +1,10 @@
 # ADR: Add `claude -p` runtime support (multi-runtime abstraction)
 
+> **Superseded authentication detail (2026-09-05):** Issue #904 removed the
+> agent-provider credential broker, its cache contract, and Claude's
+> validation-only probe. Broker references below record the historical design;
+> current runtimes use direct provider credentials or staged local login.
+
 > **Superseded isolation detail (2026-08-31):**
 > [ADR 2026-08-28](2026-08-28_agent-tool-isolation.md) makes strict MCP
 > isolation unconditional. `runtime.isolation.strict_mcp_config` remains
