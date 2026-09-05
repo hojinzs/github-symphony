@@ -1238,9 +1238,6 @@ const handler = async (
           : requestedHttpPort !== undefined
             ? workerHttpServer
             : null;
-      if (httpServer) {
-      }
-
       logLine(
         green("\u25B2"),
         `Starting orchestrator for project: ${bold(projectId)}`

@@ -8,7 +8,7 @@ import {
   Option,
 } from "commander";
 import { setNoColor } from "./ansi.js";
-import { DEFAULT_CONFIG_DIR, resolveConfigDir } from "./config.js";
+import { resolveConfigDir } from "./config.js";
 import { renderCompletionScript } from "./completion.js";
 import { renderHelp } from "./commands/help.js";
 import { createRemovedCommandHandler } from "./commands/removed-command.js";
