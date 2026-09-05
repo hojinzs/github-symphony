@@ -32,7 +32,7 @@ write_project() {
   project_dir=$1
   label=$2
   mkdir -p "$project_dir/hooks"
-  cp /app/hooks/after_create.sh "$project_dir/hooks/after_create.sh"
+  cp /e2e/seed/hooks/after_create.sh "$project_dir/hooks/after_create.sh"
   chmod +x "$project_dir/hooks/after_create.sh"
   cat > "$project_dir/WORKFLOW.md" <<EOF
 ---

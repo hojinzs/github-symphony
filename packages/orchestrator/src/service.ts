@@ -1,4 +1,11 @@
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
@@ -3186,17 +3193,25 @@ export class OrchestratorService {
     const branchTemplate = isRecord(repositoryExtension)
       ? readOptionalStringValue(repositoryExtension.branch_template)
       : null;
-    const expectedAssignedBranch = renderIssueBranchName({
-      template: branchTemplate,
-      projectSlug: tenant.slug,
-      issueIdentifier: issue.identifier,
-    });
     let assignedBranch: string | null;
+    let populationWasFresh = createdNow;
     try {
-      // Run after_create only when this process actually created the directory.
-      // Any incomplete fresh preparation is removed so a retry can run the
-      // hook again; reused workspaces never enter this cleanup path.
-      if (createdNow) {
+      const expectedAssignedBranch = renderIssueBranchName({
+        template: branchTemplate,
+        projectSlug: tenant.slug,
+        issueIdentifier: issue.identifier,
+      });
+      const repositoryWasEmpty =
+        !createdNow && (await readdir(repositoryDirectory)).length === 0;
+      const needsPopulation = createdNow || repositoryWasEmpty;
+      populationWasFresh = needsPopulation;
+      // Run after_create when this process created the directory or a prior
+      // creator left behind an empty repository directory.
+      // An empty repository left by an interrupted creator is also fresh: it
+      // has no checkout or user work to preserve and must be allowed to
+      // converge on a later tick. Non-empty reused workspaces never enter the
+      // population or cleanup path.
+      if (needsPopulation) {
         const baseBranch =
           pullRequestBranch?.headRefName ??
           (isRecord(repositoryExtension)
@@ -3231,13 +3246,13 @@ export class OrchestratorService {
           `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
         );
       }
-      if (createdNow && assignedBranch !== expectedAssignedBranch) {
+      if (needsPopulation && assignedBranch !== expectedAssignedBranch) {
         throw new Error(
           `Cannot launch worker for ${issue.identifier}: expected assigned branch ${JSON.stringify(expectedAssignedBranch)}, but after_create populated ${JSON.stringify(assignedBranch)}.`
         );
       }
     } catch (error) {
-      if (createdNow) {
+      if (populationWasFresh) {
         await rm(issueWorkspacePath, { recursive: true, force: true });
       }
       throw error;

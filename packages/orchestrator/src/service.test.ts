@@ -17442,6 +17442,51 @@ Prefer focused changes.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
+  it("recovers an empty repository directory left by an interrupted creator", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-empty-population-recovery-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    await mkdir(join(workspacePath, "repository"), { recursive: true });
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4308, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).toHaveBeenCalledOnce();
+    await expect(
+      gitModule.readGitCurrentBranch(join(workspacePath, "repository"))
+    ).resolves.toBe("symphony/tenant-1/acme-platform-1");
+  });
+
   it("passes issue workspace root to after_run hook environment", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
