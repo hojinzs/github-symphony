@@ -1553,6 +1553,29 @@ Prompt body.
     }
   });
 
+  it.each([
+    "GIT_CONFIG_KEY_1",
+    "GIT_CONFIG_VALUE_1",
+    "GIT_CONFIG_KEY_7",
+    "GIT_CONFIG_VALUE_12",
+  ])("rejects dynamic agent-child credential name %s", (name) => {
+    expect(() =>
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  auth:
+    env: ${name}
+---
+Prompt body.
+`
+      )
+    ).toThrow(/runtime\.auth\.env.*reserved/i);
+  });
+
   it("rejects other reserved custom runtime authentication names", () => {
     expect(() =>
       parseWorkflowMarkdown(

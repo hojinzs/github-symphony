@@ -86,15 +86,23 @@ export const CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES = [
   "LINEAR_AUTHORIZATION",
 ] as const;
 
+export function isAgentChildCredentialEnvironmentName(name: string): boolean {
+  return (
+    AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
+      name as (typeof AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES)[number]
+    ) ||
+    name.startsWith("GIT_CONFIG_KEY_") ||
+    name.startsWith("GIT_CONFIG_VALUE_")
+  );
+}
+
 export function isCustomRuntimeReservedAuthEnvironmentName(
   name: string,
   environment: NodeJS.ProcessEnv,
   trackerSecretEnvironmentNames: readonly string[] = []
 ): boolean {
   return (
-    AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
-      name as (typeof AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES)[number]
-    ) ||
+    isAgentChildCredentialEnvironmentName(name) ||
     CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
       name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
     ) ||
@@ -178,14 +186,8 @@ export function sanitizeRepositoryCloneUrl(cloneUrl: string): string {
 export function stripCredentialEnvironmentForAgentChild(
   env: NodeJS.ProcessEnv
 ): void {
-  for (const name of AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES) {
-    delete env[name];
-  }
   for (const name of Object.keys(env)) {
-    if (
-      name.startsWith("GIT_CONFIG_KEY_") ||
-      name.startsWith("GIT_CONFIG_VALUE_")
-    ) {
+    if (isAgentChildCredentialEnvironmentName(name)) {
       delete env[name];
     }
   }

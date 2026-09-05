@@ -9,7 +9,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "@gh-symphony/core";
+import {
+  AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
+} from "@gh-symphony/core";
 import {
   AgentRuntimeResolutionError,
   CODEX_PROTOCOL_EVENT_NAMES,
@@ -534,6 +537,36 @@ describe("parseAgentCommand", () => {
 });
 
 describe("createGitCredentialHelperEnvironment", () => {
+  it("classifies every injected credential name for child stripping", () => {
+    const injected = Object.keys(
+      createGitCredentialHelperEnvironment({
+        githubToken: "host-token",
+        githubTokenBrokerUrl:
+          "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
+        githubTokenBrokerSecret: "runtime-secret",
+        githubTokenCachePath: "/workspace-runtime/.github-token.json",
+        tokenBrokerTimeoutMs: 1_000,
+      })
+    ).filter(
+      (name) =>
+        name !== "GIT_TERMINAL_PROMPT" &&
+        name !== "GITHUB_TOKEN_BROKER_TIMEOUT_MS"
+    );
+
+    const covered = injected.filter(
+      (name) =>
+        AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
+          name as (typeof AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES)[number]
+        ) ||
+        CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
+          name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
+        ) ||
+        /^GIT_CONFIG_(KEY|VALUE)_/.test(name)
+    );
+
+    expect(covered).toEqual(injected);
+  });
+
   it("configures git to use a renewable credential helper", () => {
     const env = createGitCredentialHelperEnvironment({
       githubTokenBrokerUrl:
