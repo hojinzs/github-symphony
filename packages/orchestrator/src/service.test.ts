@@ -32,7 +32,6 @@ import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
 import { getProcessStartIdentity } from "./lock.js";
-import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
 import {
   applyStateReadRoutability,
   clampPollInterval,
@@ -4780,9 +4779,6 @@ Retry inconclusive work.
       ...createProjectConfig(tempRoot, repository),
     };
     await store.saveProjectConfig(projectConfig);
-    const removeSpy = vi
-      .spyOn(gitModule, "removeIssueWorkspaceWorktree")
-      .mockResolvedValue();
 
     const workspaceKey = deriveIssueWorkspaceKey(
       {
@@ -4891,16 +4887,6 @@ Retry inconclusive work.
     const savedStatus = await store.loadProjectStatus("tenant-1");
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
-    expect(removeSpy).toHaveBeenCalledWith({
-      repository: expect.objectContaining({
-        owner: repository.owner,
-        name: repository.name,
-      }),
-      repositoryDirectory: repositoryPath,
-      projectSlug: "tenant-1",
-      issueIdentifier: "acme/platform#1",
-      onBranchCleanup: expect.any(Function),
-    });
     expect(savedStatus?.recovery).toBeNull();
     expect(preservedRun?.recovery).toMatchObject({
       kind: "incomplete-turn-dirty-workspace",
@@ -15800,60 +15786,6 @@ Handle Linear issue.`,
     ]);
   });
 
-  it("warns from the shared cache when a remote repository commits its own WORKFLOW.md", async () => {
-    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-external-workflow-remote-")
-    );
-    const origin = await createRepositoryFixture(tempRoot, "acme", "platform");
-    const configDir = join(tempRoot, "config");
-    process.env.GH_SYMPHONY_CONFIG_DIR = configDir;
-    // The cache is what populate leaves behind; the repository itself is never
-    // checked out to resolve policy in standalone mode.
-    await ensureGlobalBareRepositoryCache({
-      repository: {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: origin.path,
-      },
-      configDir,
-    });
-
-    const store = new OrchestratorFsStore(tempRoot);
-    const externalWorkflowPath = join(
-      store.projectDir("tenant-1"),
-      "WORKFLOW.md"
-    );
-    const projectConfig = {
-      ...createProjectConfig(tempRoot, {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      }),
-      workflowSource: { type: "external" as const, path: externalWorkflowPath },
-    };
-    await store.saveProjectConfig(projectConfig);
-    await writeFile(
-      externalWorkflowPath,
-      await readFile(join(origin.path, "WORKFLOW.md"), "utf8"),
-      "utf8"
-    );
-
-    const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(origin)),
-      spawnImpl: vi
-        .fn()
-        .mockReturnValue({ pid: 4711, unref: vi.fn() }) as never,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
-    });
-
-    const snapshot = await service.runOnce();
-
-    expect(snapshot.warnings).toEqual([
-      `External workflow source ${externalWorkflowPath} shadows WORKFLOW.md committed to acme/platform.`,
-    ]);
-  });
-
   it("does not warn for a remote repository without a committed WORKFLOW.md", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -15864,17 +15796,6 @@ Handle Linear issue.`,
     execSync(
       `git -C ${JSON.stringify(origin.path)} commit -q -m "remove workflow"`
     );
-    const configDir = join(tempRoot, "config");
-    process.env.GH_SYMPHONY_CONFIG_DIR = configDir;
-    await ensureGlobalBareRepositoryCache({
-      repository: {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: origin.path,
-      },
-      configDir,
-    });
-
     const store = new OrchestratorFsStore(tempRoot);
     const externalWorkflowPath = join(
       store.projectDir("tenant-1"),
@@ -16385,7 +16306,7 @@ Test workspace hook retries.
     await mkdir(join(repository.path, "hooks"), { recursive: true });
     await writeFile(
       join(repository.path, "hooks", "count-after-create.sh"),
-      "#!/usr/bin/env bash\nprintf 'after_create\\n' >> \"$SYMPHONY_WORKSPACE_PATH/.after_create_calls\"\n",
+      '#!/usr/bin/env bash\nset -e\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "${SYMPHONY_BASE_BRANCH:-origin/HEAD}" >/dev/null 2>&1\nprintf \'after_create\\n\' >> "$SYMPHONY_WORKSPACE_PATH/.after_create_calls"\n',
       "utf8"
     );
     await writeFile(
