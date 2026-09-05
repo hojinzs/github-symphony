@@ -18,6 +18,7 @@ import {
   stageGitUserIdentity,
   writeAgentCredentialCache,
   collectMcpSecretEnvironmentNames,
+  stripCredentialEnvironmentForAgentChild,
   type AgentRuntimeAdapter,
   type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
@@ -665,7 +666,7 @@ export function buildCodexRuntimePlan(
   ])) {
     delete plan.env[name];
   }
-  removeChildHostGitCredentialEnvironment(plan.env);
+  stripCredentialEnvironmentForAgentChild(plan.env);
 
   return plan;
 }
@@ -798,35 +799,6 @@ function resolveHostCodexHome(config: CodexRuntimeConfig): string {
 
 function resolveHostHome(config: CodexRuntimeConfig): string {
   return config.extraEnv?.HOME ?? process.env.HOME ?? homedir();
-}
-
-function removeChildHostGitCredentialEnvironment(env: NodeJS.ProcessEnv): void {
-  for (const name of [
-    "GIT_ASKPASS",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_GLOBAL",
-    "GIT_CONFIG_NOSYSTEM",
-    "GIT_CONFIG_SYSTEM",
-    "GIT_DIR",
-    "GIT_SSH",
-    "GIT_SSH_COMMAND",
-    "GIT_WORK_TREE",
-    "SSH_AGENT_PID",
-    "SSH_ASKPASS",
-    "SSH_AUTH_SOCK",
-    "XDG_CONFIG_HOME",
-  ]) {
-    delete env[name];
-  }
-  for (const name of Object.keys(env)) {
-    if (
-      name.startsWith("GIT_CONFIG_KEY_") ||
-      name.startsWith("GIT_CONFIG_VALUE_")
-    ) {
-      delete env[name];
-    }
-  }
-  env.GIT_TERMINAL_PROMPT = "0";
 }
 
 export function createCodexRuntimeAdapter(

@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "@gh-symphony/core";
 import {
   AgentRuntimeResolutionError,
   CODEX_PROTOCOL_EVENT_NAMES,
@@ -117,6 +118,22 @@ describe("createCodexDynamicToolSpecs", () => {
 });
 
 describe("buildCodexRuntimePlan", () => {
+  it("strips every declared credential name at the agent-child boundary", () => {
+    const injectedCredentials = Object.fromEntries(
+      AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.map((name) => [name, "secret"])
+    );
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      extraEnv: injectedCredentials,
+      agentEnv: { OPENAI_API_KEY: "sk-ready-runtime" },
+    });
+
+    for (const name of AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES) {
+      expect(plan.env[name], name).toBeUndefined();
+    }
+  });
+
   it("prepares the codex app-server launch contract", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
