@@ -406,8 +406,8 @@ precedence:
 The worker, workflow hooks, and coding-agent child are three distinct
 environment boundaries. The coding-agent child does not inherit the merged
 worker environment. Every built-in runtime and, by default, every custom runtime
-constructs its child environment separately from the following contract. The
-custom compatibility-mode exception is documented below.
+constructs its child environment separately, according to the following
+contract. The custom compatibility-mode exception is documented below.
 
 | Source                             | Agent-child result                                                                                                                                                                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -659,6 +659,22 @@ variables are removed after environment composition, even if a runtime enables
 process-environment compatibility inheritance. Runtime authentication explicitly
 configured for the coding agent remains separate from this context allowlist.
 
+### Workflow Hook Context
+
+Workspace hooks receive the merged project/process environment plus these
+context variables:
+
+| Variable                       | Default                  | Read by | Audience          | Notes                                   |
+| ------------------------------ | ------------------------ | ------- | ----------------- | --------------------------------------- |
+| `SYMPHONY_PROJECT_ID`          | active project ID        | Hooks   | Internal/injected | Orchestrator project ID.                |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY` | workspace key            | Hooks   | Internal/injected | Stable workspace key for the issue.     |
+| `SYMPHONY_ISSUE_SUBJECT_ID`    | tracker subject ID       | Hooks   | Internal/injected | Tracker-specific subject ID.            |
+| `SYMPHONY_ISSUE_IDENTIFIER`    | issue identifier         | Hooks   | Internal/injected | Example: `acme/platform#42`.            |
+| `SYMPHONY_WORKSPACE_PATH`      | issue workspace root     | Hooks   | Internal/injected | Absolute path to the issue workspace.   |
+| `SYMPHONY_REPOSITORY_PATH`     | repository checkout path | Hooks   | Internal/injected | Absolute path to the cloned repository. |
+| `SYMPHONY_RUN_ID`              | current run ID           | Hooks   | Internal/injected | Absent for `after_create`.              |
+| `SYMPHONY_ISSUE_STATE`         | tracker state            | Hooks   | Internal/injected | Absent for `after_create`.              |
+
 ## GitHub Tracker Transition Extension
 
 GitHub Project state writes are a repository extension to upstream Symphony SPEC §11.5. Workers send issue-scoped intent to the internal orchestrator API; the orchestrator authorizes the current `SYMPHONY_RUN_ID`, uses its persisted canonical tracker item, serializes requests against the shared GraphQL budget, and confirms an exact-item readback.
@@ -679,22 +695,6 @@ in place; Symphony does not rename directories. `gh-symphony project status`
 displays `workspace key: legacy` when a suffixless directory is being reused.
 
 The `In review` → `Land` move is a human-owned project-board transition that happens before the Land worker is dispatched. The worker must not synthesize a no-op `Land` → `Land` request or publish a duplicate comment for that external trigger; the orchestrator-owned publication guarantee applies to transitions requested through `/gh-project`.
-
-### Workflow Hook Context
-
-Workspace hooks receive the merged project/process environment plus these
-context variables:
-
-| Variable                       | Default                  | Read by | Audience          | Notes                                   |
-| ------------------------------ | ------------------------ | ------- | ----------------- | --------------------------------------- |
-| `SYMPHONY_PROJECT_ID`          | active project ID        | Hooks   | Internal/injected | Orchestrator project ID.                |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY` | workspace key            | Hooks   | Internal/injected | Stable workspace key for the issue.     |
-| `SYMPHONY_ISSUE_SUBJECT_ID`    | tracker subject ID       | Hooks   | Internal/injected | Tracker-specific subject ID.            |
-| `SYMPHONY_ISSUE_IDENTIFIER`    | issue identifier         | Hooks   | Internal/injected | Example: `acme/platform#42`.            |
-| `SYMPHONY_WORKSPACE_PATH`      | issue workspace root     | Hooks   | Internal/injected | Absolute path to the issue workspace.   |
-| `SYMPHONY_REPOSITORY_PATH`     | repository checkout path | Hooks   | Internal/injected | Absolute path to the cloned repository. |
-| `SYMPHONY_RUN_ID`              | current run ID           | Hooks   | Internal/injected | Absent for `after_create`.              |
-| `SYMPHONY_ISSUE_STATE`         | tracker state            | Hooks   | Internal/injected | Absent for `after_create`.              |
 
 ## Recovery And Resume Context
 
