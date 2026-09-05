@@ -176,7 +176,9 @@ export function stripCredentialEnvironmentForAgentChild(
   env.GIT_TERMINAL_PROMPT = "0";
 }
 
-function readTrackerSecretEnvironmentNames(env: NodeJS.ProcessEnv): string[] {
+export function readTrackerSecretEnvironmentNames(
+  env: NodeJS.ProcessEnv
+): string[] {
   try {
     const names = JSON.parse(
       env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
