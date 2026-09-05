@@ -1,5 +1,19 @@
 # @gh-symphony/cli
 
+## 2.1.0
+
+### Minor Changes
+
+- [#912](https://github.com/hojinzs/github-symphony/pull/912) [`fa8cca2`](https://github.com/hojinzs/github-symphony/commit/fa8cca28148cd5c1d4ec01bffe0c73b924ff9485) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Require the declared direct host GitHub credential for tracker polling and the host-owned `github_graphql` tool. The same token takes precedence for Git publication and must permit repository pushes ([#902](https://github.com/hojinzs/github-symphony/issues/902)).
+
+### Patch Changes
+
+- [#880](https://github.com/hojinzs/github-symphony/pull/880) [`19778b9`](https://github.com/hojinzs/github-symphony/commit/19778b9ff69573b13827a988f59ee2648fb4fb07) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep `USERPROFILE` aligned with the isolated agent child home in both built-in runtimes while preserving declared secret exclusions from the child environment ([#870](https://github.com/hojinzs/github-symphony/issues/870)).
+
+- [#886](https://github.com/hojinzs/github-symphony/pull/886) [`5bc1374`](https://github.com/hojinzs/github-symphony/commit/5bc137470a2006585d2cbf435accccfc4d5c6a69) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject malformed or unknown `SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST` entries instead of silently ignoring them, and document the coding-agent child environment boundary ([#871](https://github.com/hojinzs/github-symphony/issues/871)).
+
+- [#884](https://github.com/hojinzs/github-symphony/pull/884) [`f59e24a`](https://github.com/hojinzs/github-symphony/commit/f59e24a8736874755cdd3a0379e70c866cbc2b84) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Report the effective runtime timeout values and their configuration source from `workflow validate`, including a stable three-field JSON timeout object ([#882](https://github.com/hojinzs/github-symphony/issues/882)).
+
 ## 2.0.1
 
 ### Patch Changes
