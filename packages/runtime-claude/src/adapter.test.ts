@@ -436,7 +436,11 @@ describe("ClaudePrintRuntimeAdapter", () => {
             "GITHUB_TOKEN_BROKER_SECRET",
             "LINEAR_API_KEY",
             "LINEAR_AUTHORIZATION",
+            "TARGET_REPOSITORY_URL",
+            "HOME",
+            "USERPROFILE",
           ]),
+          TARGET_REPOSITORY_URL: "https://github.com/acme/repo",
         },
       },
       { spawnImpl }
@@ -446,6 +450,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     expect(calls[0]).toMatchObject({
       HOME: "/runtime/run-123/child-home",
+      USERPROFILE: "/runtime/run-123/child-home",
       GH_CONFIG_DIR: "/runtime/run-123/child-home/gh",
       DOCKER_CONFIG: "/runtime/run-123/child-home/.docker",
     });
@@ -460,6 +465,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.SSH_ASKPASS).toBeUndefined();
     expect(calls[0]?.GIT_CONFIG_GLOBAL).toBeUndefined();
     expect(calls[0]?.XDG_CONFIG_HOME).toBeUndefined();
+    expect(calls[0]?.TARGET_REPOSITORY_URL).toBeUndefined();
   });
 
   it("does not expose agent credential broker controls to the Claude child", async () => {
@@ -962,6 +968,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     expect(calls[0]).toEqual({
       HOME: "/workspace/.runtime/child-home",
+      USERPROFILE: "/workspace/.runtime/child-home",
       GH_CONFIG_DIR: "/workspace/.runtime/child-home/gh",
       DOCKER_CONFIG: "/workspace/.runtime/child-home/.docker",
       GIT_TERMINAL_PROMPT: "0",

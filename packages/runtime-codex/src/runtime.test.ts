@@ -213,6 +213,9 @@ describe("buildCodexRuntimePlan", () => {
         "GITHUB_TOKEN_BROKER_SECRET",
         "LINEAR_API_KEY",
         "LINEAR_AUTHORIZATION",
+        "TARGET_REPOSITORY_URL",
+        "HOME",
+        "CODEX_HOME",
       ],
       extraEnv: {
         HOME: "/Users/operator",
@@ -226,6 +229,7 @@ describe("buildCodexRuntimePlan", () => {
         SSH_ASKPASS: "/tmp/operator-ssh-askpass",
         GIT_CONFIG_GLOBAL: "/tmp/operator.gitconfig",
         XDG_CONFIG_HOME: "/tmp/operator-config",
+        TARGET_REPOSITORY_URL: "https://github.com/acme/repo",
       },
     });
 
@@ -236,6 +240,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.tools).toEqual([]);
     expect(plan.env).toMatchObject({
       HOME: "/tmp/runtime-123/child-home",
+      USERPROFILE: "/tmp/runtime-123/child-home",
       GH_CONFIG_DIR: "/tmp/runtime-123/child-home/gh",
       CODEX_HOME: "/tmp/runtime-123/child-home/.codex",
       DOCKER_CONFIG: "/tmp/runtime-123/child-home/.docker",
@@ -254,6 +259,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.SSH_ASKPASS).toBeUndefined();
     expect(plan.env.GIT_CONFIG_GLOBAL).toBeUndefined();
     expect(plan.env.XDG_CONFIG_HOME).toBeUndefined();
+    expect(plan.env.TARGET_REPOSITORY_URL).toBeUndefined();
     expect(plan.env.DOCKER_CONFIG).toBe("/tmp/runtime-123/child-home/.docker");
   });
 

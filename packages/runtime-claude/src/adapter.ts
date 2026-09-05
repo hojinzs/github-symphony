@@ -14,11 +14,11 @@ import type {
   AgentToolExecutionContext,
 } from "@gh-symphony/core";
 import {
+  buildAgentChildEnvironmentAssignments,
   collectMcpSecretEnvironmentNames,
   CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   extractEnvForClaude,
   prepareAgentChildHome,
-  readAgentVisibleSymphonyContext,
   stripCredentialEnvironmentForAgentChild,
   resolveAgentChildHome,
   stageDockerCliPlugins,
@@ -654,23 +654,26 @@ function buildClaudeSpawnEnv(options: {
   inputEnv?: NodeJS.ProcessEnv;
   childHome: string;
 }): NodeJS.ProcessEnv {
-  const agentVisibleContext = readAgentVisibleSymphonyContext(
-    process.env,
-    options.configEnv,
-    options.inputEnv
-  );
   if (options.inheritProcessEnv) {
     const env = {
       ...process.env,
       ...options.configEnv,
       ...options.inputEnv,
-      ...agentVisibleContext,
     };
-    stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
-    env.HOME = options.childHome;
-    env.GH_CONFIG_DIR = join(options.childHome, "gh");
-    env.DOCKER_CONFIG = join(options.childHome, ".docker");
+    const removedEnvironmentNames = stripTrackerSecrets(
+      env,
+      options.workingDirectory,
+      options.configEnv
+    );
     stripCredentialEnvironmentForAgentChild(env);
+    Object.assign(
+      env,
+      buildAgentChildEnvironmentAssignments({
+        childHome: options.childHome,
+        sources: [process.env, options.configEnv, options.inputEnv],
+        excludeNames: removedEnvironmentNames,
+      })
+    );
     return env;
   }
 
@@ -684,12 +687,20 @@ function buildClaudeSpawnEnv(options: {
   }
 
   Object.assign(env, options.configEnv, options.inputEnv);
-  Object.assign(env, agentVisibleContext);
-  stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
-  env.HOME = options.childHome;
-  env.GH_CONFIG_DIR = join(options.childHome, "gh");
-  env.DOCKER_CONFIG = join(options.childHome, ".docker");
+  const removedEnvironmentNames = stripTrackerSecrets(
+    env,
+    options.workingDirectory,
+    options.configEnv
+  );
   stripCredentialEnvironmentForAgentChild(env);
+  Object.assign(
+    env,
+    buildAgentChildEnvironmentAssignments({
+      childHome: options.childHome,
+      sources: [process.env, options.configEnv, options.inputEnv],
+      excludeNames: removedEnvironmentNames,
+    })
+  );
 
   return env;
 }
@@ -698,9 +709,9 @@ function stripTrackerSecrets(
   env: NodeJS.ProcessEnv,
   workingDirectory: string,
   configEnv?: NodeJS.ProcessEnv
-): void {
+): ReadonlySet<string> {
   const declaredNames = readTrackerSecretEnvironmentNames(env);
-  for (const name of [
+  const removedEnvironmentNames = new Set([
     ...declaredNames,
     ...collectMcpSecretEnvironmentNames({
       repositoryDir: workingDirectory,
@@ -709,9 +720,11 @@ function stripTrackerSecrets(
       secretEnvironmentNames: declaredNames,
     }),
     ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
-  ]) {
+  ]);
+  for (const name of removedEnvironmentNames) {
     delete env[name];
   }
+  return removedEnvironmentNames;
 }
 
 type PreparedClaudeSession = {
