@@ -14,11 +14,11 @@ import type {
   AgentToolExecutionContext,
 } from "@gh-symphony/core";
 import {
+  buildAgentChildEnvironmentAssignments,
   collectMcpSecretEnvironmentNames,
   CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   extractEnvForClaude,
   prepareAgentChildHome,
-  readAgentVisibleSymphonyContext,
   stripCredentialEnvironmentForAgentChild,
   resolveAgentChildHome,
   stageDockerCliPlugins,
@@ -654,23 +654,19 @@ function buildClaudeSpawnEnv(options: {
   inputEnv?: NodeJS.ProcessEnv;
   childHome: string;
 }): NodeJS.ProcessEnv {
-  const agentVisibleContext = readAgentVisibleSymphonyContext(
-    process.env,
-    options.configEnv,
-    options.inputEnv
-  );
+  const explicitAssignments = buildAgentChildEnvironmentAssignments({
+    childHome: options.childHome,
+    sources: [process.env, options.configEnv, options.inputEnv],
+  });
   if (options.inheritProcessEnv) {
     const env = {
       ...process.env,
       ...options.configEnv,
       ...options.inputEnv,
-      ...agentVisibleContext,
     };
     stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
-    env.HOME = options.childHome;
-    env.GH_CONFIG_DIR = join(options.childHome, "gh");
-    env.DOCKER_CONFIG = join(options.childHome, ".docker");
     stripCredentialEnvironmentForAgentChild(env);
+    Object.assign(env, explicitAssignments);
     return env;
   }
 
@@ -684,12 +680,9 @@ function buildClaudeSpawnEnv(options: {
   }
 
   Object.assign(env, options.configEnv, options.inputEnv);
-  Object.assign(env, agentVisibleContext);
   stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
-  env.HOME = options.childHome;
-  env.GH_CONFIG_DIR = join(options.childHome, "gh");
-  env.DOCKER_CONFIG = join(options.childHome, ".docker");
   stripCredentialEnvironmentForAgentChild(env);
+  Object.assign(env, explicitAssignments);
 
   return env;
 }

@@ -5,11 +5,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildAgentChildEnvironmentAssignments,
   buildAgentInputRequiredReason,
   CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   DEFAULT_LINEAR_GRAPHQL_URL,
   prepareAgentChildHome,
-  readAgentVisibleSymphonyContext,
   readAgentCredentialCache,
   resolveAgentChildHome,
   shouldReuseAgentCredentialCache,
@@ -643,17 +643,13 @@ export function buildCodexRuntimePlan(
     args: agentCommand.args,
     env: {
       ...resolveRuntimeProcessEnv(),
-      ...readAgentVisibleSymphonyContext(process.env),
       ...config.extraEnv,
       ...config.agentEnv,
       CODEX_PROJECT_ID: config.projectId,
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       ...orchestratorRunEnv,
       ...agentEnv,
-      HOME: childHome,
-      GH_CONFIG_DIR: join(childHome, "gh"),
       CODEX_HOME: join(childHome, ".codex"),
-      DOCKER_CONFIG: join(childHome, ".docker"),
     } as NodeJS.ProcessEnv,
     tools: [],
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
@@ -667,6 +663,13 @@ export function buildCodexRuntimePlan(
     delete plan.env[name];
   }
   stripCredentialEnvironmentForAgentChild(plan.env);
+  Object.assign(
+    plan.env,
+    buildAgentChildEnvironmentAssignments({
+      childHome,
+      sources: [process.env, config.extraEnv, config.agentEnv],
+    })
+  );
 
   return plan;
 }

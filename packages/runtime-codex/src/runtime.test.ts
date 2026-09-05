@@ -236,6 +236,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.tools).toEqual([]);
     expect(plan.env).toMatchObject({
       HOME: "/tmp/runtime-123/child-home",
+      USERPROFILE: "/tmp/runtime-123/child-home",
       GH_CONFIG_DIR: "/tmp/runtime-123/child-home/gh",
       CODEX_HOME: "/tmp/runtime-123/child-home/.codex",
       DOCKER_CONFIG: "/tmp/runtime-123/child-home/.docker",

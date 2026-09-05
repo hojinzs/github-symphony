@@ -446,6 +446,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     expect(calls[0]).toMatchObject({
       HOME: "/runtime/run-123/child-home",
+      USERPROFILE: "/runtime/run-123/child-home",
       GH_CONFIG_DIR: "/runtime/run-123/child-home/gh",
       DOCKER_CONFIG: "/runtime/run-123/child-home/.docker",
     });
@@ -962,6 +963,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     expect(calls[0]).toEqual({
       HOME: "/workspace/.runtime/child-home",
+      USERPROFILE: "/workspace/.runtime/child-home",
       GH_CONFIG_DIR: "/workspace/.runtime/child-home/gh",
       DOCKER_CONFIG: "/workspace/.runtime/child-home/.docker",
       GIT_TERMINAL_PROMPT: "0",
