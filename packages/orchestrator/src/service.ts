@@ -5053,7 +5053,12 @@ export class OrchestratorService {
           tenant,
           buildHookEnv(context)
         );
-        if (resolveHookCommand(workflowResolution.workflow.hooks, kind)) {
+        const hookCommand = resolveHookCommand(
+          workflowResolution.workflow.hooks,
+          kind
+        );
+        const trusted = isWorkflowHookExecutionAllowed(hookEnv);
+        if (hookCommand) {
           this.writeStderr(
             `[orchestrator] starting ${kind} hook for ${context.issueIdentifier}`
           );
@@ -5063,11 +5068,14 @@ export class OrchestratorService {
           hooks: workflowResolution.workflow.hooks,
           repositoryPath: repositoryDirectory,
           env: hookEnv,
-          trusted: isWorkflowHookExecutionAllowed(hookEnv),
-          envAllowlist: parseWorkflowHookEnvAllowlist(
-            hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
-            hookEnv
-          ),
+          trusted,
+          envAllowlist:
+            hookCommand && trusted
+              ? parseWorkflowHookEnvAllowlist(
+                  hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
+                  hookEnv
+                )
+              : [],
           timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
         });
       }
@@ -6346,7 +6354,14 @@ export function parseWorkflowHookEnvAllowlist(
   if (!value) {
     return [];
   }
-  const entries = value.split(",").map((entry) => entry.trim());
+  const entries = [
+    ...new Set(
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    ),
+  ];
   const invalidEntry = entries.find(
     (entry) => !/^[A-Z_][A-Z0-9_]*$/.test(entry)
   );

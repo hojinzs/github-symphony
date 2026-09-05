@@ -98,9 +98,11 @@ define those names in the same file. A daemon-only allowlist setting or target
 variable is not a source for hook forwarding because hooks inherit only the
 portable process variables listed above from the daemon. Every entry must use
 uppercase shell-name syntax (`[A-Z_][A-Z0-9_]*`). Hook execution fails when the
-list contains an empty or malformed entry, or names a variable absent from the
-effective hook environment; names are never silently ignored. This allowlist
-affects hooks only and does not expose its entries to the coding-agent child.
+list contains a malformed entry or names a variable absent from the effective
+hook environment; empty separators are ignored and duplicate names are folded
+together. Validation occurs only when a configured, trusted hook will execute,
+so an unused or trust-disabled hook remains skipped. This allowlist affects hooks
+only and does not expose its entries to the coding-agent child.
 
 ## WORKFLOW.md Front-matter Validation
 
