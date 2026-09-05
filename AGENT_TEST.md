@@ -365,7 +365,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                               |
 | `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                                     |
 | `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication                             |
-| `e2e/scenarios/17-instance-registry.md`                 | Verify host-global instance listing, stale-registry diagnostics, and daemon PID recording only after lock acquisition                    |
+| `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry                 |
 
 ## TC Writing Guide
 
