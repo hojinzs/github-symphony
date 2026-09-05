@@ -110,6 +110,25 @@ describe("renderDashboard", () => {
     expect(output).toContain("EVENT");
   });
 
+  it("renders the opaque project-environment digest for an active run", () => {
+    const snapshot = loadFixture("busy");
+    snapshot.activeRuns[0] = {
+      ...snapshot.activeRuns[0],
+      environmentDigest:
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    };
+
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+    });
+
+    expect(output).toContain(
+      "Project environment: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+  });
+
   it("noColor=true produces no ANSI escape sequences", () => {
     const snapshot = loadFixture("busy");
     const output = renderDashboard([snapshot], {

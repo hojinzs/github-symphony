@@ -352,6 +352,9 @@ export function renderDashboard(
       for (const rawRun of snap.activeRuns) {
         const run = rawRun as ActiveRunView;
         lines.push(activeRunRow(run, now, evtWidth, c));
+        if (run.environmentDigest) {
+          lines.push(`    Project environment: ${run.environmentDigest}`);
+        }
       }
     }
     lines.push("");

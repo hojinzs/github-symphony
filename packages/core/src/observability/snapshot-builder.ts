@@ -98,6 +98,7 @@ export function buildProjectSnapshot(
       status: run.status,
       retryKind: run.retryKind,
       port: run.port,
+      environmentDigest: run.environmentDigest ?? null,
       runtimeSession: run.runtimeSession ?? null,
       // New fields from live worker data
       processId: run.processId ?? null,
