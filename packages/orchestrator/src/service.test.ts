@@ -555,7 +555,6 @@ describe("OrchestratorService", () => {
           expectedState: "Ready",
           targetState: "In progress",
           reason: "implementation",
-          commentBody: "transition",
         },
         result,
         ["Ready", "In progress", "Land"]
@@ -568,7 +567,6 @@ describe("OrchestratorService", () => {
           expectedState: "In progress",
           targetState: "In review",
           reason: "handoff",
-          commentBody: "transition",
         },
         { ...result, state: "IN REVIEW", targetState: "In review" },
         ["Ready", "In progress", "Land"]
@@ -1764,7 +1762,6 @@ describe("OrchestratorService", () => {
       rateLimits: { source: "github", remaining: 3999, cycleCost: 1 },
       error: "expected_state_mismatch",
     });
-    const upsertTransitionComment = vi.fn();
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues: vi.fn(),
       listIssuesByStates: vi.fn(),
@@ -1772,7 +1769,6 @@ describe("OrchestratorService", () => {
       buildWorkerEnvironment: vi.fn(),
       reviveIssue: vi.fn(),
       requestState,
-      upsertTransitionComment,
     });
     const service = new OrchestratorService(store, projectConfig, {
       now: () => new Date("2026-07-30T13:01:00.000Z"),
@@ -1786,12 +1782,10 @@ describe("OrchestratorService", () => {
         expectedState: "In progress",
         targetState: "In review",
         reason: "handoff",
-        commentBody: "must not be published",
       },
     });
 
     expect(result.outcome).toBe("expected_state_mismatch");
-    expect(upsertTransitionComment).not.toHaveBeenCalled();
     expect(requestState).toHaveBeenCalledWith(
       projectConfig,
       {
@@ -1802,7 +1796,6 @@ describe("OrchestratorService", () => {
           expectedState: "In progress",
           targetState: "In review",
           reason: "handoff",
-          commentBody: "must not be published",
         },
       },
       expect.any(Object)

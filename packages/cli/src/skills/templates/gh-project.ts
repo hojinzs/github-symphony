@@ -12,7 +12,7 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
     "Request issue-scoped tracker state reads and transitions from the orchestrator,"
   );
   lines.push(
-    "supplying policy-authored transition comment bodies for publication after confirmed readback."
+    "while keeping issue-comment authorship in the worker and its agents."
   );
   lines.push("");
   lines.push("## Prerequisites");
@@ -48,22 +48,19 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
   lines.push("### Request Issue Status Transition");
   lines.push("");
   lines.push(
-    "Send only transition intent. The orchestrator publishes `comment_body` after confirmed readback; do not post the same transition comment directly. Use `jq` so all values are JSON-encoded safely:"
+    "Prepare the status comment separately, then send only transition intent. Use `jq` so all values are JSON-encoded safely:"
   );
   lines.push("");
   lines.push("```bash");
   lines.push('expected_state="In progress"');
   lines.push('target_state="In review"');
   lines.push('reason="PR created; validation passed"');
-  lines.push('comment_body_file="transition-comment.md"');
-  lines.push('comment_body=$(<"$comment_body_file")');
   lines.push("payload=$(jq -n \\");
   lines.push('  --arg expected "$expected_state" \\');
   lines.push('  --arg target "$target_state" \\');
   lines.push('  --arg reason "$reason" \\');
-  lines.push('  --arg comment_body "$comment_body" \\');
   lines.push(
-    "  '{type:\"transition-request\", expected_state:$expected, target_state:$target, reason:$reason, comment_body:$comment_body}')"
+    "  '{type:\"transition-request\", expected_state:$expected, target_state:$target, reason:$reason}')"
   );
   lines.push("response=$(curl --fail-with-body --silent --show-error \\");
   lines.push('  -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \\');
@@ -79,6 +76,10 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
     '  \'.ok == true and .outcome == "confirmed" and .state == $target\' <<<"$response"'
   );
   lines.push("```");
+  lines.push("");
+  lines.push(
+    "Only after the response confirms the requested state, publish the separately prepared exact status body with the host-side `github_graphql` `addComment` mutation. If the transition fails, do not publish it."
+  );
   lines.push("");
   lines.push("### Create Workpad Comment");
   lines.push("");
@@ -126,10 +127,10 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
     "- Treat non-2xx responses, expected-state mismatches, and readback mismatches as failed transitions"
   );
   lines.push(
-    "- Do not post a standalone status-transition comment before or after the request; the orchestrator publishes the supplied `comment_body` only after confirmed readback"
+    "- Never send `comment_body` to the tracker-state API; it accepts transition intent only"
   );
   lines.push(
-    '- When the response is not `.ok == true`, `.outcome == "confirmed"`, and the returned state matching the target, record the failure in the workpad and do not publish a correction status comment'
+    '- Publish the prepared status body through `github_graphql` only when the response is `.ok == true`, `.outcome == "confirmed"`, and the returned state matches the target'
   );
   lines.push(
     "- Before transitioning to a terminal state, verify the Completion Bar is satisfied:"

@@ -227,8 +227,6 @@ export type TrackerStateRequest =
       expectedState: string;
       targetState: string;
       reason: string;
-      /** Agent-authored body to publish after a confirmed readback. */
-      commentBody?: string;
     };
 
 export type TrackerStateResult = {

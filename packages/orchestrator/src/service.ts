@@ -6183,14 +6183,10 @@ function validateTrackerStateRequest(
   if (!request.reason.trim()) {
     return "transition_reason_required";
   }
-  if (request.commentBody !== undefined && !request.commentBody.trim()) {
-    return "transition_comment_body_required";
-  }
   if (
     request.expectedState.length > 200 ||
     request.targetState.length > 200 ||
-    request.reason.length > 2_000 ||
-    (request.commentBody?.length ?? 0) > 8_000
+    request.reason.length > 2_000
   ) {
     return "tracker_state_request_too_large";
   }

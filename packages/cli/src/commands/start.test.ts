@@ -1429,6 +1429,29 @@ Handle {{issue.identifier}}.\n`,
         runId: "run-1",
         turn: 2,
       });
+      const legacyCommentResponse = await fetch(`${url}/api/v1/tracker-state`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "transition-request",
+          expected_state: "In progress",
+          target_state: "In review",
+          reason: "validation passed",
+          comment_body: "must be published by the agent",
+        }),
+        headers: {
+          "content-type": "application/json",
+          "x-symphony-run-id": "run-1",
+          "x-symphony-orchestrator-token": workerApiToken,
+        },
+      });
+      expect(legacyCommentResponse.status).toBe(400);
+      await expect(legacyCommentResponse.json()).resolves.toMatchObject({
+        ok: false,
+        outcome: "rejected",
+        error: "invalid_tracker_state_request",
+      });
+      expect(requestTrackerState).not.toHaveBeenCalled();
+
       const transitionResponse = await fetch(`${url}/api/v1/tracker-state`, {
         method: "POST",
         body: JSON.stringify({
@@ -1436,7 +1459,6 @@ Handle {{issue.identifier}}.\n`,
           expected_state: "In progress",
           target_state: "In review",
           reason: "validation passed",
-          comment_body: "agent-authored transition body",
         }),
         headers: {
           "content-type": "application/json",
@@ -1457,7 +1479,6 @@ Handle {{issue.identifier}}.\n`,
           expectedState: "In progress",
           targetState: "In review",
           reason: "validation passed",
-          commentBody: "agent-authored transition body",
         },
       });
       const publishResponse = await fetch(
