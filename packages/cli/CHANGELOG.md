@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 2.0.1
+
+### Patch Changes
+
+- [#873](https://github.com/hojinzs/github-symphony/pull/873) [`519b1cf`](https://github.com/hojinzs/github-symphony/commit/519b1cfce7bf96b75becdee6be00e3ad21a24216) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject host Git and SSH credential environment names in custom runtime authentication settings instead of silently removing them from the agent child environment ([#868](https://github.com/hojinzs/github-symphony/issues/868)).
+
 ## 2.0.0
 
 ### Major Changes
