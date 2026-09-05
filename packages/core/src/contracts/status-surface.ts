@@ -220,7 +220,7 @@ export type OrchestratorRunRecord = {
   issueWorkspaceKey: string | null;
   workspaceRuntimeDir: string;
   workflowPath: string | null;
-  /** SHA-256 digest of the effective worker host environment at spawn time. */
+  /** SHA-256 digest of the project environment snapshot consumed at spawn time. */
   environmentDigest?: string | null;
   retryKind: RetryKind | null;
   /** Persisted thread state shared across worker sessions. */
@@ -363,6 +363,8 @@ export type ProjectStatusSnapshot = {
     status: OrchestratorRunStatus;
     retryKind: RetryKind | null;
     port: number | null;
+    /** Opaque SHA-256 digest of the project environment; never contains names or values. */
+    environmentDigest?: string | null;
     processId?: number | null;
     turnCount?: number;
     startedAt?: string | null;
