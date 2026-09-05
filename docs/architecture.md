@@ -79,7 +79,7 @@ the tracker adapter:
   the Linear adapter while retaining the GitHub Project read path for GitHub-backed projects,
   where Project binding checks remain confined; `workspaceDir` is the
   issue-workspace root
-- Cross-runtime instance index and host-level `instances` CLI surface: `packages/cli/src/instances.ts`, `commands/instances.ts`. The index is advisory; lock heartbeat and process identity remain the liveness authority.
+- Folder-addressed project lifecycle commands: `packages/cli/src/commands/project.ts`, `commands/start.ts`, `commands/status.ts`, and `commands/stop.ts`. Daemon PID records and project locks remain the runtime liveness and ownership authorities; there is no separate host-global instance index.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
 - Workers start with the run directory as their process cwd. Runtime
   launchers do not discover `.env` from cwd; only the managed project `.env`
@@ -177,7 +177,7 @@ the tracker adapter:
 - Operator HTTP control plane (bearer auth, redaction): `packages/control-plane`
 - Browser dashboard: `packages/dashboard` — details in [../packages/control-plane/README.md](../packages/control-plane/README.md)
 - Runtime state files: `.runtime/orchestrator/` (`workspaces/<id>/`, `runs/<run-id>/`)
-- Instance registry: `${GH_SYMPHONY_INSTANCES_DIR:-${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances/}` (mode `0700`; one file per runtime/project). Daemon runtime overrides do not change this inherited host index.
+- Project daemon PID records: `${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/projects/<project-id>/daemon.pid`; project locks live beside the runtime state and retain process-owner identity verification.
 
 ## §17 conformance test matrix
 

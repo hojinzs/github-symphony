@@ -13,9 +13,6 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
   [36mconfig set[0m                  Set a configuration value
   [36mconfig edit[0m                 Open config in $EDITOR
 
-[33m[1mOrchestration (host):[0m[0m
-  [36minstances[0m                   List registered orchestrator instances across projects
-
 [33m[1mOrchestration (standalone project):[0m[0m
   [36mproject list[0m                List cached standalone projects
   [36mproject start[0m               Start the standalone project in the current folder
@@ -53,9 +50,6 @@ Setup:
   config show                 Show current configuration
   config set                  Set a configuration value
   config edit                 Open config in $EDITOR
-
-Orchestration (host):
-  instances                   List registered orchestrator instances across projects
 
 Orchestration (standalone project):
   project list                List cached standalone projects
