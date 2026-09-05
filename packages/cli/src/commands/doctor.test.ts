@@ -1292,7 +1292,7 @@ Prompt body`
     await mkdir(projectDir, { recursive: true });
     await writeFile(
       join(projectDir, ".env"),
-      "GITHUB_TOKEN_BROKER_URL=https://broker.example/token\nGITHUB_TOKEN_BROKER_SECRET=project-secret\n",
+      "GITHUB_GRAPHQL_TOKEN=project-token\n",
       "utf8"
     );
     const { repoDir, pathEnv } = await createWorkflowFixture();

@@ -423,14 +423,13 @@ Tracker credentials are the narrow exception to the general process-environment
 allowlist: at dispatch, the tracker adapter resolves a tenant-scoped credential
 from the project `.env` first and the daemon environment second, then injects it
 only into the worker host environment. The credential remains excluded from the
-coding-agent child. GitHub accepts either `GITHUB_GRAPHQL_TOKEN` or a complete
-`GITHUB_TOKEN_BROKER_URL`/`GITHUB_TOKEN_BROKER_SECRET` pair; incomplete pairs do
-not combine values across project and daemon scopes. Linear likewise treats
+coding-agent child. GitHub tracker polling and host-owned tools require
+`GITHUB_GRAPHQL_TOKEN`. Linear likewise treats
 each scope atomically: when either `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`
 is present in the project `.env`, only values from that project scope are
 forwarded and daemon values are not mixed into the credential set.
 The worker validates this effective credential set before runtime launch.
-GitHub requires `GITHUB_GRAPHQL_TOKEN` or a complete broker URL/secret pair;
+GitHub requires `GITHUB_GRAPHQL_TOKEN`;
 Linear requires `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`. `doctor` applies
 the GitHub adapter's same project-first selection and reports the managed
 project `.env` path when remediation is required.
@@ -476,10 +475,10 @@ target a non-`github.com` host.
 
 | Variable                                                     | Default          | Read by                                 | Audience          | Notes                                                                                                                                                  |
 | ------------------------------------------------------------ | ---------------- | --------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Broker endpoint for GitHub tokens. It is host-only and not inherited by agent children by default.                                                     |
-| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Worker host tools and Git transport     | User-facing/ops   | Shared secret sent to the GitHub token broker. Core always removes it from agent children as a backstop; its tracker-secret declaration is separate.   |
+| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Worker host Git transport               | User-facing/ops   | Broker endpoint retained for the Git publication compatibility path. It is host-only and not inherited by agent children by default.                   |
+| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Worker host Git transport               | User-facing/ops   | Shared secret retained for the Git publication compatibility path. Core removes it from agent children as a defense-in-depth backstop.                 |
 | `GITHUB_TOKEN_BROKER_TIMEOUT_MS`                             | `5000`           | Git credential helper                   | User-facing/ops   | Maximum broker request duration in milliseconds. Increase this positive integer for brokers that legitimately need longer than five seconds.           |
-| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Optional host-side file path for caching brokered GitHub tokens.                                                                                       |
+| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Worker host Git transport               | User-facing/ops   | Optional host-side file path for caching brokered Git publication tokens.                                                                              |
 | `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the credential helper, for example `github.example`; retained at the host boundary.                                                |
 | `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper                   | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
 | `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport               | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |

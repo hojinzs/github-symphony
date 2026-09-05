@@ -482,7 +482,7 @@ function buildWorkerGitHubCredentialCheck(input: {
     "worker_github_credential",
     "Worker GitHub credential",
     "The selected tenant's worker-effective environment has no GitHub credential.",
-    `Add GITHUB_GRAPHQL_TOKEN or a complete GITHUB_TOKEN_BROKER_URL/GITHUB_TOKEN_BROKER_SECRET pair to ${projectEnvPath}, or authenticate the daemon and restart it.`,
+    `Add GITHUB_GRAPHQL_TOKEN to ${projectEnvPath}, or authenticate the daemon and restart it.`,
     { projectEnvPath }
   );
 }

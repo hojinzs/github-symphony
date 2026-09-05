@@ -189,12 +189,7 @@ type CodexProtocolMessage = Record<string, unknown>;
 export function createGitHubGraphQLToolDefinition(
   config: Pick<
     CodexRuntimeConfig,
-    | "githubToken"
-    | "githubTokenBrokerUrl"
-    | "githubTokenBrokerSecret"
-    | "githubTokenCachePath"
-    | "githubProjectId"
-    | "githubGraphqlApiUrl"
+    "githubToken" | "githubProjectId" | "githubGraphqlApiUrl"
   >
 ): RuntimeToolDefinition {
   const entry = createGitHubGraphQLMcpServerEntry(config);

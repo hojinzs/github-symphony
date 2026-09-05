@@ -964,10 +964,11 @@ through host dynamic tools; Claude's generated MCP configuration contains only
 the worker-owned loopback endpoint and its per-run capability. The host-owned
 transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
-At dispatch, tracker adapters resolve host-only credentials from the tenant's
-project `.env` before the daemon environment. Workers use that daemon-resolved
-tracker identity for host tools and Git transport without restoring blanket
-environment inheritance.
+At dispatch, tracker adapters resolve host-only direct credentials from the
+tenant's project `.env` before the daemon environment. Workers use that
+daemon-resolved tracker identity for polling and host tools without restoring
+blanket environment inheritance. Git publication retains its separate broker
+compatibility path.
 GitHub and Linear workers fail startup before launching an agent when this
 effective environment has no provider credential. Candidate dispatch is also
 skipped when the orchestrator can determine the credential is missing, and
