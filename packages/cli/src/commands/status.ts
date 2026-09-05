@@ -199,6 +199,9 @@ function renderLegacyStatus(
       lines.push(
         `    ${runIdDisplay}  ${run.issueIdentifier}  ${stateStr}  ${statusStr}`
       );
+      if (run.environmentDigest) {
+        lines.push(`      Project environment: ${run.environmentDigest}`);
+      }
       if (
         run.issueWorkspaceKey ===
           deriveLegacyWorkspaceKey(run.issueIdentifier) &&
