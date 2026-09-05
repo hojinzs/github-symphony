@@ -19,6 +19,7 @@ import {
   extractEnvForClaude,
   prepareAgentChildHome,
   readAgentVisibleSymphonyContext,
+  stripCredentialEnvironmentForAgentChild,
   resolveAgentChildHome,
   stageDockerCliPlugins,
   stageGitUserIdentity,
@@ -669,7 +670,7 @@ function buildClaudeSpawnEnv(options: {
     env.HOME = options.childHome;
     env.GH_CONFIG_DIR = join(options.childHome, "gh");
     env.DOCKER_CONFIG = join(options.childHome, ".docker");
-    removeChildHostCredentialEnvironment(env);
+    stripCredentialEnvironmentForAgentChild(env);
     return env;
   }
 
@@ -688,7 +689,7 @@ function buildClaudeSpawnEnv(options: {
   env.HOME = options.childHome;
   env.GH_CONFIG_DIR = join(options.childHome, "gh");
   env.DOCKER_CONFIG = join(options.childHome, ".docker");
-  removeChildHostCredentialEnvironment(env);
+  stripCredentialEnvironmentForAgentChild(env);
 
   return env;
 }
@@ -711,45 +712,6 @@ function stripTrackerSecrets(
   ]) {
     delete env[name];
   }
-}
-
-function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {
-  for (const name of [
-    "AGENT_CREDENTIAL_BROKER_URL",
-    "AGENT_CREDENTIAL_BROKER_SECRET",
-    "AGENT_CREDENTIAL_CACHE_PATH",
-    "GITHUB_GIT_HOST",
-    "GITHUB_GIT_USERNAME",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_KEY_0",
-    "GIT_CONFIG_VALUE_0",
-    "GITHUB_TOKEN_BROKER_URL",
-    "GITHUB_TOKEN_CACHE_PATH",
-    "GIT_ASKPASS",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_GLOBAL",
-    "GIT_CONFIG_NOSYSTEM",
-    "GIT_CONFIG_SYSTEM",
-    "GIT_DIR",
-    "GIT_SSH",
-    "GIT_SSH_COMMAND",
-    "GIT_WORK_TREE",
-    "SSH_AGENT_PID",
-    "SSH_ASKPASS",
-    "SSH_AUTH_SOCK",
-    "XDG_CONFIG_HOME",
-  ]) {
-    delete env[name];
-  }
-  for (const name of Object.keys(env)) {
-    if (
-      name.startsWith("GIT_CONFIG_KEY_") ||
-      name.startsWith("GIT_CONFIG_VALUE_")
-    ) {
-      delete env[name];
-    }
-  }
-  env.GIT_TERMINAL_PROMPT = "0";
 }
 
 type PreparedClaudeSession = {

@@ -45,16 +45,26 @@ export function readAgentVisibleSymphonyContext(
   return context;
 }
 
-const CHILD_HOST_CREDENTIAL_ENVIRONMENT_NAMES = [
+/** Host credential plumbing that must never cross an agent-child boundary. */
+export const AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES = [
+  "AGENT_CREDENTIAL_BROKER_URL",
+  "AGENT_CREDENTIAL_BROKER_SECRET",
+  "AGENT_CREDENTIAL_CACHE_PATH",
+  "GITHUB_GIT_HOST",
+  "GITHUB_GIT_USERNAME",
   "GIT_ASKPASS",
   "GIT_CONFIG_COUNT",
   "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_KEY_0",
   "GIT_CONFIG_NOSYSTEM",
   "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_VALUE_0",
   "GIT_DIR",
   "GIT_SSH",
   "GIT_SSH_COMMAND",
   "GIT_WORK_TREE",
+  "GITHUB_TOKEN_BROKER_URL",
+  "GITHUB_TOKEN_CACHE_PATH",
   "SSH_AGENT_PID",
   "SSH_ASKPASS",
   "SSH_AUTH_SOCK",
@@ -76,12 +86,23 @@ export const CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES = [
   "LINEAR_AUTHORIZATION",
 ] as const;
 
+export function isAgentChildCredentialEnvironmentName(name: string): boolean {
+  return (
+    AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
+      name as (typeof AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES)[number]
+    ) ||
+    name.startsWith("GIT_CONFIG_KEY_") ||
+    name.startsWith("GIT_CONFIG_VALUE_")
+  );
+}
+
 export function isCustomRuntimeReservedAuthEnvironmentName(
   name: string,
   environment: NodeJS.ProcessEnv,
   trackerSecretEnvironmentNames: readonly string[] = []
 ): boolean {
   return (
+    isAgentChildCredentialEnvironmentName(name) ||
     CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
       name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
     ) ||
@@ -140,7 +161,7 @@ export function buildCustomRuntimeChildEnvironment(options: {
       delete env[name];
     }
   }
-  removeChildHostCredentialEnvironment(env);
+  stripCredentialEnvironmentForAgentChild(env);
   return env;
 }
 
@@ -162,15 +183,11 @@ export function sanitizeRepositoryCloneUrl(cloneUrl: string): string {
   }
 }
 
-function removeChildHostCredentialEnvironment(env: NodeJS.ProcessEnv): void {
-  for (const name of CHILD_HOST_CREDENTIAL_ENVIRONMENT_NAMES) {
-    delete env[name];
-  }
+export function stripCredentialEnvironmentForAgentChild(
+  env: NodeJS.ProcessEnv
+): void {
   for (const name of Object.keys(env)) {
-    if (
-      name.startsWith("GIT_CONFIG_KEY_") ||
-      name.startsWith("GIT_CONFIG_VALUE_")
-    ) {
+    if (isAgentChildCredentialEnvironmentName(name)) {
       delete env[name];
     }
   }

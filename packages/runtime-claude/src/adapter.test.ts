@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "@gh-symphony/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ClaudePrintRuntimeAdapter,
@@ -72,6 +73,39 @@ describe("ClaudePrintRuntimeAdapter", () => {
         })
       )
     );
+  });
+
+  it("strips every declared credential name at the agent-child boundary", async () => {
+    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { child, stdout, stderr } = createStubChild();
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        env: Object.fromEntries(
+          AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.map((name) => [
+            name,
+            "secret",
+          ])
+        ),
+      },
+      {
+        spawnImpl: (_command, _args, options) => {
+          calls.push(options.env);
+          queueMicrotask(() => {
+            stdout.end();
+            stderr.end();
+            child.emit("close", 0, null);
+          });
+          return child;
+        },
+      }
+    );
+
+    await adapter.spawnTurn({ messages: [] });
+
+    for (const name of AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES) {
+      expect(calls[0]?.[name], name).toBeUndefined();
+    }
   });
 
   it("spawns claude with default argv and merged env", async () => {
