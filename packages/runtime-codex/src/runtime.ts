@@ -655,11 +655,12 @@ export function buildCodexRuntimePlan(
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
   };
 
-  for (const name of new Set([
+  const removedEnvironmentNames = new Set([
     ...secretEnvironmentNames,
     ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
     "LINEAR_GRAPHQL_URL",
-  ])) {
+  ]);
+  for (const name of removedEnvironmentNames) {
     delete plan.env[name];
   }
   stripCredentialEnvironmentForAgentChild(plan.env);
@@ -668,6 +669,7 @@ export function buildCodexRuntimePlan(
     buildAgentChildEnvironmentAssignments({
       childHome,
       sources: [process.env, config.extraEnv, config.agentEnv],
+      excludeNames: removedEnvironmentNames,
     })
   );
 

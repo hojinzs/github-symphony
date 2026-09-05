@@ -20,4 +20,18 @@ describe("buildAgentChildEnvironmentAssignments", () => {
       DOCKER_CONFIG: "/runtime/child-home/.docker",
     });
   });
+
+  it("does not rebuild assignments excluded by the child boundary", () => {
+    expect(
+      buildAgentChildEnvironmentAssignments({
+        childHome: "/runtime/child-home",
+        sources: [{ TARGET_REPOSITORY_URL: "https://github.com/acme/repo" }],
+        excludeNames: ["TARGET_REPOSITORY_URL", "USERPROFILE"],
+      })
+    ).toEqual({
+      HOME: "/runtime/child-home",
+      GH_CONFIG_DIR: "/runtime/child-home/gh",
+      DOCKER_CONFIG: "/runtime/child-home/.docker",
+    });
+  });
 });

@@ -436,7 +436,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
             "GITHUB_TOKEN_BROKER_SECRET",
             "LINEAR_API_KEY",
             "LINEAR_AUTHORIZATION",
+            "TARGET_REPOSITORY_URL",
           ]),
+          TARGET_REPOSITORY_URL: "https://github.com/acme/repo",
         },
       },
       { spawnImpl }
@@ -461,6 +463,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.SSH_ASKPASS).toBeUndefined();
     expect(calls[0]?.GIT_CONFIG_GLOBAL).toBeUndefined();
     expect(calls[0]?.XDG_CONFIG_HOME).toBeUndefined();
+    expect(calls[0]?.TARGET_REPOSITORY_URL).toBeUndefined();
   });
 
   it("does not expose agent credential broker controls to the Claude child", async () => {

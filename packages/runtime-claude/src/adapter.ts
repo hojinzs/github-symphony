@@ -654,19 +654,26 @@ function buildClaudeSpawnEnv(options: {
   inputEnv?: NodeJS.ProcessEnv;
   childHome: string;
 }): NodeJS.ProcessEnv {
-  const explicitAssignments = buildAgentChildEnvironmentAssignments({
-    childHome: options.childHome,
-    sources: [process.env, options.configEnv, options.inputEnv],
-  });
   if (options.inheritProcessEnv) {
     const env = {
       ...process.env,
       ...options.configEnv,
       ...options.inputEnv,
     };
-    stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
+    const removedEnvironmentNames = stripTrackerSecrets(
+      env,
+      options.workingDirectory,
+      options.configEnv
+    );
     stripCredentialEnvironmentForAgentChild(env);
-    Object.assign(env, explicitAssignments);
+    Object.assign(
+      env,
+      buildAgentChildEnvironmentAssignments({
+        childHome: options.childHome,
+        sources: [process.env, options.configEnv, options.inputEnv],
+        excludeNames: removedEnvironmentNames,
+      })
+    );
     return env;
   }
 
@@ -680,9 +687,20 @@ function buildClaudeSpawnEnv(options: {
   }
 
   Object.assign(env, options.configEnv, options.inputEnv);
-  stripTrackerSecrets(env, options.workingDirectory, options.configEnv);
+  const removedEnvironmentNames = stripTrackerSecrets(
+    env,
+    options.workingDirectory,
+    options.configEnv
+  );
   stripCredentialEnvironmentForAgentChild(env);
-  Object.assign(env, explicitAssignments);
+  Object.assign(
+    env,
+    buildAgentChildEnvironmentAssignments({
+      childHome: options.childHome,
+      sources: [process.env, options.configEnv, options.inputEnv],
+      excludeNames: removedEnvironmentNames,
+    })
+  );
 
   return env;
 }
@@ -691,9 +709,9 @@ function stripTrackerSecrets(
   env: NodeJS.ProcessEnv,
   workingDirectory: string,
   configEnv?: NodeJS.ProcessEnv
-): void {
+): ReadonlySet<string> {
   const declaredNames = readTrackerSecretEnvironmentNames(env);
-  for (const name of [
+  const removedEnvironmentNames = new Set([
     ...declaredNames,
     ...collectMcpSecretEnvironmentNames({
       repositoryDir: workingDirectory,
@@ -702,9 +720,11 @@ function stripTrackerSecrets(
       secretEnvironmentNames: declaredNames,
     }),
     ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
-  ]) {
+  ]);
+  for (const name of removedEnvironmentNames) {
     delete env[name];
   }
+  return removedEnvironmentNames;
 }
 
 type PreparedClaudeSession = {
