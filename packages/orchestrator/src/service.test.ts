@@ -17460,7 +17460,7 @@ Prefer focused changes.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
-  it("recovers a partial git checkout left by an interrupted creator", async () => {
+  it("repopulates an unrecorded checkout interrupted after branch creation", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-partial-population-recovery-")
@@ -17489,12 +17489,13 @@ Prefer focused changes.
       store.projectDir(projectConfig.projectId),
       workspaceKey
     );
-    const partialGitDirectory = join(workspacePath, "repository", ".git");
-    await mkdir(partialGitDirectory, { recursive: true });
-    await writeFile(
-      join(partialGitDirectory, "HEAD"),
-      "ref: refs/heads/main\n"
+    const repositoryPath = join(workspacePath, "repository");
+    await mkdir(workspacePath, { recursive: true });
+    execSync(
+      `git clone ${shell(repository.path)} ${shell(repositoryPath)} && git -C ${shell(repositoryPath)} checkout -b symphony/tenant-1/acme-platform-1`,
+      { stdio: "ignore" }
     );
+    await writeFile(join(repositoryPath, ".population-incomplete"), "partial");
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 4308, unref: vi.fn() });
     const service = new OrchestratorService(store, projectConfig, {
@@ -17505,12 +17506,12 @@ Prefer focused changes.
     await service.runOnce();
 
     expect(spawnImpl).toHaveBeenCalledOnce();
+    await expect(gitModule.readGitCurrentBranch(repositoryPath)).resolves.toBe(
+      "symphony/tenant-1/acme-platform-1"
+    );
     await expect(
-      gitModule.readGitCurrentBranch(join(workspacePath, "repository"))
-    ).resolves.toBe("symphony/tenant-1/acme-platform-1");
-    await expect(
-      readFile(join(workspacePath, "repository", "WORKFLOW.md"), "utf8")
-    ).resolves.toContain("tracker:");
+      access(join(repositoryPath, ".population-incomplete"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("passes issue workspace root to after_run hook environment", async () => {

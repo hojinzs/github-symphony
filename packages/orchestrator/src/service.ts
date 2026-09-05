@@ -3199,18 +3199,12 @@ export class OrchestratorService {
         projectSlug: tenant.slug,
         issueIdentifier: issue.identifier,
       });
-      const existingRepositoryBranch = createdNow
-        ? null
-        : await readGitCurrentBranch(repositoryDirectory);
-      const needsPopulation =
-        createdNow ||
-        (!existingWorkspaceAtConfiguredRoot &&
-          existingRepositoryBranch !== expectedAssignedBranch);
+      const needsPopulation = createdNow || !existingWorkspaceAtConfiguredRoot;
       populationWasFresh = needsPopulation;
       // Run after_create when this process created the directory or a prior
-      // creator left behind an unusable checkout before a workspace record
-      // could be saved. Interrupted clones commonly leave a non-empty partial
-      // .git directory, so directory emptiness is not a sufficient signal.
+      // creator was interrupted before a workspace record could be saved.
+      // A clone may already have created the expected branch before later hook
+      // steps finish, so checkout state cannot prove population completed.
       // Recorded reused workspaces never enter the population or cleanup path.
       if (needsPopulation) {
         if (!createdNow) {

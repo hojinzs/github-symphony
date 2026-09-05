@@ -313,7 +313,7 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("before_run: null");
     expect(output).toContain("after_run: null");
     expect(output).toContain("before_remove: null");
-    expect(output).toContain("timeout_ms: 60000");
+    expect(output).toContain("timeout_ms: 600000");
   });
 
   it("includes detected repository guidance", () => {
