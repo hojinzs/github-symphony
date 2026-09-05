@@ -388,6 +388,12 @@ class RestartRunFailure extends Error {
   }
 }
 
+class WorkerCredentialMissingError extends Error {
+  constructor(readonly warning: string) {
+    super(warning);
+  }
+}
+
 function buildLinkedPullRequestActiveAdvisoryMarker(
   issueId: string,
   pullRequestId: string
@@ -438,6 +444,7 @@ export class OrchestratorService {
   >();
   private readonly issueCommentCaches = new Map<string, IssueCommentCache>();
   private readonly warnedProjectEnvPermissions = new Map<string, number>();
+  private readonly warnedMissingWorkerCredentials = new Set<string>();
   private workflowResolutionCache: Map<
     string,
     Promise<WorkflowResolution>
@@ -1960,6 +1967,26 @@ export class OrchestratorService {
             },
           });
         } catch (error) {
+          if (error instanceof WorkerCredentialMissingError) {
+            dispatchWarnings.push(error.warning);
+            skipped += 1;
+            issueRecords = upsertIssueOrchestration(issueRecords, {
+              issueId: issue.id,
+              identifier: issue.identifier,
+              workspaceKey: selectedWorkspaceKey,
+              state: existingIssueRecord?.retryEntry
+                ? "retry_queued"
+                : "released",
+              currentRunId: null,
+              retryEntry: existingIssueRecord?.retryEntry ?? null,
+              updatedAt: now.toISOString(),
+            });
+            await this.store.saveProjectIssueOrchestrations(
+              tenant.projectId,
+              issueRecords
+            );
+            continue;
+          }
           const errorDetail =
             error instanceof Error
               ? error.message
@@ -3427,10 +3454,6 @@ export class OrchestratorService {
       recovery,
     });
 
-    // Fence the issue to this run before the worker can request its first
-    // lease. This also leaves a recoverable preparing record if the daemon
-    // exits between preparation and process spawn.
-    await options.onPrepared?.(buildRunRecord(null));
     if (
       typeof trackerAdapter.resolveWorkerCredentials === "function" &&
       Object.keys(workerCredentials).length === 0
@@ -3447,10 +3470,20 @@ export class OrchestratorService {
           projectSlug: tenant.slug,
         },
       });
-      this.writeStderr(
-        `[warn] No worker credential resolved for ${issue.identifier} (${issue.tracker.adapter}); host tracker tools and authenticated Git transport may be unavailable.\n`
+      const warning = this.formatWorkerCredentialWarning(
+        tenant,
+        issue.identifier
       );
+      this.warnMissingWorkerCredentialOnce(tenant, warning);
+      throw new WorkerCredentialMissingError(warning);
     }
+    this.warnedMissingWorkerCredentials.delete(
+      this.workerCredentialWarningKey(tenant)
+    );
+    // Fence the issue to this run before the worker can request its first
+    // lease. This also leaves a recoverable preparing record if the daemon
+    // exits between preparation and process spawn.
+    await options.onPrepared?.(buildRunRecord(null));
     mkdirSync(runDir, { recursive: true });
     const workerLogStream = (
       this.dependencies.createWriteStreamImpl ?? createWriteStream
@@ -5131,6 +5164,29 @@ export class OrchestratorService {
     }
   }
 
+  private workerCredentialWarningKey(
+    tenant: OrchestratorProjectConfig
+  ): string {
+    return `${tenant.projectId}:${tenant.tracker.adapter}`;
+  }
+
+  private formatWorkerCredentialWarning(
+    tenant: OrchestratorProjectConfig,
+    issueIdentifier: string
+  ): string {
+    return `Dispatch skipped for ${issueIdentifier}: no worker credential resolved for ${tenant.tracker.adapter}. Add the credential to the managed project .env or authenticate the daemon and restart it.`;
+  }
+
+  private warnMissingWorkerCredentialOnce(
+    tenant: OrchestratorProjectConfig,
+    warning: string
+  ): void {
+    const warningKey = this.workerCredentialWarningKey(tenant);
+    if (this.warnedMissingWorkerCredentials.has(warningKey)) return;
+    this.warnedMissingWorkerCredentials.add(warningKey);
+    this.writeStderr(`[orchestrator] ${warning}\n`);
+  }
+
   private resolveProjectEnvironment(
     tenant: OrchestratorProjectConfig
   ): NodeJS.ProcessEnv {
@@ -5175,6 +5231,7 @@ export class OrchestratorService {
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
     lastError?: string | null;
+    dispatchWarnings?: string[];
   }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
@@ -5231,6 +5288,17 @@ export class OrchestratorService {
         },
       });
     } catch (error) {
+      if (error instanceof WorkerCredentialMissingError) {
+        const requeued = await this.requeueRetryingRun(
+          tenant,
+          run,
+          issueRecords,
+          now,
+          error.warning,
+          { countFailure: false, advanceAttempt: false }
+        );
+        return { ...requeued, dispatchWarnings: [error.warning] };
+      }
       throw new RestartRunFailure(
         error,
         nextIssueRecords,
@@ -6876,7 +6944,7 @@ function hasUnpublishedGitWork(run: OrchestratorRunRecord): boolean {
 
 function digestEnvironment(environment: Record<string, string>): string {
   const canonicalEnvironment = Object.entries(environment).sort(
-    ([left], [right]) => left.localeCompare(right)
+    ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)
   );
   return `sha256:${createHash("sha256")
     .update(JSON.stringify(canonicalEnvironment))

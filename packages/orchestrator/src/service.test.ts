@@ -10863,6 +10863,89 @@ Prefer focused changes.
     ]);
   });
 
+  it("keeps a due retry queued when the post-hook credential is missing", async () => {
+    const {
+      store,
+      service,
+      advanceToRetryDue,
+      fetchIssueStatesByIds,
+      resolveWorkerCredentials,
+      spawnImpl,
+    } = await createSuccessfulFinalizationFixture("Todo");
+
+    await service.runOnce();
+    const queuedRecord = (
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    )[0];
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      attempt: 1,
+      retryKind: "continuation",
+    });
+
+    resolveWorkerCredentials.mockReturnValue({});
+    fetchIssueStatesByIds.mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Issue 1",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        dispatchable: true,
+        assigneeId: null,
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository: (await store.loadRun("run-1"))!.repository,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
+    advanceToRetryDue();
+    const snapshot = await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "continuation",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: queuedRecord?.failureRetryCount,
+      retryEntry: {
+        attempt: queuedRecord?.retryEntry?.attempt,
+        error: expect.stringContaining("no worker credential resolved"),
+      },
+    });
+    expect(snapshot.warnings).toContain(
+      "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it."
+    );
+
+    const gatedRecord = (
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    )[0];
+    await service.runOnce();
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]?.retryEntry
+        ?.attempt
+    ).toBe(gatedRecord?.retryEntry?.attempt);
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+        ?.failureRetryCount
+    ).toBe(queuedRecord?.failureRetryCount);
+  });
+
   it("recovers a transient unknown finalization read and later succeeds", async () => {
     const { store, service, fetchIssueStatesByIds } =
       await createSuccessfulFinalizationFixture(null);
@@ -16782,6 +16865,7 @@ Prefer focused changes.
       const store = new OrchestratorFsStore(tempRoot);
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
+      const appendRunEvent = vi.spyOn(store, "appendRunEvent");
       const adapter = trackerAdapters.resolveTrackerAdapter(
         projectConfig.tracker
       );
@@ -16800,24 +16884,22 @@ Prefer focused changes.
 
       const snapshot = await service.runOnce();
 
-      expect(spawnImpl).toHaveBeenCalledTimes(1);
-      const [run] = await store.loadAllRuns();
-      expect(run).toBeDefined();
-      expect(snapshot.summary).toMatchObject({ dispatched: 1, skipped: 0 });
-      expect(snapshot.warnings).toEqual([]);
-      expect(
-        await store.loadRecentRunEvents(run!.runId, 20, run!.projectId)
-      ).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ event: "worker-credential-missing" }),
-        ])
+      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(await store.loadAllRuns()).toEqual([]);
+      expect(snapshot.summary).toMatchObject({ dispatched: 0, skipped: 1 });
+      expect(snapshot.warnings).toEqual([
+        "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it.",
+      ]);
+      expect(appendRunEvent).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ event: "worker-credential-missing" })
       );
       expect(stderrWrite).toHaveBeenCalledWith(
-        expect.stringContaining("No worker credential resolved")
+        expect.stringContaining("Dispatch skipped for acme/platform#1")
       );
       expect(
         stderrWrite.mock.calls.filter(([message]) =>
-          String(message).includes("No worker credential resolved")
+          String(message).includes("Dispatch skipped for acme/platform#1")
         )
       ).toHaveLength(1);
     } finally {
