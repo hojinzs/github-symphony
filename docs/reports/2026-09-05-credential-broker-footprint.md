@@ -1,7 +1,9 @@
 # Credential broker footprint before Phase 4 removal
 
-Date: 2026-09-05  
-Issue: #874  
+Date: 2026-09-05
+
+Issue: #874
+
 Scope: read-only investigation of the current tree
 
 ## Executive conclusion
