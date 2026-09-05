@@ -59,7 +59,7 @@ the tracker adapter:
 
 - `WORKFLOW.md` (project folder) — prompt body and team rules
 - Prompt policy can branch on the normalized lifecycle `execution_phase`; phase classification alone does not impose agent behavior.
-- Skill layers: global `~/.gh-symphony/skills/` + project `.agent/skills/`, injected into the worktree's `.codex/skills/` / `.claude/skills/` (see Skill Layering in [configuration.md](configuration.md)). The CLI-generated GitHub `/land` policy uses a host-side, expected-head-bound base merge so a standing approval remains usable without weakening fresh-head CI and mergeability checks.
+- Skill layers: global `~/.gh-symphony/skills/` + project `.agent/skills/`, injected into the worktree's `.codex/skills/` / `.claude/skills/` (see Skill Layering in [configuration.md](configuration.md))
 - Examples: [examples/](examples/)
 
 ### 2. Configuration — typed parsing and validation

@@ -149,12 +149,6 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 `gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
 
-The generated `/land` skill preserves a valid human approval when its guarded
-server-side update adds only the PR base branch to the approved head. It still
-re-runs required CI and every other merge gate on the returned head; an
-explicitly dismissed approval returns to human review instead of content
-rework.
-
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
 Pickup-label eligibility comparison is case-insensitive and ignores surrounding

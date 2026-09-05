@@ -46,28 +46,10 @@ describe("generateLandSkill", () => {
     const generated = generateLandSkill(context);
 
     expect(generated.length).toBeGreaterThan(50);
-    expect(generated).toMatch(/## .*Rules/);
-    expect(generated).toContain("mergePullRequest");
+    expect(generated).toMatch(/## (Rules|Flow)/);
+    expect(generated).toContain("gh pr merge");
     expect(generated).toContain("gh-project");
-    expect(generated).toContain("github_graphql");
-    expect(generated).not.toContain("gh pr ");
     expect(generated).not.toMatch(/\{\{/);
-  });
-
-  it("preserves a standing approval across the Land cycle's guarded base merge", () => {
-    const generated = generateLandSkill(context);
-
-    expect(generated).toContain("## Base-merge Approval Exemption");
-    expect(generated).toContain("approvedHeadOid");
-    expect(generated).toContain("expectedHeadOid: $approvedHeadOid");
-    expect(generated).toContain("updateMethod: MERGE");
-    expect(generated).toContain(
-      "Do not require a second approval on that base-only merge head."
-    );
-    expect(generated).toContain(
-      "classify that as an external wait and return `Land` → `In review`"
-    );
-    expect(generated).not.toContain("If not up-to-date, run the `/pull` skill");
   });
 });
 
@@ -115,6 +97,24 @@ describe("merged-PR lifecycle guards", () => {
     );
   });
 
+  it("gates Land rework on actionable threads created after approval", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const landSkill = await repositoryFile(".codex/skills/land/SKILL.md");
+
+    expect(landSkill).toContain("comments(first: 1)");
+    expect(landSkill).toContain("createdAt");
+    expect(landSkill).toContain("approval's `submittedAt`");
+    expect(landSkill).toContain(
+      "created at or before that approval is absorbed by the approval"
+    );
+    expect(workflow).toContain(
+      "thread's first comment `createdAt` with the approval review's `submittedAt`"
+    );
+    expect(workflow).toContain(
+      "created at or before that approval is absorbed by the approval"
+    );
+  });
+
   it("generates the same precedence guard in the published CLI land skill", () => {
     const generated = generateLandSkill(context);
 
@@ -125,10 +125,8 @@ describe("merged-PR lifecycle guards", () => {
     expect(generated).toContain(
       "Before any pre-flight check or failure classification"
     );
-    expect(generated).toContain("by PR number");
+    expect(generated).toContain("gh pr view <pr-number>");
     expect(generated).toContain("Never return a merged PR to `Ready`");
-    expect(generated).toContain(
-      "Re-run the Merged-PR Precedence Guard before classifying any failure"
-    );
+    expect(generated).toContain("Re-run the Merged-PR Precedence Guard first");
   });
 });

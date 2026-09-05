@@ -301,12 +301,6 @@ after a commit. The credential remains in the worker host, while the assigned
 branch becomes available for pull-request creation during the same run. Worker
 exit repeats the same fast-forward-only transport as a backstop.
 
-The generated `/land` skill also uses host-side GitHub operations. When the PR
-base advances after approval, it binds the merge update to the approved head
-and carries that approval across only the base-branch merge commit produced by
-the Land cycle. Required checks and all other merge gates are then re-evaluated
-on the updated head without creating a content-rework round.
-
 You can further customize the agent's behavior by editing `WORKFLOW.md` or by adding repository-specific reference markdown under the `/gh-symphony` skill's `references/` directory. `WORKFLOW.md` remains the policy layer that controls what the agent does at each workflow phase.
 
 > Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony project start --project-dir <path>` can dispatch worker runs.

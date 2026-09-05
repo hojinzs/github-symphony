@@ -76,6 +76,11 @@ query LandContext($owner: String!, $name: String!, $number: Int!) {
           isResolved
           isOutdated
           path
+          comments(first: 1) {
+            nodes {
+              createdAt
+            }
+          }
         }
       }
       commits(last: 1) {
@@ -120,7 +125,7 @@ Run this guard immediately after loading Required Context and before every pre-f
 
 All must pass before merging. If any fails, record the failure in the workpad and **do not** merge.
 
-1. **At least one human approval on the current head.** A review with `state == APPROVED` from a human (not the orchestration account) whose `commit.oid` is the current `headRefOid`, **or** whose approved commit is an ancestor of the current head where every commit after it is a base-branch merge commit produced by this Land cycle (server-side `updatePullRequestBranch` or a trivial-conflict `git merge`). A merge-update never invalidates an approval under this policy; if branch protection dismissed it anyway, that is an external wait (Failure Handling 6).
+1. **At least one human approval on the current head.** A review with `state == APPROVED` from a human (not the orchestration account) whose `commit.oid` is the current `headRefOid`, **or** whose approved commit is an ancestor of the current head where every commit after it is a base-branch merge commit produced by this Land cycle (server-side `updatePullRequestBranch` or a trivial-conflict `git merge`). A merge-update never invalidates an approval under this policy; if branch protection dismissed it anyway, that is an external wait (Failure Handling 6). Save the latest qualifying approval's `submittedAt`; any unresolved actionable review thread whose first comment's `createdAt` is later than that approval fails Land as rework, while unresolved actionable threads created at or before the approval do not block Land.
 2. **All required checks green on the head commit.** From `statusCheckRollup.contexts`, consider only entries with `isRequired: true`. Every required `CheckRun` must be `COMPLETED` with conclusion `SUCCESS`/`NEUTRAL`/`SKIPPED`; every required `StatusContext` must be `SUCCESS`. If no required contexts exist, this gate passes without waiting. Optional checks never gate Land.
 3. **Branch not behind its base.** `repository { ref(qualifiedName: "refs/heads/<base>") { compare(headRef: "<head>") { aheadBy behindBy } } }` must report `behindBy == 0`. If behind: run the server-side update (`updatePullRequestBranch(input: { pullRequestId, updateMethod: MERGE })`), then `git pull --ff-only origin <head>` locally so the host push at turn end is a no-op, then **restart the Merged-PR Precedence Guard and the full pre-flight sequence** including the CI wait in step 5.
 4. **Changeset present if labeled.** If the issue has a `changeset:major|minor|patch` label, confirm at least one `.changeset/*.md` file exists on the head (excluding `README.md` / `config.json`). If absent, this is a rework failure.
@@ -172,7 +177,7 @@ All must pass before merging. If any fails, record the failure in the workpad an
 4. Do not retry a non-recoverable Land pre-flight failure on later turns. First write its concrete classification, response excerpt, timestamp, exact transition reason, and `comment_body` into the workpad; then close the Land cycle after the orchestrator confirms the transition readback.
 5. **Required CI pending or registering** — keep `Land` and wait inside this turn per Pre-flight step 5. When checks complete, restart the merged guard and all pre-flight checks. A failed required check is a rework failure; a green result proceeds to merge.
 6. **Approval or other external wait-only failure** — no valid human `APPROVED` review on the current head (per Pre-flight step 1), a dismissed approval, `mergeStateStatus: BLOCKED` by a protection rule the worker cannot satisfy, or a CI wait that exceeded the limits: prepare a status body naming the concrete gate that failed, the head SHA it was evaluated against, and what a human must do; send it as `comment_body` while transitioning `Land` → `In review` via `/gh-project`. This is not a `⛔ Blocker`.
-7. **Rework failure** — failed required CI, a source-file merge conflict (`mergeable: CONFLICTING` outside the trivial set), missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition the worker can address: prepare a status body with reason `Land-return rework: <cause>`, then transition `Land` → `Ready` via `/gh-project` with that body. The Ready-return rework guard opens the next work cycle and routes the item to `In progress`.
+7. **Rework failure** — failed required CI, a source-file merge conflict (`mergeable: CONFLICTING` outside the trivial set), missing labeled Changeset, an unresolved actionable review thread created after the latest qualifying human approval on the current head (compare its first comment's `createdAt` with the approval's `submittedAt`), or another PR/code condition that the worker can address: prepare a status body with reason `Land-return rework: <cause>`, then transition `Land` → `Ready` via `/gh-project` with that body. An unresolved actionable thread created at or before that approval is absorbed by the approval and does not block Land. The Ready-return rework guard opens the next work cycle and routes the item to `In progress`.
 8. **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what · why · how to unblock, prepare a status body stating the unblock condition, then transition `Land` → `Backlog` via `/gh-project` with that body.
 
 ## Guardrails
