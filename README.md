@@ -400,11 +400,10 @@ cd <projectDir> && gh-symphony project start   # Start the project in this folde
 gh-symphony project start --project-dir <dir>  # ...or name the folder explicitly
 gh-symphony project status                     # Status for the project in this folder
 gh-symphony project stop                       # Stop its daemon
-gh-symphony project list                       # List cached projects (with live instance metadata when available)
-gh-symphony instances --json                    # List active project instances
+gh-symphony project list                       # List cached projects
 ```
 
-The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--allow-duplicate`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. `--assigned-only` is input to the tracker adapter's `dispatchable` derivation; the scheduler consumes that normalized eligibility result rather than interpreting provider-specific assignment rules. A verified live instance for the same project in another runtime is rejected by default; use `--allow-duplicate` only for intentional isolation. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.provider.pickup_labels.include`, which GitHub and Linear apply as an any-match candidate pre-filter. `tracker.required_labels` is separate: every configured label must remain present for an issue to be routable, including between worker turns. Label comparison is case-insensitive and ignores surrounding whitespace, so `Agent`, `agent`, and `" AGENT "` are the same label. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
+The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. `--assigned-only` is input to the tracker adapter's `dispatchable` derivation; the scheduler consumes that normalized eligibility result rather than interpreting provider-specific assignment rules. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.provider.pickup_labels.include`, which GitHub and Linear apply as an any-match candidate pre-filter. `tracker.required_labels` is separate: every configured label must remain present for an issue to be routable, including between worker turns. Label comparison is case-insensitive and ignores surrounding whitespace, so `Agent`, `agent`, and `" AGENT "` are the same label. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
 
 ### Official Container Deployment
 
@@ -975,10 +974,12 @@ through host dynamic tools; Claude's generated MCP configuration contains only
 the worker-owned loopback endpoint and its per-run capability. The host-owned
 transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
-At dispatch, tracker adapters resolve host-only credentials from the tenant's
-project `.env` before the daemon environment. Workers use that daemon-resolved
-tracker identity for host tools and Git transport without restoring blanket
-environment inheritance.
+At dispatch, tracker adapters resolve host-only direct credentials from the
+tenant's project `.env` before the daemon environment. Workers use that
+daemon-resolved tracker identity for polling and host tools without restoring
+blanket environment inheritance. Host Git publication uses that direct
+credential and fails closed when it is unavailable; reserved GitHub broker
+variables are not a publication fallback.
 GitHub and Linear workers fail startup before launching an agent when this
 effective environment has no provider credential. Candidate dispatch is also
 skipped when the orchestrator can determine the credential is missing, and

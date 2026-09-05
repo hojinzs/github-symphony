@@ -15,9 +15,9 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 4. Dump the Claude and Codex stub invocations' complete child environments,
    compare literal expected names and assignments with the exported core
    declarations, and inspect the generated MCP configuration.
-5. Let the successful worker lifecycle authenticate to a smart-HTTP Git remote,
-   then fetch and push its checked-out assigned branch through the shared Codex
-   credential helper.
+5. With the GitHub broker variables absent, let both successful worker
+   lifecycles authenticate to a smart-HTTP Git remote, then fetch and push the
+   checked-out assigned branch through the direct-token credential helper.
 6. Advance the remote assigned branch independently, then run successful Claude
    and Codex agent lifecycles whose local commits can no longer fast-forward it.
 7. Start the built GitHub worker with no direct token or complete broker pair.
@@ -39,7 +39,7 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 - Generated `mcp.json` exposes only the worker-owned `symphony` HTTP endpoint
   and its session capability under forced strict MCP mode; query, comment, and
   Project-state calls succeed.
-- Worker stderr confirms the assigned branch was pushed by host Git transport,
+- Worker stderr confirms both assigned branches were pushed by host Git transport,
   and the authenticated remote observes upload-pack and receive-pack
   advertisements plus the receive-pack RPC.
 - Both provider lifecycles emit a final `runPhase: failed` heartbeat containing

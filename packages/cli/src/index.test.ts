@@ -269,13 +269,28 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--daemon");
     expect(output).toContain("--once");
     expect(output).toContain("--assigned-only");
-    expect(output).toContain("--allow-duplicate");
+    expect(output).not.toContain("--allow-duplicate");
     expect(output).toContain("--bind-all");
     expect(output).toContain("--port [port]");
     expect(output).toContain("--http [port]");
     expect(output).toContain("--web [port]");
     expect(output).toContain("--log-level <level>");
     expect(output).toContain("--project-dir <path>");
+  });
+
+  it("guides users of the removed instances command", async () => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["instances"]);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "Use 'gh-symphony project list' and 'gh-symphony project status --project-dir <path>'."
+    );
+    expect(process.exitCode).toBe(2);
   });
 
   it("rejects misspelled standalone project runtime options", async () => {

@@ -71,7 +71,7 @@ the tracker adapter:
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
 - MCP declarations are resolved at the host boundary. Codex advertises adapter tools through dynamic-tool schemas without `config.mcp_servers`; Claude's worker starts a loopback HTTP MCP service and generates an `mcp.json` containing only its URL and ephemeral session capability. Repository/project subprocess entries are not exposed to either coding-agent child.
 - Agent-child launchers share the core `AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES` allowlist for non-secret run and repository identity. Codex, Claude, and custom runtimes compose that context consistently, then remove adapter-declared tracker secrets and generic host credential plumbing at the final child boundary. Adapter declarations are authoritative for identifying the active tracker's credentials. As a deliberate defense-in-depth divergence from strict tracker-name ownership, core also retains the legacy GitHub and Linear names as an unconditional custom-child backstop: removing them would make previously unreachable credentials reachable when a declaration is absent or belongs to another tracker. New tracker integrations remain declaration-driven and do not require extending that compatibility backstop.
-- Runtime launchers share the core child-home resolver and credential-strip contract, then prepare a private workspace-contained `HOME`/`GH_CONFIG_DIR`. Codex and Claude both apply that contract at their agent-child boundary; boundary tests verify every declared name is removed, while an injection-sourced test detects newly introduced Git-helper credentials without a stripping rule. They also link host Docker CLI plugins into a runtime-owned `DOCKER_CONFIG` without copying Docker credential configuration. Non-bare local authentication stages only Codex `auth.json` or Claude `claudeAiOauth`; default custom commands receive only their declared `runtime.auth.env`. Host agent configuration, Claude MCP OAuth, tracker credentials, Docker registry credentials, and `gh auth` remain outside the child boundary.
+- Runtime launchers share the core child-home resolver and credential-strip contract, then prepare a private workspace-contained `HOME`/`GH_CONFIG_DIR`. Codex and Claude both apply that contract at their agent-child boundary; boundary tests verify every declared name is removed, while an injection-sourced test detects newly introduced Git-helper credentials without a stripping rule. GitHub polling, the host-owned `github_graphql` tool, and host Git publication consume the adapter-resolved direct `GITHUB_GRAPHQL_TOKEN`; broker-only configuration does not enable publication. Runtime launchers also link host Docker CLI plugins into a runtime-owned `DOCKER_CONFIG` without copying Docker credential configuration. Non-bare local authentication stages only Codex `auth.json` or Claude `claudeAiOauth`; default custom commands receive only their declared `runtime.auth.env`. Host agent configuration, Claude MCP OAuth, tracker credentials, Docker registry credentials, and `gh auth` remain outside the child boundary.
 - CLI global/project config, folder-addressed project runtime commands,
   project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
@@ -79,7 +79,7 @@ the tracker adapter:
   the Linear adapter while retaining the GitHub Project read path for GitHub-backed projects,
   where Project binding checks remain confined; `workspaceDir` is the
   issue-workspace root
-- Cross-runtime instance index and host-level `instances` CLI surface: `packages/cli/src/instances.ts`, `commands/instances.ts`. The index is advisory; lock heartbeat and process identity remain the liveness authority.
+- Folder-addressed project lifecycle commands: `packages/cli/src/commands/project.ts`, `commands/start.ts`, `commands/status.ts`, and `commands/stop.ts`. Daemon PID records and project locks remain the runtime liveness and ownership authorities; there is no separate host-global instance index.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
 - Workers start with the run directory as their process cwd. Runtime
   launchers do not discover `.env` from cwd; only the managed project `.env`
@@ -177,7 +177,7 @@ the tracker adapter:
 - Operator HTTP control plane (bearer auth, redaction): `packages/control-plane`
 - Browser dashboard: `packages/dashboard` — details in [../packages/control-plane/README.md](../packages/control-plane/README.md)
 - Runtime state files: `.runtime/orchestrator/` (`workspaces/<id>/`, `runs/<run-id>/`)
-- Instance registry: `${GH_SYMPHONY_INSTANCES_DIR:-${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances/}` (mode `0700`; one file per runtime/project). Daemon runtime overrides do not change this inherited host index.
+- Project daemon PID records: `${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/projects/<project-id>/daemon.pid`; project locks live beside the runtime state and retain process-owner identity verification.
 
 ## §17 conformance test matrix
 
@@ -199,8 +199,9 @@ authoritative tests for repository behavior.
 (referenced via devDependencies). In addition to `dist/index.js` and the worker
 entry, its package build emits `dist/mcp-server.js`, which dispatches exactly one
 built-in GraphQL MCP implementation from an explicit server argument, and
-`dist/git-credential-helper.js`, which supplies runtime-scoped GitHub credentials
-only to host Git subprocesses. Agent-triggered publication, bounded
+`dist/git-credential-helper.js`, which supplies the direct host GitHub credential
+only to host Git subprocesses and performs no network credential resolution.
+Agent-triggered publication, bounded
 orchestrator teardown backstops, and the worker-exit backstop transfer the
 checked-out assigned ref into a temporary host-owned bare repository, fetch and
 verify fast-forward ancestry against the orchestrator-owned clone URL, and push

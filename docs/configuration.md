@@ -414,14 +414,13 @@ Tracker credentials are the narrow exception to the general process-environment
 allowlist: at dispatch, the tracker adapter resolves a tenant-scoped credential
 from the project `.env` first and the daemon environment second, then injects it
 only into the worker host environment. The credential remains excluded from the
-coding-agent child. GitHub accepts either `GITHUB_GRAPHQL_TOKEN` or a complete
-`GITHUB_TOKEN_BROKER_URL`/`GITHUB_TOKEN_BROKER_SECRET` pair; incomplete pairs do
-not combine values across project and daemon scopes. Linear likewise treats
+coding-agent child. GitHub tracker polling and host-owned tools require
+`GITHUB_GRAPHQL_TOKEN`. Linear likewise treats
 each scope atomically: when either `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`
 is present in the project `.env`, only values from that project scope are
 forwarded and daemon values are not mixed into the credential set.
 The worker validates this effective credential set before runtime launch.
-GitHub requires `GITHUB_GRAPHQL_TOKEN` or a complete broker URL/secret pair;
+GitHub requires `GITHUB_GRAPHQL_TOKEN`;
 Linear requires `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`. `doctor` applies
 the GitHub adapter's same project-first selection and reports the managed
 project `.env` path when remediation is required.
@@ -462,16 +461,17 @@ operator's credential stores.
 
 ## Credential Brokers And Git Access
 
-Use these when workers need short-lived credentials or when Git traffic must
-target a non-`github.com` host.
+The Git host and username settings support Git traffic targeting a
+non-`github.com` host. The GitHub broker names remain reserved for child-secret
+isolation while legacy plumbing is retired; host Git publication does not use
+them. Agent-provider brokers use the separate `AGENT_CREDENTIAL_*` settings.
 
 | Variable                                                     | Default          | Read by                                 | Audience          | Notes                                                                                                                                                  |
 | ------------------------------------------------------------ | ---------------- | --------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Broker endpoint for GitHub tokens. It is host-only and not inherited by agent children by default.                                                     |
-| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Worker host tools and Git transport     | User-facing/ops   | Shared secret sent to the GitHub token broker. Core always removes it from agent children as a backstop; its tracker-secret declaration is separate.   |
-| `GITHUB_TOKEN_BROKER_TIMEOUT_MS`                             | `5000`           | Git credential helper                   | User-facing/ops   | Maximum broker request duration in milliseconds. Increase this positive integer for brokers that legitimately need longer than five seconds.           |
-| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Optional host-side file path for caching brokered GitHub tokens.                                                                                       |
-| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the credential helper, for example `github.example`; retained at the host boundary.                                                |
+| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Legacy child-secret isolation           | Reserved          | Retained only as a reserved credential name while the remaining broker plumbing is retired; host Git publication does not read it.                     |
+| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Legacy child-secret isolation           | Reserved          | Retained only as a reserved credential name and stripped from coding-agent children; host Git publication does not read it.                            |
+| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Legacy child-secret isolation           | Reserved          | Retained only as a reserved credential name; the direct host Git credential helper performs no token caching.                                          |
+| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the direct-token credential helper, for example `github.example`; retained at the host boundary.                                   |
 | `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper                   | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
 | `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport               | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
 | `AGENT_CREDENTIAL_BROKER_URL`                                | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Broker endpoint for agent provider credentials such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.                                                        |
@@ -563,8 +563,7 @@ layout.
 
 | Variable                               | Default                                                                                       | Read by                       | Audience           | Notes                                                                                                                                                                                                                                                                                   |
 | -------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GH_SYMPHONY_CONFIG_DIR`               | CLI default config directory; official container sets `/var/lib/gh-symphony`                  | CLI                           | User-facing/ops    | Overrides the global runtime config directory. `--config <dir>` takes precedence. It also selects the explicit global `instances/` registry namespace; `--config` alone never splits that index.                                                                                        |
-| `GH_SYMPHONY_INSTANCES_DIR`            | `${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances`                                         | CLI daemon + `instances`      | User-facing/ops    | Host-global instance registry namespace. Captured before a `--config` runtime override and inherited by daemon children.                                                                                                                                                                |
+| `GH_SYMPHONY_CONFIG_DIR`               | CLI default config directory; official container sets `/var/lib/gh-symphony`                  | CLI                           | User-facing/ops    | Overrides the global runtime config directory. `--config <dir>` takes precedence and selects project runtime state, including daemon PID records.                                                                                                                                       |
 | `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` | unset                                                                                         | CLI file tracker              | Internal/E2E       | Compatibility fallback for a file workflow without `tracker.provider.path`; provider paths may also use this variable or another environment reference. Not needed for GitHub or Linear trackers.                                                                                       |
 | `GH_SYMPHONY_HTTP_TOKEN`               | random per `project start` process                                                            | CLI HTTP servers              | User-facing/ops    | Shared bearer secret for all `/api/v1/*` routes. Set this for scripts, daemon clients, or a stable dashboard URL.                                                                                                                                                                       |
 | `SYMPHONY_EVENTS_DIR`                  | runtime-managed event storage                                                                 | Orchestrator package CLI      | User-facing/ops    | Optional override for where orchestrator events are written.                                                                                                                                                                                                                            |

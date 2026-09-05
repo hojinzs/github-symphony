@@ -53,15 +53,6 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
-    title: "Orchestration (host)",
-    entries: [
-      {
-        name: "instances",
-        description: "List registered orchestrator instances across projects",
-      },
-    ],
-  },
-  {
     title: "Orchestration (standalone project)",
     entries: [
       {

@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("createGitHubGraphQLToolDefinition", () => {
-  it("builds a runtime tool definition for brokered GitHub GraphQL access", () => {
+  it("does not wire broker credentials into the GitHub GraphQL tool", () => {
     const tool = createGitHubGraphQLToolDefinition({
       githubTokenBrokerUrl:
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
@@ -66,10 +66,6 @@ describe("createGitHubGraphQLToolDefinition", () => {
     expect(tool.args[0]).toContain("mcp-server.js");
     expect(tool.env).toEqual({
       GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-      GITHUB_TOKEN_BROKER_URL:
-        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-      GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
-      GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-token.json",
       GITHUB_PROJECT_ID: "project-123",
     });
   });
@@ -587,17 +583,8 @@ describe("createGitCredentialHelperEnvironment", () => {
     const injected = Object.keys(
       createGitCredentialHelperEnvironment({
         githubToken: "host-token",
-        githubTokenBrokerUrl:
-          "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-        githubTokenBrokerSecret: "runtime-secret",
-        githubTokenCachePath: "/workspace-runtime/.github-token.json",
-        tokenBrokerTimeoutMs: 1_000,
       })
-    ).filter(
-      (name) =>
-        name !== "GIT_TERMINAL_PROMPT" &&
-        name !== "GITHUB_TOKEN_BROKER_TIMEOUT_MS"
-    );
+    ).filter((name) => name !== "GIT_TERMINAL_PROMPT");
 
     const covered = injected.filter(
       (name) =>
@@ -613,13 +600,9 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(covered).toEqual(injected);
   });
 
-  it("configures git to use a renewable credential helper", () => {
+  it("configures git to use the direct host credential helper", () => {
     const env = createGitCredentialHelperEnvironment({
-      githubTokenBrokerUrl:
-        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-      githubTokenBrokerSecret: "runtime-secret",
-      githubTokenCachePath: "/workspace-runtime/.github-token.json",
-      tokenBrokerTimeoutMs: 7_500,
+      githubToken: "host-token",
     });
 
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");
@@ -628,8 +611,11 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
     expect(env.GITHUB_GIT_HOST).toBe("github.com");
     expect(env.GITHUB_GIT_USERNAME).toBe("x-access-token");
-    expect(env.GITHUB_TOKEN_BROKER_URL).toContain("/runtime-credentials");
-    expect(env.GITHUB_TOKEN_BROKER_TIMEOUT_MS).toBe("7500");
+    expect(env.GITHUB_GRAPHQL_TOKEN).toBe("host-token");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_URL");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_SECRET");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_CACHE_PATH");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_TIMEOUT_MS");
   });
 
   it("preserves a configured Git host and username for the helper", () => {
@@ -642,37 +628,6 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(env.GITHUB_GIT_HOST).toBe("github.enterprise.example");
     expect(env.GITHUB_GIT_USERNAME).toBe("symphony-service");
   });
-
-  it("rejects non-https broker URLs before exposing them to git", () => {
-    expect(() =>
-      createGitCredentialHelperEnvironment({
-        githubTokenBrokerUrl: "http://broker.example/runtime-credentials",
-        githubTokenBrokerSecret: "runtime-secret",
-      })
-    ).toThrow(/must use https/);
-  });
-
-  it("rejects an invalid broker timeout before exposing it to git", () => {
-    expect(() =>
-      createGitCredentialHelperEnvironment({
-        githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
-        githubTokenBrokerSecret: "runtime-secret",
-        tokenBrokerTimeoutMs: 0,
-      })
-    ).toThrow(/GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer/);
-  });
-
-  it.each(["", "  "])(
-    "omits an unset broker timeout %j from the helper environment",
-    (tokenBrokerTimeoutMs) => {
-      const env = createGitCredentialHelperEnvironment({
-        githubToken: "host-token",
-        tokenBrokerTimeoutMs,
-      });
-
-      expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_TIMEOUT_MS");
-    }
-  );
 });
 
 describe("launchCodexAppServer", () => {
