@@ -446,7 +446,7 @@ container environments.
 
 Child-isolation statements in these tables apply to every runtime. By default,
 `runtime.kind: custom` receives a narrow portable process environment and only
-the authentication variable it declares; it never receives tracker or broker
+the authentication variable it declares; it never receives tracker
 credentials. Its private `HOME` and `GH_CONFIG_DIR` are separate from the
 operator's credential stores.
 
@@ -459,24 +459,21 @@ operator's credential stores.
 | `LINEAR_AUTHORIZATION`   | unset                                                                                                            | Linear tracker, worker host tools                                      | Advanced                                            | Optional raw Linear authorization value for host-side Linear operations; it takes priority over `LINEAR_API_KEY` and is not inherited by agent children by default. |
 | `LINEAR_GRAPHQL_URL`     | `https://api.linear.app/graphql` when the Linear tool is enabled                                                 | Codex runtime, Claude runtime                                          | User-facing for Linear Enterprise/proxy setups      | Overrides the Linear GraphQL endpoint.                                                                                                                              |
 
-## Credential Brokers And Git Access
+## Git Access
 
 The Git host and username settings support Git traffic targeting a
-non-`github.com` host. The GitHub broker names remain reserved for child-secret
-isolation while legacy plumbing is retired; host Git publication does not use
-them. Agent-provider brokers use the separate `AGENT_CREDENTIAL_*` settings.
+non-`github.com` host. Legacy GitHub broker names remain reserved for
+child-secret isolation while their tracker-specific plumbing is retired; host
+Git publication does not use them.
 
-| Variable                                                     | Default          | Read by                                 | Audience          | Notes                                                                                                                                                  |
-| ------------------------------------------------------------ | ---------------- | --------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Legacy child-secret isolation           | Reserved          | Retained only as a reserved credential name while the remaining broker plumbing is retired; host Git publication does not read it.                     |
-| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Legacy child-secret isolation           | Reserved          | Retained only as a reserved credential name and stripped from coding-agent children; host Git publication does not read it.                            |
-| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Legacy child-secret isolation           | Reserved          | Retained only as a reserved credential name; the direct host Git credential helper performs no token caching.                                          |
-| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the direct-token credential helper, for example `github.example`; retained at the host boundary.                                   |
-| `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper                   | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
-| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport               | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
-| `AGENT_CREDENTIAL_BROKER_URL`                                | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Broker endpoint for agent provider credentials such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.                                                        |
-| `AGENT_CREDENTIAL_BROKER_SECRET`                             | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Shared secret sent to the agent credential broker. Set with `AGENT_CREDENTIAL_BROKER_URL`.                                                             |
-| `AGENT_CREDENTIAL_CACHE_PATH`                                | unset            | Codex runtime                           | User-facing/ops   | Optional file path for caching brokered agent credentials.                                                                                             |
+| Variable                                                     | Default          | Read by                       | Audience          | Notes                                                                                                                                                  |
+| ------------------------------------------------------------ | ---------------- | ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Legacy child-secret isolation | Reserved          | Retained only as a reserved credential name while the remaining broker plumbing is retired; host Git publication does not read it.                     |
+| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Legacy child-secret isolation | Reserved          | Retained only as a reserved credential name and stripped from coding-agent children; host Git publication does not read it.                            |
+| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Legacy child-secret isolation | Reserved          | Retained only as a reserved credential name; the direct host Git credential helper performs no token caching.                                          |
+| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper         | User-facing, GHES | Git host matched by the direct-token credential helper, for example `github.example`; retained at the host boundary.                                   |
+| `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper         | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
+| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport     | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
 
 When host Git credentials are available, Symphony appends its
 `credential.helper` entry after the caller-supplied indexed Git configuration.
@@ -492,11 +489,11 @@ uses them during setup and doctor checks where applicable.
 
 | Variable            | Default | Read by                                    | Audience             | Notes                                                                                                                                    |
 | ------------------- | ------- | ------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`    | unset   | Codex runtime                              | User-facing          | Direct Codex/OpenAI credential. A broker can provide this instead.                                                                       |
+| `OPENAI_API_KEY`    | unset   | Codex runtime                              | User-facing          | Direct Codex/OpenAI credential.                                                                                                          |
 | `OPENAI_BASE_URL`   | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI-compatible endpoint override passed to Codex.                                                                            |
 | `OPENAI_ORG_ID`     | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI organization value passed to Codex.                                                                                      |
 | `OPENAI_PROJECT`    | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI project value passed to Codex.                                                                                           |
-| `ANTHROPIC_API_KEY` | unset   | CLI setup/doctor, Claude preflight/runtime | User-facing          | Direct Claude credential. Required for bare Claude runtimes unless an agent credential broker supplies it.                               |
+| `ANTHROPIC_API_KEY` | unset   | CLI setup/doctor, Claude preflight/runtime | User-facing          | Direct Claude credential. Required for bare Claude runtimes.                                                                             |
 | `CODEX_HOME`        | unset   | Codex runtime launcher                     | User-facing/advanced | Host-side source for Codex `auth.json`. The child always receives a workspace-contained `CODEX_HOME`; host configuration is not exposed. |
 
 When a direct provider API key is absent, the non-bare Codex and Claude

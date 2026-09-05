@@ -11,9 +11,7 @@ export type ClaudePreflightCheckId =
   | "claude_mcp_config"
   | "gh_authentication";
 
-export type ClaudePreflightAuthMode =
-  | "local-or-api-key"
-  | "api-key-required";
+export type ClaudePreflightAuthMode = "local-or-api-key" | "api-key-required";
 
 export type ClaudePreflightCheck = {
   id: ClaudePreflightCheckId;
@@ -33,7 +31,6 @@ export type ClaudePreflightDependencies = {
   execFileSync: typeof execFileSync;
   readFile: typeof readFile;
   access: typeof access;
-  fetchImpl: typeof fetch;
   platform: NodeJS.Platform;
 };
 
@@ -48,16 +45,8 @@ export type ClaudePreflightOptions = {
   command?: string;
   includeGhAuth?: boolean;
   /**
-   * When true (default), actively probes AGENT_CREDENTIAL_BROKER_URL.
-   * Set to false to skip the network probe and treat configured broker
-   * credentials as sufficient.
-   */
-  probeCredentialBroker?: boolean;
-  /**
    * `local-or-api-key` allows Claude Code's local OAuth/keychain login path
-   * and reports entirely missing API-key/broker credentials as a warning.
-   * Partially configured broker credentials still fail because they indicate
-   * an attempted broker setup that cannot work as configured.
+   * and reports a missing API key as a warning.
    *
    * `api-key-required` is for headless/bare runtime paths where local Claude
    * Code auth is not sufficient.
@@ -69,11 +58,8 @@ const DEFAULT_DEPENDENCIES: ClaudePreflightDependencies = {
   execFileSync,
   readFile,
   access,
-  fetchImpl: fetch,
   platform: process.platform,
 };
-
-const CREDENTIAL_BROKER_TIMEOUT_MS = 5_000;
 
 export async function runClaudePreflight(
   options: ClaudePreflightOptions,
@@ -85,7 +71,7 @@ export async function runClaudePreflight(
   const checks: ClaudePreflightCheck[] = [];
 
   checks.push(checkClaudeBinary(command, options.cwd, deps));
-  checks.push(await checkClaudeAuthentication(env, options, deps));
+  checks.push(checkClaudeAuthentication(env, options));
   checks.push(await checkWorkspaceMcpConfig(options.cwd, deps));
   if (options.includeGhAuth) {
     checks.push(checkGhAuthentication(options.cwd, deps));
@@ -248,11 +234,10 @@ function checkGhAuthentication(
   }
 }
 
-async function checkClaudeAuthentication(
+function checkClaudeAuthentication(
   env: NodeJS.ProcessEnv,
-  options: Pick<ClaudePreflightOptions, "authMode" | "probeCredentialBroker">,
-  deps: Pick<ClaudePreflightDependencies, "fetchImpl">
-): Promise<ClaudePreflightCheck> {
+  options: Pick<ClaudePreflightOptions, "authMode">
+): ClaudePreflightCheck {
   const authMode = options.authMode ?? "api-key-required";
   if (env.ANTHROPIC_API_KEY?.trim()) {
     return pass(
@@ -263,98 +248,23 @@ async function checkClaudeAuthentication(
     );
   }
 
-  const brokerUrl = env.AGENT_CREDENTIAL_BROKER_URL?.trim();
-  const brokerSecret = env.AGENT_CREDENTIAL_BROKER_SECRET?.trim();
-  if (!brokerUrl || !brokerSecret) {
-    if (authMode === "local-or-api-key" && !brokerUrl && !brokerSecret) {
-      return warn(
-        "anthropic_api_key",
-        "Claude authentication",
-        "ANTHROPIC_API_KEY and agent credential broker are not configured; Claude Code local login may be used for this non-bare runtime.",
-        "If this runtime will run headlessly or with runtime.isolation.bare: true, set ANTHROPIC_API_KEY or configure AGENT_CREDENTIAL_BROKER_URL and AGENT_CREDENTIAL_BROKER_SECRET.",
-        { source: "local" }
-      );
-    }
-
-    if (brokerUrl || brokerSecret) {
-      const missingName = brokerUrl
-        ? "AGENT_CREDENTIAL_BROKER_SECRET"
-        : "AGENT_CREDENTIAL_BROKER_URL";
-      return fail(
-        "anthropic_api_key",
-        "Claude authentication",
-        `Agent credential broker configuration is incomplete: ${missingName} is not configured.`,
-        `Set ${missingName} or remove the partial broker configuration and use ANTHROPIC_API_KEY instead.`,
-        {
-          source: "broker",
-          brokerUrl: brokerUrl ?? null,
-          missing: missingName,
-        }
-      );
-    }
-
-    return fail(
+  if (authMode === "local-or-api-key") {
+    return warn(
       "anthropic_api_key",
       "Claude authentication",
-      "Neither ANTHROPIC_API_KEY nor an agent credential broker is configured.",
-      "Set ANTHROPIC_API_KEY or configure AGENT_CREDENTIAL_BROKER_URL and AGENT_CREDENTIAL_BROKER_SECRET.",
-      { source: "missing" }
+      "ANTHROPIC_API_KEY is not configured; Claude Code local login may be used for this non-bare runtime.",
+      "If this runtime will run headlessly or with runtime.isolation.bare: true, set ANTHROPIC_API_KEY.",
+      { source: "local" }
     );
   }
 
-  if (options.probeCredentialBroker === false) {
-    return pass(
-      "anthropic_api_key",
-      "Claude authentication",
-      "Agent credential broker configuration is present.",
-      { source: "broker", brokerUrl }
-    );
-  }
-
-  try {
-    const response = await deps.fetchImpl(brokerUrl, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${brokerSecret}`,
-      },
-      signal: AbortSignal.timeout(CREDENTIAL_BROKER_TIMEOUT_MS),
-    });
-    const payload = (await response.json()) as {
-      env?: Record<string, string | undefined>;
-      error?: string;
-    };
-    if (response.ok && payload.env?.ANTHROPIC_API_KEY?.trim()) {
-      return pass(
-        "anthropic_api_key",
-        "Claude authentication",
-        "Agent credential broker is reachable and returned ANTHROPIC_API_KEY.",
-        { source: "broker", brokerUrl }
-      );
-    }
-
-    return fail(
-      "anthropic_api_key",
-      "Claude authentication",
-      payload.error
-        ? `Agent credential broker did not return ANTHROPIC_API_KEY: ${payload.error}.`
-        : "Agent credential broker did not return ANTHROPIC_API_KEY.",
-      "Set ANTHROPIC_API_KEY or configure the credential broker to return ANTHROPIC_API_KEY.",
-      { source: "broker", brokerUrl, status: response.status }
-    );
-  } catch (error) {
-    return fail(
-      "anthropic_api_key",
-      "Claude authentication",
-      "Agent credential broker could not be reached.",
-      "Set ANTHROPIC_API_KEY or fix AGENT_CREDENTIAL_BROKER_URL and AGENT_CREDENTIAL_BROKER_SECRET.",
-      {
-        source: "broker",
-        brokerUrl,
-        error: error instanceof Error ? error.message : String(error),
-      }
-    );
-  }
+  return fail(
+    "anthropic_api_key",
+    "Claude authentication",
+    "ANTHROPIC_API_KEY is not configured.",
+    "Set ANTHROPIC_API_KEY for this bare Claude runtime.",
+    { source: "missing" }
+  );
 }
 
 async function checkWorkspaceMcpConfig(

@@ -6,8 +6,6 @@ import { join } from "node:path";
 import type {
   AgentSessionInvalidatedEvent,
   AgentRuntimeAdapter,
-  AgentRuntimeCredentialBrokerResponse,
-  AgentRuntimeEnv,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
   AgentEvent,
@@ -17,7 +15,6 @@ import {
   buildAgentChildEnvironmentAssignments,
   collectMcpSecretEnvironmentNames,
   CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
-  extractEnvForClaude,
   prepareAgentChildHome,
   stripCredentialEnvironmentForAgentChild,
   resolveAgentChildHome,
@@ -191,12 +188,6 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
     return () => {
       this.eventHandlers.delete(handler);
     };
-  }
-
-  resolveCredentials(
-    brokerResponse: AgentRuntimeCredentialBrokerResponse
-  ): AgentRuntimeEnv {
-    return extractEnvForClaude(brokerResponse.env, this.config.authEnvKey);
   }
 
   async shutdown(): Promise<void> {
@@ -624,13 +615,6 @@ export function createClaudePrintRuntimeAdapter(
   dependencies: ClaudeRuntimeDependencies = {}
 ): ClaudePrintRuntimeAdapter {
   return new ClaudePrintRuntimeAdapter(config, dependencies);
-}
-
-export function resolveClaudeCredentials(
-  brokerResponse: AgentRuntimeCredentialBrokerResponse,
-  envKey?: string
-): AgentRuntimeEnv {
-  return extractEnvForClaude(brokerResponse.env, envKey);
 }
 
 const DEFAULT_INHERITED_ENV_KEYS = [

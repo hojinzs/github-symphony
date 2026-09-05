@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,17 +9,13 @@ import {
   CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   DEFAULT_LINEAR_GRAPHQL_URL,
   prepareAgentChildHome,
-  readAgentCredentialCache,
   resolveAgentChildHome,
-  shouldReuseAgentCredentialCache,
   stageDockerCliPlugins,
   stageJsonCredentialFile,
   stageGitUserIdentity,
-  writeAgentCredentialCache,
   collectMcpSecretEnvironmentNames,
   stripCredentialEnvironmentForAgentChild,
   type AgentRuntimeAdapter,
-  type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
   type AgentRuntimeEvent,
 } from "@gh-symphony/core";
@@ -81,9 +76,6 @@ export type CodexRuntimeConfig = {
   githubTokenBrokerSecret?: string;
   githubTokenCachePath?: string;
   agentEnv?: Record<string, string>;
-  agentCredentialBrokerUrl?: string;
-  agentCredentialBrokerSecret?: string;
-  agentCredentialCachePath?: string;
   githubProjectId?: string;
   githubGraphqlApiUrl?: string;
   enableLinearGraphqlTool?: boolean;
@@ -123,14 +115,9 @@ export type CodexRuntimeTurnResult = {
   child: ChildProcess;
 };
 
-export type CodexRuntimeCredentialBrokerResponse =
-  AgentRuntimeCredentialBrokerResponse;
-
 export type CodexRuntimeEvent = AgentRuntimeEvent;
 
 export type CodexRuntimeDependencies = {
-  fetchImpl?: typeof fetch;
-  writeFileImpl?: typeof writeFile;
   spawnImpl?: SpawnLike;
 };
 
@@ -679,8 +666,7 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
   CodexRuntimePrepareContext,
   CodexRuntimeTurnInput,
   CodexRuntimeTurnResult,
-  CodexRuntimeEvent,
-  CodexRuntimeCredentialBrokerResponse
+  CodexRuntimeEvent
 > {
   // Event emission is intentionally deferred until the worker-owned loop is
   // neutralized in #4. Until then, keep handler registration compatible.
@@ -700,11 +686,7 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
       return;
     }
 
-    const agentEnv = await resolveAgentRuntimeEnvironment(
-      this.config,
-      this.dependencies,
-      this
-    );
+    const agentEnv = await resolveAgentRuntimeEnvironment(this.config);
     this.plan = buildCodexRuntimePlan({
       ...this.config,
       agentEnv,
@@ -757,12 +739,6 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
     return () => {
       this.handlers.delete(handler);
     };
-  }
-
-  resolveCredentials(
-    brokerResponse: CodexRuntimeCredentialBrokerResponse
-  ): Record<string, string> {
-    return resolvePreparedAgentEnvironment(brokerResponse.env);
   }
 
   async shutdown(): Promise<void> {
@@ -843,119 +819,9 @@ export function createGitCredentialHelperEnvironment(
 }
 
 export async function resolveAgentRuntimeEnvironment(
-  config: Pick<
-    CodexRuntimeConfig,
-    | "workingDirectory"
-    | "agentEnv"
-    | "agentCredentialBrokerUrl"
-    | "agentCredentialBrokerSecret"
-    | "agentCredentialCachePath"
-  >,
-  dependencies: {
-    fetchImpl?: typeof fetch;
-    readFileImpl?: typeof readFile;
-    writeFileImpl?: typeof writeFile;
-    now?: Date;
-  } = {},
-  adapter?: Pick<
-    AgentRuntimeAdapter<
-      CodexRuntimePrepareContext,
-      CodexRuntimeTurnInput,
-      CodexRuntimeTurnResult,
-      CodexRuntimeEvent,
-      CodexRuntimeCredentialBrokerResponse
-    >,
-    "resolveCredentials"
-  >
+  config: Pick<CodexRuntimeConfig, "workingDirectory" | "agentEnv">
 ): Promise<Record<string, string>> {
-  if (config.agentEnv) {
-    return resolveRuntimeCredentials({ env: config.agentEnv }, adapter);
-  }
-
-  if (!config.agentCredentialBrokerUrl || !config.agentCredentialBrokerSecret) {
-    return resolvePreparedAgentEnvironment();
-  }
-
-  const now = dependencies.now ?? new Date();
-  const readFileImpl = dependencies.readFileImpl ?? readFile;
-  const cachedCredentials = config.agentCredentialCachePath
-    ? await readAgentCredentialCache(
-        config.agentCredentialCachePath,
-        readFileImpl
-      )
-    : null;
-
-  if (
-    cachedCredentials &&
-    shouldReuseAgentCredentialCache(cachedCredentials, now)
-  ) {
-    return resolveRuntimeCredentials(cachedCredentials, adapter);
-  }
-
-  const fetchImpl = dependencies.fetchImpl ?? fetch;
-  const response = await fetchImpl(config.agentCredentialBrokerUrl, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${config.agentCredentialBrokerSecret}`,
-    },
-  });
-  const payload =
-    (await response.json()) as AgentRuntimeCredentialBrokerResponse & {
-      error?: string;
-      expires_at?: string;
-    };
-  const resolvedEnv =
-    payload.env && response.ok
-      ? adapter
-        ? adapter.resolveCredentials({
-            env: payload.env,
-            expires_at: payload.expires_at,
-          })
-        : resolvePreparedAgentEnvironment(payload.env)
-      : null;
-
-  if (
-    !response.ok ||
-    !payload.env ||
-    Object.keys(payload.env).length === 0 ||
-    !resolvedEnv
-  ) {
-    throw new AgentRuntimeResolutionError(
-      payload.error ??
-        `Agent credential broker request failed with status ${response.status}.`
-    );
-  }
-
-  if (config.agentCredentialCachePath) {
-    const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
-    await writeAgentCredentialCache(
-      config.agentCredentialCachePath,
-      payload,
-      writeFileImpl,
-      now
-    );
-  }
-
-  return resolvedEnv;
-}
-
-function resolveRuntimeCredentials(
-  brokerResponse: CodexRuntimeCredentialBrokerResponse,
-  adapter?: Pick<
-    AgentRuntimeAdapter<
-      CodexRuntimePrepareContext,
-      CodexRuntimeTurnInput,
-      CodexRuntimeTurnResult,
-      CodexRuntimeEvent,
-      CodexRuntimeCredentialBrokerResponse
-    >,
-    "resolveCredentials"
-  >
-): Record<string, string> {
-  return adapter
-    ? adapter.resolveCredentials(brokerResponse)
-    : resolvePreparedAgentEnvironment(brokerResponse.env);
+  return resolvePreparedAgentEnvironment(config.agentEnv);
 }
 
 function hasRunningChild(child: ChildProcess | null): child is ChildProcess {

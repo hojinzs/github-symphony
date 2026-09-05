@@ -42,6 +42,21 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
     expect(config.projectId).toBe("workspace-fallback");
   });
 
+  it("ignores removed agent credential broker variables", () => {
+    const config = resolveLocalRuntimeLaunchConfig({
+      PROJECT_ID: "workspace-local",
+      WORKING_DIRECTORY: "/tmp/workspace-local",
+      AGENT_CREDENTIAL_BROKER_URL: "https://broker.example/agent",
+      AGENT_CREDENTIAL_BROKER_SECRET: "broker-secret",
+      AGENT_CREDENTIAL_CACHE_PATH: "/tmp/agent-credentials.json",
+    });
+
+    expect(config.agentEnv).toBeUndefined();
+    expect(config).not.toHaveProperty("agentCredentialBrokerUrl");
+    expect(config).not.toHaveProperty("agentCredentialBrokerSecret");
+    expect(config).not.toHaveProperty("agentCredentialCachePath");
+  });
+
   it("preserves host and runtime paths for isolated credential staging", () => {
     const config = resolveLocalRuntimeLaunchConfig({
       PROJECT_ID: "workspace-local",
