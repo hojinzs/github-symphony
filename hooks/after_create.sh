@@ -19,5 +19,7 @@ if ! command -v pnpm >/dev/null 2>&1; then
   corepack enable >/dev/null 2>&1 || true
 fi
 
-pnpm install --frozen-lockfile
-pnpm build
+# The host token is needed by Git's credential helper during clone, but must
+# not reach dependency lifecycle scripts or the build.
+env -u GITHUB_GRAPHQL_TOKEN pnpm install --frozen-lockfile
+env -u GITHUB_GRAPHQL_TOKEN pnpm build

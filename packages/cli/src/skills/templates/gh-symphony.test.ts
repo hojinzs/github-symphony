@@ -99,6 +99,7 @@ describe("generateGhSymphonySkill", () => {
 
     expect(parsed.tracker.blockerCheckStates).toEqual(["Blocked"]);
     expect(parsed.lifecycle.activeStates).toEqual(["Todo", "In Progress"]);
+    expect(parsed.hooks.timeoutMs).toBe(600_000);
   });
 });
 

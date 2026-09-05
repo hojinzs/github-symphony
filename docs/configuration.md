@@ -691,10 +691,12 @@ context variables:
 | `SYMPHONY_ISSUE_STATE`          | tracker state            | Hooks   | Internal/injected | Absent for `after_create`.                  |
 
 An approved `after_create` hook additionally receives the host Git credential
-helper variables needed to clone private repositories. Raw GitHub and token
-broker credentials are not exposed. The helper variables are supplied only to
-this population hook, which is trusted host-side code; they remain excluded
-from `before_run`, `after_run`, `before_remove`, and coding-agent children.
+helper variables needed to clone private repositories, including the GitHub
+token consumed by that helper. Token-broker minting credentials are not
+exposed. This credential-bearing environment is supplied only to the trusted
+population hook; the shipped script removes the token before dependency
+installation and build, and these values remain excluded from `before_run`,
+`after_run`, `before_remove`, and coding-agent children.
 After the hook succeeds, the orchestrator rejects the workspace unless its
 current branch equals `SYMPHONY_ASSIGNED_BRANCH`.
 

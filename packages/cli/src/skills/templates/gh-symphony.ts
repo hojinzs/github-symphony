@@ -127,7 +127,7 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   lines.push("  before_run: null");
   lines.push("  after_run: null");
   lines.push("  before_remove: null");
-  lines.push("  timeout_ms: 60000");
+  lines.push("  timeout_ms: 600000");
   lines.push("agent:");
   lines.push("  max_concurrent_agents: 10");
   lines.push("  max_retry_backoff_ms: 30000");

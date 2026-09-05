@@ -901,10 +901,12 @@ echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 > resolved from the directory containing the loaded `WORKFLOW.md`.
 
 The trusted `after_create` hook also receives the daemon's host Git credential
-helper environment so its clone can authenticate to private repositories. This
-credential-bearing environment is limited to population; coding-agent children
-still receive no host Git or tracker credentials. After population, Symphony
-requires the checkout to be on `SYMPHONY_ASSIGNED_BRANCH` before dispatch.
+helper environment, including the token consumed by that helper, so its clone
+can authenticate to private repositories. Token-broker minting credentials are
+excluded, and the shipped hook removes the GitHub token before dependency
+installation and build. Coding-agent children still receive no host Git or
+tracker credentials. After population, Symphony requires the checkout to be on
+`SYMPHONY_ASSIGNED_BRANCH` before dispatch.
 
 Running `gh-symphony workflow init` again automatically replaces only the exact
 legacy generated no-op `hooks/after_create.sh`. Customized hook files remain

@@ -6413,6 +6413,9 @@ function isHostGitCredentialSourceName(name: string): boolean {
 
 function isPopulationGitEnvironmentName(name: string): boolean {
   return (
+    name === "GITHUB_GRAPHQL_TOKEN" ||
+    name === "GITHUB_GIT_HOST" ||
+    name === "GITHUB_GIT_USERNAME" ||
     name === "GIT_CONFIG_COUNT" ||
     name === "GIT_TERMINAL_PROMPT" ||
     name.startsWith("GIT_CONFIG_KEY_") ||
