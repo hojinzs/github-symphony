@@ -5062,14 +5062,24 @@ export class OrchestratorService {
         const hostGitSourceEnv = this.resolveProjectEnvironment(tenant);
         const hostHookEnv =
           kind === "after_create"
-            ? buildHostGitEnvironment({
-                ...projectHookEnv,
+            ? {
                 ...Object.fromEntries(
-                  Object.entries(hostGitSourceEnv).filter(([name]) =>
-                    isHostGitEnvironmentName(name)
+                  Object.entries(projectHookEnv).filter(
+                    ([name]) => !isHostGitCredentialSourceName(name)
                   )
                 ),
-              })
+                ...Object.fromEntries(
+                  Object.entries(
+                    buildHostGitEnvironment({
+                      ...Object.fromEntries(
+                        Object.entries(hostGitSourceEnv).filter(([name]) =>
+                          isHostGitCredentialSourceName(name)
+                        )
+                      ),
+                    })
+                  ).filter(([name]) => isPopulationGitEnvironmentName(name))
+                ),
+              }
             : projectHookEnv;
         const hookEnv = Object.fromEntries(
           Object.entries(hostHookEnv).filter(
@@ -5132,7 +5142,9 @@ export class OrchestratorService {
                     hookEnv
                   ),
                   ...(kind === "after_create"
-                    ? Object.keys(hookEnv).filter(isHostGitEnvironmentName)
+                    ? Object.keys(hookEnv).filter(
+                        isPopulationGitEnvironmentName
+                      )
                     : []),
                 ]
               : [],
@@ -6378,7 +6390,7 @@ function shouldInheritProcessEnvKey(key: string): boolean {
   return INHERITED_ENV_ALLOWLIST.has(key) || key.startsWith("LC_");
 }
 
-function isHostGitEnvironmentName(name: string): boolean {
+function isHostGitCredentialSourceName(name: string): boolean {
   return (
     name === "GITHUB_GRAPHQL_TOKEN" ||
     name === "GITHUB_TOKEN_BROKER_URL" ||
@@ -6387,6 +6399,15 @@ function isHostGitEnvironmentName(name: string): boolean {
     name === "GITHUB_TOKEN_BROKER_TIMEOUT_MS" ||
     name === "GITHUB_GIT_HOST" ||
     name === "GITHUB_GIT_USERNAME" ||
+    name === "GIT_CONFIG_COUNT" ||
+    name === "GIT_TERMINAL_PROMPT" ||
+    name.startsWith("GIT_CONFIG_KEY_") ||
+    name.startsWith("GIT_CONFIG_VALUE_")
+  );
+}
+
+function isPopulationGitEnvironmentName(name: string): boolean {
+  return (
     name === "GIT_CONFIG_COUNT" ||
     name === "GIT_TERMINAL_PROMPT" ||
     name.startsWith("GIT_CONFIG_KEY_") ||

@@ -896,7 +896,9 @@ echo "Setting up workspace at $SYMPHONY_WORKSPACE_PATH"
 echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 ```
 
-> Hooks always run with `cwd` set to the repository root. Script paths are relative to that root.
+> Hooks run with `cwd` set to the repository root after population. Because a
+> fresh checkout does not exist yet, relative `after_create` script paths are
+> resolved from the directory containing the loaded `WORKFLOW.md`.
 
 The trusted `after_create` hook also receives the daemon's host Git credential
 helper environment so its clone can authenticate to private repositories. This
@@ -907,6 +909,11 @@ requires the checkout to be on `SYMPHONY_ASSIGNED_BRANCH` before dispatch.
 Running `gh-symphony workflow init` again automatically replaces only the exact
 legacy generated no-op `hooks/after_create.sh`. Customized hook files remain
 untouched.
+
+Existing workspaces created as linked worktrees remain reusable, but their Git
+metadata still depends on the legacy bare cache. Keep that cache in place until
+those workspaces finish or remove the workspaces explicitly so the next
+dispatch recreates them as standalone clones.
 
 ## Headless orchestration
 

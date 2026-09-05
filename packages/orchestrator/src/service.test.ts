@@ -16283,6 +16283,7 @@ Test hook failure.
 
   it("passes host Git credential plumbing only to after_create population", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    process.env.GITHUB_TOKEN_BROKER_SECRET = "broker-secret";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-after-create-git-auth-")
     );
@@ -16314,7 +16315,7 @@ Exercise authenticated population.
     );
     await writeFile(
       join(repository.path, "hooks", "authenticated-clone.sh"),
-      '#!/usr/bin/env bash\nset -euo pipefail\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\nprintf "%s\\n%s\\n" "$GIT_CONFIG_KEY_0" "$GITHUB_GRAPHQL_TOKEN" > "$SYMPHONY_REPOSITORY_PATH/.git-auth-env"\n',
+      '#!/usr/bin/env bash\nset -euo pipefail\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\nhelper_index=$((GIT_CONFIG_COUNT - 1))\nhelper_key_name="GIT_CONFIG_KEY_${helper_index}"\nprintf "%s\\n%s\\n%s\\n" "${!helper_key_name}" "${GITHUB_GRAPHQL_TOKEN-unset}" "${GITHUB_TOKEN_BROKER_SECRET-unset}" > "$SYMPHONY_REPOSITORY_PATH/.git-auth-env"\n',
       "utf8"
     );
     await chmod(
@@ -16355,7 +16356,7 @@ Exercise authenticated population.
     );
     await expect(
       readFile(join(repositoryPath, ".git-auth-env"), "utf8")
-    ).resolves.toBe("credential.helper\ntest-token\n");
+    ).resolves.toBe("credential.helper\nunset\nunset\n");
   });
 
   it("rejects a populated workspace checked out on the wrong branch", async () => {
