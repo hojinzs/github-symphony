@@ -7,6 +7,7 @@ import {
   WorkflowValidationError,
   renderPrompt,
   resolveWorkflowExecutionPhase,
+  resolveWorkflowRuntimeTimeouts,
   type TrackedIssue,
 } from "@gh-symphony/core";
 import {
@@ -105,10 +106,13 @@ type WorkflowValidationReport = {
       approvalPolicy: string | null;
       threadSandbox: string | null;
       turnSandboxPolicy: string | null;
+    };
+    runtimeTimeouts: {
       readTimeoutMs: number;
       stallTimeoutMs: number;
       turnTimeoutMs: number;
     };
+    runtimeTimeoutSource: "runtime.timeouts" | "codex/defaults";
     hooks: {
       afterCreate: string | null;
       beforeRun: string | null;
@@ -843,6 +847,7 @@ function validateWorkflow(
         return "pass" as const;
       })()
     : ("skip" as const);
+  const effectiveTimeouts = resolveWorkflowRuntimeTimeouts(workflow);
 
   return {
     ok: true,
@@ -878,10 +883,15 @@ function validateWorkflow(
         approvalPolicy: workflow.codex.approvalPolicy,
         threadSandbox: workflow.codex.threadSandbox,
         turnSandboxPolicy: workflow.codex.turnSandboxPolicy,
-        readTimeoutMs: workflow.codex.readTimeoutMs,
-        stallTimeoutMs: workflow.codex.stallTimeoutMs,
-        turnTimeoutMs: workflow.codex.turnTimeoutMs,
       },
+      runtimeTimeouts: {
+        readTimeoutMs: effectiveTimeouts.readTimeoutMs,
+        stallTimeoutMs: effectiveTimeouts.stallTimeoutMs,
+        turnTimeoutMs: effectiveTimeouts.turnTimeoutMs,
+      },
+      runtimeTimeoutSource: workflow.runtime
+        ? "runtime.timeouts"
+        : "codex/defaults",
       hooks: {
         afterCreate: workflow.hooks.afterCreate,
         beforeRun: workflow.hooks.beforeRun,
@@ -920,9 +930,9 @@ Runtime
   codex.approval_policy=${report.summary.codex.approvalPolicy ?? "unset"}
   codex.thread_sandbox=${report.summary.codex.threadSandbox ?? "unset"}
   codex.turn_sandbox_policy=${report.summary.codex.turnSandboxPolicy ?? "unset"}
-  codex.read_timeout_ms=${report.summary.codex.readTimeoutMs}
-  codex.stall_timeout_ms=${report.summary.codex.stallTimeoutMs}
-  codex.turn_timeout_ms=${report.summary.codex.turnTimeoutMs}
+  runtime.timeouts.read_timeout_ms=${report.summary.runtimeTimeouts.readTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
+  runtime.timeouts.stall_timeout_ms=${report.summary.runtimeTimeouts.stallTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
+  runtime.timeouts.turn_timeout_ms=${report.summary.runtimeTimeouts.turnTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
 
 Hooks
   after_create=${report.summary.hooks.afterCreate ?? "unset"}
