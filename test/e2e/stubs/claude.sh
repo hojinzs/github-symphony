@@ -208,6 +208,7 @@ const record = {
     linearApiKey: Boolean(process.env.LINEAR_API_KEY),
     linearAuthorization: Boolean(process.env.LINEAR_AUTHORIZATION),
   },
+  environment: { ...process.env },
 };
 fs.appendFileSync(process.env.INVOCATIONS_FILE, JSON.stringify(record) + "\n");
 '
