@@ -181,4 +181,43 @@ describe("runLocalRuntimeLauncher", () => {
 
     stdoutWrite.mockRestore();
   });
+
+  it("does not report broker-only GitHub authentication as available", async () => {
+    const stdoutWrite = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    vi.spyOn(runtimeModule, "launchCodexAppServer").mockReturnValue({
+      pid: 4242,
+      stdout: null,
+      stderr: null,
+      once(event: string, handler: (...args: unknown[]) => void) {
+        if (event === "exit") {
+          handler(0, null);
+        }
+
+        return this;
+      },
+    } as never);
+    vi.spyOn(runtimeModule, "prepareCodexRuntimePlan").mockResolvedValue({
+      cwd: "/tmp/workspace-local",
+      command: "bash",
+      args: ["-lc", "codex app-server"],
+      env: {},
+      tools: [],
+    });
+
+    await runLocalRuntimeLauncher({
+      PROJECT_ID: "workspace-local",
+      WORKING_DIRECTORY: "/tmp/workspace-local",
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+    });
+
+    expect(stdoutWrite).toHaveBeenCalledWith(
+      expect.stringContaining("[worker] github auth: missing")
+    );
+    expect(stdoutWrite).not.toHaveBeenCalledWith(
+      expect.stringContaining("[worker] github auth: broker")
+    );
+
+    stdoutWrite.mockRestore();
+  });
 });

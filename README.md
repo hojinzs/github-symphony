@@ -966,8 +966,9 @@ transport is described in
 At dispatch, tracker adapters resolve host-only direct credentials from the
 tenant's project `.env` before the daemon environment. Workers use that
 daemon-resolved tracker identity for polling and host tools without restoring
-blanket environment inheritance. Git publication retains its separate broker
-compatibility path.
+blanket environment inheritance. Host Git publication uses that direct
+credential and fails closed when it is unavailable; reserved GitHub broker
+variables are not a publication fallback.
 GitHub and Linear workers fail startup before launching an agent when this
 effective environment has no provider credential. Candidate dispatch is also
 skipped when the orchestrator can determine the credential is missing, and

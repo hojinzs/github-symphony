@@ -26,10 +26,6 @@ import {
 } from "@gh-symphony/core";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
-import {
-  parseGitCredentialBrokerTimeoutMs,
-  validateGitHubTokenBrokerUrl,
-} from "./git-credential-helper.js";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
@@ -823,25 +819,11 @@ export async function prepareCodexRuntimePlan(
 }
 
 export function createGitCredentialHelperEnvironment(
-  config: Pick<
-    CodexRuntimeConfig,
-    | "githubToken"
-    | "githubTokenBrokerUrl"
-    | "githubTokenBrokerSecret"
-    | "githubTokenCachePath"
-  > & {
+  config: Pick<CodexRuntimeConfig, "githubToken"> & {
     gitHost?: string;
     gitUsername?: string;
-    tokenBrokerTimeoutMs?: number | string;
   }
 ): Record<string, string> {
-  const githubTokenBrokerUrl = config.githubTokenBrokerUrl
-    ? validateGitHubTokenBrokerUrl(config.githubTokenBrokerUrl)
-    : undefined;
-  const tokenBrokerTimeoutMs = parseGitCredentialBrokerTimeoutMs(
-    config.tokenBrokerTimeoutMs
-  );
-
   return {
     GITHUB_GIT_HOST: config.gitHost?.trim() || DEFAULT_GITHUB_GIT_HOST,
     GITHUB_GIT_USERNAME:
@@ -855,26 +837,6 @@ export function createGitCredentialHelperEnvironment(
     ...(config.githubToken
       ? {
           GITHUB_GRAPHQL_TOKEN: config.githubToken,
-        }
-      : {}),
-    ...(githubTokenBrokerUrl
-      ? {
-          GITHUB_TOKEN_BROKER_URL: githubTokenBrokerUrl,
-        }
-      : {}),
-    ...(config.githubTokenBrokerSecret
-      ? {
-          GITHUB_TOKEN_BROKER_SECRET: config.githubTokenBrokerSecret,
-        }
-      : {}),
-    ...(config.githubTokenCachePath
-      ? {
-          GITHUB_TOKEN_CACHE_PATH: config.githubTokenCachePath,
-        }
-      : {}),
-    ...(tokenBrokerTimeoutMs !== undefined
-      ? {
-          GITHUB_TOKEN_BROKER_TIMEOUT_MS: String(tokenBrokerTimeoutMs),
         }
       : {}),
   };
