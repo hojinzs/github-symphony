@@ -1576,7 +1576,7 @@ Prompt body.
     ).toThrow(/runtime\.auth\.env.*reserved/i);
   });
 
-  it("allows an undeclared tracker credential name as custom runtime auth", () => {
+  it("rejects a fallback credential name without an adapter declaration", () => {
     expect(() =>
       parseWorkflowMarkdown(
         `---
@@ -1591,7 +1591,7 @@ runtime:
 Prompt body.
 `
       )
-    ).not.toThrow();
+    ).toThrow(/runtime\.auth\.env.*reserved/i);
   });
 
   it("rejects custom runtime authentication names declared by the tracker", () => {

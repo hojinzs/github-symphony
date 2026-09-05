@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildCustomRuntimeChildEnvironment } from "./custom-child-env.js";
+import {
+  buildCustomRuntimeChildEnvironment,
+  isCustomRuntimeReservedAuthEnvironmentName,
+  isDeclaredTrackerSecretEnvironmentName,
+} from "./custom-child-env.js";
 
 describe("buildCustomRuntimeChildEnvironment", () => {
   afterEach(() => {
@@ -147,5 +151,21 @@ describe("buildCustomRuntimeChildEnvironment", () => {
     ).toThrow(
       "Custom runtime auth environment variable CUSTOM_AGENT_TOKEN is reserved"
     );
+  });
+});
+
+describe("custom runtime reserved-auth provenance", () => {
+  it("distinguishes an adapter declaration from fallback stripping", () => {
+    expect(isCustomRuntimeReservedAuthEnvironmentName("GITHUB_TOKEN", {})).toBe(
+      true
+    );
+    expect(isDeclaredTrackerSecretEnvironmentName("GITHUB_TOKEN", {})).toBe(
+      false
+    );
+    expect(
+      isDeclaredTrackerSecretEnvironmentName("GITHUB_TOKEN", {}, [
+        "GITHUB_TOKEN",
+      ])
+    ).toBe(true);
   });
 });
