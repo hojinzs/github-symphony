@@ -1282,6 +1282,15 @@ Prompt`,
         daemon: {},
       }
     );
+    // Keep one fixture per resolveWorkerCredentials return branch.
+    expect(directCredentials).toEqual({
+      GITHUB_GRAPHQL_TOKEN: "github-token",
+    });
+    expect(brokerCredentials).toEqual({
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+      GITHUB_TOKEN_CACHE_PATH: "/runtime/github-token.json",
+    });
     const injectedNames = new Set([
       ...Object.keys(directCredentials ?? {}),
       ...Object.keys(brokerCredentials ?? {}),

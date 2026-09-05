@@ -1499,6 +1499,10 @@ Prompt`,
       }
     );
 
+    expect(credentials).toEqual({
+      LINEAR_AUTHORIZATION: "Bearer lin-authorization",
+      LINEAR_API_KEY: "lin_api_key",
+    });
     expect(linearTrackerAdapter.secretEnvironmentNames()).toEqual(
       expect.arrayContaining(Object.keys(credentials ?? {}))
     );
