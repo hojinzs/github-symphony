@@ -155,6 +155,11 @@ function isSuccessfulHookResult(result: HookResult): boolean {
 }
 
 function formatFatalHookError(result: HookResult): string {
+  if (result.kind === "after_create" && result.outcome === "skipped") {
+    return result.error
+      ? `after_create hook skipped: ${result.error}`
+      : 'after_create hook skipped: configure "hooks.after_create" to populate fresh workspaces';
+  }
   return `${result.kind} hook ${result.outcome}: ${result.error ?? "unknown hook failure"}`;
 }
 

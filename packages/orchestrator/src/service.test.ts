@@ -16032,16 +16032,25 @@ Prefer focused changes.
   });
 
   it.each([
-    { name: "no hook is configured", hookConfig: "" },
+    {
+      name: "no hook is configured",
+      hookConfig: "hooks:\n  after_create: null\n",
+      trusted: true,
+    },
     {
       name: "hook execution is not trusted",
       hookConfig: "hooks:\n  before_run: scripts/before-run.sh\n",
+      trusted: false,
     },
   ])(
     "does not let an invalid hook allowlist bypass fresh population when $name",
-    async ({ hookConfig }) => {
+    async ({ name, hookConfig, trusted }) => {
       process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-      delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+      if (trusted) {
+        process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
+      } else {
+        delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+      }
       const tempRoot = await mkdtemp(
         join(tmpdir(), "orchestrator-skipped-hook-allowlist-")
       );
@@ -16074,7 +16083,9 @@ Keep skipped hooks inert.
       await store.saveProjectConfig(projectConfig);
       await writeFile(
         join(store.projectDir(projectConfig.projectId), ".env"),
-        "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=MISSPELLED_NAME\n",
+        trusted
+          ? "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n"
+          : "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=MISSPELLED_NAME\n",
         "utf8"
       );
       const spawnImpl = vi.fn().mockReturnValue({ pid: 4304, unref: vi.fn() });
@@ -16093,7 +16104,9 @@ Keep skipped hooks inert.
         store.loadProjectIssueOrchestrations(projectConfig.projectId)
       ).resolves.toEqual([expect.objectContaining({ state: "retry_queued" })]);
       expect(writeStderr.mock.calls.flat().join("\n")).toContain(
-        "after_create hook skipped"
+        name === "no hook is configured"
+          ? 'configure "hooks.after_create" to populate fresh workspaces'
+          : "after_create hook skipped"
       );
     }
   );
