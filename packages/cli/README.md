@@ -66,7 +66,9 @@ The package includes internal `dist/mcp-server.js` and
 `dist/git-credential-helper.js` executables for host-side compatibility paths.
 Coding-agent children do not launch these provider MCP or Git credential
 subprocesses; provider tools and authenticated Git transport execute in the
-worker host. Git transport uses the orchestrator-owned target URL from a
+worker host. The Git helper consumes the worker's direct
+`GITHUB_GRAPHQL_TOKEN`; it does not contact a credential broker. Git transport
+uses the orchestrator-owned target URL from a
 temporary bare repository with checkout hooks disabled, so child-authored
 remote and hook configuration is outside the credential-bearing path. These
 entry points are not standalone user-facing commands. Agents publish committed

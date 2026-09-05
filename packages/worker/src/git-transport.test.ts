@@ -471,8 +471,9 @@ describe("buildHostGitEnvironment", () => {
     expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
   });
 
-  it("appends the credential helper after caller-supplied Git config", () => {
+  it("appends the direct credential helper after caller-supplied Git config", () => {
     const env = buildHostGitEnvironment({
+      GITHUB_GRAPHQL_TOKEN: "host-token",
       GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
       GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
       GITHUB_TOKEN_CACHE_PATH: "/runtime/token-cache.json",
@@ -495,6 +496,17 @@ describe("buildHostGitEnvironment", () => {
     );
     expect(env.GITHUB_TOKEN_BROKER_SECRET).toBe("broker-secret");
     expect(env.GITHUB_TOKEN_CACHE_PATH).toBe("/runtime/token-cache.json");
+  });
+
+  it("does not install a credential helper for broker-only configuration", () => {
+    const env = buildHostGitEnvironment({
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+    });
+
+    expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+    expect(env.GIT_CONFIG_COUNT).toBeUndefined();
+    expect(env.GIT_CONFIG_VALUE_0).toBeUndefined();
   });
 
   it("rejects a malformed caller-supplied Git config count", () => {
