@@ -138,6 +138,7 @@ codex:
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
       expected: [30000, 900000, 1800000],
+      expectedSource: "runtime.timeouts",
     },
     {
       name: "legacy codex timeout fallback",
@@ -146,15 +147,30 @@ codex:
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
       expected: [7000, 60000, 120000],
+      expectedSource: "codex/defaults",
+    },
+    {
+      name: "runtime defaults over legacy codex timeouts",
+      frontMatter: `runtime:
+  kind: codex-app-server
+  command: codex
+  args: [app-server]
+codex:
+  read_timeout_ms: 7000
+  stall_timeout_ms: 60000
+  turn_timeout_ms: 120000`,
+      expected: [5000, 300000, 3600000],
+      expectedSource: "runtime.timeouts",
     },
     {
       name: "documented timeout defaults",
       frontMatter: "codex:\n  command: codex app-server",
       expected: [5000, 300000, 3600000],
+      expectedSource: "codex/defaults",
     },
   ])(
     "reports $name as effective runtime timeouts",
-    async ({ frontMatter, expected }) => {
+    async ({ frontMatter, expected, expectedSource }) => {
       const root = await mkdtemp(join(tmpdir(), "workflow-validate-timeouts-"));
       const workflowPath = join(root, "WORKFLOW.md");
       const stdout = captureWrites(process.stdout);
@@ -186,6 +202,32 @@ codex:
         `runtime.timeouts.turn_timeout_ms=${expected[2]}`
       );
       expect(stdout.output()).not.toContain("codex.read_timeout_ms=");
+      expect(stdout.output()).toContain(`(source: ${expectedSource})`);
+
+      const jsonStdout = captureWrites(process.stdout);
+      try {
+        await workflowCommand(["validate", "--file", workflowPath], {
+          configDir: root,
+          verbose: false,
+          json: true,
+          noColor: false,
+        });
+      } finally {
+        jsonStdout.restore();
+      }
+
+      const report = JSON.parse(jsonStdout.output()) as {
+        summary: {
+          runtimeTimeouts: Record<string, number>;
+          runtimeTimeoutSource: string;
+        };
+      };
+      expect(report.summary.runtimeTimeouts).toEqual({
+        readTimeoutMs: expected[0],
+        stallTimeoutMs: expected[1],
+        turnTimeoutMs: expected[2],
+      });
+      expect(report.summary.runtimeTimeoutSource).toBe(expectedSource);
     }
   );
 

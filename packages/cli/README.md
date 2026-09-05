@@ -172,6 +172,11 @@ resets it; it is not a total turn-duration cap.
 the legacy `codex.*_timeout_ms` fields; documented defaults apply when neither
 location provides a value.
 
+In JSON output, effective timeout values are exposed as
+`summary.runtimeTimeouts.{readTimeoutMs,stallTimeoutMs,turnTimeoutMs}`. These
+replace the former `summary.codex.*TimeoutMs` fields, which could report values
+that the runtime did not use; no compatibility aliases are emitted.
+
 Lifecycle generation enables blocker checks for the first configured active
 state (`Todo` with built-in defaults) while leaving planning states disabled.
 An explicit `tracker.provider.blocker_check_states: []` disables blocker gating; this is
