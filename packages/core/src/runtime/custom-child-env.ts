@@ -92,6 +92,9 @@ export function isCustomRuntimeReservedAuthEnvironmentName(
   trackerSecretEnvironmentNames: readonly string[] = []
 ): boolean {
   return (
+    AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
+      name as (typeof AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES)[number]
+    ) ||
     CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
       name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
     ) ||

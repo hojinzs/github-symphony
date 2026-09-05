@@ -9,6 +9,7 @@ import {
   WorkflowValidationError,
 } from "./workflow/parser.js";
 import { isStateActive } from "./workflow/lifecycle.js";
+import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "./runtime/custom-child-env.js";
 import {
   resolveWorkflowRuntimeCommand,
   resolveWorkflowRuntimeTimeouts,
@@ -1532,7 +1533,27 @@ Prompt body.
     ).toBe(true);
   });
 
-  it("rejects reserved custom runtime authentication environment names", () => {
+  it("rejects every agent-child credential name as custom runtime auth", () => {
+    for (const name of AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES) {
+      expect(() =>
+        parseWorkflowMarkdown(
+          `---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  auth:
+    env: ${name}
+---
+Prompt body.
+`
+        )
+      ).toThrow(/runtime\.auth\.env.*reserved/i);
+    }
+  });
+
+  it("rejects other reserved custom runtime authentication names", () => {
     expect(() =>
       parseWorkflowMarkdown(
         `---
