@@ -83,7 +83,10 @@ the tracker adapter:
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
 - Workers start with the run directory as their process cwd. Runtime
   launchers do not discover `.env` from cwd; only the managed project `.env`
-  enters the orchestrator's documented environment merge.
+  enters the orchestrator's documented environment merge. The orchestrator
+  snapshots that file after workspace hooks and uses the same snapshot for
+  worker credential resolution, the missing-credential diagnostic, worker
+  spawn, and a value-free persisted environment digest.
 
 ### 3. Coordination — the orchestrator
 

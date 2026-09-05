@@ -10863,27 +10863,53 @@ Prefer focused changes.
     ]);
   });
 
-  it("keeps a due retry queued when the worker credential is missing", async () => {
+  it("keeps a due retry queued when the post-hook credential is missing", async () => {
     const {
       store,
       service,
       advanceToRetryDue,
+      fetchIssueStatesByIds,
       resolveWorkerCredentials,
       spawnImpl,
     } = await createSuccessfulFinalizationFixture("Todo");
 
     await service.runOnce();
-    const queuedRun = await store.loadRun("run-1");
     const queuedRecord = (
       await store.loadProjectIssueOrchestrations("tenant-1")
     )[0];
-    expect(queuedRun).toMatchObject({
+    expect(await store.loadRun("run-1")).toMatchObject({
       status: "retrying",
       attempt: 1,
       retryKind: "continuation",
     });
 
     resolveWorkerCredentials.mockReturnValue({});
+    fetchIssueStatesByIds.mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Issue 1",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        dispatchable: true,
+        assigneeId: null,
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository: (await store.loadRun("run-1"))!.repository,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
     advanceToRetryDue();
     const snapshot = await service.runOnce();
 
@@ -10907,12 +10933,14 @@ Prefer focused changes.
       "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it."
     );
 
-    const credentialGatedRun = await store.loadRun("run-1");
+    const gatedRecord = (
+      await store.loadProjectIssueOrchestrations("tenant-1")
+    )[0];
     await service.runOnce();
-    expect(await store.loadRun("run-1")).toMatchObject({
-      status: "retrying",
-      attempt: credentialGatedRun?.attempt,
-    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]?.retryEntry
+        ?.attempt
+    ).toBe(gatedRecord?.retryEntry?.attempt);
     expect(
       (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
         ?.failureRetryCount
@@ -16700,7 +16728,141 @@ Prefer focused changes.
     );
   });
 
-  it("skips dispatch and exposes a status warning when no worker credential resolves", async () => {
+  it("snapshots project env after hooks for credentials and worker spawn", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "tracker-list-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-post-hook-project-env-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+    blocker_check_states:
+      - Todo
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+hooks:
+  before_run: ${join(tempRoot, "refresh-project-env.sh")}
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    await writeFile(
+      join(tempRoot, "refresh-project-env.sh"),
+      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$HOOK_INPUT" > .before_run_input\nprintf "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\\nSYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=HOOK_INPUT,PROJECT_ENV_PATH\\nHOOK_INPUT=visible-before-refresh\\nPROJECT_ENV_PATH=%s\\nLATE_WORKER_VALUE=refreshed\\nGITHUB_GRAPHQL_TOKEN=late-token\\n" "$PROJECT_ENV_PATH" > "$PROJECT_ENV_PATH"\n',
+      "utf8"
+    );
+    await chmod(join(tempRoot, "refresh-project-env.sh"), 0o755);
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const projectEnvPath = join(
+      store.projectDir(projectConfig.projectId),
+      ".env"
+    );
+    await writeFile(
+      projectEnvPath,
+      `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\nSYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=HOOK_INPUT,PROJECT_ENV_PATH\nHOOK_INPUT=visible-before-refresh\nPROJECT_ENV_PATH=${projectEnvPath}\n`,
+      "utf8"
+    );
+
+    const adapter = trackerAdapters.resolveTrackerAdapter(
+      projectConfig.tracker
+    );
+    const resolveWorkerCredentials = vi.fn(
+      (_tenant, environment: { project: NodeJS.ProcessEnv }) =>
+        environment.project.GITHUB_GRAPHQL_TOKEN
+          ? {
+              GITHUB_GRAPHQL_TOKEN: environment.project.GITHUB_GRAPHQL_TOKEN,
+            }
+          : {}
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      ...adapter,
+      resolveWorkerCredentials,
+    });
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4306, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithItems(repository, [
+          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+          { id: "issue-2", identifier: "acme/platform#2", state: "Todo" },
+        ])
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    for (const spawnCall of spawnImpl.mock.calls) {
+      expect(spawnCall[2]?.env?.LATE_WORKER_VALUE).toBe("refreshed");
+      expect(spawnCall[2]?.env?.GITHUB_GRAPHQL_TOKEN).toBe("late-token");
+    }
+    expect(resolveWorkerCredentials).toHaveBeenCalledTimes(2);
+    for (const resolveCall of resolveWorkerCredentials.mock.calls) {
+      expect(resolveCall[1].project).toMatchObject({
+        LATE_WORKER_VALUE: "refreshed",
+        GITHUB_GRAPHQL_TOKEN: "late-token",
+      });
+    }
+
+    const runs = await store.loadAllRuns();
+    expect(runs).toHaveLength(2);
+    expect(runs[0]?.environmentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(new Set(runs.map((run) => run.environmentDigest)).size).toBe(1);
+    expect(JSON.stringify(runs)).not.toContain("late-token");
+    expect(
+      await store.loadRecentRunEvents(
+        runs[0]?.runId ?? "",
+        20,
+        runs[0]?.projectId
+      )
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: "worker-credential-missing" }),
+      ])
+    );
+    const workspaceKey = (
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    )[0]?.workspaceKey;
+    const repositoryPath = join(
+      resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey ?? ""
+      ),
+      "repository"
+    );
+    await expect(
+      readFile(join(repositoryPath, ".before_run_input"), "utf8")
+    ).resolves.toBe("visible-before-refresh\n");
+  });
+
+  it("records a spawn-time event when no worker credential resolves", async () => {
     const originalBrokerUrl = process.env.GITHUB_TOKEN_BROKER_URL;
     const originalBrokerSecret = process.env.GITHUB_TOKEN_BROKER_SECRET;
     process.env.GITHUB_GRAPHQL_TOKEN = "tracker-list-token";
@@ -16718,6 +16880,7 @@ Prefer focused changes.
       const store = new OrchestratorFsStore(tempRoot);
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
+      const appendRunEvent = vi.spyOn(store, "appendRunEvent");
       const adapter = trackerAdapters.resolveTrackerAdapter(
         projectConfig.tracker
       );
@@ -16735,7 +16898,6 @@ Prefer focused changes.
       });
 
       const snapshot = await service.runOnce();
-      const nextSnapshot = await service.runOnce();
 
       expect(spawnImpl).not.toHaveBeenCalled();
       expect(await store.loadAllRuns()).toEqual([]);
@@ -16743,11 +16905,21 @@ Prefer focused changes.
       expect(snapshot.warnings).toEqual([
         "Dispatch skipped for acme/platform#1: no worker credential resolved for github-project. Add the credential to the managed project .env or authenticate the daemon and restart it.",
       ]);
-      expect(nextSnapshot.warnings).toEqual(snapshot.warnings);
+      expect(appendRunEvent).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ event: "worker-credential-missing" })
+      );
       expect(stderrWrite).toHaveBeenCalledWith(
         expect.stringContaining("Dispatch skipped for acme/platform#1")
       );
-      expect(stderrWrite).toHaveBeenCalledTimes(1);
+      expect(
+        stderrWrite.mock.calls.filter(([message]) =>
+          String(message).includes("Dispatch skipped for acme/platform#1")
+        )
+      ).toHaveLength(1);
+
+      const nextSnapshot = await service.runOnce();
+      expect(nextSnapshot.warnings).toEqual(snapshot.warnings);
     } finally {
       if (originalBrokerUrl === undefined) {
         delete process.env.GITHUB_TOKEN_BROKER_URL;

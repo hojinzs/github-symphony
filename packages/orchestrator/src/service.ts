@@ -2,6 +2,7 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { createHash } from "node:crypto";
 import { isAbsolute, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
@@ -384,6 +385,12 @@ class RestartRunFailure extends Error {
         ? originalError.message
         : String(originalError ?? "unknown restart error")
     );
+  }
+}
+
+class WorkerCredentialMissingError extends Error {
+  constructor(readonly warning: string) {
+    super(warning);
   }
 }
 
@@ -1796,20 +1803,6 @@ export class OrchestratorService {
       const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);
       const listRateLimits = getTrackedIssueListRateLimits(issues);
       let listRateLimitsRecorded = false;
-      const workerCredentials =
-        trackerAdapter.resolveWorkerCredentials?.(tenant, {
-          project: this.readProjectEnv(tenant),
-          daemon: process.env,
-        }) ?? null;
-      const workerCredentialMissing =
-        workerCredentials !== null &&
-        Object.keys(workerCredentials).length === 0;
-      if (!workerCredentialMissing) {
-        this.warnedMissingWorkerCredentials.delete(
-          this.workerCredentialWarningKey(tenant)
-        );
-      }
-
       // Count active runs by state for per-state concurrency limits
       const activeByState = new Map<string, number>();
       for (const run of syncedActiveRuns) {
@@ -1864,21 +1857,6 @@ export class OrchestratorService {
           if (activeInState >= stateLimit) {
             continue;
           }
-        }
-
-        if (workerCredentialMissing) {
-          const warning = this.formatWorkerCredentialWarning(
-            tenant,
-            issue.identifier
-          );
-          dispatchWarnings.push(warning);
-          this.warnMissingWorkerCredentialOnce(tenant, warning);
-          // `skipped` includes both provider items that could not be mapped and
-          // actionable issues held back by the worker credential gate. The
-          // warning distinguishes this operator-actionable subset without
-          // changing the existing status snapshot contract.
-          skipped += 1;
-          continue;
         }
 
         const preferredWorkspaceKey = deriveIssueWorkspaceKey(
@@ -1989,6 +1967,26 @@ export class OrchestratorService {
             },
           });
         } catch (error) {
+          if (error instanceof WorkerCredentialMissingError) {
+            dispatchWarnings.push(error.warning);
+            skipped += 1;
+            issueRecords = upsertIssueOrchestration(issueRecords, {
+              issueId: issue.id,
+              identifier: issue.identifier,
+              workspaceKey: selectedWorkspaceKey,
+              state: existingIssueRecord?.retryEntry
+                ? "retry_queued"
+                : "released",
+              currentRunId: null,
+              retryEntry: existingIssueRecord?.retryEntry ?? null,
+              updatedAt: now.toISOString(),
+            });
+            await this.store.saveProjectIssueOrchestrations(
+              tenant.projectId,
+              issueRecords
+            );
+            continue;
+          }
           const errorDetail =
             error instanceof Error
               ? error.message
@@ -3087,12 +3085,6 @@ export class OrchestratorService {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     const runId = createRunId(now, tenant.projectId, issue.identifier);
-    const projectEnvironment = this.readProjectEnv(tenant);
-    const workerCredentials =
-      trackerAdapter.resolveWorkerCredentials?.(tenant, {
-        project: projectEnvironment,
-        daemon: process.env,
-      }) ?? {};
     const runDir = this.store.runDir(runId, tenant.projectId);
     const workspaceRuntimeDir = runDir;
 
@@ -3339,6 +3331,84 @@ export class OrchestratorService {
     }
 
     const runtimeTimeouts = resolveWorkflowRuntimeTimeouts(workflow.workflow);
+    // Snapshot the project environment at the worker consumption point. The
+    // credential gate and the spawned worker deliberately share this read so
+    // hooks may refresh same-run values without creating a diagnostic race.
+    const projectEnvironment = this.readProjectEnv(tenant);
+    const workerCredentials =
+      trackerAdapter.resolveWorkerCredentials?.(tenant, {
+        project: projectEnvironment,
+        daemon: process.env,
+      }) ?? {};
+    const workerEnvironment = this.buildProjectExecutionEnv(
+      tenant,
+      {
+        CODEX_PROJECT_ID: tenant.projectId,
+        PROJECT_ID: tenant.projectId,
+        WORKING_DIRECTORY: repositoryDirectory,
+        SYMPHONY_ASSIGNED_BRANCH: assignedBranch,
+        WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
+        SYMPHONY_PROJECT_DIR:
+          tenant.projectDir ?? this.store.projectDir(tenant.projectId),
+        SYMPHONY_TRUST_REPO_CONFIG: String(
+          workflow.workflow.runtime?.isolation.trustRepoConfig === true
+        ),
+        SYMPHONY_RUN_ID: runId,
+        SYMPHONY_ISSUE_STATE: issue.state,
+        SYMPHONY_ISSUE_ID: issue.id,
+        SYMPHONY_ISSUE_IDENTIFIER: issue.identifier,
+        SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify(issue.nativeRef ?? null),
+        SYMPHONY_ISSUE_TITLE: issue.title,
+        SYMPHONY_ISSUE_SUBJECT_ID: issueSubjectId,
+        SYMPHONY_ISSUE_WORKSPACE_KEY: workspaceKey,
+        SYMPHONY_TRACKER_ADAPTER: issue.tracker.adapter,
+        SYMPHONY_TRACKER_BINDING_ID: issue.tracker.bindingId,
+        SYMPHONY_TRACKER_ITEM_ID: issue.tracker.itemId,
+        SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify(
+          resolveTrackerSecretEnvironmentNames(trackerAdapter)
+        ),
+        TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
+        TARGET_REPOSITORY_OWNER: issue.repository.owner,
+        TARGET_REPOSITORY_NAME: issue.repository.name,
+        TARGET_REPOSITORY_URL: issue.repository.url,
+        ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
+        ...workerCredentials,
+        SYMPHONY_RENDERED_PROMPT: renderedPrompt,
+        SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
+        SYMPHONY_AGENT_COMMAND: resolveWorkflowRuntimeCommand(
+          workflow.workflow
+        ),
+        SYMPHONY_APPROVAL_POLICY: workflow.workflow.codex.approvalPolicy ?? "",
+        SYMPHONY_THREAD_SANDBOX: workflow.workflow.codex.threadSandbox ?? "",
+        SYMPHONY_TURN_SANDBOX_POLICY:
+          workflow.workflow.codex.turnSandboxPolicy ?? "",
+        SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
+        SYMPHONY_ORCHESTRATOR_URL: this.workerOrchestratorUrl ?? "",
+        SYMPHONY_ORCHESTRATOR_TOKEN: this.workerOrchestratorToken ?? "",
+        SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
+          process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
+          String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),
+        SYMPHONY_GLOBAL_MAX_TURNS: "",
+        SYMPHONY_MAX_TOKENS: "",
+        SYMPHONY_SESSION_TIMEOUT_MS: "",
+        SYMPHONY_RESUME_THREAD_ID: "",
+        SYMPHONY_CUMULATIVE_TURN_COUNT: "0",
+        SYMPHONY_CUMULATIVE_INPUT_TOKENS: "0",
+        SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: "0",
+        SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
+        SYMPHONY_LAST_TURN_SUMMARY: "",
+        SYMPHONY_RECOVERY_KIND: recovery?.kind ?? "",
+        SYMPHONY_RECOVERY_DIRTY_FILES: recovery
+          ? formatRecoveryDirtyFilesForContext(recovery.dirtyFiles)
+          : "",
+        SYMPHONY_RECOVERY_SUGGESTED_COMMAND: recovery?.suggestedCommand ?? "",
+        SYMPHONY_SESSION_STARTED_AT: "",
+        SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
+        SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
+      },
+      projectEnvironment
+    );
+    const environmentDigest = digestEnvironment(projectEnvironment);
     const buildRunRecord = (
       processId: number | null,
       processIdentity: string | null = null
@@ -3366,6 +3436,7 @@ export class OrchestratorService {
       issueWorkspaceKey: workspaceKey,
       workspaceRuntimeDir,
       workflowPath: workflow.workflowPath,
+      environmentDigest,
       retryKind: recovery ? "recovery" : null,
       threadId: null,
       cumulativeTurnCount: 0,
@@ -3383,10 +3454,6 @@ export class OrchestratorService {
       recovery,
     });
 
-    // Fence the issue to this run before the worker can request its first
-    // lease. This also leaves a recoverable preparing record if the daemon
-    // exits between preparation and process spawn.
-    await options.onPrepared?.(buildRunRecord(null));
     if (
       typeof trackerAdapter.resolveWorkerCredentials === "function" &&
       Object.keys(workerCredentials).length === 0
@@ -3403,10 +3470,20 @@ export class OrchestratorService {
           projectSlug: tenant.slug,
         },
       });
-      this.writeStderr(
-        `[warn] No worker credential resolved for ${issue.identifier} (${issue.tracker.adapter}); host tracker tools and authenticated Git transport may be unavailable.\n`
+      const warning = this.formatWorkerCredentialWarning(
+        tenant,
+        issue.identifier
       );
+      this.warnMissingWorkerCredentialOnce(tenant, warning);
+      throw new WorkerCredentialMissingError(warning);
     }
+    this.warnedMissingWorkerCredentials.delete(
+      this.workerCredentialWarningKey(tenant)
+    );
+    // Fence the issue to this run before the worker can request its first
+    // lease. This also leaves a recoverable preparing record if the daemon
+    // exits between preparation and process spawn.
+    await options.onPrepared?.(buildRunRecord(null));
     mkdirSync(runDir, { recursive: true });
     const workerLogStream = (
       this.dependencies.createWriteStreamImpl ?? createWriteStream
@@ -3441,79 +3518,7 @@ export class OrchestratorService {
       ["-lc", resolveWorkerCommand()],
       {
         cwd: workspaceRuntimeDir,
-        env: this.buildProjectExecutionEnv(
-          tenant,
-          {
-            CODEX_PROJECT_ID: tenant.projectId,
-            PROJECT_ID: tenant.projectId,
-            WORKING_DIRECTORY: repositoryDirectory,
-            SYMPHONY_ASSIGNED_BRANCH: assignedBranch,
-            WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
-            SYMPHONY_PROJECT_DIR:
-              tenant.projectDir ?? this.store.projectDir(tenant.projectId),
-            SYMPHONY_TRUST_REPO_CONFIG: String(
-              workflow.workflow.runtime?.isolation.trustRepoConfig === true
-            ),
-            SYMPHONY_RUN_ID: runId,
-            SYMPHONY_ISSUE_STATE: issue.state,
-            SYMPHONY_ISSUE_ID: issue.id,
-            SYMPHONY_ISSUE_IDENTIFIER: issue.identifier,
-            SYMPHONY_ISSUE_NATIVE_REF: JSON.stringify(issue.nativeRef ?? null),
-            SYMPHONY_ISSUE_TITLE: issue.title,
-            SYMPHONY_ISSUE_SUBJECT_ID: issueSubjectId,
-            SYMPHONY_ISSUE_WORKSPACE_KEY: workspaceKey,
-            SYMPHONY_TRACKER_ADAPTER: issue.tracker.adapter,
-            SYMPHONY_TRACKER_BINDING_ID: issue.tracker.bindingId,
-            SYMPHONY_TRACKER_ITEM_ID: issue.tracker.itemId,
-            SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify(
-              resolveTrackerSecretEnvironmentNames(trackerAdapter)
-            ),
-            TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
-            TARGET_REPOSITORY_OWNER: issue.repository.owner,
-            TARGET_REPOSITORY_NAME: issue.repository.name,
-            TARGET_REPOSITORY_URL: issue.repository.url,
-            ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
-            ...workerCredentials,
-            SYMPHONY_RENDERED_PROMPT: renderedPrompt,
-            SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
-            SYMPHONY_AGENT_COMMAND: resolveWorkflowRuntimeCommand(
-              workflow.workflow
-            ),
-            SYMPHONY_APPROVAL_POLICY:
-              workflow.workflow.codex.approvalPolicy ?? "",
-            SYMPHONY_THREAD_SANDBOX:
-              workflow.workflow.codex.threadSandbox ?? "",
-            SYMPHONY_TURN_SANDBOX_POLICY:
-              workflow.workflow.codex.turnSandboxPolicy ?? "",
-            SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
-            SYMPHONY_ORCHESTRATOR_URL: this.workerOrchestratorUrl ?? "",
-            SYMPHONY_ORCHESTRATOR_TOKEN: this.workerOrchestratorToken ?? "",
-            SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
-              process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
-              String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),
-            // Clear legacy resume/budget env so fresh worker sessions do not
-            // inherit stale process-level values.
-            SYMPHONY_GLOBAL_MAX_TURNS: "",
-            SYMPHONY_MAX_TOKENS: "",
-            SYMPHONY_SESSION_TIMEOUT_MS: "",
-            SYMPHONY_RESUME_THREAD_ID: "",
-            SYMPHONY_CUMULATIVE_TURN_COUNT: "0",
-            SYMPHONY_CUMULATIVE_INPUT_TOKENS: "0",
-            SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: "0",
-            SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
-            SYMPHONY_LAST_TURN_SUMMARY: "",
-            SYMPHONY_RECOVERY_KIND: recovery?.kind ?? "",
-            SYMPHONY_RECOVERY_DIRTY_FILES: recovery
-              ? formatRecoveryDirtyFilesForContext(recovery.dirtyFiles)
-              : "",
-            SYMPHONY_RECOVERY_SUGGESTED_COMMAND:
-              recovery?.suggestedCommand ?? "",
-            SYMPHONY_SESSION_STARTED_AT: "",
-            SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
-            SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
-          },
-          projectEnvironment
-        ),
+        env: workerEnvironment,
         detached: true,
         stdio: ["ignore", "ignore", "pipe"],
       }
@@ -3834,35 +3839,6 @@ export class OrchestratorService {
           recovered: false,
         };
       }
-
-      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
-      const workerCredentials =
-        trackerAdapter.resolveWorkerCredentials?.(tenant, {
-          project: this.readProjectEnv(tenant),
-          daemon: process.env,
-        }) ?? null;
-      if (
-        workerCredentials !== null &&
-        Object.keys(workerCredentials).length === 0
-      ) {
-        const warning = this.formatWorkerCredentialWarning(
-          tenant,
-          run.issueIdentifier
-        );
-        this.warnMissingWorkerCredentialOnce(tenant, warning);
-        const requeued = await this.requeueRetryingRun(
-          tenant,
-          runWithTokens,
-          issueRecords,
-          now,
-          warning,
-          { countFailure: false, advanceAttempt: false }
-        );
-        return { ...requeued, dispatchWarnings: [warning] };
-      }
-      this.warnedMissingWorkerCredentials.delete(
-        this.workerCredentialWarningKey(tenant)
-      );
 
       const retryAction = await this.resolveRetryRestartAction(
         tenant,
@@ -5255,6 +5231,7 @@ export class OrchestratorService {
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
     lastError?: string | null;
+    dispatchWarnings?: string[];
   }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
@@ -5311,6 +5288,17 @@ export class OrchestratorService {
         },
       });
     } catch (error) {
+      if (error instanceof WorkerCredentialMissingError) {
+        const requeued = await this.requeueRetryingRun(
+          tenant,
+          run,
+          issueRecords,
+          now,
+          error.warning,
+          { countFailure: false, advanceAttempt: false }
+        );
+        return { ...requeued, dispatchWarnings: [error.warning] };
+      }
       throw new RestartRunFailure(
         error,
         nextIssueRecords,
@@ -6952,6 +6940,15 @@ function isGitTransportFailureError(error: string | null | undefined): boolean {
 
 function hasUnpublishedGitWork(run: OrchestratorRunRecord): boolean {
   return unpublishedGitWorkReason(run) !== null;
+}
+
+function digestEnvironment(environment: Record<string, string>): string {
+  const canonicalEnvironment = Object.entries(environment).sort(
+    ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)
+  );
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonicalEnvironment))
+    .digest("hex")}`;
 }
 
 function unpublishedGitWorkReason(
