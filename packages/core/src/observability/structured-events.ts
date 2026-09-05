@@ -201,16 +201,13 @@ export type ConvergenceLockExpiredEvent = {
   reason: "ttl_expired";
 };
 
-export type RecoveryQuarantinedEvent = {
+export type RecoveryDirtyWorkspaceEvent = {
   at: string;
-  event: "recovery-quarantined";
+  event: "recovery-dirty-workspace";
   projectId?: string;
   issueIdentifier: string;
   issueId?: string;
   workspaceKey: string;
-  reason: string;
-  currentBranch: string | null;
-  quarantinePath: string | null;
   dirtyFiles: string[];
 };
 
@@ -366,7 +363,7 @@ export type OrchestratorEvent =
   | RunOwnershipSkippedEvent
   | RunFinalizationDeferredEvent
   | ConvergenceLockExpiredEvent
-  | RecoveryQuarantinedEvent
+  | RecoveryDirtyWorkspaceEvent
   | HookExecutedEvent
   | HookFailedEvent
   | WorkspaceCleanupEvent

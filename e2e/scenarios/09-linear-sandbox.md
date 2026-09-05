@@ -39,7 +39,7 @@ Start the runtime with `LINEAR_API_KEY` set and the `linear_graphql` worker tool
 
 - The golden path observes `Todo -> In Progress -> Human Review/Done`.
 - Each healthy per-turn state read is confirmed and routable, so no three-read fail-closed gate is reached.
-- A dirty workspace checked out on the issue `branchName` is attributed to the Linear issue and retained for recovery.
+- A dirty workspace checked out on the issue `branchName` is retained in place for recovery and remains visible to the worker.
 - State writes are performed by the worker through `linear_graphql`; the orchestrator only dispatches and reconciles.
 - `tracker.list` and `tracker.fetchByIds` structured events include `tracker.adapter="linear"`, `tracker.projectSlug`, `issue.identifier`, and `issue.id`.
 - Linear rate-limit headers appear in the project `rateLimits` snapshot with `source="linear"`.

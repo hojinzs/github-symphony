@@ -105,7 +105,7 @@ These facts describe what your process can and cannot do. Every instruction belo
 
    Never create files such as `.tmp-*.md`, `.workpad-*.md`, `.pr-*-body.md`, `.transition-*.md`, or anything under `.codex/` inside the checkout. Never leave a merge, rebase, or cherry-pick in progress at turn end; resolve it or abort it (`git merge --abort`) first.
 
-7. **Recovery context.** If the prompt carries a `## Recovery Context — Incomplete Turn Dirty Workspace` section, inspect the listed dirty files first. Scratch files matching the patterns above are never work product: delete them. Real partial work that belongs to this issue is validated and committed; work that belongs to another issue is left untouched and reported as a `⛔ Blocker`. Never commit files you did not intend to ship.
+7. **Recovery context.** If the prompt carries a `## Recovery Context — Incomplete Turn Dirty Workspace` section, inspect the listed dirty files first. Scratch files matching the patterns above are never work product: delete them. Validate and commit real partial work only after confirming it belongs to this issue; work that belongs to another issue is left untouched and reported as a `⛔ Blocker`. Never commit files you did not intend to ship.
 8. **Repository dependencies.** A fresh worktree has `node_modules` and `dist/` installed by the `after_create` hook when the host allows hooks. If `pnpm` commands fail with missing binaries (for example `vitest: command not found`), run `pnpm install --frozen-lockfile && pnpm build` once and continue; that is an environment step, not a blocker.
 
 ### Default Posture
