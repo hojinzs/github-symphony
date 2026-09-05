@@ -86,14 +86,6 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: "Maintenance",
     entries: [
       {
-        name: "cache status",
-        description: "Inspect the global bare repository cache",
-      },
-      {
-        name: "cache prune",
-        description: "Remove old caches without locks or linked worktrees",
-      },
-      {
         name: "upgrade",
         description: "Upgrade the CLI to the latest published version",
       },

@@ -1,0 +1,63 @@
+import { execFileSync } from "node:child_process";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { DEFAULT_AFTER_CREATE_HOOK_CONTENT } from "./default-hooks.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true }))
+  );
+});
+
+describe("default after_create hook", () => {
+  it("clones the repository and checks out the assigned branch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "default-after-create-"));
+    temporaryDirectories.push(root);
+    const origin = join(root, "origin.git");
+    const seed = join(root, "seed");
+    const repositoryPath = join(root, "workspace", "repository");
+    const hookPath = join(root, "after_create.sh");
+
+    git(["init", "--bare", "--initial-branch=main", origin]);
+    git(["clone", origin, seed]);
+    git(["-C", seed, "config", "user.name", "Test User"]);
+    git(["-C", seed, "config", "user.email", "test@example.com"]);
+    await writeFile(join(seed, "README.md"), "populated\n");
+    git(["-C", seed, "add", "README.md"]);
+    git(["-C", seed, "commit", "-m", "seed"]);
+    git(["-C", seed, "push", "origin", "main"]);
+    await writeFile(hookPath, DEFAULT_AFTER_CREATE_HOOK_CONTENT);
+    await chmod(hookPath, 0o755);
+
+    execFileSync(hookPath, [], {
+      env: {
+        ...process.env,
+        SYMPHONY_REPOSITORY_CLONE_URL: origin,
+        SYMPHONY_REPOSITORY_PATH: repositoryPath,
+        SYMPHONY_ASSIGNED_BRANCH: "symphony/project/acme-platform-901",
+        SYMPHONY_BASE_BRANCH: "origin/main",
+      },
+      stdio: "pipe",
+    });
+
+    expect(git(["-C", repositoryPath, "branch", "--show-current"]).trim()).toBe(
+      "symphony/project/acme-platform-901"
+    );
+    await expect(
+      readFile(join(repositoryPath, "README.md"), "utf8")
+    ).resolves.toBe("populated\n");
+  });
+});
+
+function git(args: string[]): string {
+  return execFileSync("git", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}

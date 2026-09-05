@@ -39,7 +39,6 @@ type LoaderKey =
   | "upgrade"
   | "project"
   | "config"
-  | "cache"
   | "instances"
   | "version";
 
@@ -83,7 +82,6 @@ type CliOptionValues = Partial<
     bundle?: string | boolean;
     attempt?: string;
     tracker?: string;
-    maxAgeDays?: string;
   }
 >;
 
@@ -95,7 +93,6 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     upgrade: () => import("./commands/upgrade.js"),
     project: () => import("./commands/project.js"),
     config: () => import("./commands/config-cmd.js"),
-    cache: () => import("./commands/cache.js"),
     instances: () => import("./commands/instances.js"),
     version: () => import("./commands/version.js"),
   };
@@ -147,10 +144,7 @@ export function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
     );
   }
 
-  // The shared bare-clone cache and spawned child processes resolve the config
-  // directory from the environment. Without exporting an explicit `--config`,
-  // the cache would stay in the default home directory while every other
-  // artifact honors the override.
+  // Spawned child processes resolve the config directory from the environment.
   if (configDirSource === "cli") {
     process.env.GH_SYMPHONY_CONFIG_DIR = options.configDir;
   }
@@ -650,40 +644,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   const config = addGlobalOptions(
     program.command("config").description("Manage CLI configuration")
   );
-
-  const cache = addGlobalOptions(
-    program
-      .command("cache")
-      .description("Inspect and clean the global repository cache")
-  );
-  addGlobalOptions(
-    cache
-      .command("status")
-      .description("Show cached repositories")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    await invokeHandler(
-      "cache",
-      ["status"],
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-  addGlobalOptions(
-    cache
-      .command("prune")
-      .description("Remove old unused cache entries")
-      .option("--max-age-days <days>", "Minimum unused age", "30")
-      .option("--dry-run", "Preview removals")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args = ["prune"];
-    pushOption(args, "--max-age-days", values.maxAgeDays);
-    pushOption(args, "--dry-run", values.dryRun);
-    await invokeHandler("cache", args, values);
-  });
 
   config.action(async function (this: Command) {
     markInvoked();
