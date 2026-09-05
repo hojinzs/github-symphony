@@ -83,7 +83,7 @@ Removing the GitHub broker eliminates that particular hung network fetch when Gi
 - The generic GitHub GraphQL resolver's own broker POST has no internal timeout (`packages/tool-github-graphql/src/tool.ts:314-322`). Today the helper wraps it, but host-side tracker tool calls invoke it without that wrapper (`tool.ts:57-66`).
 - The agent broker POST in the Codex runtime has no timeout (`packages/runtime-codex/src/runtime.ts:964-971`).
 - Claude's agent-broker preflight does have its own timeout (`packages/runtime-claude/src/preflight.ts:314-322`).
-- Explicit assigned-branch publication has an outer 10-second `Promise.race` at the orchestrator endpoint (`packages/orchestrator/src/service.ts:595-619`), but worker-exit publication calls the transport directly (`packages/worker/src/index.ts:2038-2048,2109-2119`).
+- Explicit assigned-branch publication has an outer 10-second `Promise.race` at the orchestrator endpoint (`packages/orchestrator/src/service.ts:595-619`), but both worker-exit lifecycles call the transport directly: `runNonCodexRuntimeAdapterLifecycle` at `packages/worker/src/index.ts:860-875,881-905` and `runCodexClientProtocol` at `packages/worker/src/index.ts:2036-2049,2062-2119`.
 
 Accordingly, a direct host token **eliminates** #835's failure mode rather than relocating it. Replacing the broker with another network credential service would relocate it unless that service has a bounded request. The outer publication timeout should remain defense in depth, and any new network resolver needs its own abort deadline.
 
