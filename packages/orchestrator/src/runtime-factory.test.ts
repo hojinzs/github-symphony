@@ -78,6 +78,31 @@ function createStubChild() {
 }
 
 describe("createWorkflowRuntimeAdapter", () => {
+  it.each([
+    ["legacy fallback", `codex:\n  command: codex app-server\n`],
+    ["codex runtime", `runtime:\n  kind: codex-app-server\n`],
+  ])(
+    "strips adapter-declared tracker secrets from the %s child",
+    async (_label, frontMatter) => {
+      const workingDirectory = await createTempWorkspace();
+      const workflow = parseWorkflow(frontMatter);
+      const adapter = createWorkflowRuntimeAdapter(workflow, {
+        projectId: "project-1",
+        workingDirectory,
+        env: {
+          GITHUB_TOKEN: "host-secret",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: '["GITHUB_TOKEN"]',
+        },
+      });
+
+      expect(adapter).toBeInstanceOf(CodexRuntimeAdapter);
+      const codexAdapter = adapter as CodexRuntimeAdapter;
+      await codexAdapter.prepare();
+
+      expect(codexAdapter.getPreparedPlan()?.env.GITHUB_TOKEN).toBeUndefined();
+    }
+  );
+
   it("falls back to the legacy codex adapter when runtime is absent", () => {
     const workflow = parseWorkflow(`codex:
   command: codex app-server --model gpt-5

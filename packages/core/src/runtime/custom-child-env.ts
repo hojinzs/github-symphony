@@ -71,6 +71,11 @@ export const AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES = [
   "XDG_CONFIG_HOME",
 ] as const;
 
+/**
+ * Defense-in-depth fallback for credential names stripped before adapter
+ * declarations became authoritative. Adapter declarations remain the source
+ * used to identify which credentials belong to the active tracker.
+ */
 export const CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES = [
   "AGENT_CREDENTIAL_BROKER_URL",
   "AGENT_CREDENTIAL_BROKER_SECRET",
@@ -106,6 +111,21 @@ export function isCustomRuntimeReservedAuthEnvironmentName(
     CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
       name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
     ) ||
+    isDeclaredTrackerSecretEnvironmentName(
+      name,
+      environment,
+      trackerSecretEnvironmentNames
+    )
+  );
+}
+
+/** Reports adapter-declaration provenance independently of fallback stripping. */
+export function isDeclaredTrackerSecretEnvironmentName(
+  name: string,
+  environment: NodeJS.ProcessEnv,
+  trackerSecretEnvironmentNames: readonly string[] = []
+): boolean {
+  return (
     trackerSecretEnvironmentNames.includes(name) ||
     readTrackerSecretEnvironmentNames(environment).includes(name)
   );
@@ -194,7 +214,9 @@ export function stripCredentialEnvironmentForAgentChild(
   env.GIT_TERMINAL_PROMPT = "0";
 }
 
-function readTrackerSecretEnvironmentNames(env: NodeJS.ProcessEnv): string[] {
+export function readTrackerSecretEnvironmentNames(
+  env: NodeJS.ProcessEnv
+): string[] {
   try {
     const names = JSON.parse(
       env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"

@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "@gh-symphony/core";
+import {
+  AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
+} from "@gh-symphony/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ClaudePrintRuntimeAdapter,
@@ -140,6 +143,49 @@ describe("ClaudePrintRuntimeAdapter", () => {
       expect(calls[0]?.[name], name).toBeUndefined();
     }
   });
+
+  it.each([
+    ["an empty declaration", []],
+    ["a Linear-only declaration", ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"]],
+  ])(
+    "strips every core backstop credential with %s",
+    async (_label, declaredNames) => {
+      const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+      const { child, stdout, stderr } = createStubChild();
+      const adapter = new ClaudePrintRuntimeAdapter(
+        {
+          workingDirectory: "/workspace",
+          env: {
+            ...Object.fromEntries(
+              CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.map((name) => [
+                name,
+                "secret",
+              ])
+            ),
+            SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES:
+              JSON.stringify(declaredNames),
+          },
+        },
+        {
+          spawnImpl: (_command, _args, options) => {
+            calls.push(options.env);
+            queueMicrotask(() => {
+              stdout.end();
+              stderr.end();
+              child.emit("close", 0, null);
+            });
+            return child;
+          },
+        }
+      );
+
+      await adapter.spawnTurn({ messages: [] });
+
+      for (const name of CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES) {
+        expect(calls[0]?.[name], name).toBeUndefined();
+      }
+    }
+  );
 
   it("spawns claude with default argv and merged env", async () => {
     const calls: Array<{
@@ -386,6 +432,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
           GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
             "GITHUB_TOKEN",
+            "GITHUB_TOKEN_BROKER_SECRET",
           ]),
         },
       },
