@@ -12,5 +12,5 @@ set -euo pipefail
 
 git clone --filter=blob:none "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH"
 git -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" \
-  "\${SYMPHONY_BASE_BRANCH:-origin/HEAD}"
+  "origin/\${SYMPHONY_BASE_BRANCH:-HEAD}"
 `;

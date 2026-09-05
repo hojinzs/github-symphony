@@ -2,6 +2,7 @@ import { execSync, spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import {
+  access,
   chmod,
   mkdir,
   mkdtemp,
@@ -211,6 +212,7 @@ describe("OrchestratorService", () => {
   beforeEach(async () => {
     testConfigDir = await mkdtemp(join(tmpdir(), "orchestrator-config-"));
     process.env.GH_SYMPHONY_CONFIG_DIR = testConfigDir;
+    process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
   });
 
   it("clamps polling intervals to prevent spins and excessive sleeps", () => {
@@ -3092,14 +3094,12 @@ describe("OrchestratorService", () => {
     );
     execSync(`git -C ${shell(repository.path)} add WORKFLOW.md`);
     execSync(`git -C ${shell(repository.path)} commit -m worktree-settings`);
+    execSync(`git -C ${shell(repository.path)} branch develop`);
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = {
       ...createProjectConfig(tempRoot, repository),
     };
     await store.saveProjectConfig(projectConfig);
-    const populateSpy = vi
-      .spyOn(gitModule, "ensureIssueWorkspaceRepository")
-      .mockResolvedValue(repository.path);
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: vi
@@ -3107,14 +3107,17 @@ describe("OrchestratorService", () => {
         .mockReturnValue({ pid: 4105, unref: vi.fn() }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
+    const hookSpy = vi.spyOn(service as never, "runHook");
 
     await service.runOnce();
 
-    expect(populateSpy).toHaveBeenCalledWith(
+    expect(hookSpy).toHaveBeenCalledWith(
+      "after_create",
+      expect.anything(),
+      expect.any(String),
+      expect.anything(),
       expect.objectContaining({
-        projectSlug: "tenant-1",
-        issueIdentifier: "acme/platform#1",
-        branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+        assignedBranch: "agents/tenant-1/acme-platform-1",
         baseBranch: "develop",
       })
     );
@@ -3145,7 +3148,7 @@ describe("OrchestratorService", () => {
       store.projectDir(projectConfig.projectId),
       workspaceKey
     );
-    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+    const repositoryDirectory = await ensurePopulatedIssueWorkspaceRepository({
       repository,
       issueWorkspacePath,
       existingWorkspace: false,
@@ -3362,7 +3365,7 @@ describe("OrchestratorService", () => {
       store.projectDir(projectConfig.projectId),
       workspaceKey
     );
-    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+    const repositoryDirectory = await ensurePopulatedIssueWorkspaceRepository({
       repository,
       issueWorkspacePath,
       existingWorkspace: false,
@@ -3553,7 +3556,7 @@ describe("OrchestratorService", () => {
       store.projectDir(projectConfig.projectId),
       workspaceKey
     );
-    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+    const repositoryDirectory = await ensurePopulatedIssueWorkspaceRepository({
       repository,
       issueWorkspacePath,
       existingWorkspace: false,
@@ -5592,7 +5595,7 @@ Test hook failures.
     );
     const repositoryPath = join(workspacePath, "repository");
 
-    await gitModule.ensureIssueWorkspaceRepository({
+    await ensurePopulatedIssueWorkspaceRepository({
       repository,
       issueWorkspacePath: workspacePath,
       existingWorkspace: false,
@@ -9393,7 +9396,7 @@ Prefer focused changes.
       store.projectDir(projectConfig.projectId),
       workspaceKey
     );
-    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+    const repositoryDirectory = await ensurePopulatedIssueWorkspaceRepository({
       repository,
       issueWorkspacePath,
       existingWorkspace: false,
@@ -11093,14 +11096,15 @@ Prefer focused changes.
         store.projectDir("tenant-1"),
         workspaceKey
       );
-      const repositoryDirectory =
-        await gitModule.ensureIssueWorkspaceRepository({
+      const repositoryDirectory = await ensurePopulatedIssueWorkspaceRepository(
+        {
           repository: run!.repository,
           issueWorkspacePath,
           existingWorkspace: false,
           projectSlug: "tenant-1",
           issueIdentifier: "acme/platform#1",
-        });
+        }
+      );
       await store.saveIssueWorkspace({
         workspaceKey,
         projectId: "tenant-1",
@@ -15972,7 +15976,7 @@ Prefer focused changes.
     await mkdir(join(repository.path, "scripts"), { recursive: true });
     await writeFile(
       join(repository.path, "scripts", "setup-env.sh"),
-      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$STAGING_API_HOST" > "$SYMPHONY_REPOSITORY_PATH/.after_create_host"\nprintf "%s\\n" "$FILE_ONLY" > "$SYMPHONY_REPOSITORY_PATH/.after_create_file_only"\nprintf "%s\\n" "${SYMPHONY_ISSUE_STATE-unset}" > "$SYMPHONY_REPOSITORY_PATH/.after_create_issue_state"\n',
+      '#!/usr/bin/env bash\nset -eu\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\nprintf "%s\\n" "$STAGING_API_HOST" > "$SYMPHONY_REPOSITORY_PATH/.after_create_host"\nprintf "%s\\n" "$FILE_ONLY" > "$SYMPHONY_REPOSITORY_PATH/.after_create_file_only"\nprintf "%s\\n" "${SYMPHONY_ISSUE_STATE-unset}" > "$SYMPHONY_REPOSITORY_PATH/.after_create_issue_state"\n',
       "utf8"
     );
     await chmod(join(repository.path, "scripts", "setup-env.sh"), 0o755);
@@ -16306,7 +16310,7 @@ Test workspace hook retries.
     await mkdir(join(repository.path, "hooks"), { recursive: true });
     await writeFile(
       join(repository.path, "hooks", "count-after-create.sh"),
-      '#!/usr/bin/env bash\nset -e\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "${SYMPHONY_BASE_BRANCH:-origin/HEAD}" >/dev/null 2>&1\nprintf \'after_create\\n\' >> "$SYMPHONY_WORKSPACE_PATH/.after_create_calls"\n',
+      '#!/usr/bin/env bash\nset -e\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\nprintf \'after_create\\n\' >> "$SYMPHONY_WORKSPACE_PATH/.after_create_calls"\n',
       "utf8"
     );
     await writeFile(
@@ -17184,7 +17188,7 @@ Prefer focused changes.
     ).resolves.toBe("https://staging.example.com\n");
   });
 
-  it("skips WORKFLOW.md hooks by default when explicit approval is missing", async () => {
+  it("removes a fresh workspace when after_create is not trusted", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-missing-project-env-")
@@ -17256,7 +17260,12 @@ Prefer focused changes.
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
-    await service.runOnce();
+    delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+    try {
+      await service.runOnce();
+    } finally {
+      process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
+    }
 
     const workspaceKey = (
       await store.loadProjectIssueOrchestrations(projectConfig.projectId)
@@ -17269,10 +17278,10 @@ Prefer focused changes.
       "repository"
     );
 
-    await expect(
-      readFile(join(repositoryPath, ".before_run_missing_project_env"), "utf8")
-    ).rejects.toThrow();
-    expect(spawnImpl.mock.calls[0]?.[2]?.env?.FILE_ONLY).toBeUndefined();
+    await expect(access(repositoryPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(spawnImpl).not.toHaveBeenCalled();
   });
 
   it("passes issue workspace root to after_run hook environment", async () => {
@@ -17443,15 +17452,27 @@ async function createRepositoryFixture(
 }> {
   const repositoryRoot = join(root, `${owner}-${name}`);
   execSync(`mkdir -p ${shell(repositoryRoot)}`);
-  execSync(`git init ${shell(repositoryRoot)}`, { stdio: "ignore" });
+  execSync(`git init --initial-branch=main ${shell(repositoryRoot)}`, {
+    stdio: "ignore",
+  });
   execSync(
     `git -C ${shell(repositoryRoot)} config user.email tester@example.com`
   );
   execSync(`git -C ${shell(repositoryRoot)} config user.name tester`);
   await writeWorkflowFixture(repositoryRoot, options);
-  execSync(`git -C ${shell(repositoryRoot)} add WORKFLOW.md`, {
-    stdio: "ignore",
-  });
+  await mkdir(join(repositoryRoot, "hooks"), { recursive: true });
+  await writeFile(
+    join(repositoryRoot, "hooks", "after_create.sh"),
+    '#!/usr/bin/env bash\nset -euo pipefail\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\n',
+    "utf8"
+  );
+  await chmod(join(repositoryRoot, "hooks", "after_create.sh"), 0o755);
+  execSync(
+    `git -C ${shell(repositoryRoot)} add WORKFLOW.md hooks/after_create.sh`,
+    {
+      stdio: "ignore",
+    }
+  );
   execSync(`git -C ${shell(repositoryRoot)} commit -m init`, {
     stdio: "ignore",
   });
@@ -17556,6 +17577,20 @@ async function commitWorkflowFixture(
   });
 }
 
+async function ensurePopulatedIssueWorkspaceRepository(
+  options: Parameters<typeof gitModule.ensureIssueWorkspaceRepository>[0]
+): Promise<string> {
+  const repositoryDirectory =
+    await gitModule.ensureIssueWorkspaceRepository(options);
+  if (!options.existingWorkspace) {
+    execSync(
+      `git clone ${shell(options.repository.cloneUrl)} ${shell(repositoryDirectory)}`,
+      { stdio: "ignore" }
+    );
+  }
+  return repositoryDirectory;
+}
+
 async function writeWorkflowFixture(
   repositoryRoot: string,
   options: {
@@ -17571,9 +17606,10 @@ async function writeWorkflowFixture(
     rawWorkflow?: string;
   } = {}
 ): Promise<void> {
-  const content = normalizeTrackerProviderFixture(
-    options.rawWorkflow ??
-      `---
+  const content = ensureAfterCreateFixture(
+    normalizeTrackerProviderFixture(
+      options.rawWorkflow ??
+        `---
 tracker:
   kind: github-project
   provider:
@@ -17605,8 +17641,28 @@ codex:
 ---
 Prefer focused changes.
 `
+    )
   );
   await writeFile(join(repositoryRoot, "WORKFLOW.md"), content, "utf8");
+}
+
+function ensureAfterCreateFixture(content: string): string {
+  if (!content.startsWith("---\n") || content.includes("after_create:")) {
+    return content;
+  }
+  if (content.includes("hooks:\n")) {
+    return content.replace(
+      "hooks:\n",
+      "hooks:\n  after_create: hooks/after_create.sh\n"
+    );
+  }
+  const insertionPoint = content.includes("polling:\n")
+    ? "polling:\n"
+    : "workspace:\n";
+  return content.replace(
+    insertionPoint,
+    `hooks:\n  after_create: hooks/after_create.sh\n${insertionPoint}`
+  );
 }
 
 function normalizeTrackerProviderFixture(content: string): string {

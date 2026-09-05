@@ -32,6 +32,11 @@ describe("default after_create hook", () => {
     git(["-C", seed, "add", "README.md"]);
     git(["-C", seed, "commit", "-m", "seed"]);
     git(["-C", seed, "push", "origin", "main"]);
+    git(["-C", seed, "checkout", "-b", "develop"]);
+    await writeFile(join(seed, "BASE"), "develop\n");
+    git(["-C", seed, "add", "BASE"]);
+    git(["-C", seed, "commit", "-m", "develop"]);
+    git(["-C", seed, "push", "origin", "develop"]);
     await writeFile(hookPath, DEFAULT_AFTER_CREATE_HOOK_CONTENT);
     await chmod(hookPath, 0o755);
 
@@ -41,7 +46,7 @@ describe("default after_create hook", () => {
         SYMPHONY_REPOSITORY_CLONE_URL: origin,
         SYMPHONY_REPOSITORY_PATH: repositoryPath,
         SYMPHONY_ASSIGNED_BRANCH: "symphony/project/acme-platform-901",
-        SYMPHONY_BASE_BRANCH: "origin/main",
+        SYMPHONY_BASE_BRANCH: "develop",
       },
       stdio: "pipe",
     });
@@ -52,6 +57,9 @@ describe("default after_create hook", () => {
     await expect(
       readFile(join(repositoryPath, "README.md"), "utf8")
     ).resolves.toBe("populated\n");
+    await expect(readFile(join(repositoryPath, "BASE"), "utf8")).resolves.toBe(
+      "develop\n"
+    );
   });
 });
 

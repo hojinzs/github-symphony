@@ -81,6 +81,7 @@ import {
   renderIssueBranchName,
 } from "./git.js";
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
+import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import {
   getProcessStartIdentity,
@@ -3176,55 +3177,62 @@ export class OrchestratorService {
     const shouldSaveWorkspaceRecord =
       !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;
 
-    // Run after_create only when this process actually created the directory.
-    // If it fails, remove the partial workspace so a retry creates it again
-    // rather than starting in an uninitialized directory.
-    if (createdNow) {
-      const repositoryExtension = workflowForPopulate.workflow.repository;
-      const branchTemplate = isRecord(repositoryExtension)
-        ? readOptionalStringValue(repositoryExtension.branch_template)
-        : null;
-      const baseBranch =
-        pullRequestBranch?.headRefName ??
-        (isRecord(repositoryExtension)
-          ? readOptionalStringValue(repositoryExtension.base_branch)
-          : null);
-      const afterCreateResult = await this.runHook(
-        "after_create",
-        tenant,
-        repositoryDirectory,
-        issue.repository,
-        {
-          projectId: tenant.projectId,
-          workspaceKey,
-          issueSubjectId,
-          issueIdentifier: issue.identifier,
-          workspacePath: issueWorkspacePath,
-          repositoryPath: repositoryDirectory,
-          eventRunId: runId,
-          assignedBranch: renderIssueBranchName({
-            template: branchTemplate,
-            projectSlug: tenant.slug,
-            issueIdentifier: issue.identifier,
-          }),
-          baseBranch,
-        }
-      );
-      if (!isSuccessfulHookResult(afterCreateResult)) {
-        await rm(issueWorkspacePath, { recursive: true, force: true });
-        throw new Error(formatFatalHookError(afterCreateResult));
-      }
-    }
-
     const agentCommand = resolveWorkflowRuntimeCommand(
       workflowForPopulate.workflow
     );
-    await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
-    const assignedBranch = await readGitCurrentBranch(repositoryDirectory);
-    if (!assignedBranch) {
-      throw new Error(
-        `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
-      );
+    let assignedBranch: string | null;
+    try {
+      // Run after_create only when this process actually created the directory.
+      // Any incomplete fresh preparation is removed so a retry can run the
+      // hook again; reused workspaces never enter this cleanup path.
+      if (createdNow) {
+        const repositoryExtension = workflowForPopulate.workflow.repository;
+        const branchTemplate = isRecord(repositoryExtension)
+          ? readOptionalStringValue(repositoryExtension.branch_template)
+          : null;
+        const baseBranch =
+          pullRequestBranch?.headRefName ??
+          (isRecord(repositoryExtension)
+            ? readOptionalStringValue(repositoryExtension.base_branch)
+            : null);
+        const afterCreateResult = await this.runHook(
+          "after_create",
+          tenant,
+          repositoryDirectory,
+          issue.repository,
+          {
+            projectId: tenant.projectId,
+            workspaceKey,
+            issueSubjectId,
+            issueIdentifier: issue.identifier,
+            workspacePath: issueWorkspacePath,
+            repositoryPath: repositoryDirectory,
+            eventRunId: runId,
+            assignedBranch: renderIssueBranchName({
+              template: branchTemplate,
+              projectSlug: tenant.slug,
+              issueIdentifier: issue.identifier,
+            }),
+            baseBranch,
+          }
+        );
+        if (afterCreateResult.outcome !== "success") {
+          throw new Error(formatFatalHookError(afterCreateResult));
+        }
+      }
+
+      await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
+      assignedBranch = await readGitCurrentBranch(repositoryDirectory);
+      if (!assignedBranch) {
+        throw new Error(
+          `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
+        );
+      }
+    } catch (error) {
+      if (createdNow) {
+        await rm(issueWorkspacePath, { recursive: true, force: true });
+      }
+      throw error;
     }
 
     if (shouldSaveWorkspaceRecord) {
@@ -5016,7 +5024,9 @@ export class OrchestratorService {
       } else {
         const hookEnv = this.buildProjectExecutionEnv(tenant, {
           ...buildHookEnv(context),
-          SYMPHONY_REPOSITORY_CLONE_URL: repository.cloneUrl,
+          SYMPHONY_REPOSITORY_CLONE_URL: sanitizeRepositoryCloneUrl(
+            repository.cloneUrl
+          ),
           SYMPHONY_REPOSITORY_OWNER: repository.owner,
           SYMPHONY_REPOSITORY_NAME: repository.name,
           ...(context.assignedBranch
@@ -5031,11 +5041,16 @@ export class OrchestratorService {
           kind
         );
         const hookCommand =
+          kind === "after_create" &&
           configuredHookCommand &&
           !isAbsolute(configuredHookCommand) &&
-          workflowResolution.workflowPath
+          (tenant.workflowSource?.path ?? workflowResolution.workflowPath)
             ? resolve(
-                dirname(workflowResolution.workflowPath),
+                dirname(
+                  tenant.workflowSource?.path ??
+                    workflowResolution.workflowPath ??
+                    ""
+                ),
                 configuredHookCommand
               )
             : configuredHookCommand;
