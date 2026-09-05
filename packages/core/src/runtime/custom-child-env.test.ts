@@ -22,6 +22,7 @@ describe("buildCustomRuntimeChildEnvironment", () => {
         GITHUB_TOKEN: "github-secret",
         LINEAR_API_KEY: "linear-secret",
         GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+        AGENT_CREDENTIAL_BROKER_SECRET: "agent-broker-secret",
         GIT_CONFIG_KEY_0: "credential.helper",
         GIT_CONFIG_VALUE_0: "store",
         SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
@@ -50,6 +51,7 @@ describe("buildCustomRuntimeChildEnvironment", () => {
       "GITHUB_TOKEN",
       "LINEAR_API_KEY",
       "GITHUB_TOKEN_BROKER_SECRET",
+      "AGENT_CREDENTIAL_BROKER_SECRET",
       "GIT_CONFIG_KEY_0",
       "GIT_CONFIG_VALUE_0",
       "TRACKER_SECRET",

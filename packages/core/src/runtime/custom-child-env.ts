@@ -47,6 +47,9 @@ export function readAgentVisibleSymphonyContext(
 
 /** Host credential plumbing that must never cross an agent-child boundary. */
 export const AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES = [
+  "AGENT_CREDENTIAL_BROKER_URL",
+  "AGENT_CREDENTIAL_BROKER_SECRET",
+  "AGENT_CREDENTIAL_CACHE_PATH",
   "GITHUB_GIT_HOST",
   "GITHUB_GIT_USERNAME",
   "GIT_ASKPASS",
