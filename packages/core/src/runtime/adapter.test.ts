@@ -1,9 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type {
-  AgentRuntimeAdapter,
-  AgentRuntimeCredentialBrokerResponse,
-  AgentRuntimeEvent,
-} from "./adapter.js";
+import type { AgentRuntimeAdapter, AgentRuntimeEvent } from "./adapter.js";
 
 type SpawnLoopEventName =
   | "agent.turnStarted"
@@ -31,16 +27,11 @@ type TurnResult = {
   exitCode: number;
 };
 
-type BrokerResponse = AgentRuntimeCredentialBrokerResponse & {
-  provider: "openai" | "anthropic";
-};
-
 type RuntimeAdapter = AgentRuntimeAdapter<
   PrepareContext,
   TurnInput,
   TurnResult,
-  SpawnLoopEvent,
-  BrokerResponse
+  SpawnLoopEvent
 >;
 
 async function executeSpawnLoop(
@@ -74,19 +65,11 @@ class CodexRuntimeAdapterStub implements RuntimeAdapter {
     return { exitCode: 0 };
   }
 
-  onEvent(
-    handler: (event: SpawnLoopEvent) => void
-  ): () => void {
+  onEvent(handler: (event: SpawnLoopEvent) => void): () => void {
     this.handlers.add(handler);
     return () => {
       this.handlers.delete(handler);
     };
-  }
-
-  resolveCredentials(brokerResponse: BrokerResponse): Record<string, string> {
-    return brokerResponse.provider === "openai"
-      ? { OPENAI_API_KEY: brokerResponse.env.OPENAI_API_KEY ?? "" }
-      : {};
   }
 
   async shutdown(): Promise<void> {}
@@ -118,19 +101,11 @@ class ClaudePrintRuntimeAdapterStub implements RuntimeAdapter {
     return { exitCode: 0 };
   }
 
-  onEvent(
-    handler: (event: SpawnLoopEvent) => void
-  ): () => void {
+  onEvent(handler: (event: SpawnLoopEvent) => void): () => void {
     this.handlers.add(handler);
     return () => {
       this.handlers.delete(handler);
     };
-  }
-
-  resolveCredentials(brokerResponse: BrokerResponse): Record<string, string> {
-    return brokerResponse.provider === "anthropic"
-      ? { ANTHROPIC_API_KEY: brokerResponse.env.ANTHROPIC_API_KEY ?? "" }
-      : {};
   }
 
   async shutdown(): Promise<void> {}
@@ -159,10 +134,14 @@ describe("AgentRuntimeAdapter", () => {
     expectTypeOf(claude).toMatchTypeOf<RuntimeAdapter>();
 
     await expect(
-      executeSpawnLoop(codex, { sessionId: "session-1" }, {
-        turnId: "turn-1",
-        prompt: "implement the change",
-      })
+      executeSpawnLoop(
+        codex,
+        { sessionId: "session-1" },
+        {
+          turnId: "turn-1",
+          prompt: "implement the change",
+        }
+      )
     ).resolves.toEqual({
       events: [
         "agent.turnStarted",
@@ -173,10 +152,14 @@ describe("AgentRuntimeAdapter", () => {
     });
 
     await expect(
-      executeSpawnLoop(claude, { sessionId: "session-2" }, {
-        turnId: "turn-2",
-        prompt: "implement the change",
-      })
+      executeSpawnLoop(
+        claude,
+        { sessionId: "session-2" },
+        {
+          turnId: "turn-2",
+          prompt: "implement the change",
+        }
+      )
     ).resolves.toEqual({
       events: [
         "agent.turnStarted",
@@ -185,26 +168,5 @@ describe("AgentRuntimeAdapter", () => {
       ],
       result: { exitCode: 0 },
     });
-  });
-
-  it("lets each runtime resolve provider-specific credentials from the broker payload", () => {
-    const codex = new CodexRuntimeAdapterStub();
-    const claude = new ClaudePrintRuntimeAdapterStub();
-
-    expect(
-      codex.resolveCredentials({
-        provider: "openai",
-        env: { OPENAI_API_KEY: "sk-openai" },
-        expires_at: "2026-04-21T00:00:00.000Z",
-      })
-    ).toEqual({ OPENAI_API_KEY: "sk-openai" });
-
-    expect(
-      claude.resolveCredentials({
-        provider: "anthropic",
-        env: { ANTHROPIC_API_KEY: "sk-anthropic" },
-        expires_at: "2026-04-21T00:00:00.000Z",
-      })
-    ).toEqual({ ANTHROPIC_API_KEY: "sk-anthropic" });
   });
 });

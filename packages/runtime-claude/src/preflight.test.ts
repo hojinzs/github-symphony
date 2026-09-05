@@ -47,7 +47,7 @@ describe("Claude runtime preflight", () => {
     });
   });
 
-  it("reports missing ANTHROPIC_API_KEY with broker guidance when API key auth is required", async () => {
+  it("reports missing ANTHROPIC_API_KEY when API key auth is required", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-key-"));
     const report = await runClaudePreflight(
       { cwd, env: {}, command: "claude" },
@@ -59,14 +59,12 @@ describe("Claude runtime preflight", () => {
     );
     expect(apiKey).toMatchObject({
       status: "fail",
-      summary: expect.stringContaining("Neither ANTHROPIC_API_KEY"),
-      remediation: expect.stringContaining(
-        "Set ANTHROPIC_API_KEY or configure"
-      ),
+      summary: "ANTHROPIC_API_KEY is not configured.",
+      remediation: "Set ANTHROPIC_API_KEY for this bare Claude runtime.",
     });
   });
 
-  it("warns when local Claude Code auth is allowed and no API key or broker is configured", async () => {
+  it("warns when local Claude Code auth is allowed and no API key is configured", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-local-"));
     const report = await runClaudePreflight(
       {
@@ -86,42 +84,6 @@ describe("Claude runtime preflight", () => {
       title: "Claude authentication",
       summary: expect.stringContaining("Claude Code local login"),
       details: { source: "local" },
-    });
-  });
-
-  it("fails clearly when credential broker configuration is incomplete", async () => {
-    const cwd = await mkdtemp(
-      join(tmpdir(), "claude-preflight-partial-broker-")
-    );
-    const report = await runClaudePreflight(
-      {
-        cwd,
-        env: {
-          AGENT_CREDENTIAL_BROKER_URL: "https://broker.test/agent",
-        },
-        command: "claude",
-        authMode: "local-or-api-key",
-      },
-      { execFileSync: vi.fn(execSuccess) as never }
-    );
-
-    expect(report.ok).toBe(false);
-    expect(
-      report.checks.find((check) => check.id === "anthropic_api_key")
-    ).toMatchObject({
-      status: "fail",
-      title: "Claude authentication",
-      summary: expect.stringContaining(
-        "AGENT_CREDENTIAL_BROKER_SECRET is not configured"
-      ),
-      remediation: expect.stringContaining(
-        "Set AGENT_CREDENTIAL_BROKER_SECRET"
-      ),
-      details: {
-        source: "broker",
-        brokerUrl: "https://broker.test/agent",
-        missing: "AGENT_CREDENTIAL_BROKER_SECRET",
-      },
     });
   });
 
@@ -187,13 +149,9 @@ describe("Claude runtime preflight", () => {
     ).toMatchObject({ status: "fail" });
   });
 
-  it("accepts brokered Anthropic credentials", async () => {
+  it("ignores removed broker variables when direct API-key auth is required", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-broker-"));
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ env: { ANTHROPIC_API_KEY: "sk-brokered" } }),
-    }));
+    const fetchImpl = vi.spyOn(globalThis, "fetch");
     const report = await runClaudePreflight(
       {
         cwd,
@@ -203,21 +161,20 @@ describe("Claude runtime preflight", () => {
         },
         command: "claude",
       },
-      {
-        execFileSync: vi.fn(execSuccess) as never,
-        fetchImpl: fetchImpl as never,
-      }
+      { execFileSync: vi.fn(execSuccess) as never }
     );
 
+    expect(report.ok).toBe(false);
     expect(
       report.checks.find((check) => check.id === "anthropic_api_key")
-    ).toMatchObject({ status: "pass", details: { source: "broker" } });
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "https://broker.test/agent",
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-      })
-    );
+    ).toMatchObject({
+      status: "fail",
+      summary: "ANTHROPIC_API_KEY is not configured.",
+      remediation: "Set ANTHROPIC_API_KEY for this bare Claude runtime.",
+      details: { source: "missing" },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    fetchImpl.mockRestore();
   });
 
   it("executes relative Claude binary commands from the workspace cwd", async () => {
@@ -246,18 +203,17 @@ describe("Claude runtime preflight", () => {
       { execFileSync: execFileSync as never }
     );
 
-    expect(report.checks.find((check) => check.id === "claude_binary"))
-      .toMatchObject({
-        status: "pass",
-        details: { command: expectedCommand, path: expectedCommand },
-      });
+    expect(
+      report.checks.find((check) => check.id === "claude_binary")
+    ).toMatchObject({
+      status: "pass",
+      details: { command: expectedCommand, path: expectedCommand },
+    });
   });
 
   it("formats readable output and detects shell-wrapped Claude commands", () => {
     expect(isClaudeRuntimeCommand("bash -lc 'claude -p'")).toBe(true);
-    expect(isClaudeRuntimeCommand("bash -c 'setup_env; claude -p'")).toBe(
-      true
-    );
+    expect(isClaudeRuntimeCommand("bash -c 'setup_env; claude -p'")).toBe(true);
     expect(
       isClaudeRuntimeCommand(
         "bash -c 'export ANTHROPIC_API_KEY=sk-xxx; claude -p'"

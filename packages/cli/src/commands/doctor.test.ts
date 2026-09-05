@@ -210,9 +210,6 @@ const originalGraphQlApiUrl = process.env.GITHUB_GRAPHQL_API_URL;
 const originalLinearApiKey = process.env.LINEAR_API_KEY;
 const originalCustomLinearToken = process.env.CUSTOM_LINEAR_TOKEN;
 const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
-const originalCredentialBrokerUrl = process.env.AGENT_CREDENTIAL_BROKER_URL;
-const originalCredentialBrokerSecret =
-  process.env.AGENT_CREDENTIAL_BROKER_SECRET;
 
 async function createWorkflowFixture(
   command = "fake-agent",
@@ -466,16 +463,6 @@ afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
   } else {
     process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
-  }
-  if (originalCredentialBrokerUrl === undefined) {
-    delete process.env.AGENT_CREDENTIAL_BROKER_URL;
-  } else {
-    process.env.AGENT_CREDENTIAL_BROKER_URL = originalCredentialBrokerUrl;
-  }
-  if (originalCredentialBrokerSecret === undefined) {
-    delete process.env.AGENT_CREDENTIAL_BROKER_SECRET;
-  } else {
-    process.env.AGENT_CREDENTIAL_BROKER_SECRET = originalCredentialBrokerSecret;
   }
   process.exitCode = undefined;
 });
@@ -996,7 +983,7 @@ Prompt body`
     }
   });
 
-  it("uses injected fetch when checking brokered Claude credentials", async () => {
+  it("accepts direct Anthropic credentials for Claude", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await prepareDoctorPaths(configDir, workspaceDir);
@@ -1004,13 +991,7 @@ Prompt body`
     const claudeExecutable = join(pathEnv, "claude");
     await writeFile(claudeExecutable, "#!/bin/sh\nexit 0\n", "utf8");
     await chmod(claudeExecutable, 0o755);
-    process.env.AGENT_CREDENTIAL_BROKER_URL = "https://broker.test/agent";
-    process.env.AGENT_CREDENTIAL_BROKER_SECRET = "secret";
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ env: { ANTHROPIC_API_KEY: "sk-brokered" } }),
-    }));
+    process.env.ANTHROPIC_API_KEY = "sk-direct";
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
@@ -1041,20 +1022,15 @@ Prompt body`
           }
           return "";
         }) as never,
-        fetchImpl: fetchImpl as never,
         pathEnv,
       })
     );
 
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "https://broker.test/agent",
-      expect.objectContaining({ signal: expect.any(AbortSignal) })
-    );
     expect(
       report.checks.find((check) => check.id === "anthropic_api_key")
     ).toMatchObject({
       status: "pass",
-      details: expect.objectContaining({ source: "broker" }),
+      details: expect.objectContaining({ source: "env" }),
     });
   });
 

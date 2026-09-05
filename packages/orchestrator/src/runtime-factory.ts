@@ -1,8 +1,6 @@
 import { join } from "node:path";
 import type {
   AgentRuntimeAdapter,
-  AgentRuntimeCredentialBrokerResponse,
-  AgentRuntimeEnv,
   AgentRuntimeEvent,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
@@ -10,7 +8,6 @@ import type {
 } from "@gh-symphony/core";
 import {
   buildCustomRuntimeChildEnvironment,
-  extractEnvForClaude,
   prepareAgentChildHome,
   readTrackerSecretEnvironmentNames,
   resolveAgentChildHome,
@@ -125,15 +122,6 @@ export class CustomCommandRuntimeAdapter implements AgentRuntimeAdapter<
     // Custom runtimes currently expose only process-level turn results; they do
     // not emit structured runtime events.
     return () => {};
-  }
-
-  resolveCredentials(
-    brokerResponse: AgentRuntimeCredentialBrokerResponse
-  ): AgentRuntimeEnv {
-    if (!this.config.authEnvKey) {
-      return {};
-    }
-    return extractEnvForClaude(brokerResponse.env, this.config.authEnvKey);
   }
 
   shutdown(): void {}
