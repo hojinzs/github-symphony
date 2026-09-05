@@ -136,11 +136,7 @@ if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
 }
 
 function emitLaunchSummary(config: CodexRuntimeConfig) {
-  const githubAuthMode = config.githubToken
-    ? "direct token"
-    : config.githubTokenBrokerUrl && config.githubTokenBrokerSecret
-      ? "broker"
-      : "missing";
+  const githubAuthMode = config.githubToken ? "direct token" : "missing";
   const agentAuthMode = config.agentEnv?.OPENAI_API_KEY
     ? "direct env"
     : config.agentCredentialBrokerUrl && config.agentCredentialBrokerSecret

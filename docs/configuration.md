@@ -470,8 +470,10 @@ operator's credential stores.
 
 ## Credential Brokers And Git Access
 
-Use these when workers need short-lived credentials or when Git traffic must
-target a non-`github.com` host.
+The Git host and username settings support Git traffic targeting a
+non-`github.com` host. The GitHub broker names remain reserved for child-secret
+isolation while legacy plumbing is retired; host Git publication does not use
+them. Agent-provider brokers use the separate `AGENT_CREDENTIAL_*` settings.
 
 | Variable                                                     | Default          | Read by                                 | Audience          | Notes                                                                                                                                                  |
 | ------------------------------------------------------------ | ---------------- | --------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
