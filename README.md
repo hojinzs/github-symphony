@@ -899,6 +899,16 @@ echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 
 > Hooks always run with `cwd` set to the repository root. Script paths are relative to that root.
 
+The trusted `after_create` hook also receives the daemon's host Git credential
+helper environment so its clone can authenticate to private repositories. This
+credential-bearing environment is limited to population; coding-agent children
+still receive no host Git or tracker credentials. After population, Symphony
+requires the checkout to be on `SYMPHONY_ASSIGNED_BRANCH` before dispatch.
+
+Running `gh-symphony workflow init` again automatically replaces only the exact
+legacy generated no-op `hooks/after_create.sh`. Customized hook files remain
+untouched.
+
 ## Headless orchestration
 
 The orchestrator runs independently as long as the project folder has been initialized with `gh-symphony setup`.

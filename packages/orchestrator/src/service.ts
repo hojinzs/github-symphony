@@ -68,6 +68,7 @@ import {
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import {
+  buildHostGitEnvironment,
   trySynchronizeAssignedBranch,
   type GitTransportAttempt,
 } from "@gh-symphony/worker/git-transport";
@@ -3181,16 +3182,21 @@ export class OrchestratorService {
     const agentCommand = resolveWorkflowRuntimeCommand(
       workflowForPopulate.workflow
     );
+    const repositoryExtension = workflowForPopulate.workflow.repository;
+    const branchTemplate = isRecord(repositoryExtension)
+      ? readOptionalStringValue(repositoryExtension.branch_template)
+      : null;
+    const expectedAssignedBranch = renderIssueBranchName({
+      template: branchTemplate,
+      projectSlug: tenant.slug,
+      issueIdentifier: issue.identifier,
+    });
     let assignedBranch: string | null;
     try {
       // Run after_create only when this process actually created the directory.
       // Any incomplete fresh preparation is removed so a retry can run the
       // hook again; reused workspaces never enter this cleanup path.
       if (createdNow) {
-        const repositoryExtension = workflowForPopulate.workflow.repository;
-        const branchTemplate = isRecord(repositoryExtension)
-          ? readOptionalStringValue(repositoryExtension.branch_template)
-          : null;
         const baseBranch =
           pullRequestBranch?.headRefName ??
           (isRecord(repositoryExtension)
@@ -3209,11 +3215,7 @@ export class OrchestratorService {
             workspacePath: issueWorkspacePath,
             repositoryPath: repositoryDirectory,
             eventRunId: runId,
-            assignedBranch: renderIssueBranchName({
-              template: branchTemplate,
-              projectSlug: tenant.slug,
-              issueIdentifier: issue.identifier,
-            }),
+            assignedBranch: expectedAssignedBranch,
             baseBranch,
           }
         );
@@ -3227,6 +3229,11 @@ export class OrchestratorService {
       if (!assignedBranch) {
         throw new Error(
           `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
+        );
+      }
+      if (assignedBranch !== expectedAssignedBranch) {
+        throw new Error(
+          `Cannot launch worker for ${issue.identifier}: expected assigned branch ${JSON.stringify(expectedAssignedBranch)}, but after_create populated ${JSON.stringify(assignedBranch)}.`
         );
       }
     } catch (error) {
@@ -5023,7 +5030,7 @@ export class OrchestratorService {
             "Repository WORKFLOW.md could not be loaded.",
         };
       } else {
-        const hookEnv = this.buildProjectExecutionEnv(tenant, {
+        const projectHookEnv = this.buildProjectExecutionEnv(tenant, {
           ...buildHookEnv(context),
           SYMPHONY_REPOSITORY_CLONE_URL: sanitizeRepositoryCloneUrl(
             repository.cloneUrl
@@ -5037,6 +5044,19 @@ export class OrchestratorService {
             ? { SYMPHONY_BASE_BRANCH: context.baseBranch }
             : {}),
         });
+        const hostHookEnv =
+          kind === "after_create"
+            ? buildHostGitEnvironment({
+                ...this.resolveProjectEnvironment(tenant),
+                ...projectHookEnv,
+              })
+            : projectHookEnv;
+        const hookEnv = Object.fromEntries(
+          Object.entries(hostHookEnv).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[1] === "string"
+          )
+        );
         const configuredHookCommand = resolveHookCommand(
           workflowResolution.workflow.hooks,
           kind
@@ -5087,10 +5107,28 @@ export class OrchestratorService {
           trusted,
           envAllowlist:
             hookCommand && trusted
-              ? parseWorkflowHookEnvAllowlist(
-                  hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
-                  hookEnv
-                )
+              ? [
+                  ...parseWorkflowHookEnvAllowlist(
+                    hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
+                    hookEnv
+                  ),
+                  ...(kind === "after_create"
+                    ? Object.keys(hookEnv).filter(
+                        (name) =>
+                          name === "GITHUB_GRAPHQL_TOKEN" ||
+                          name === "GITHUB_TOKEN_BROKER_URL" ||
+                          name === "GITHUB_TOKEN_BROKER_SECRET" ||
+                          name === "GITHUB_TOKEN_CACHE_PATH" ||
+                          name === "GITHUB_TOKEN_BROKER_TIMEOUT_MS" ||
+                          name === "GITHUB_GIT_HOST" ||
+                          name === "GITHUB_GIT_USERNAME" ||
+                          name === "GIT_CONFIG_COUNT" ||
+                          name === "GIT_TERMINAL_PROMPT" ||
+                          name.startsWith("GIT_CONFIG_KEY_") ||
+                          name.startsWith("GIT_CONFIG_VALUE_")
+                      )
+                    : []),
+                ]
               : [],
           timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
         });

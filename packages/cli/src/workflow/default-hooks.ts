@@ -3,6 +3,14 @@ export const DEFAULT_AFTER_CREATE_HOOK_LABEL = "Workspace population hook";
 export const DEFAULT_AFTER_CREATE_HOOK_COMMENT =
   "clones the repository and checks out the issue branch; customize as needed";
 
+export const LEGACY_NOOP_AFTER_CREATE_HOOK_CONTENT = `#!/usr/bin/env bash
+set -euo pipefail
+
+# Customize this hook to prepare a freshly created workspace.
+# This scaffold is intentionally a no-op so generated workflows run cleanly.
+exit 0
+`;
+
 export const DEFAULT_AFTER_CREATE_HOOK_CONTENT = `#!/usr/bin/env bash
 set -euo pipefail
 

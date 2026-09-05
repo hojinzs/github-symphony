@@ -16281,6 +16281,154 @@ Test hook failure.
     ]);
   });
 
+  it("passes host Git credential plumbing only to after_create population", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-after-create-git-auth-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+hooks:
+  after_create: hooks/authenticated-clone.sh
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 1
+codex:
+  command: codex app-server
+---
+Exercise authenticated population.
+`,
+      }
+    );
+    await writeFile(
+      join(repository.path, "hooks", "authenticated-clone.sh"),
+      '#!/usr/bin/env bash\nset -euo pipefail\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\nprintf "%s\\n%s\\n" "$GIT_CONFIG_KEY_0" "$GITHUB_GRAPHQL_TOKEN" > "$SYMPHONY_REPOSITORY_PATH/.git-auth-env"\n',
+      "utf8"
+    );
+    await chmod(
+      join(repository.path, "hooks", "authenticated-clone.sh"),
+      0o755
+    );
+    execSync(`git -C ${shell(repository.path)} add hooks`, { stdio: "ignore" });
+    execSync(`git -C ${shell(repository.path)} commit -m authenticated-hook`, {
+      stdio: "ignore",
+    });
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 4314, unref: vi.fn() }) as never,
+    });
+
+    await service.runOnce();
+
+    const record = (
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    )[0];
+    const repositoryPath = join(
+      resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        record?.workspaceKey ?? ""
+      ),
+      "repository"
+    );
+    await expect(
+      readFile(join(repositoryPath, ".git-auth-env"), "utf8")
+    ).resolves.toBe("credential.helper\ntest-token\n");
+  });
+
+  it("rejects a populated workspace checked out on the wrong branch", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-after-create-wrong-branch-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+hooks:
+  after_create: hooks/wrong-branch.sh
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 1
+codex:
+  command: codex app-server
+---
+Reject the wrong branch.
+`,
+      }
+    );
+    await writeFile(
+      join(repository.path, "hooks", "wrong-branch.sh"),
+      '#!/usr/bin/env bash\nset -euo pipefail\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\n',
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "wrong-branch.sh"), 0o755);
+    execSync(`git -C ${shell(repository.path)} add hooks`, { stdio: "ignore" });
+    execSync(`git -C ${shell(repository.path)} commit -m wrong-branch-hook`, {
+      stdio: "ignore",
+    });
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
+    const spawnImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        state: "retry_queued",
+        retryEntry: expect.objectContaining({
+          error: expect.stringContaining("expected assigned branch"),
+        }),
+      }),
+    ]);
+  });
+
   it("runs after_create only for a new workspace and before_run for retries", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
