@@ -1008,9 +1008,11 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.retryQueue).toHaveLength(0);
   });
 
-  it("passes through processId, turnCount, startedAt, lastEvent, lastEventAt, tokenUsage to activeRuns", () => {
+  it("passes through processId, environmentDigest, turnCount, startedAt, lastEvent, lastEventAt, tokenUsage to activeRuns", () => {
     const run = mockRun({
       runId: "run-live-001",
+      environmentDigest:
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       issueId: "issue-live-001",
       processId: 54321,
       turnCount: 5,
@@ -1036,6 +1038,9 @@ describe("buildProjectSnapshot", () => {
 
     expect(snapshot.activeRuns).toHaveLength(1);
     expect(snapshot.activeRuns[0].processId).toBe(54321);
+    expect(snapshot.activeRuns[0].environmentDigest).toBe(
+      "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
     expect(snapshot.activeRuns[0].turnCount).toBe(5);
     expect(snapshot.activeRuns[0].startedAt).toBe("2024-01-01T00:01:00Z");
     expect(snapshot.activeRuns[0].lastEvent).toBe("Analyzing code structure");
@@ -1048,6 +1053,20 @@ describe("buildProjectSnapshot", () => {
       1200
     );
     expect(snapshot.activeRuns[0].tokenUsage?.cumulativeTotalTokens).toBe(3700);
+  });
+
+  it("normalizes an absent environment digest to null", () => {
+    const input: SnapshotInput = {
+      project: mockProject(),
+      activeRuns: [mockRun({ environmentDigest: undefined })],
+      summary: { dispatched: 1, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    };
+
+    const snapshot = buildProjectSnapshot(input);
+
+    expect(snapshot.activeRuns[0].environmentDigest).toBeNull();
   });
 
   it("annotates active run token usage with cumulative issue totals", () => {

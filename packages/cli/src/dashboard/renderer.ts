@@ -100,6 +100,29 @@ function compactSessionId(id: string | null | undefined): string {
   return `${id.slice(0, 4)}...${id.slice(-6)}`;
 }
 
+function wrapProjectEnvironmentDigest(digest: string, width: number): string[] {
+  const indent = "    ";
+  const label = "Project environment:";
+  const prefix = `${indent}${label} `;
+  if (prefix.length + digest.length <= width) return [`${prefix}${digest}`];
+
+  const lines: string[] = [];
+  const firstChunkLength = Math.max(0, width - prefix.length);
+  let offset = firstChunkLength;
+  lines.push(
+    firstChunkLength > 0
+      ? `${prefix}${digest.slice(0, firstChunkLength)}`
+      : `${indent}${label}`
+  );
+
+  const continuationWidth = Math.max(1, width - indent.length);
+  while (offset < digest.length) {
+    lines.push(`${indent}${digest.slice(offset, offset + continuationWidth)}`);
+    offset += continuationWidth;
+  }
+  return lines;
+}
+
 function fmtTokens(n: number): string {
   return n.toLocaleString("en-US");
 }
@@ -352,6 +375,11 @@ export function renderDashboard(
       for (const rawRun of snap.activeRuns) {
         const run = rawRun as ActiveRunView;
         lines.push(activeRunRow(run, now, evtWidth, c));
+        if (run.environmentDigest) {
+          lines.push(
+            ...wrapProjectEnvironmentDigest(run.environmentDigest, width)
+          );
+        }
       }
     }
     lines.push("");

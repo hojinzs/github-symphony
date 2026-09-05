@@ -87,6 +87,9 @@ the tracker adapter:
   snapshots that file after workspace hooks and uses the same snapshot for
   worker credential resolution, the missing-credential diagnostic, worker
   spawn, and a value-free persisted environment digest.
+- `packages/core/src/observability/snapshot-builder.ts` copies that opaque
+  project-environment digest into active-run status contracts, and the CLI
+  status renderers label it without exposing environment names or values.
 
 ### 3. Coordination — the orchestrator
 
