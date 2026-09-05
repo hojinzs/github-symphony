@@ -17456,10 +17456,10 @@ Prefer focused changes.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
-  it("recovers an empty repository directory left by an interrupted creator", async () => {
+  it("recovers a partial git checkout left by an interrupted creator", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-empty-population-recovery-")
+      join(tmpdir(), "orchestrator-partial-population-recovery-")
     );
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -17485,7 +17485,12 @@ Prefer focused changes.
       store.projectDir(projectConfig.projectId),
       workspaceKey
     );
-    await mkdir(join(workspacePath, "repository"), { recursive: true });
+    const partialGitDirectory = join(workspacePath, "repository", ".git");
+    await mkdir(partialGitDirectory, { recursive: true });
+    await writeFile(
+      join(partialGitDirectory, "HEAD"),
+      "ref: refs/heads/main\n"
+    );
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 4308, unref: vi.fn() });
     const service = new OrchestratorService(store, projectConfig, {
@@ -17499,6 +17504,9 @@ Prefer focused changes.
     await expect(
       gitModule.readGitCurrentBranch(join(workspacePath, "repository"))
     ).resolves.toBe("symphony/tenant-1/acme-platform-1");
+    await expect(
+      readFile(join(workspacePath, "repository", "WORKFLOW.md"), "utf8")
+    ).resolves.toContain("tracker:");
   });
 
   it("passes issue workspace root to after_run hook environment", async () => {

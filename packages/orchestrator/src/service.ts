@@ -1,11 +1,4 @@
-import {
-  access,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
@@ -3206,17 +3199,24 @@ export class OrchestratorService {
         projectSlug: tenant.slug,
         issueIdentifier: issue.identifier,
       });
-      const repositoryWasEmpty =
-        !createdNow && (await readdir(repositoryDirectory)).length === 0;
-      const needsPopulation = createdNow || repositoryWasEmpty;
+      const existingRepositoryBranch = createdNow
+        ? null
+        : await readGitCurrentBranch(repositoryDirectory);
+      const needsPopulation =
+        createdNow ||
+        (!existingWorkspaceAtConfiguredRoot &&
+          existingRepositoryBranch !== expectedAssignedBranch);
       populationWasFresh = needsPopulation;
       // Run after_create when this process created the directory or a prior
-      // creator left behind an empty repository directory.
-      // An empty repository left by an interrupted creator is also fresh: it
-      // has no checkout or user work to preserve and must be allowed to
-      // converge on a later tick. Non-empty reused workspaces never enter the
-      // population or cleanup path.
+      // creator left behind an unusable checkout before a workspace record
+      // could be saved. Interrupted clones commonly leave a non-empty partial
+      // .git directory, so directory emptiness is not a sufficient signal.
+      // Recorded reused workspaces never enter the population or cleanup path.
       if (needsPopulation) {
+        if (!createdNow) {
+          await rm(repositoryDirectory, { recursive: true, force: true });
+          await mkdir(repositoryDirectory, { recursive: true, mode: 0o700 });
+        }
         const baseBranch =
           pullRequestBranch?.headRefName ??
           (isRecord(repositoryExtension)
