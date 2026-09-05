@@ -1,5 +1,39 @@
 # @gh-symphony/cli
 
+## 2.0.0
+
+### Major Changes
+
+- [#860](https://github.com/hojinzs/github-symphony/pull/860) [`03192ae`](https://github.com/hojinzs/github-symphony/commit/03192aed03de4da1b14646e6f86bcedb15abf6f0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Remove repo-embedded orchestration and the configurable clone population strategy, leaving standalone projects with worktree-backed issue workspaces while continuing to load legacy project state with removed fields ignored ([#850](https://github.com/hojinzs/github-symphony/issues/850)).
+
+- [#858](https://github.com/hojinzs/github-symphony/pull/858) [`0944059`](https://github.com/hojinzs/github-symphony/commit/0944059a352b07cd1c6ed1698b7e29434f855c3d) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Retire the `repo` command surface in favor of explicit `project start --project-dir <path>` orchestration, including safe daemon respawn and legacy daemon stopping ([#849](https://github.com/hojinzs/github-symphony/issues/849)).
+
+### Patch Changes
+
+- [#835](https://github.com/hojinzs/github-symphony/pull/835) [`2f89d56`](https://github.com/hojinzs/github-symphony/commit/2f89d566ae7e90ee6d887dba6fd9126d88f36cea) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Bound Codex runtime git credential token-broker requests so a hung broker fails with an attributable timeout instead of blocking git indefinitely ([#833](https://github.com/hojinzs/github-symphony/issues/833)).
+
+- [#819](https://github.com/hojinzs/github-symphony/pull/819) [`310862d`](https://github.com/hojinzs/github-symphony/commit/310862d378a29503d36ad5218f8622c46a68c845) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Deduplicate unchanged retry capacity-postponement events so saturated reservations retain one operator-visible signal without growing the event log on every reconciliation poll ([#806](https://github.com/hojinzs/github-symphony/issues/806)).
+
+- [#842](https://github.com/hojinzs/github-symphony/pull/842) [`dd6eb0b`](https://github.com/hojinzs/github-symphony/commit/dd6eb0b3fc72887379b4a50e537934943c1753c9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fail GitHub and Linear workers before agent launch when their effective tracker credential is missing, expose skipped dispatches and remediation in status warnings, and make `doctor` validate the selected tenant's worker GitHub credential for [#813](https://github.com/hojinzs/github-symphony/issues/813).
+
+- [#863](https://github.com/hojinzs/github-symphony/pull/863) [`dba57b9`](https://github.com/hojinzs/github-symphony/commit/dba57b9af83bb2413a1233eb78e9b15d104403e8) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Resolve each worker's project environment after workspace hooks so same-run `.env` refreshes, credential checks, and the comparable project-environment digest stay consistent ([#834](https://github.com/hojinzs/github-symphony/issues/834)).
+
+- [#837](https://github.com/hojinzs/github-symphony/pull/837) [`19c29db`](https://github.com/hojinzs/github-symphony/commit/19c29dbb3ef0229c1ac47b3105eb33db1ad3b4d6) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prevent repository-root `.env` files from leaking into worker processes by launching workers from their run-scoped directory and limiting managed environment loading to the configured project source ([#810](https://github.com/hojinzs/github-symphony/issues/810)).
+
+- [#845](https://github.com/hojinzs/github-symphony/pull/845) [`ed7b344`](https://github.com/hojinzs/github-symphony/commit/ed7b344bd2a2dbd26510ed9e7d295a6c6eb30398) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Let agents publish their assigned branch through the authenticated worker host before exit, while retaining fast-forward protection and abnormal-exit publication as a backstop ([#826](https://github.com/hojinzs/github-symphony/issues/826)).
+
+- [#854](https://github.com/hojinzs/github-symphony/pull/854) [`530213c`](https://github.com/hojinzs/github-symphony/commit/530213c07eeb68923aa5f506deea15554274bcc9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Forward the assigned branch and non-secret Symphony issue and repository context consistently to Codex, Claude, and custom agent children. Compatibility-mode custom runtimes now also strip inherited tracker and broker credentials; configure a dedicated runtime authentication variable instead ([#812](https://github.com/hojinzs/github-symphony/issues/812)).
+
+- [#862](https://github.com/hojinzs/github-symphony/pull/862) [`33cdf2e`](https://github.com/hojinzs/github-symphony/commit/33cdf2eabdba3a84b79dbe92f94c386edb2df9e6) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Remove the obsolete repository-root environment doctor check now that projects are folder-addressed, and document the `project start --project-dir <path>` migration for [#851](https://github.com/hojinzs/github-symphony/issues/851).
+
+- [#855](https://github.com/hojinzs/github-symphony/pull/855) [`d75d4c5`](https://github.com/hojinzs/github-symphony/commit/d75d4c57a9c25e7eaada11d7ece69246341f062a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Remove the unused duplicate Claude Git credential helper while retaining the shared authenticated worker transport ([#839](https://github.com/hojinzs/github-symphony/issues/839)).
+
+- [#827](https://github.com/hojinzs/github-symphony/pull/827) [`eedb876`](https://github.com/hojinzs/github-symphony/commit/eedb8765f0355c04b151a98b5463dd5e129dcbc5) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Inject tenant-scoped tracker credentials into worker host operations while preserving agent-child secret isolation, including broker URLs and token-cache paths, and document atomic Linear credential scope precedence ([#809](https://github.com/hojinzs/github-symphony/issues/809)).
+
+- [#856](https://github.com/hojinzs/github-symphony/pull/856) [`f51cd3e`](https://github.com/hojinzs/github-symphony/commit/f51cd3ea89b818c55a9d25cdc6998b4587f8ccc7) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Stage host Docker CLI plugins into isolated Codex and Claude child homes without exposing Docker registry credentials, so worker agents can resolve user-level Compose installations ([#825](https://github.com/hojinzs/github-symphony/issues/825)).
+
+- [#820](https://github.com/hojinzs/github-symphony/pull/820) [`af7585b`](https://github.com/hojinzs/github-symphony/commit/af7585b2b33582388ada9efec15c1d0eac573d80) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Verify a live orchestrator owner's project-lock process identity before protecting persisted runs, preventing PID reuse from preserving stale ownership ([#647](https://github.com/hojinzs/github-symphony/issues/647)).
+
 ## 1.1.0
 
 ### Minor Changes
