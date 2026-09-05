@@ -20,8 +20,6 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
   [36mproject stop[0m                Stop the standalone project orchestrator
 
 [33m[1mMaintenance:[0m[0m
-  [36mcache status[0m                Inspect the global bare repository cache
-  [36mcache prune[0m                 Remove old caches without locks or linked worktrees
   [36mupgrade[0m                     Upgrade the CLI to the latest published version
   [36mcompletion <shell>[0m          Print shell completion (bash/zsh/fish)
   [36mversion[0m                     Show version
@@ -58,8 +56,6 @@ Orchestration (standalone project):
   project stop                Stop the standalone project orchestrator
 
 Maintenance:
-  cache status                Inspect the global bare repository cache
-  cache prune                 Remove old caches without locks or linked worktrees
   upgrade                     Upgrade the CLI to the latest published version
   completion <shell>          Print shell completion (bash/zsh/fish)
   version                     Show version

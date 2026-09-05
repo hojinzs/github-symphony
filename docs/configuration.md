@@ -274,37 +274,28 @@ The cached `projectDir` is always absolute; persisted relative values are
 rejected instead of being resolved against the daemon working directory. Issue workspaces are
 created under the project's `workspace.root` (spec 9.1), resolved relative to
 the project folder and defaulting to `<project-dir>/.runtime/workspaces`; the
-directory is created with mode `0700` when it does not exist. Populated issue
-workspaces live at `<workspace.root>/<sanitized-issue-identifier>`. Each issue is
-populated from the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git`
-using a worktree. Branches default to
-`symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
-one repository without branch collisions. The project `.env` is loaded first
+directory is created with mode `0700` when it does not exist. Issue workspaces
+live at `<workspace.root>/<sanitized-issue-identifier>`. For a fresh workspace,
+the orchestrator creates its `repository` directory and invokes `after_create`;
+the generated default hook clones the configured target and checks out
+`symphony/<project-slug>/<sanitized-issue-id>` (or the configured branch
+template). Repository population and synchronization are hook policy, not
+orchestrator behavior. The project `.env` is loaded first
 for project hooks and workers, then host process values override it; keep it
 mode `0600` and do not commit it. Workflow reload caching compares a SHA-256
 digest of the effective environment so project and host secret values are not
-retained in plaintext cache metadata. An explicit `--config <dir>` is exported to
-`GH_SYMPHONY_CONFIG_DIR` for the process, so the bare cache and spawned workers
-use the same directory as the rest of the CLI state. The cache is keyed by
-`<owner>/<name>`; when a project's clone URL changes, the cache re-points
-`origin` and refetches on the next populate.
-Cache operations heartbeat their repository lock once per minute so a healthy
-large clone or fetch is not treated as stale. If the cache directory is
-unavailable or its lock times out, workspace creation uses an isolated direct
-clone. `gh-symphony cache status` inventories cache size and safety state;
-`gh-symphony cache prune` applies an operator-triggered 30-day default age
-policy and skips locked caches, linked worktrees, and unverifiable entries.
+retained in plaintext cache metadata. An explicit `--config <dir>` is exported
+to `GH_SYMPHONY_CONFIG_DIR` for the process so spawned workers use the same
+directory as the rest of the CLI state.
 
 Changing `workspace.root` emits a `workspace-root-relocated` event and a stderr
 warning naming the previous and new paths before replacing the workspace
 record; inspect the previous path for work to recover or delete.
 
-When a project targets a repository that also commits its own
-`WORKFLOW.md`, the status surface reports a shadow warning naming the
-repository. The repository file is never executed — only the project-folder
-policy is. The check reads the shared bare cache rather than the working
-directory, so it reflects the repository as of the cache's last fetch and
-catches up on the next issue populate.
+When a local project targets a repository that also commits its own
+`WORKFLOW.md`, the status surface reports a shadow warning naming the repository.
+For a remote-only target, the orchestrator does not clone merely to inspect a
+possibly shadowed workflow; only the explicit project-folder policy is loaded.
 
 ## Workflow Lifecycle Phases
 
@@ -664,16 +655,31 @@ configured for the coding agent remains separate from this context allowlist.
 Workspace hooks receive the merged project/process environment plus these
 context variables:
 
-| Variable                       | Default                  | Read by | Audience          | Notes                                   |
-| ------------------------------ | ------------------------ | ------- | ----------------- | --------------------------------------- |
-| `SYMPHONY_PROJECT_ID`          | active project ID        | Hooks   | Internal/injected | Orchestrator project ID.                |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY` | workspace key            | Hooks   | Internal/injected | Stable workspace key for the issue.     |
-| `SYMPHONY_ISSUE_SUBJECT_ID`    | tracker subject ID       | Hooks   | Internal/injected | Tracker-specific subject ID.            |
-| `SYMPHONY_ISSUE_IDENTIFIER`    | issue identifier         | Hooks   | Internal/injected | Example: `acme/platform#42`.            |
-| `SYMPHONY_WORKSPACE_PATH`      | issue workspace root     | Hooks   | Internal/injected | Absolute path to the issue workspace.   |
-| `SYMPHONY_REPOSITORY_PATH`     | repository checkout path | Hooks   | Internal/injected | Absolute path to the cloned repository. |
-| `SYMPHONY_RUN_ID`              | current run ID           | Hooks   | Internal/injected | Absent for `after_create`.              |
-| `SYMPHONY_ISSUE_STATE`         | tracker state            | Hooks   | Internal/injected | Absent for `after_create`.              |
+| Variable                        | Default                  | Read by | Audience          | Notes                                       |
+| ------------------------------- | ------------------------ | ------- | ----------------- | ------------------------------------------- |
+| `SYMPHONY_PROJECT_ID`           | active project ID        | Hooks   | Internal/injected | Orchestrator project ID.                    |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY`  | workspace key            | Hooks   | Internal/injected | Stable workspace key for the issue.         |
+| `SYMPHONY_ISSUE_SUBJECT_ID`     | tracker subject ID       | Hooks   | Internal/injected | Tracker-specific subject ID.                |
+| `SYMPHONY_ISSUE_IDENTIFIER`     | issue identifier         | Hooks   | Internal/injected | Example: `acme/platform#42`.                |
+| `SYMPHONY_WORKSPACE_PATH`       | issue workspace root     | Hooks   | Internal/injected | Absolute path to the issue workspace.       |
+| `SYMPHONY_REPOSITORY_PATH`      | repository checkout path | Hooks   | Internal/injected | Absolute path to the cloned repository.     |
+| `SYMPHONY_REPOSITORY_CLONE_URL` | target clone URL         | Hooks   | Internal/injected | Repository source used by population hooks. |
+| `SYMPHONY_REPOSITORY_OWNER`     | target owner             | Hooks   | Internal/injected | Repository owner.                           |
+| `SYMPHONY_REPOSITORY_NAME`      | target name              | Hooks   | Internal/injected | Repository name.                            |
+| `SYMPHONY_ASSIGNED_BRANCH`      | issue branch             | Hooks   | Internal/injected | Present for fresh `after_create`.           |
+| `SYMPHONY_BASE_BRANCH`          | checkout base            | Hooks   | Internal/injected | Optional configured or PR base ref.         |
+| `SYMPHONY_RUN_ID`               | current run ID           | Hooks   | Internal/injected | Absent for `after_create`.                  |
+| `SYMPHONY_ISSUE_STATE`          | tracker state            | Hooks   | Internal/injected | Absent for `after_create`.                  |
+
+An approved `after_create` hook additionally receives the host Git credential
+helper variables needed to clone private repositories, including the GitHub
+token consumed by that helper. Token-broker minting credentials are not
+exposed. This credential-bearing environment is supplied only to the trusted
+population hook; the shipped script removes the token before dependency
+installation and build, and these values remain excluded from `before_run`,
+`after_run`, `before_remove`, and coding-agent children.
+After the hook succeeds, the orchestrator rejects the workspace unless its
+current branch equals `SYMPHONY_ASSIGNED_BRANCH`.
 
 ## GitHub Tracker Transition Extension
 

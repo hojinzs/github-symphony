@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -10,7 +10,9 @@ import { OrchestratorService } from "./service.js";
 describe("headless orchestration verification", () => {
   it("runs headlessly from the CLI and exposes status for optional extensions", async () => {
     const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
+    const originalAllowHooks = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
 
     try {
       const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-headless-"));
@@ -87,6 +89,11 @@ describe("headless orchestration verification", () => {
       } else {
         process.env.GITHUB_GRAPHQL_TOKEN = originalToken;
       }
+      if (originalAllowHooks === undefined) {
+        delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+      } else {
+        process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = originalAllowHooks;
+      }
     }
   });
 });
@@ -140,9 +147,19 @@ Prefer focused changes.
 `,
     "utf8"
   );
-  execSync(`git -C ${shell(repositoryRoot)} add WORKFLOW.md`, {
-    stdio: "ignore",
-  });
+  await mkdir(join(repositoryRoot, "hooks"), { recursive: true });
+  await writeFile(
+    join(repositoryRoot, "hooks", "after_create.sh"),
+    '#!/usr/bin/env bash\nset -euo pipefail\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\n',
+    "utf8"
+  );
+  await chmod(join(repositoryRoot, "hooks", "after_create.sh"), 0o755);
+  execSync(
+    `git -C ${shell(repositoryRoot)} add WORKFLOW.md hooks/after_create.sh`,
+    {
+      stdio: "ignore",
+    }
+  );
   execSync(`git -C ${shell(repositoryRoot)} commit -m init`, {
     stdio: "ignore",
   });

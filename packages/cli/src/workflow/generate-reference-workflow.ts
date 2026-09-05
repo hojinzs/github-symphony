@@ -136,7 +136,7 @@ export function generateReferenceWorkflow(
   lines.push("  before_run: null");
   lines.push("  after_run: null");
   lines.push("  before_remove: null");
-  lines.push("  timeout_ms: 60000");
+  lines.push("  timeout_ms: 600000");
   lines.push("");
 
   lines.push("agent:");

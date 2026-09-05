@@ -3,7 +3,7 @@ import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { createHash } from "node:crypto";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
@@ -68,6 +68,7 @@ import {
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import {
+  buildHostGitEnvironment,
   trySynchronizeAssignedBranch,
   type GitTransportAttempt,
 } from "@gh-symphony/worker/git-transport";
@@ -78,11 +79,10 @@ import {
   loadRepositoryWorkflow,
   quarantineIssueWorkspace,
   readGitCurrentBranch,
-  removeIssueWorkspaceWorktree,
-  runGitCommand,
+  renderIssueBranchName,
 } from "./git.js";
-import { globalBareRepositoryDirectory } from "./repository-cache.js";
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
+import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import {
   getProcessStartIdentity,
@@ -148,6 +148,11 @@ function isSuccessfulHookResult(result: HookResult): boolean {
 }
 
 function formatFatalHookError(result: HookResult): string {
+  if (result.kind === "after_create" && result.outcome === "skipped") {
+    return result.error
+      ? `after_create hook skipped: ${result.error}`
+      : 'after_create hook skipped: configure "hooks.after_create" to populate fresh workspaces';
+  }
   return `${result.kind} hook ${result.outcome}: ${result.error ?? "unknown hook failure"}`;
 }
 
@@ -438,6 +443,7 @@ export class OrchestratorService {
     string,
     WorkflowResolution
   >();
+  private readonly workflowHookBaseDirectories = new Map<string, string>();
   private readonly lastTrackerRateLimitsByProject = new Map<
     string,
     Record<string, unknown>
@@ -3016,15 +3022,7 @@ export class OrchestratorService {
       }
     }
 
-    // A remote repository is never checked out to resolve policy in standalone
-    // mode, and the working directory the operator happened to start from is
-    // not the repository. The shared bare cache is the only copy of the
-    // repository on this host, so read the committed file from there.
-    return (await this.repositoryCacheContainsWorkflow(tenant.repository))
-      ? [
-          `${workflowSourceLabel} ${tenant.workflowSource.path} shadows WORKFLOW.md committed to ${tenant.repository.owner}/${tenant.repository.name}.`,
-        ]
-      : [];
+    return [];
   }
 
   private resolveLocalRepositoryDirectory(
@@ -3033,32 +3031,6 @@ export class OrchestratorService {
     return (
       repository.path ?? this.resolveLocalCloneUrlPath(repository.cloneUrl)
     );
-  }
-
-  private async repositoryCacheContainsWorkflow(
-    repository: RepositoryRef
-  ): Promise<boolean> {
-    let bareDirectory: string;
-    try {
-      bareDirectory = globalBareRepositoryDirectory({ repository });
-    } catch {
-      return false;
-    }
-
-    try {
-      // Reads the default branch of the cache populate already maintains; no
-      // fetch and no cache lock, so a status tick never contends with a run.
-      await runGitCommand([
-        "-C",
-        bareDirectory,
-        "cat-file",
-        "-e",
-        "origin/HEAD:WORKFLOW.md",
-      ]);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   private async startRun(
@@ -3189,13 +3161,6 @@ export class OrchestratorService {
         workflowForPopulate.validationError ?? "Invalid repository WORKFLOW.md"
       );
     }
-    const repositoryExtension = workflowForPopulate.workflow.repository;
-    const branchTemplate = isRecord(repositoryExtension)
-      ? readOptionalStringValue(repositoryExtension.branch_template)
-      : null;
-    const baseBranch = isRecord(repositoryExtension)
-      ? readOptionalStringValue(repositoryExtension.base_branch)
-      : null;
     // An external workspace root lives outside the 0700 state directory, so
     // create it with the same restricted mode. `mkdir` leaves the permissions
     // of a directory the operator already created untouched.
@@ -3214,54 +3179,82 @@ export class OrchestratorService {
       repository: issue.repository,
       issueWorkspacePath,
       existingWorkspace: !createdNow && !workspaceQuarantined,
-      pullRequestBranch,
-      projectSlug: tenant.slug,
-      issueIdentifier: issue.identifier,
-      branchTemplate,
-      baseBranch,
-      onCacheUnavailable: (error) => {
-        this.writeStderr(
-          `[orchestrator] repository cache unavailable for ${issue.identifier}; using direct clone: ${error.message}`
-        );
-      },
     });
-    const agentCommand = resolveWorkflowRuntimeCommand(
-      workflowForPopulate.workflow
-    );
-    await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
-    const assignedBranch = await readGitCurrentBranch(repositoryDirectory);
-    if (!assignedBranch) {
-      throw new Error(
-        `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
-      );
-    }
 
     const shouldSaveWorkspaceRecord =
       !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;
 
-    // Run after_create only when this process actually created the directory.
-    // If it fails, remove the partial workspace so a retry creates it again
-    // rather than starting in an uninitialized directory.
-    if (createdNow) {
-      const afterCreateResult = await this.runHook(
-        "after_create",
-        tenant,
-        repositoryDirectory,
-        issue.repository,
-        {
-          projectId: tenant.projectId,
-          workspaceKey,
-          issueSubjectId,
-          issueIdentifier: issue.identifier,
-          workspacePath: issueWorkspacePath,
-          repositoryPath: repositoryDirectory,
-          eventRunId: runId,
+    const agentCommand = resolveWorkflowRuntimeCommand(
+      workflowForPopulate.workflow
+    );
+    const repositoryExtension = workflowForPopulate.workflow.repository;
+    const branchTemplate = isRecord(repositoryExtension)
+      ? readOptionalStringValue(repositoryExtension.branch_template)
+      : null;
+    let assignedBranch: string | null;
+    let populationWasFresh = createdNow;
+    try {
+      const expectedAssignedBranch = renderIssueBranchName({
+        template: branchTemplate,
+        projectSlug: tenant.slug,
+        issueIdentifier: issue.identifier,
+      });
+      const needsPopulation = createdNow || !existingWorkspaceAtConfiguredRoot;
+      populationWasFresh = needsPopulation;
+      // Run after_create when this process created the directory or a prior
+      // creator was interrupted before a workspace record could be saved.
+      // A clone may already have created the expected branch before later hook
+      // steps finish, so checkout state cannot prove population completed.
+      // Recorded reused workspaces never enter the population or cleanup path.
+      if (needsPopulation) {
+        if (!createdNow) {
+          await rm(repositoryDirectory, { recursive: true, force: true });
+          await mkdir(repositoryDirectory, { recursive: true, mode: 0o700 });
         }
-      );
-      if (!isSuccessfulHookResult(afterCreateResult)) {
-        await rm(issueWorkspacePath, { recursive: true, force: true });
-        throw new Error(formatFatalHookError(afterCreateResult));
+        const baseBranch =
+          pullRequestBranch?.headRefName ??
+          (isRecord(repositoryExtension)
+            ? readOptionalStringValue(repositoryExtension.base_branch)
+            : null);
+        const afterCreateResult = await this.runHook(
+          "after_create",
+          tenant,
+          repositoryDirectory,
+          issue.repository,
+          {
+            projectId: tenant.projectId,
+            workspaceKey,
+            issueSubjectId,
+            issueIdentifier: issue.identifier,
+            workspacePath: issueWorkspacePath,
+            repositoryPath: repositoryDirectory,
+            eventRunId: runId,
+            assignedBranch: expectedAssignedBranch,
+            baseBranch,
+          }
+        );
+        if (afterCreateResult.outcome !== "success") {
+          throw new Error(formatFatalHookError(afterCreateResult));
+        }
       }
+
+      await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
+      assignedBranch = await readGitCurrentBranch(repositoryDirectory);
+      if (!assignedBranch) {
+        throw new Error(
+          `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
+        );
+      }
+      if (needsPopulation && assignedBranch !== expectedAssignedBranch) {
+        throw new Error(
+          `Cannot launch worker for ${issue.identifier}: expected assigned branch ${JSON.stringify(expectedAssignedBranch)}, but after_create populated ${JSON.stringify(assignedBranch)}.`
+        );
+      }
+    } catch (error) {
+      if (populationWasFresh) {
+        await rm(issueWorkspacePath, { recursive: true, force: true });
+      }
+      throw error;
     }
 
     if (shouldSaveWorkspaceRecord) {
@@ -5031,6 +5024,8 @@ export class OrchestratorService {
       runId?: string;
       eventRunId?: string;
       state?: string;
+      assignedBranch?: string;
+      baseBranch?: string | null;
     },
     resolution?: ProjectWorkflowResolution
   ): Promise<HookResult> {
@@ -5049,14 +5044,65 @@ export class OrchestratorService {
             "Repository WORKFLOW.md could not be loaded.",
         };
       } else {
-        const hookEnv = this.buildProjectExecutionEnv(
-          tenant,
-          buildHookEnv(context)
+        const projectHookEnv = this.buildProjectExecutionEnv(tenant, {
+          ...buildHookEnv(context),
+          SYMPHONY_REPOSITORY_CLONE_URL: sanitizeRepositoryCloneUrl(
+            repository.cloneUrl
+          ),
+          SYMPHONY_REPOSITORY_OWNER: repository.owner,
+          SYMPHONY_REPOSITORY_NAME: repository.name,
+          ...(context.assignedBranch
+            ? { SYMPHONY_ASSIGNED_BRANCH: context.assignedBranch }
+            : {}),
+          ...(context.baseBranch
+            ? { SYMPHONY_BASE_BRANCH: context.baseBranch }
+            : {}),
+        });
+        const hostGitSourceEnv = this.resolveProjectEnvironment(tenant);
+        const hostHookEnv =
+          kind === "after_create"
+            ? {
+                ...Object.fromEntries(
+                  Object.entries(projectHookEnv).filter(
+                    ([name]) => !isHostGitCredentialSourceName(name)
+                  )
+                ),
+                ...Object.fromEntries(
+                  Object.entries(
+                    buildHostGitEnvironment({
+                      ...Object.fromEntries(
+                        Object.entries(hostGitSourceEnv).filter(([name]) =>
+                          isHostGitCredentialSourceName(name)
+                        )
+                      ),
+                    })
+                  ).filter(([name]) => isPopulationGitEnvironmentName(name))
+                ),
+              }
+            : projectHookEnv;
+        const hookEnv = Object.fromEntries(
+          Object.entries(hostHookEnv).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string"
+          )
         );
-        const hookCommand = resolveHookCommand(
+        const configuredHookCommand = resolveHookCommand(
           workflowResolution.workflow.hooks,
           kind
         );
+        const hookBaseDirectory = workflowResolution.usedLastKnownGood
+          ? this.workflowHookBaseDirectories.get(
+              this.workflowCacheKey(repository)
+            )
+          : workflowResolution.workflowPath
+            ? dirname(workflowResolution.workflowPath)
+            : null;
+        const hookCommand =
+          kind === "after_create" &&
+          configuredHookCommand &&
+          !isAbsolute(configuredHookCommand) &&
+          hookBaseDirectory
+            ? resolve(hookBaseDirectory, configuredHookCommand)
+            : configuredHookCommand;
         const trusted = isWorkflowHookExecutionAllowed(hookEnv);
         if (hookCommand) {
           this.writeStderr(
@@ -5065,16 +5111,41 @@ export class OrchestratorService {
         }
         result = await executeWorkspaceHook({
           kind,
-          hooks: workflowResolution.workflow.hooks,
+          hooks: {
+            ...workflowResolution.workflow.hooks,
+            afterCreate:
+              kind === "after_create"
+                ? hookCommand
+                : workflowResolution.workflow.hooks.afterCreate,
+            beforeRun:
+              kind === "before_run"
+                ? hookCommand
+                : workflowResolution.workflow.hooks.beforeRun,
+            afterRun:
+              kind === "after_run"
+                ? hookCommand
+                : workflowResolution.workflow.hooks.afterRun,
+            beforeRemove:
+              kind === "before_remove"
+                ? hookCommand
+                : workflowResolution.workflow.hooks.beforeRemove,
+          },
           repositoryPath: repositoryDirectory,
           env: hookEnv,
           trusted,
           envAllowlist:
             hookCommand && trusted
-              ? parseWorkflowHookEnvAllowlist(
-                  hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
-                  hookEnv
-                )
+              ? [
+                  ...parseWorkflowHookEnvAllowlist(
+                    hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
+                    hookEnv
+                  ),
+                  ...(kind === "after_create"
+                    ? Object.keys(hookEnv).filter(
+                        isPopulationGitEnvironmentName
+                      )
+                    : []),
+                ]
               : [],
           timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
         });
@@ -5812,6 +5883,12 @@ export class OrchestratorService {
         usedLastKnownGood: false,
         validationError: null,
       };
+      if (effectiveResolution.workflowPath) {
+        this.workflowHookBaseDirectories.set(
+          cacheKey,
+          dirname(effectiveResolution.workflowPath)
+        );
+      }
       let workflowPath = effectiveResolution.workflowPath;
       try {
         workflowPath =
@@ -6157,29 +6234,6 @@ export class OrchestratorService {
       workflowResolution
     );
 
-    try {
-      await removeIssueWorkspaceWorktree({
-        repository: issue.repository,
-        repositoryDirectory: workspaceRecord.repositoryPath,
-        projectSlug: tenant.slug,
-        issueIdentifier: issue.identifier,
-        onBranchCleanup: (result) => {
-          this.writeStderr(
-            `${JSON.stringify({
-              event: "cache-agent-branch-cleanup",
-              issueIdentifier: issue.identifier,
-              ...result,
-            })}\n`
-          );
-        },
-      });
-    } catch (error) {
-      const removalError = this.formatErrorMessage(error);
-      this.writeStderr(
-        `[orchestrator] failed to remove worktree for ${issue.identifier}: ${removalError}\n`
-      );
-    }
-
     // Hook failures are observable but do not block removal per spec 9.4.
     try {
       await (this.dependencies.rmImpl ?? rm)(workspaceRecord.workspacePath, {
@@ -6333,6 +6387,34 @@ export class OrchestratorService {
 
 function shouldInheritProcessEnvKey(key: string): boolean {
   return INHERITED_ENV_ALLOWLIST.has(key) || key.startsWith("LC_");
+}
+
+function isHostGitCredentialSourceName(name: string): boolean {
+  return (
+    name === "GITHUB_GRAPHQL_TOKEN" ||
+    name === "GITHUB_TOKEN_BROKER_URL" ||
+    name === "GITHUB_TOKEN_BROKER_SECRET" ||
+    name === "GITHUB_TOKEN_CACHE_PATH" ||
+    name === "GITHUB_TOKEN_BROKER_TIMEOUT_MS" ||
+    name === "GITHUB_GIT_HOST" ||
+    name === "GITHUB_GIT_USERNAME" ||
+    name === "GIT_CONFIG_COUNT" ||
+    name === "GIT_TERMINAL_PROMPT" ||
+    name.startsWith("GIT_CONFIG_KEY_") ||
+    name.startsWith("GIT_CONFIG_VALUE_")
+  );
+}
+
+function isPopulationGitEnvironmentName(name: string): boolean {
+  return (
+    name === "GITHUB_GRAPHQL_TOKEN" ||
+    name === "GITHUB_GIT_HOST" ||
+    name === "GITHUB_GIT_USERNAME" ||
+    name === "GIT_CONFIG_COUNT" ||
+    name === "GIT_TERMINAL_PROMPT" ||
+    name.startsWith("GIT_CONFIG_KEY_") ||
+    name.startsWith("GIT_CONFIG_VALUE_")
+  );
 }
 
 function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
