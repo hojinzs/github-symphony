@@ -3231,7 +3231,7 @@ export class OrchestratorService {
           `Cannot launch worker for ${issue.identifier}: assigned workspace is in detached HEAD state.`
         );
       }
-      if (assignedBranch !== expectedAssignedBranch) {
+      if (createdNow && assignedBranch !== expectedAssignedBranch) {
         throw new Error(
           `Cannot launch worker for ${issue.identifier}: expected assigned branch ${JSON.stringify(expectedAssignedBranch)}, but after_create populated ${JSON.stringify(assignedBranch)}.`
         );
@@ -5044,17 +5044,21 @@ export class OrchestratorService {
             ? { SYMPHONY_BASE_BRANCH: context.baseBranch }
             : {}),
         });
+        const hostGitSourceEnv = this.resolveProjectEnvironment(tenant);
         const hostHookEnv =
           kind === "after_create"
             ? buildHostGitEnvironment({
-                ...this.resolveProjectEnvironment(tenant),
                 ...projectHookEnv,
+                ...Object.fromEntries(
+                  Object.entries(hostGitSourceEnv).filter(([name]) =>
+                    isHostGitEnvironmentName(name)
+                  )
+                ),
               })
             : projectHookEnv;
         const hookEnv = Object.fromEntries(
           Object.entries(hostHookEnv).filter(
-            (entry): entry is [string, string] =>
-              typeof entry[1] === "string"
+            (entry): entry is [string, string] => typeof entry[1] === "string"
           )
         );
         const configuredHookCommand = resolveHookCommand(
@@ -5113,20 +5117,7 @@ export class OrchestratorService {
                     hookEnv
                   ),
                   ...(kind === "after_create"
-                    ? Object.keys(hookEnv).filter(
-                        (name) =>
-                          name === "GITHUB_GRAPHQL_TOKEN" ||
-                          name === "GITHUB_TOKEN_BROKER_URL" ||
-                          name === "GITHUB_TOKEN_BROKER_SECRET" ||
-                          name === "GITHUB_TOKEN_CACHE_PATH" ||
-                          name === "GITHUB_TOKEN_BROKER_TIMEOUT_MS" ||
-                          name === "GITHUB_GIT_HOST" ||
-                          name === "GITHUB_GIT_USERNAME" ||
-                          name === "GIT_CONFIG_COUNT" ||
-                          name === "GIT_TERMINAL_PROMPT" ||
-                          name.startsWith("GIT_CONFIG_KEY_") ||
-                          name.startsWith("GIT_CONFIG_VALUE_")
-                      )
+                    ? Object.keys(hookEnv).filter(isHostGitEnvironmentName)
                     : []),
                 ]
               : [],
@@ -6370,6 +6361,22 @@ export class OrchestratorService {
 
 function shouldInheritProcessEnvKey(key: string): boolean {
   return INHERITED_ENV_ALLOWLIST.has(key) || key.startsWith("LC_");
+}
+
+function isHostGitEnvironmentName(name: string): boolean {
+  return (
+    name === "GITHUB_GRAPHQL_TOKEN" ||
+    name === "GITHUB_TOKEN_BROKER_URL" ||
+    name === "GITHUB_TOKEN_BROKER_SECRET" ||
+    name === "GITHUB_TOKEN_CACHE_PATH" ||
+    name === "GITHUB_TOKEN_BROKER_TIMEOUT_MS" ||
+    name === "GITHUB_GIT_HOST" ||
+    name === "GITHUB_GIT_USERNAME" ||
+    name === "GIT_CONFIG_COUNT" ||
+    name === "GIT_TERMINAL_PROMPT" ||
+    name.startsWith("GIT_CONFIG_KEY_") ||
+    name.startsWith("GIT_CONFIG_VALUE_")
+  );
 }
 
 function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
