@@ -12,7 +12,9 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 2. Dispatch the Claude worker through two turns with host-side tracker tools.
 3. Spawn the real custom-child fixture once in default mode and once with the
    documented compatibility escape hatch.
-4. Inspect the stub invocation's environment and generated MCP configuration.
+4. Dump the stub invocation's complete child environment, derive expected
+   runtime-managed assignments from the exported core contract, and inspect the
+   generated MCP configuration.
 5. Let the successful worker lifecycle authenticate to a smart-HTTP Git remote,
    then fetch and push its checked-out assigned branch through the shared Codex
    credential helper.
@@ -23,6 +25,10 @@ the worker host. It seeds a real local bare Git remote and an assigned branch.
 ## Expected
 
 - The Claude child has none of the supplied GitHub, Linear, or broker secrets.
+- Every name in the exported agent-child credential contract is injected into
+  the worker and absent from the dumped child environment; every assignment
+  from the exported host-construction contract is present with its expected
+  value, and no injected contract sentinel leaks under another name.
 - The default custom child has no supplied GitHub, Linear, tracker, or broker
   secret, while its declared custom provider credential remains available.
 - The compatibility custom child receives raw worker credentials by design, but

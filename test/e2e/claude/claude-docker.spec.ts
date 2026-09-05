@@ -10,7 +10,11 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createClaudePrintRuntimeAdapter } from "@gh-symphony/runtime-claude";
-import type { AgentEvent } from "@gh-symphony/core";
+import {
+  AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES,
+  buildAgentChildEnvironmentAssignments,
+  type AgentEvent,
+} from "@gh-symphony/core";
 import { CustomCommandWorkerRuntimeAdapter } from "../../../packages/worker/src/non-codex-runtime.js";
 
 type Invocation = {
@@ -48,6 +52,7 @@ type Invocation = {
     linearApiKey: boolean;
     linearAuthorization: boolean;
   };
+  environment: NodeJS.ProcessEnv;
 };
 
 type IssueFixture = {
@@ -213,6 +218,47 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
       "In review",
     ]);
     expect(await harness.readInvocations()).toHaveLength(1);
+  });
+
+  it("enforces the exported agent-child environment contract", async () => {
+    const injectedCredentials = Object.fromEntries(
+      AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.map((name) => [
+        name,
+        agentChildCredentialFixtureValue(name),
+      ])
+    );
+    const injectedEnvironment = {
+      ...injectedCredentials,
+      SYMPHONY_ASSIGNED_BRANCH: "symphony/e2e-child-contract",
+      SYMPHONY_ISSUE_ID: "issue-child-contract",
+      SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#872",
+      SYMPHONY_ISSUE_STATE: "In progress",
+      SYMPHONY_TRACKER_KIND: "github-project",
+      TARGET_REPOSITORY_NAME: "test-repo",
+      TARGET_REPOSITORY_OWNER: "test-owner",
+    };
+    const harness = await createHarness("success", injectedEnvironment);
+
+    await harness.runTurn("run-child-contract", {
+      messages: { type: "user", text: "Inspect the child environment." },
+    });
+
+    const invocation = (await harness.readInvocations()).at(-1);
+    const childEnvironment = invocation?.environment ?? {};
+    for (const name of AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES) {
+      expect(childEnvironment[name], name).toBeUndefined();
+    }
+    expect(childEnvironment).toMatchObject(
+      buildAgentChildEnvironmentAssignments({
+        childHome: join(harness.root, "workspace-runtime", "child-home"),
+        sources: [process.env, injectedEnvironment],
+      })
+    );
+    expect(
+      Object.values(childEnvironment).filter((value) =>
+        String(value).includes("e2e-secret")
+      )
+    ).toEqual([]);
   });
 
   it("routes worker claude-print runtime through the adapter lifecycle", async () => {
@@ -760,7 +806,24 @@ Worker prompt.
   });
 });
 
-async function createHarness(initialScenario: string) {
+function agentChildCredentialFixtureValue(name: string): string {
+  if (name.endsWith("_URL"))
+    return `https://e2e-secret-${name.toLowerCase()}.example`;
+  if (name.endsWith("_PID") || name === "GIT_CONFIG_COUNT") return "1";
+  if (name === "GIT_CONFIG_NOSYSTEM") return "true";
+  if (name === "GIT_CONFIG_KEY_0") return "credential.helper";
+  if (name === "GIT_CONFIG_VALUE_0") return "e2e-secret-helper";
+  if (name === "GITHUB_GIT_HOST") return "github.example";
+  if (name.includes("PATH") || name === "GIT_DIR" || name === "GIT_WORK_TREE") {
+    return `/tmp/e2e-secret-${name.toLowerCase()}`;
+  }
+  return `e2e-secret-${name}`;
+}
+
+async function createHarness(
+  initialScenario: string,
+  extraEnvironment: NodeJS.ProcessEnv = {}
+) {
   const root = await mkdtemp(join(tmpdir(), "claude-docker-e2e-"));
   createdRoots.push(root);
   const workspace = join(root, "workspace");
@@ -793,6 +856,7 @@ async function createHarness(initialScenario: string) {
           CLAUDE_STUB_SCENARIO: scenario,
           GITHUB_GRAPHQL_TOKEN: "stub-token",
           GITHUB_PROJECT_ID: "stub-project",
+          ...extraEnvironment,
         },
       },
       {
