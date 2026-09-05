@@ -2446,7 +2446,6 @@ export async function runDoctorDiagnostics(
           execFileSync: deps.execFileSync,
           readFile: deps.readFile,
           access: deps.access,
-          fetchImpl: deps.fetchImpl,
           platform: deps.platform,
         }
       );

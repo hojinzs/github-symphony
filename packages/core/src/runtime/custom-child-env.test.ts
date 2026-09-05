@@ -22,7 +22,6 @@ describe("buildCustomRuntimeChildEnvironment", () => {
         GITHUB_TOKEN: "github-secret",
         LINEAR_API_KEY: "linear-secret",
         GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
-        AGENT_CREDENTIAL_BROKER_SECRET: "agent-broker-secret",
         GIT_CONFIG_KEY_0: "credential.helper",
         GIT_CONFIG_VALUE_0: "store",
         SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
@@ -51,7 +50,6 @@ describe("buildCustomRuntimeChildEnvironment", () => {
       "GITHUB_TOKEN",
       "LINEAR_API_KEY",
       "GITHUB_TOKEN_BROKER_SECRET",
-      "AGENT_CREDENTIAL_BROKER_SECRET",
       "GIT_CONFIG_KEY_0",
       "GIT_CONFIG_VALUE_0",
       "TRACKER_SECRET",
@@ -155,6 +153,27 @@ describe("buildCustomRuntimeChildEnvironment", () => {
 });
 
 describe("custom runtime reserved-auth provenance", () => {
+  it.each([
+    ["an empty declaration", []],
+    ["another tracker's declaration", ["CUSTOM_TRACKER_SECRET"]],
+  ])("blocks the seven fallback names with %s", (_label, declarations) => {
+    const names = [
+      "GH_ENTERPRISE_TOKEN",
+      "GH_TOKEN",
+      "GITHUB_GRAPHQL_TOKEN",
+      "GITHUB_TOKEN",
+      "GITHUB_TOKEN_BROKER_SECRET",
+      "LINEAR_API_KEY",
+      "LINEAR_AUTHORIZATION",
+    ];
+
+    for (const name of names) {
+      expect(
+        isCustomRuntimeReservedAuthEnvironmentName(name, {}, declarations)
+      ).toBe(true);
+    }
+  });
+
   it("distinguishes an adapter declaration from fallback stripping", () => {
     expect(isCustomRuntimeReservedAuthEnvironmentName("GITHUB_TOKEN", {})).toBe(
       true

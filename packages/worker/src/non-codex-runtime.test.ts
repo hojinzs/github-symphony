@@ -176,10 +176,6 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
           SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
           GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
           GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
-          AGENT_CREDENTIAL_BROKER_URL:
-            "https://broker.example/agent-credentials",
-          AGENT_CREDENTIAL_BROKER_SECRET: "agent-broker-secret",
-          AGENT_CREDENTIAL_CACHE_PATH: "/runtime/agent-credentials.json",
           GIT_CONFIG_KEY_0: "credential.helper",
           GIT_CONFIG_VALUE_0: "!/operator/credential-helper",
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
@@ -222,9 +218,6 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
       "CUSTOM_TRACKER_SECRET",
       "GITHUB_TOKEN_BROKER_URL",
       "GITHUB_TOKEN_BROKER_SECRET",
-      "AGENT_CREDENTIAL_BROKER_URL",
-      "AGENT_CREDENTIAL_BROKER_SECRET",
-      "AGENT_CREDENTIAL_CACHE_PATH",
       "GIT_CONFIG_KEY_0",
       "GIT_CONFIG_VALUE_0",
     ]) {

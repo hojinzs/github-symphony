@@ -16,7 +16,6 @@ import {
   collectMcpSecretEnvironmentNames,
   stripCredentialEnvironmentForAgentChild,
   type AgentRuntimeAdapter,
-  type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
   type AgentRuntimeEvent,
 } from "@gh-symphony/core";
@@ -115,9 +114,6 @@ export type CodexRuntimeTurnResult = {
   plan: CodexRuntimePlan;
   child: ChildProcess;
 };
-
-export type CodexRuntimeCredentialBrokerResponse =
-  AgentRuntimeCredentialBrokerResponse;
 
 export type CodexRuntimeEvent = AgentRuntimeEvent;
 
@@ -755,12 +751,6 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
     terminateChildProcess(this.child);
     this.child = null;
     this.handlers.clear();
-  }
-
-  resolveCredentials(
-    brokerResponse: CodexRuntimeCredentialBrokerResponse
-  ): Record<string, string> {
-    return resolvePreparedAgentEnvironment(brokerResponse.env);
   }
 
   getPreparedPlan(): CodexRuntimePlan | null {
