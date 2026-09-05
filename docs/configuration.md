@@ -91,14 +91,16 @@ diverge from the upstream shell-command hook model.
 
 Hook children receive portable process variables (`HOME`, `LANG`, `LOGNAME`,
 `PATH`, `PWD`, `SHELL`, `TERM`, `TMPDIR`, `USER`, and `LC_*`) plus Symphony's
-injected `SYMPHONY_*` hook context. To expose additional variables from the
-effective project/daemon environment, set
-`SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST` to a comma-separated list of names, for
-example `STAGING_API_HOST,FILE_ONLY`. Every entry must use uppercase shell-name
-syntax (`[A-Z_][A-Z0-9_]*`) and must be defined in that effective environment.
-Hook execution fails when the list contains an empty, malformed, or unknown
-entry; names are never silently ignored. This allowlist affects hooks only and
-does not expose its entries to the coding-agent child.
+injected `SYMPHONY_*` hook context. To expose additional project variables, set
+`SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST` in the managed project `.env` to a
+comma-separated list of names, for example `STAGING_API_HOST,FILE_ONLY`, and
+define those names in the same file. A daemon-only allowlist setting or target
+variable is not a source for hook forwarding because hooks inherit only the
+portable process variables listed above from the daemon. Every entry must use
+uppercase shell-name syntax (`[A-Z_][A-Z0-9_]*`). Hook execution fails when the
+list contains an empty or malformed entry, or names a variable absent from the
+effective hook environment; names are never silently ignored. This allowlist
+affects hooks only and does not expose its entries to the coding-agent child.
 
 ## WORKFLOW.md Front-matter Validation
 
