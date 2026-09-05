@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildAgentChildEnvironmentAssignments,
   buildAgentInputRequiredReason,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   DEFAULT_LINEAR_GRAPHQL_URL,
   prepareAgentChildHome,
   readAgentCredentialCache,
@@ -655,6 +656,7 @@ export function buildCodexRuntimePlan(
 
   const removedEnvironmentNames = new Set([
     ...secretEnvironmentNames,
+    ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
     "LINEAR_GRAPHQL_URL",
   ]);
   for (const name of removedEnvironmentNames) {

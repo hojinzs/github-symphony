@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "@gh-symphony/core";
+import {
+  AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
+} from "@gh-symphony/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ClaudePrintRuntimeAdapter,
@@ -82,10 +85,10 @@ describe("ClaudePrintRuntimeAdapter", () => {
       {
         workingDirectory: "/workspace",
         env: {
-          GITHUB_TOKEN: "secret",
-          LINEAR_API_KEY: "visible",
+          TRACKER_ADAPTER_SECRET: "secret",
+          UNDECLARED_TRACKER_VALUE: "visible",
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
-            "GITHUB_TOKEN",
+            "TRACKER_ADAPTER_SECRET",
           ]),
         },
       },
@@ -104,8 +107,8 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     await adapter.spawnTurn({ messages: [] });
 
-    expect(calls[0]?.GITHUB_TOKEN).toBeUndefined();
-    expect(calls[0]?.LINEAR_API_KEY).toBe("visible");
+    expect(calls[0]?.TRACKER_ADAPTER_SECRET).toBeUndefined();
+    expect(calls[0]?.UNDECLARED_TRACKER_VALUE).toBe("visible");
   });
 
   it("strips every declared credential name at the agent-child boundary", async () => {
@@ -140,6 +143,49 @@ describe("ClaudePrintRuntimeAdapter", () => {
       expect(calls[0]?.[name], name).toBeUndefined();
     }
   });
+
+  it.each([
+    ["an empty declaration", []],
+    ["a Linear-only declaration", ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"]],
+  ])(
+    "strips every core backstop credential with %s",
+    async (_label, declaredNames) => {
+      const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+      const { child, stdout, stderr } = createStubChild();
+      const adapter = new ClaudePrintRuntimeAdapter(
+        {
+          workingDirectory: "/workspace",
+          env: {
+            ...Object.fromEntries(
+              CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.map((name) => [
+                name,
+                "secret",
+              ])
+            ),
+            SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES:
+              JSON.stringify(declaredNames),
+          },
+        },
+        {
+          spawnImpl: (_command, _args, options) => {
+            calls.push(options.env);
+            queueMicrotask(() => {
+              stdout.end();
+              stderr.end();
+              child.emit("close", 0, null);
+            });
+            return child;
+          },
+        }
+      );
+
+      await adapter.spawnTurn({ messages: [] });
+
+      for (const name of CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES) {
+        expect(calls[0]?.[name], name).toBeUndefined();
+      }
+    }
+  );
 
   it("spawns claude with default argv and merged env", async () => {
     const calls: Array<{

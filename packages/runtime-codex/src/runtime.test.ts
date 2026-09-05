@@ -9,7 +9,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "@gh-symphony/core";
+import {
+  AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
+} from "@gh-symphony/core";
 import {
   AgentRuntimeResolutionError,
   CODEX_PROTOCOL_EVENT_NAMES,
@@ -122,15 +125,15 @@ describe("buildCodexRuntimePlan", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
-      trackerSecretEnvironmentNames: ["GITHUB_TOKEN"],
+      trackerSecretEnvironmentNames: ["TRACKER_ADAPTER_SECRET"],
       extraEnv: {
-        GITHUB_TOKEN: "secret",
-        LINEAR_API_KEY: "visible",
+        TRACKER_ADAPTER_SECRET: "secret",
+        UNDECLARED_TRACKER_VALUE: "visible",
       },
     });
 
-    expect(plan.env.GITHUB_TOKEN).toBeUndefined();
-    expect(plan.env.LINEAR_API_KEY).toBe("visible");
+    expect(plan.env.TRACKER_ADAPTER_SECRET).toBeUndefined();
+    expect(plan.env.UNDECLARED_TRACKER_VALUE).toBe("visible");
   });
 
   it("strips every declared credential name at the agent-child boundary", () => {
@@ -148,6 +151,30 @@ describe("buildCodexRuntimePlan", () => {
       expect(plan.env[name], name).toBeUndefined();
     }
   });
+
+  it.each([
+    ["an empty declaration", []],
+    ["a Linear-only declaration", ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"]],
+  ])(
+    "strips every core backstop credential with %s",
+    (_label, declaredNames) => {
+      const plan = buildCodexRuntimePlan({
+        projectId: "workspace-123",
+        workingDirectory: "/tmp/workspace-123",
+        trackerSecretEnvironmentNames: declaredNames,
+        extraEnv: Object.fromEntries(
+          CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.map((name) => [
+            name,
+            "secret",
+          ])
+        ),
+      });
+
+      for (const name of CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES) {
+        expect(plan.env[name], name).toBeUndefined();
+      }
+    }
+  );
 
   it("prepares the codex app-server launch contract", () => {
     const plan = buildCodexRuntimePlan({
@@ -557,10 +584,6 @@ describe("parseAgentCommand", () => {
 
 describe("createGitCredentialHelperEnvironment", () => {
   it("classifies every injected credential name for child stripping", () => {
-    const trackerSecretEnvironmentNames = [
-      "GITHUB_GRAPHQL_TOKEN",
-      "GITHUB_TOKEN_BROKER_SECRET",
-    ];
     const injected = Object.keys(
       createGitCredentialHelperEnvironment({
         githubToken: "host-token",
@@ -581,7 +604,9 @@ describe("createGitCredentialHelperEnvironment", () => {
         AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
           name as (typeof AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES)[number]
         ) ||
-        trackerSecretEnvironmentNames.includes(name) ||
+        CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
+          name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
+        ) ||
         /^GIT_CONFIG_(KEY|VALUE)_/.test(name)
     );
 

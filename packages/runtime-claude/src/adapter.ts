@@ -16,6 +16,7 @@ import type {
 import {
   buildAgentChildEnvironmentAssignments,
   collectMcpSecretEnvironmentNames,
+  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   extractEnvForClaude,
   prepareAgentChildHome,
   stripCredentialEnvironmentForAgentChild,
@@ -718,6 +719,7 @@ function stripTrackerSecrets(
       trustRepoConfig: configEnv?.SYMPHONY_TRUST_REPO_CONFIG === "true",
       secretEnvironmentNames: declaredNames,
     }),
+    ...CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
   ]);
   for (const name of removedEnvironmentNames) {
     delete env[name];
