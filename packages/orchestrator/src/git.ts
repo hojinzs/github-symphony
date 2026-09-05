@@ -237,18 +237,6 @@ function runCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
-function createIssueWorkspacePreservedError(
-  repositoryDirectory: string,
-  reason: string
-): Error {
-  return new Error(
-    [
-      `Issue workspace repository at ${repositoryDirectory} was preserved because it ${reason}.`,
-      "Resolve or commit the local workspace changes, or run a configured recovery hook, before retrying.",
-    ].join(" ")
-  );
-}
-
 function summarizeGitStatus(status: string): string {
   const lines = status
     .trim()

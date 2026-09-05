@@ -79,7 +79,6 @@ import {
   quarantineIssueWorkspace,
   readGitCurrentBranch,
   renderIssueBranchName,
-  runGitCommand,
 } from "./git.js";
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
 import { OrchestratorFsStore } from "./fs-store.js";
