@@ -78,6 +78,10 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
         env: {
           SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
           SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#42",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "GITHUB_GRAPHQL_TOKEN",
+            "GITHUB_TOKEN_BROKER_SECRET",
+          ]),
           GITHUB_GRAPHQL_TOKEN: "tracker-secret",
           GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
         },

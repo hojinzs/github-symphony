@@ -4,6 +4,7 @@ import {
   extractEnvForCodex,
   readAgentVisibleSymphonyContext,
   readEnvFile,
+  readTrackerSecretEnvironmentNames,
 } from "@gh-symphony/core";
 import {
   launchCodexAppServer,
@@ -63,19 +64,6 @@ export function resolveLocalRuntimeLaunchConfig(
     orchestratorRunId: env.SYMPHONY_RUN_ID,
     orchestratorToken: env.SYMPHONY_ORCHESTRATOR_TOKEN,
   };
-}
-
-function readTrackerSecretEnvironmentNames(env: NodeJS.ProcessEnv): string[] {
-  try {
-    const names = JSON.parse(
-      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
-    );
-    return Array.isArray(names)
-      ? names.filter((name): name is string => typeof name === "string")
-      : [];
-  } catch {
-    return [];
-  }
 }
 
 export async function runLocalRuntimeLauncher(

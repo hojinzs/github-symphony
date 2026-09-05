@@ -12,6 +12,7 @@ import {
   buildCustomRuntimeChildEnvironment,
   extractEnvForClaude,
   prepareAgentChildHome,
+  readTrackerSecretEnvironmentNames,
   resolveAgentChildHome,
   resolveWorkflowRuntimeCommand,
   stageGitUserIdentity,
@@ -169,6 +170,9 @@ export function createWorkflowRuntimeAdapter(
         workingDirectory: context.workingDirectory,
         agentCommand: workflow.codex.command,
         extraEnv: context.env,
+        trackerSecretEnvironmentNames: readTrackerSecretEnvironmentNames(
+          context.env ?? {}
+        ),
       },
       context.codexDependencies
     );
@@ -182,6 +186,9 @@ export function createWorkflowRuntimeAdapter(
           workingDirectory: context.workingDirectory,
           agentCommand: resolveWorkflowRuntimeCommand(workflow),
           extraEnv: context.env,
+          trackerSecretEnvironmentNames: readTrackerSecretEnvironmentNames(
+            context.env ?? {}
+          ),
         },
         context.codexDependencies
       );

@@ -1576,7 +1576,7 @@ Prompt body.
     ).toThrow(/runtime\.auth\.env.*reserved/i);
   });
 
-  it("rejects other reserved custom runtime authentication names", () => {
+  it("rejects a fallback credential name without an adapter declaration", () => {
     expect(() =>
       parseWorkflowMarkdown(
         `---
@@ -1604,13 +1604,13 @@ runtime:
   kind: custom
   command: node
   auth:
-    env: TRACKER_SECRET
+    env: GITHUB_TOKEN
 ---
 Prompt body.
 `,
         {
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
-            "TRACKER_SECRET",
+            "GITHUB_TOKEN",
           ]),
         }
       )

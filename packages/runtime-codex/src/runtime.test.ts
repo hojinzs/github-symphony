@@ -152,6 +152,30 @@ describe("buildCodexRuntimePlan", () => {
     }
   });
 
+  it.each([
+    ["an empty declaration", []],
+    ["a Linear-only declaration", ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"]],
+  ])(
+    "strips every core backstop credential with %s",
+    (_label, declaredNames) => {
+      const plan = buildCodexRuntimePlan({
+        projectId: "workspace-123",
+        workingDirectory: "/tmp/workspace-123",
+        trackerSecretEnvironmentNames: declaredNames,
+        extraEnv: Object.fromEntries(
+          CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.map((name) => [
+            name,
+            "secret",
+          ])
+        ),
+      });
+
+      for (const name of CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES) {
+        expect(plan.env[name], name).toBeUndefined();
+      }
+    }
+  );
+
   it("prepares the codex app-server launch contract", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
@@ -464,6 +488,7 @@ describe("buildCodexRuntimePlan", () => {
     const nonLinearPlanWithLinearSecret = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
+      trackerSecretEnvironmentNames: ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"],
       linearApiKey: "lin_api_key",
       linearAuthorization: "Bearer lin_api_key",
       linearGraphqlUrl: "https://api.linear.app/graphql",
