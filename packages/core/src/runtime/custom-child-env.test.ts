@@ -22,6 +22,9 @@ describe("buildCustomRuntimeChildEnvironment", () => {
         GIT_CONFIG_KEY_0: "credential.helper",
         GIT_CONFIG_VALUE_0: "store",
         SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+          "GITHUB_TOKEN",
+          "GITHUB_TOKEN_BROKER_SECRET",
+          "LINEAR_API_KEY",
           "TRACKER_SECRET",
         ]),
         TRACKER_SECRET: "tracker-secret",
@@ -62,6 +65,10 @@ describe("buildCustomRuntimeChildEnvironment", () => {
         GH_CONFIG_DIR: "/operator-home/.config/gh",
         GITHUB_TOKEN: "github-secret",
         GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+        SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+          "GITHUB_TOKEN",
+          "GITHUB_TOKEN_BROKER_SECRET",
+        ]),
         SYMPHONY_ASSIGNED_BRANCH: "symphony/acme-42",
         GIT_CONFIG_KEY_0: "credential.helper",
         GIT_CONFIG_VALUE_0: "store",

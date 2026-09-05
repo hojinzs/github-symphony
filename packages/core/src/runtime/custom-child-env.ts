@@ -71,21 +71,6 @@ export const AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES = [
   "XDG_CONFIG_HOME",
 ] as const;
 
-export const CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES = [
-  "AGENT_CREDENTIAL_BROKER_URL",
-  "AGENT_CREDENTIAL_BROKER_SECRET",
-  "AGENT_CREDENTIAL_CACHE_PATH",
-  "GH_ENTERPRISE_TOKEN",
-  "GH_TOKEN",
-  "GITHUB_GRAPHQL_TOKEN",
-  "GITHUB_TOKEN",
-  "GITHUB_TOKEN_BROKER_SECRET",
-  "GITHUB_TOKEN_BROKER_URL",
-  "GITHUB_TOKEN_CACHE_PATH",
-  "LINEAR_API_KEY",
-  "LINEAR_AUTHORIZATION",
-] as const;
-
 export function isAgentChildCredentialEnvironmentName(name: string): boolean {
   return (
     AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
@@ -103,9 +88,6 @@ export function isCustomRuntimeReservedAuthEnvironmentName(
 ): boolean {
   return (
     isAgentChildCredentialEnvironmentName(name) ||
-    CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
-      name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
-    ) ||
     trackerSecretEnvironmentNames.includes(name) ||
     readTrackerSecretEnvironmentNames(environment).includes(name)
   );

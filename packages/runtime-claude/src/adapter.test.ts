@@ -82,10 +82,10 @@ describe("ClaudePrintRuntimeAdapter", () => {
       {
         workingDirectory: "/workspace",
         env: {
-          TRACKER_ADAPTER_SECRET: "secret",
-          UNDECLARED_TRACKER_VALUE: "visible",
+          GITHUB_TOKEN: "secret",
+          LINEAR_API_KEY: "visible",
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
-            "TRACKER_ADAPTER_SECRET",
+            "GITHUB_TOKEN",
           ]),
         },
       },
@@ -104,8 +104,8 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     await adapter.spawnTurn({ messages: [] });
 
-    expect(calls[0]?.TRACKER_ADAPTER_SECRET).toBeUndefined();
-    expect(calls[0]?.UNDECLARED_TRACKER_VALUE).toBe("visible");
+    expect(calls[0]?.GITHUB_TOKEN).toBeUndefined();
+    expect(calls[0]?.LINEAR_API_KEY).toBe("visible");
   });
 
   it("strips every declared credential name at the agent-child boundary", async () => {
@@ -386,6 +386,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
           GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
             "GITHUB_TOKEN",
+            "GITHUB_TOKEN_BROKER_SECRET",
           ]),
         },
       },

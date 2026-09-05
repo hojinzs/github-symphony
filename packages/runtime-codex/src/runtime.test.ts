@@ -9,10 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES,
-  CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
-} from "@gh-symphony/core";
+import { AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES } from "@gh-symphony/core";
 import {
   AgentRuntimeResolutionError,
   CODEX_PROTOCOL_EVENT_NAMES,
@@ -125,15 +122,15 @@ describe("buildCodexRuntimePlan", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
-      trackerSecretEnvironmentNames: ["TRACKER_ADAPTER_SECRET"],
+      trackerSecretEnvironmentNames: ["GITHUB_TOKEN"],
       extraEnv: {
-        TRACKER_ADAPTER_SECRET: "secret",
-        UNDECLARED_TRACKER_VALUE: "visible",
+        GITHUB_TOKEN: "secret",
+        LINEAR_API_KEY: "visible",
       },
     });
 
-    expect(plan.env.TRACKER_ADAPTER_SECRET).toBeUndefined();
-    expect(plan.env.UNDECLARED_TRACKER_VALUE).toBe("visible");
+    expect(plan.env.GITHUB_TOKEN).toBeUndefined();
+    expect(plan.env.LINEAR_API_KEY).toBe("visible");
   });
 
   it("strips every declared credential name at the agent-child boundary", () => {
@@ -464,6 +461,7 @@ describe("buildCodexRuntimePlan", () => {
     const nonLinearPlanWithLinearSecret = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
+      trackerSecretEnvironmentNames: ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"],
       linearApiKey: "lin_api_key",
       linearAuthorization: "Bearer lin_api_key",
       linearGraphqlUrl: "https://api.linear.app/graphql",
@@ -559,6 +557,10 @@ describe("parseAgentCommand", () => {
 
 describe("createGitCredentialHelperEnvironment", () => {
   it("classifies every injected credential name for child stripping", () => {
+    const trackerSecretEnvironmentNames = [
+      "GITHUB_GRAPHQL_TOKEN",
+      "GITHUB_TOKEN_BROKER_SECRET",
+    ];
     const injected = Object.keys(
       createGitCredentialHelperEnvironment({
         githubToken: "host-token",
@@ -579,9 +581,7 @@ describe("createGitCredentialHelperEnvironment", () => {
         AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.includes(
           name as (typeof AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES)[number]
         ) ||
-        CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES.includes(
-          name as (typeof CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES)[number]
-        ) ||
+        trackerSecretEnvironmentNames.includes(name) ||
         /^GIT_CONFIG_(KEY|VALUE)_/.test(name)
     );
 

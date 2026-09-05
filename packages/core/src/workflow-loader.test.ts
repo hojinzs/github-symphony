@@ -1576,7 +1576,7 @@ Prompt body.
     ).toThrow(/runtime\.auth\.env.*reserved/i);
   });
 
-  it("rejects other reserved custom runtime authentication names", () => {
+  it("allows an undeclared tracker credential name as custom runtime auth", () => {
     expect(() =>
       parseWorkflowMarkdown(
         `---
@@ -1591,7 +1591,7 @@ runtime:
 Prompt body.
 `
       )
-    ).toThrow(/runtime\.auth\.env.*reserved/i);
+    ).not.toThrow();
   });
 
   it("rejects custom runtime authentication names declared by the tracker", () => {
@@ -1604,13 +1604,13 @@ runtime:
   kind: custom
   command: node
   auth:
-    env: TRACKER_SECRET
+    env: GITHUB_TOKEN
 ---
 Prompt body.
 `,
         {
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
-            "TRACKER_SECRET",
+            "GITHUB_TOKEN",
           ]),
         }
       )
