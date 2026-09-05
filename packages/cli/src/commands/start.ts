@@ -60,12 +60,6 @@ import {
 import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
 import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
-import {
-  findLiveDuplicate,
-  registerInstance,
-  unregisterInstance,
-  type InstanceEntry,
-} from "../instances.js";
 
 function timestamp(): string {
   const now = new Date();
@@ -344,7 +338,6 @@ type ForegroundShutdownOptions = {
   httpServer?: Server;
   workerHttpServer?: Server;
   projectLock?: ProjectLockHandle | null;
-  instance?: InstanceEntry | null;
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
   releaseLock?: typeof releaseProjectLock;
@@ -362,7 +355,6 @@ function parseStartArgs(args: string[]): {
   daemon: boolean;
   once: boolean;
   assignedOnly?: boolean;
-  allowDuplicate?: boolean;
   bindAll: boolean;
   httpPort?: number;
   httpPortExplicit: boolean;
@@ -375,7 +367,6 @@ function parseStartArgs(args: string[]): {
     daemon: boolean;
     once: boolean;
     assignedOnly?: boolean;
-    allowDuplicate?: boolean;
     bindAll: boolean;
     httpPort?: number;
     httpPortExplicit: boolean;
@@ -402,10 +393,6 @@ function parseStartArgs(args: string[]): {
     }
     if (arg === "--assigned-only") {
       parsed.assignedOnly = true;
-      continue;
-    }
-    if (arg === "--allow-duplicate") {
-      parsed.allowDuplicate = true;
       continue;
     }
     if (arg === "--bind-all") {
@@ -1058,22 +1045,6 @@ const handler = async (
   }
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
-  const instanceBase = {
-    projectId,
-    repo: `${projectConfig.repository.owner}/${projectConfig.repository.name}`,
-    repoPath: resolve(projectConfig.projectDir ?? process.cwd()),
-    workspacePath: resolve(projectConfig.workspaceDir ?? process.cwd()),
-    runtimeRoot,
-    standalone: true,
-  };
-  if (!parsed.allowDuplicate) {
-    const duplicate = await findLiveDuplicate(instanceBase);
-    if (duplicate && resolve(duplicate.runtimeRoot) !== runtimeRoot) {
-      throw new Error(
-        `Project "${projectId}" is already running for ${instanceBase.repoPath} (PID ${duplicate.pid}). Use --allow-duplicate to override.`
-      );
-    }
-  }
   let logLevel: OrchestratorLogLevel;
   const requestedLogLevel =
     parsed.logLevel ??
@@ -1125,7 +1096,6 @@ const handler = async (
       parsed.webPort,
       parsed.assignedOnly === true,
       parsed.bindAll,
-      parsed.allowDuplicate === true,
       httpApiToken,
       projectConfig.projectDir
     );
@@ -1134,22 +1104,11 @@ const handler = async (
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
   let projectLock: ProjectLockHandle | null = null;
-  let instance: InstanceEntry | null = null;
   try {
     projectLock = await acquireProjectLock({
       runtimeRoot,
       projectId,
     });
-    if (projectLock) {
-      instance = {
-        ...instanceBase,
-        pid: projectLock.pid,
-        startedAt: projectLock.startedAt,
-        heartbeatAt: projectLock.heartbeatAt,
-        processIdentity: projectLock.processIdentity,
-      };
-      await registerInstance(instance);
-    }
 
     const store = createStore(runtimeRoot);
     let prevSnapshot: ProjectStatusSnapshot | null = null;
@@ -1228,7 +1187,6 @@ const handler = async (
         httpServer: httpServer?.server,
         workerHttpServer: workerHttpServer?.server,
         projectLock: heldLock,
-        instance,
         service,
       });
       return shutdownPromise;
@@ -1280,13 +1238,6 @@ const handler = async (
           : requestedHttpPort !== undefined
             ? workerHttpServer
             : null;
-      if (httpServer) {
-        if (instance) {
-          instance = { ...instance, endpoint: httpServer.url };
-          await registerInstance(instance);
-        }
-      }
-
       logLine(
         green("\u25B2"),
         `Starting orchestrator for project: ${bold(projectId)}`
@@ -1391,7 +1342,6 @@ const handler = async (
     }
   } finally {
     await releaseProjectLock(projectLock);
-    if (instance) await unregisterInstance(instance);
   }
 };
 
@@ -1435,17 +1385,6 @@ export async function shutdownForegroundOrchestrator(
       yellow("\u26A0"),
       `Failed to release project lock: ${error instanceof Error ? error.message : "Unknown error"}`
     );
-  }
-
-  if (input.instance) {
-    try {
-      await unregisterInstance(input.instance);
-    } catch (error) {
-      logLine(
-        yellow("⚠"),
-        `Failed to unregister instance: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-    }
   }
 
   return (input.exit ?? process.exit)(process.exitCode ?? 0);
@@ -1496,7 +1435,6 @@ async function startDaemon(
   webPort?: number,
   assignedOnly = false,
   bindAll = false,
-  allowDuplicate = false,
   httpApiToken = resolveHttpApiToken(),
   projectDir?: string
 ): Promise<void> {
@@ -1519,7 +1457,6 @@ async function startDaemon(
       "start",
       ...(projectDir ? ["--project-dir", projectDir] : []),
       ...(options.verbose ? ["--verbose"] : []),
-      ...(allowDuplicate ? ["--allow-duplicate"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
       ...(bindAll ? ["--bind-all"] : []),
       ...(httpPort !== undefined

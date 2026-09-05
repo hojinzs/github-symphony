@@ -459,18 +459,6 @@ gh-symphony project list                 # List cached projects
 gh-symphony doctor --project-dir <projectDir>
 ```
 
-### Host Instances
-
-`gh-symphony instances` lists project orchestrators registered on this host. Use
-`--json` for automation. A verified live cross-runtime duplicate is rejected by
-default; pass `--allow-duplicate` to `project start` only when intentional
-isolation is required.
-
-```bash
-gh-symphony instances
-gh-symphony instances --json
-```
-
 ## Diagnostics
 
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony project start --project-dir <path> --once`: it resolves the active managed project, reads a target issue through the configured tracker integration, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker. GitHub projects retain the GitHub Project read path and require `owner/repo#number` for explicit issues; Linear projects read through the Linear adapter, use identifiers such as `DEV-54`, and do not require a GitHub Project binding.
@@ -551,9 +539,6 @@ Setup:
   config show         Show current configuration
   config set          Set a configuration value
   config edit         Open config in $EDITOR
-
-Orchestration (host):
-  instances           List registered orchestrator instances on this host
 
 Orchestration (project):
   project list        List cached projects as JSON
