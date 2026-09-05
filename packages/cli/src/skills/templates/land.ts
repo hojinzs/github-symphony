@@ -2,97 +2,94 @@ import type { SkillTemplateContext } from "../types.js";
 import { renderSkillDocument } from "./document.js";
 
 export function generateLandSkill(_ctx: SkillTemplateContext): string {
-  const lines: string[] = [];
-
-  lines.push("# /land — PR Merge Workflow");
-  lines.push("");
-  lines.push("## Trigger");
-  lines.push("");
-  lines.push(
-    "Use this skill when the issue is in the Merging state (PR approved by human)."
-  );
-  lines.push(
-    "Do NOT call `gh pr merge` directly — always go through this flow."
-  );
-  lines.push("");
-  lines.push("## Merged-PR Precedence Guard");
-  lines.push("");
-  lines.push(
-    "Before any pre-flight check or failure classification, read `state` and `mergeCommit` with `gh pr view <pr-number> --json state,mergeCommit` (always pass the PR number — the head branch may already be deleted)."
-  );
-  lines.push(
-    "If the PR is `MERGED`, skip every pre-flight and failure path, record the merge commit, transition `Land` → `Done` through the gh-project skill, and exit. Never return a merged PR to `Ready`, even if its head branch was deleted."
-  );
-  lines.push("");
-  lines.push("## Pre-flight Checks");
-  lines.push("");
-  lines.push("Before merging, verify ALL of the following:");
-  lines.push("");
-  lines.push("1. **PR is approved**:");
-  lines.push("   ```bash");
-  lines.push(
-    "   gh pr view --json reviews --jq '.reviews[] | select(.state == \"APPROVED\")'"
-  );
-  lines.push("   ```");
-  lines.push("2. **All CI checks are green**:");
-  lines.push("   ```bash");
-  lines.push("   gh pr checks");
-  lines.push("   ```");
-  lines.push("3. **Branch is up-to-date with base**:");
-  lines.push("   ```bash");
-  lines.push(
-    "   git fetch origin && git merge-base --is-ancestor origin/main HEAD"
-  );
-  lines.push("   ```");
-  lines.push("   If not up-to-date, run the `/pull` skill first.");
-  lines.push("");
-  lines.push("## Flow");
-  lines.push("");
-  lines.push(
-    "1. Run the Merged-PR Precedence Guard, then run pre-flight checks only if the PR remains open. The human-owned `In review` → `Land` transition is already confirmed before this skill runs; do not replay it or post a duplicate status comment."
-  );
-  lines.push("2. If all checks pass, merge the PR:");
-  lines.push("   ```bash");
-  lines.push("   gh pr merge --squash    # squash merge (default)");
-  lines.push("   # or: gh pr merge --merge   # merge commit");
-  lines.push("   # or: gh pr merge --rebase  # rebase merge");
-  lines.push("   ```");
-  lines.push("   Use squash merge per project policy.");
-  lines.push("3. On merge success:");
-  lines.push(
-    "   - Prepare the policy-authored `Land → Done` body and pass it as `comment_body` to the **gh-project skill**"
-  );
-  lines.push(
-    "   - The orchestrator publishes the transition body after confirmed readback; do not post a duplicate status comment"
-  );
-  lines.push("4. On merge failure:");
-  lines.push("   - Re-run the Merged-PR Precedence Guard first");
-  lines.push("   - Record the failure reason in workpad Notes");
-  lines.push("   - Resolve the blocking issue (re-run pre-flight checks)");
-  lines.push("   - Retry the merge");
-  lines.push("5. Loop until merged or blocked by an unresolvable issue");
-  lines.push("");
-  lines.push("## Rules");
-  lines.push("");
-  lines.push("- Never call `gh pr merge` without completing pre-flight checks");
-  lines.push(
-    "- Status transition to Done MUST go through the gh-project skill"
-  );
-  lines.push(
-    "- Transition comments MUST be supplied as gh-project `comment_body`; agents must not publish correction comments"
-  );
-  lines.push(
-    "- If any pre-flight check fails, do not merge — fix the issue first"
-  );
-  lines.push(
-    "- Never classify or return a merged PR as rework; merged state always transitions to Done"
-  );
-  lines.push("- Record all merge attempts and outcomes in the workpad");
+  const lines = [
+    "# /land — Land State Merge Workflow",
+    "",
+    "## Trigger",
+    "",
+    "Use this skill only when the issue is in the `Land` state and a human has approved its pull request.",
+    "",
+    "## Operating Rules",
+    "",
+    "- The worker has no GitHub credentials. Use the host-side `github_graphql` tool for every GitHub read and write; never use `gh` or `git push`.",
+    "- Use `/gh-project` for tracker state reads and transitions. Never mutate Project fields through GraphQL.",
+    "- Squash merge only. Never rebase, amend, force-push, or switch branches.",
+    "- Land changes no source files. Only a base merge and trivial conflict resolution allowed by WORKFLOW.md may change the branch.",
+    "- Complete pre-flight, CI waiting, merge, workpad evidence, and the final status transition in the same turn when possible.",
+    "",
+    "## Required Context",
+    "",
+    "Read the linked PR by number with `github_graphql`. Collect its id, state, merge commit, base/head refs, `headRefOid`, mergeability, reviews including each review's `commit.oid`, review threads, and required status contexts on the head commit. Also compare the base ref to the head ref for `behindBy`.",
+    "",
+    "## Merged-PR Precedence Guard",
+    "",
+    "Before any pre-flight check or failure classification, re-read the linked PR's `state`, `merged`, and `mergeCommit` by PR number. If it is `MERGED`, record its merge commit and transition `Land` → `Done` through `/gh-project`. Never return a merged PR to `Ready`, even when its head branch has been deleted.",
+    "",
+    "## Pre-flight Checks",
+    "",
+    "All checks must pass before merging:",
+    "",
+    "1. **Human approval.** Accept a human `APPROVED` review whose `commit.oid` equals the current `headRefOid`. Before updating a behind branch, save that approved head as `approvedHeadOid`.",
+    "2. **Required CI.** Every required check on the current head must be successful, neutral, or skipped. Optional checks do not gate Land.",
+    "3. **Freshness.** Compare the actual PR base and head refs. When `behindBy > 0`, call `updatePullRequestBranch` with `updateMethod: MERGE` and `expectedHeadOid: approvedHeadOid`, then fast-forward the local assigned branch with `git pull --ff-only origin <head>`.",
+    "4. **Changeset.** Require a `.changeset/*.md` file only when the issue has a changeset label.",
+    "5. **Mergeability.** Require a mergeable state allowed by WORKFLOW.md and no unresolved actionable review threads.",
+    "",
+    "## Base-merge Approval Exemption",
+    "",
+    "GitHub may keep the review attached to `approvedHeadOid` after `updatePullRequestBranch` creates a new head. Treat that prior approval as valid for the returned head only when all of these facts hold:",
+    "",
+    "- the approval was valid on `approvedHeadOid` immediately before the update;",
+    "- `expectedHeadOid: approvedHeadOid` made the server reject any concurrent head movement;",
+    "- the new head is the oid returned by this Land cycle's `updatePullRequestBranch(updateMethod: MERGE)` call; and",
+    "- no later operation changed the head.",
+    "",
+    "Do not require a second approval on that base-only merge head. Re-run required CI and every other pre-flight check on the returned head. If branch protection explicitly dismisses or blocks the standing approval, classify that as an external wait and return `Land` → `In review`; it is not rework.",
+    "",
+    "## Branch Update",
+    "",
+    "Use the host-side mutation and bind it to the approved head:",
+    "",
+    "```graphql",
+    "mutation UpdateLandBranch($pullRequestId: ID!, $approvedHeadOid: GitObjectID!) {",
+    "  updatePullRequestBranch(",
+    "    input: {",
+    "      pullRequestId: $pullRequestId",
+    "      updateMethod: MERGE",
+    "      expectedHeadOid: $approvedHeadOid",
+    "    }",
+    "  ) {",
+    "    pullRequest { headRefOid }",
+    "  }",
+    "}",
+    "```",
+    "",
+    "After the mutation, poll required checks on the returned `headRefOid` as directed by WORKFLOW.md, then restart the merged-PR guard and full pre-flight. Apply the Base-merge Approval Exemption instead of re-checking approval only against the new head.",
+    "",
+    "## Merge and Completion",
+    "",
+    "Squash merge through `mergePullRequest` with `expectedHeadOid` equal to the fully verified current head. Delete the head ref after a successful merge, record the merge commit and evidence in the Land workpad, then send the policy-authored `Land` → `Done` body through `/gh-project` as the last lifecycle action.",
+    "",
+    "## Failure Handling",
+    "",
+    "1. Re-run the Merged-PR Precedence Guard before classifying any failure.",
+    "2. Pending required CI stays in the same Land turn within WORKFLOW.md's polling limits.",
+    "3. A dismissed approval or protection rule requiring human action returns `Land` → `In review` as an external wait.",
+    "4. Failed required CI, a source conflict, a missing required changeset, or actionable review feedback returns `Land` → `Ready` as rework.",
+    "5. Missing context, authentication failure, or an external dependency parks the issue in `Backlog` with a blocker comment.",
+    "",
+    "## Guardrails",
+    "",
+    "- Never merge without a valid human approval and green required CI.",
+    "- Never interpret the Land cycle's base-only merge commit as content rework.",
+    "- Never transition to `Done` before the squash merge succeeds.",
+    "- Record every merge attempt and outcome in the Land workpad.",
+  ];
 
   return renderSkillDocument({
     name: "land",
     description:
-      "Merge approved pull requests safely after verifying approvals, CI, and branch freshness.",
+      "Merge an approved PR during Land while preserving approval across a guarded base-branch merge update.",
     bodyLines: lines,
   });
 }

@@ -46,10 +46,28 @@ describe("generateLandSkill", () => {
     const generated = generateLandSkill(context);
 
     expect(generated.length).toBeGreaterThan(50);
-    expect(generated).toMatch(/## (Rules|Flow)/);
-    expect(generated).toContain("gh pr merge");
+    expect(generated).toMatch(/## .*Rules/);
+    expect(generated).toContain("mergePullRequest");
     expect(generated).toContain("gh-project");
+    expect(generated).toContain("github_graphql");
+    expect(generated).not.toContain("gh pr ");
     expect(generated).not.toMatch(/\{\{/);
+  });
+
+  it("preserves a standing approval across the Land cycle's guarded base merge", () => {
+    const generated = generateLandSkill(context);
+
+    expect(generated).toContain("## Base-merge Approval Exemption");
+    expect(generated).toContain("approvedHeadOid");
+    expect(generated).toContain("expectedHeadOid: $approvedHeadOid");
+    expect(generated).toContain("updateMethod: MERGE");
+    expect(generated).toContain(
+      "Do not require a second approval on that base-only merge head."
+    );
+    expect(generated).toContain(
+      "classify that as an external wait and return `Land` → `In review`"
+    );
+    expect(generated).not.toContain("If not up-to-date, run the `/pull` skill");
   });
 });
 
@@ -107,8 +125,10 @@ describe("merged-PR lifecycle guards", () => {
     expect(generated).toContain(
       "Before any pre-flight check or failure classification"
     );
-    expect(generated).toContain("gh pr view <pr-number>");
+    expect(generated).toContain("by PR number");
     expect(generated).toContain("Never return a merged PR to `Ready`");
-    expect(generated).toContain("Re-run the Merged-PR Precedence Guard first");
+    expect(generated).toContain(
+      "Re-run the Merged-PR Precedence Guard before classifying any failure"
+    );
   });
 });
