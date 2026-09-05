@@ -122,6 +122,73 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain("active_states=Ready, In progress");
   });
 
+  it.each([
+    {
+      name: "runtime timeout precedence",
+      frontMatter: `runtime:
+  kind: codex-app-server
+  command: codex
+  args: [app-server]
+  timeouts:
+    read_timeout_ms: 30000
+    stall_timeout_ms: 900000
+    turn_timeout_ms: 1800000
+codex:
+  read_timeout_ms: 7000
+  stall_timeout_ms: 60000
+  turn_timeout_ms: 120000`,
+      expected: [30000, 900000, 1800000],
+    },
+    {
+      name: "legacy codex timeout fallback",
+      frontMatter: `codex:
+  read_timeout_ms: 7000
+  stall_timeout_ms: 60000
+  turn_timeout_ms: 120000`,
+      expected: [7000, 60000, 120000],
+    },
+    {
+      name: "documented timeout defaults",
+      frontMatter: "codex:\n  command: codex app-server",
+      expected: [5000, 300000, 3600000],
+    },
+  ])(
+    "reports $name as effective runtime timeouts",
+    async ({ frontMatter, expected }) => {
+      const root = await mkdtemp(join(tmpdir(), "workflow-validate-timeouts-"));
+      const workflowPath = join(root, "WORKFLOW.md");
+      const stdout = captureWrites(process.stdout);
+
+      await writeFile(
+        workflowPath,
+        `---\ntracker:\n  kind: github-project\n${frontMatter}\n---\nPrompt {{ issue.identifier }}\n`,
+        "utf8"
+      );
+
+      try {
+        await workflowCommand(["validate", "--file", workflowPath], {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        });
+      } finally {
+        stdout.restore();
+      }
+
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.read_timeout_ms=${expected[0]}`
+      );
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.stall_timeout_ms=${expected[1]}`
+      );
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.turn_timeout_ms=${expected[2]}`
+      );
+      expect(stdout.output()).not.toContain("codex.read_timeout_ms=");
+    }
+  );
+
   it("prints a typed error when a removed flat tracker key is configured", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-validate-priority-"));
     const workflowPath = join(root, "WORKFLOW.md");

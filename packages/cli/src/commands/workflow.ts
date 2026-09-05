@@ -7,6 +7,7 @@ import {
   WorkflowValidationError,
   renderPrompt,
   resolveWorkflowExecutionPhase,
+  resolveWorkflowRuntimeTimeouts,
   type TrackedIssue,
 } from "@gh-symphony/core";
 import {
@@ -105,6 +106,8 @@ type WorkflowValidationReport = {
       approvalPolicy: string | null;
       threadSandbox: string | null;
       turnSandboxPolicy: string | null;
+    };
+    runtimeTimeouts: {
       readTimeoutMs: number;
       stallTimeoutMs: number;
       turnTimeoutMs: number;
@@ -878,10 +881,8 @@ function validateWorkflow(
         approvalPolicy: workflow.codex.approvalPolicy,
         threadSandbox: workflow.codex.threadSandbox,
         turnSandboxPolicy: workflow.codex.turnSandboxPolicy,
-        readTimeoutMs: workflow.codex.readTimeoutMs,
-        stallTimeoutMs: workflow.codex.stallTimeoutMs,
-        turnTimeoutMs: workflow.codex.turnTimeoutMs,
       },
+      runtimeTimeouts: resolveWorkflowRuntimeTimeouts(workflow),
       hooks: {
         afterCreate: workflow.hooks.afterCreate,
         beforeRun: workflow.hooks.beforeRun,
@@ -920,9 +921,9 @@ Runtime
   codex.approval_policy=${report.summary.codex.approvalPolicy ?? "unset"}
   codex.thread_sandbox=${report.summary.codex.threadSandbox ?? "unset"}
   codex.turn_sandbox_policy=${report.summary.codex.turnSandboxPolicy ?? "unset"}
-  codex.read_timeout_ms=${report.summary.codex.readTimeoutMs}
-  codex.stall_timeout_ms=${report.summary.codex.stallTimeoutMs}
-  codex.turn_timeout_ms=${report.summary.codex.turnTimeoutMs}
+  runtime.timeouts.read_timeout_ms=${report.summary.runtimeTimeouts.readTimeoutMs}
+  runtime.timeouts.stall_timeout_ms=${report.summary.runtimeTimeouts.stallTimeoutMs}
+  runtime.timeouts.turn_timeout_ms=${report.summary.runtimeTimeouts.turnTimeoutMs}
 
 Hooks
   after_create=${report.summary.hooks.afterCreate ?? "unset"}

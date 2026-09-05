@@ -83,6 +83,11 @@ negative, that threshold is disabled, but the orchestrator still applies a hard
 30-minute elapsed-run fallback to prevent an indefinitely stuck worker. This is
 an intentional implementation-defined safety limit.
 
+`runtime.timeouts` is the preferred timeout configuration and takes precedence
+over the legacy `codex.*_timeout_ms` fields. `gh-symphony workflow validate`
+prints the effective values under `runtime.timeouts.*`, matching the values the
+orchestrator injects into a worker.
+
 Hooks are opt-in repository-local extensions, not shell snippets. Each hook
 value must be a path to an executable script; shell syntax and inline commands
 are rejected. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host
