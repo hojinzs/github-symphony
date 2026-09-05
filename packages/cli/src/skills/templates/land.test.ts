@@ -49,6 +49,8 @@ describe("generateLandSkill", () => {
     expect(generated).toMatch(/## (Rules|Flow)/);
     expect(generated).toContain("gh pr merge");
     expect(generated).toContain("gh-project");
+    expect(generated).toContain("published by the agent");
+    expect(generated).toContain("never send `comment_body`");
     expect(generated).not.toMatch(/\{\{/);
   });
 });

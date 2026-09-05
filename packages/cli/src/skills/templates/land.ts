@@ -60,10 +60,10 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push("   Use squash merge per project policy.");
   lines.push("3. On merge success:");
   lines.push(
-    "   - Prepare the policy-authored `Land → Done` body and pass it as `comment_body` to the **gh-project skill**"
+    "   - Prepare the policy-authored `Land → Done` body, then send transition intent through the **gh-project skill**"
   );
   lines.push(
-    "   - The orchestrator publishes the transition body after confirmed readback; do not post a duplicate status comment"
+    "   - After confirmed readback, publish the prepared body through the host-side `github_graphql` `addComment` mutation"
   );
   lines.push("4. On merge failure:");
   lines.push("   - Re-run the Merged-PR Precedence Guard first");
@@ -79,7 +79,7 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
     "- Status transition to Done MUST go through the gh-project skill"
   );
   lines.push(
-    "- Transition comments MUST be supplied as gh-project `comment_body`; agents must not publish correction comments"
+    "- Transition comments MUST be published by the agent after gh-project confirms readback; never send `comment_body` to the tracker-state API"
   );
   lines.push(
     "- If any pre-flight check fails, do not merge — fix the issue first"

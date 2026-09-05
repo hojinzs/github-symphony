@@ -9,7 +9,7 @@
  *   prompt-phase    — validates the rendered planning phase, then completes
  *   retry-attempt   — validates attempt=1 on the continuation dispatch, then completes
  *   recovery-fail   — dirties the workspace and fails until the recovery budget suppresses it
- *   transition-race — requests Ready → In review, then stalls for reconciliation
+ *   transition-race — requests Ready → In review without a comment, then stalls
  *   api-progress    — requests Ready → Done, confirms readback, then completes
  *   api-progress-unknown — confirms Done, removes the canonical item, then completes
  *   required-label-removed — completes turn one, then proves a routability
@@ -221,12 +221,6 @@ async function requestTransitionForRace(): Promise<void> {
 
   const expectedState = ISSUE_STATE ?? "Ready";
   const targetState = "In review";
-  const commentBody = [
-    `🔁 Status: \`${expectedState}\` → \`${targetState}\``,
-    "",
-    "Reason: E2E transition comment race",
-    "Cycle: e2e transition-race",
-  ].join("\n");
   const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/tracker-state`, {
     method: "POST",
     headers: {
@@ -239,7 +233,6 @@ async function requestTransitionForRace(): Promise<void> {
       expected_state: expectedState,
       target_state: targetState,
       reason: "E2E transition comment race",
-      comment_body: commentBody,
     }),
   });
   const payload = (await response.json()) as {

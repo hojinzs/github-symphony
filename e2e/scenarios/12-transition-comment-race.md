@@ -1,4 +1,4 @@
-# TC-12: Orchestrator-owned transition comment survives reconciliation
+# TC-12: Transition intent does not make the orchestrator author comments
 
 ## Setup
 
@@ -8,16 +8,16 @@
 ## Steps
 
 1. Dispatch the stub worker for the `Ready` issue.
-2. The worker requests `Ready → In review` through the run-scoped tracker-state API and supplies the exact transition body in `comment_body`.
-3. The file tracker confirms the state readback and the orchestrator writes the exact body to the fixture.
+2. The worker requests `Ready → In review` through the run-scoped tracker-state API without a comment body.
+3. The file tracker confirms the state readback without persisting comment metadata.
 4. The worker remains running until reconciliation observes that `In review` is not actionable and terminates it.
 
 ## Expected
 
 - The worker is observed in `running` before reconciliation terminates it.
 - The fixture state is `In review`.
-- `metadata.transitionComments` contains exactly one exact transition body, proving that the comment was published by the orchestrator after confirmed readback and survived worker termination.
-- No agent-side `gh issue comment` or correction path is involved.
+- `metadata.transitionComments` is absent, proving that the orchestrator and tracker adapter did not author a comment.
+- Worker policy requires the agent to publish the prepared status body after confirmed readback; that host-side GitHub dispatch remains outside this file-tracker fixture.
 
 ## Cleanup
 
