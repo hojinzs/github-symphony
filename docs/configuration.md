@@ -390,7 +390,9 @@ attempt can clean up only what Symphony wrote, and the runtime skills
 directory is appended to the repository's `.git/info/exclude` so injected
 skills never show up as untracked changes.
 
-## Environment Loading Order
+<a id="environment-loading-order"></a>
+
+## Worker And Agent-Child Environment Boundary
 
 Worker and hook environments are merged in this order, with later values taking
 precedence:
@@ -401,8 +403,10 @@ precedence:
 | 2        | Orchestrator process environment | CLI, orchestrator, worker, runtime adapters       |
 | 3        | Symphony-injected context        | Worker identity, issue metadata, runtime settings |
 
-The coding-agent child does not inherit this merged worker environment. Its
-environment is constructed separately at the runtime boundary:
+The worker, workflow hooks, and coding-agent child are three distinct
+environment boundaries. The coding-agent child does not inherit the merged
+worker environment. Every built-in and custom runtime constructs its child
+environment separately from the following contract:
 
 | Source                             | Agent-child result                                                                                                                                                                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -411,13 +415,13 @@ environment is constructed separately at the runtime boundary:
 | Runtime-managed values             | `HOME`, `USERPROFILE`, and `GH_CONFIG_DIR` point into the private child home. Codex and Claude also receive a private `DOCKER_CONFIG`; runtime authentication is added only through the selected built-in provider contract or `runtime.auth.env` for a custom runtime. |
 | Credentials and host configuration | Tracker-declared secrets, broker controls, Git/SSH credential plumbing, operator `gh` configuration, and Docker registry configuration are always stripped or replaced with private runtime paths.                                                                      |
 
-A value placed in the project `.env` therefore reaches the worker host, and can
+A value placed in the project `.env` therefore reaches the worker host and can
 reach an approved hook only when the hook rules above allow it, but it does
-**not** automatically reach the coding-agent child. This is deliberate: the
-worker needs host-side configuration for orchestration, tracker tools, and Git
-transport, while the child is a separate least-privilege boundary. There is no
-declarative general-purpose channel for forwarding project `.env` entries to an
-agent child.
+**not** automatically reach the coding-agent child. The worker needs host-side
+configuration for orchestration, tracker tools, and Git transport, while the
+child is a separate least-privilege boundary. There is no declarative
+general-purpose channel for forwarding project `.env` entries to an agent
+child.
 
 Tracker credentials are the narrow exception to the general process-environment
 allowlist: at dispatch, the tracker adapter resolves a tenant-scoped credential
@@ -448,16 +452,10 @@ record stores only a SHA-256 digest of that project environment snapshot, never
 its variable names or values. The digest excludes run-scoped worker metadata so
 operators can compare whether the project environment changed between runs.
 
-## Auth And API Endpoints
+### Auth And API Endpoints
 
 These variables are user-facing and are safe to set in local shells, CI, or
 container environments.
-
-Child-isolation statements in these tables apply to every runtime. By default,
-`runtime.kind: custom` receives a narrow portable process environment and only
-the authentication variable it declares; it never receives tracker
-credentials. Its private `HOME` and `GH_CONFIG_DIR` are separate from the
-operator's credential stores.
 
 | Variable                 | Default                                                                                                          | Read by                                                                | Audience                                            | Notes                                                                                                                                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -468,21 +466,19 @@ operator's credential stores.
 | `LINEAR_AUTHORIZATION`   | unset                                                                                                            | Linear tracker, worker host tools                                      | Advanced                                            | Optional raw Linear authorization value for host-side Linear operations; it takes priority over `LINEAR_API_KEY` and is not inherited by agent children by default. |
 | `LINEAR_GRAPHQL_URL`     | `https://api.linear.app/graphql` when the Linear tool is enabled                                                 | Codex runtime, Claude runtime                                          | User-facing for Linear Enterprise/proxy setups      | Overrides the Linear GraphQL endpoint.                                                                                                                              |
 
-## Git Access
+### Git Access
 
 The Git host and username settings support Git traffic targeting a
-non-`github.com` host. Legacy GitHub broker names remain reserved for
-child-secret isolation while their tracker-specific plumbing is retired; host
-Git publication does not use them.
+non-`github.com` host. Retired GitHub broker names, including
+`GITHUB_TOKEN_BROKER_SECRET`, remain reserved only in the child-boundary
+denylist; they are not configuration inputs and host Git publication does not
+use them.
 
-| Variable                                                     | Default          | Read by                       | Audience          | Notes                                                                                                                                                  |
-| ------------------------------------------------------------ | ---------------- | ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Legacy child-secret isolation | Reserved          | Retained only as a reserved credential name while the remaining broker plumbing is retired; host Git publication does not read it.                     |
-| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Legacy child-secret isolation | Reserved          | Retained only as a reserved credential name and stripped from coding-agent children; host Git publication does not read it.                            |
-| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Legacy child-secret isolation | Reserved          | Retained only as a reserved credential name; the direct host Git credential helper performs no token caching.                                          |
-| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper         | User-facing, GHES | Git host matched by the direct-token credential helper, for example `github.example`; retained at the host boundary.                                   |
-| `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper         | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
-| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport     | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
+| Variable                                                     | Default          | Read by                   | Audience          | Notes                                                                                                                                                  |
+| ------------------------------------------------------------ | ---------------- | ------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper     | User-facing, GHES | Git host matched by the direct-token credential helper, for example `github.example`; retained at the host boundary.                                   |
+| `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper     | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
+| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
 
 When host Git credentials are available, Symphony appends its
 `credential.helper` entry after the caller-supplied indexed Git configuration.
@@ -491,10 +487,11 @@ that returns complete credentials can shadow Symphony's tenant-scoped helper.
 Treat `GIT_CONFIG_*` values from the process or project `.env` as trusted host
 configuration.
 
-## Agent Runtime Credentials
+### Agent Runtime Authentication
 
-These variables are passed through to the selected agent runtime. The CLI also
-uses them during setup and doctor checks where applicable.
+These variables are inputs to the selected built-in runtime's authentication
+contract. The CLI also uses them during setup and doctor checks where
+applicable; they are not part of the general child environment allowlist.
 
 | Variable            | Default | Read by                                    | Audience             | Notes                                                                                                                                    |
 | ------------------- | ------- | ------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -519,7 +516,7 @@ that private directory. Symphony never copies the operator's Docker
 When the host has no CLI plugin directory, nothing is staged and Docker
 availability remains unchanged.
 
-### Custom Runtime Environment Contract
+### Custom Runtime Authentication And Compatibility
 
 Custom commands are untrusted children. By default they receive portable
 execution variables, a private workspace-contained `HOME` and `GH_CONFIG_DIR`,
@@ -562,7 +559,7 @@ and remove it as soon as the command's required inputs can be declared.
 It is valid only with `runtime.kind: custom`; other runtime kinds fail workflow
 validation rather than silently ignoring it.
 
-## CLI And Project Runtime
+### CLI And Project Runtime
 
 These variables affect the local `gh-symphony` process or project runtime
 layout.
@@ -580,7 +577,7 @@ layout.
 | `EDITOR` / `VISUAL`                    | `vi` fallback                                                                                 | CLI `config edit`             | User-facing        | Selects the editor for interactive config editing.                                                                                                                                                                                                                                      |
 | `PATH` / `PATHEXT`                     | inherited from shell                                                                          | CLI doctor, child processes   | User-facing/system | Used for prerequisite and command discovery.                                                                                                                                                                                                                                            |
 
-## Tuning Knobs
+### Tuning Knobs
 
 Prefer `WORKFLOW.md` runtime and agent settings for committed policy. These
 environment variables are useful for host-level overrides or are injected from
@@ -599,7 +596,7 @@ workflow config into the worker.
 | `SYMPHONY_TURN_SANDBOX_POLICY`       | unset                                            | Worker                              | Internal/injected | Optional per-turn sandbox policy. Configure through `WORKFLOW.md`; injected into workers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `SYMPHONY_AGENT_COMMAND`             | workflow runtime command                         | Codex runtime launcher              | Internal/injected | Shell command used by the runtime launcher. Configure through `WORKFLOW.md` instead of setting directly.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
-## Worker Context Variables
+### Worker Host Context
 
 The orchestrator injects these into worker processes. They are documented for
 debugging, custom worker wrappers, and hook authors; operators usually should
@@ -634,7 +631,9 @@ not set them manually.
 | `TARGET_REPOSITORY_NAME`          | target repo name                             | Worker                                            | Internal/injected | Repository name.                                                                                                                                                                                                                                                              |
 | `TARGET_REPOSITORY_URL`           | target repo URL                              | Worker                                            | Internal/injected | Browser URL for the repository.                                                                                                                                                                                                                                               |
 
-### Agent-visible Symphony context
+<a id="agent-visible-symphony-context"></a>
+
+### Agent-Visible Symphony Context
 
 Every Codex, Claude, and custom coding-agent child receives the same explicit,
 non-secret run context. The allowlist is defined by
@@ -657,7 +656,7 @@ variables are removed after environment composition, even if a runtime enables
 process-environment compatibility inheritance. Runtime authentication explicitly
 configured for the coding agent remains separate from this context allowlist.
 
-### GitHub tracker transition extension
+### GitHub Tracker Transition Extension
 
 GitHub Project state writes are a repository extension to upstream Symphony SPEC §11.5. Workers send issue-scoped intent to the internal orchestrator API; the orchestrator authorizes the current `SYMPHONY_RUN_ID`, uses its persisted canonical tracker item, serializes requests against the shared GraphQL budget, and confirms an exact-item readback.
 
@@ -667,7 +666,7 @@ This intentionally differs from the upstream spec's typical agent-tool ownership
 
 The comment publication is an explicit §11.5 divergence and implements the upstream §18.2 recommended extension. The orchestrator owns transport, serialization, retry, and readback sequencing; `WORKFLOW.md` owns the comment body policy, while `packages/tracker-github` owns GitHub GraphQL mutation semantics.
 
-### Workspace-key migration
+### Workspace-Key Migration
 
 New issue workspaces preserve readable sanitized identifiers and append a stable
 64-bit SHA-256 suffix whenever sanitization changes the identifier, for example
@@ -678,7 +677,7 @@ displays `workspace key: legacy` when a suffixless directory is being reused.
 
 The `In review` → `Land` move is a human-owned project-board transition that happens before the Land worker is dispatched. The worker must not synthesize a no-op `Land` → `Land` request or publish a duplicate comment for that external trigger; the orchestrator-owned publication guarantee applies to transitions requested through `/gh-project`.
 
-## Hook Variables
+### Workflow Hook Context
 
 Workspace hooks receive the merged project/process environment plus these
 context variables:
