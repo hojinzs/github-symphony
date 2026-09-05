@@ -278,7 +278,7 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--project-dir <path>");
   });
 
-  it("rejects the removed instances command", async () => {
+  it("guides users of the removed instances command", async () => {
     const stderr = captureWrites(process.stderr);
 
     try {
@@ -287,8 +287,10 @@ describe("Commander CLI entrypoint", () => {
       stderr.restore();
     }
 
-    expect(stderr.output()).toContain("unknown command 'instances'");
-    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      "Use 'gh-symphony project list' and 'gh-symphony project status --project-dir <path>'."
+    );
+    expect(process.exitCode).toBe(2);
   });
 
   it("rejects misspelled standalone project runtime options", async () => {

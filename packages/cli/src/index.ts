@@ -532,6 +532,12 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     "The 'logs' command has been removed. See packages/cli/README.md#repository-command-migration.",
     markInvoked
   );
+  registerRemovedCommand(
+    program,
+    "instances",
+    "Use 'gh-symphony project list' and 'gh-symphony project status --project-dir <path>'.",
+    markInvoked
+  );
 
   const project = addGlobalOptions(
     program.command("project").description("Manage standalone projects")
