@@ -649,7 +649,6 @@ export function buildCodexRuntimePlan(
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       ...orchestratorRunEnv,
       ...agentEnv,
-      CODEX_HOME: join(childHome, ".codex"),
     } as NodeJS.ProcessEnv,
     tools: [],
     dynamicTools: createCodexDynamicToolSpecs(builtinTools),
@@ -670,7 +669,8 @@ export function buildCodexRuntimePlan(
       childHome,
       sources: [process.env, config.extraEnv, config.agentEnv],
       excludeNames: removedEnvironmentNames,
-    })
+    }),
+    { CODEX_HOME: join(childHome, ".codex") }
   );
 
   return plan;

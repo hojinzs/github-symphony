@@ -7,17 +7,16 @@ export function buildAgentChildEnvironmentAssignments(options: {
   sources: ReadonlyArray<NodeJS.ProcessEnv | undefined>;
   excludeNames?: Iterable<string>;
 }): NodeJS.ProcessEnv {
-  const assignments: NodeJS.ProcessEnv = {
-    ...readAgentVisibleSymphonyContext(...options.sources),
+  const context = readAgentVisibleSymphonyContext(...options.sources);
+  for (const name of options.excludeNames ?? []) {
+    delete context[name];
+  }
+
+  return {
+    ...context,
     HOME: options.childHome,
     USERPROFILE: options.childHome,
     GH_CONFIG_DIR: join(options.childHome, "gh"),
     DOCKER_CONFIG: join(options.childHome, ".docker"),
   };
-
-  for (const name of options.excludeNames ?? []) {
-    delete assignments[name];
-  }
-
-  return assignments;
 }

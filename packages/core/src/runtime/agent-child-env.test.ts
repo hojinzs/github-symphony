@@ -21,7 +21,7 @@ describe("buildAgentChildEnvironmentAssignments", () => {
     });
   });
 
-  it("does not rebuild assignments excluded by the child boundary", () => {
+  it("excludes source context without suppressing pinned isolation", () => {
     expect(
       buildAgentChildEnvironmentAssignments({
         childHome: "/runtime/child-home",
@@ -30,6 +30,7 @@ describe("buildAgentChildEnvironmentAssignments", () => {
       })
     ).toEqual({
       HOME: "/runtime/child-home",
+      USERPROFILE: "/runtime/child-home",
       GH_CONFIG_DIR: "/runtime/child-home/gh",
       DOCKER_CONFIG: "/runtime/child-home/.docker",
     });

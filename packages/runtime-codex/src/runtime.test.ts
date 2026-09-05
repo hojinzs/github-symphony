@@ -214,6 +214,8 @@ describe("buildCodexRuntimePlan", () => {
         "LINEAR_API_KEY",
         "LINEAR_AUTHORIZATION",
         "TARGET_REPOSITORY_URL",
+        "HOME",
+        "CODEX_HOME",
       ],
       extraEnv: {
         HOME: "/Users/operator",

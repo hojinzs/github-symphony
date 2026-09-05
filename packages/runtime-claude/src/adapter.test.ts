@@ -437,6 +437,8 @@ describe("ClaudePrintRuntimeAdapter", () => {
             "LINEAR_API_KEY",
             "LINEAR_AUTHORIZATION",
             "TARGET_REPOSITORY_URL",
+            "HOME",
+            "USERPROFILE",
           ]),
           TARGET_REPOSITORY_URL: "https://github.com/acme/repo",
         },
