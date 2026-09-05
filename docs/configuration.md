@@ -407,8 +407,9 @@ The project `.env` is read at each consumption point. In particular,
 resolved, so an approved hook may update the project `.env` for the worker
 spawned in that same run. Credential resolution and the missing-credential
 diagnostic use the same post-hook snapshot as that worker. The persisted run
-record stores only a SHA-256 digest of the effective worker environment, never
-its variable names or values.
+record stores only a SHA-256 digest of that project environment snapshot, never
+its variable names or values. The digest excludes run-scoped worker metadata so
+operators can compare whether the project environment changed between runs.
 
 ## Auth And API Endpoints
 

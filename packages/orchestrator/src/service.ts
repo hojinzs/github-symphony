@@ -3408,7 +3408,7 @@ export class OrchestratorService {
       },
       projectEnvironment
     );
-    const environmentDigest = digestEnvironment(workerEnvironment);
+    const environmentDigest = digestEnvironment(projectEnvironment);
     const buildRunRecord = (
       processId: number | null,
       processIdentity: string | null = null
