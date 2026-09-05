@@ -199,8 +199,9 @@ authoritative tests for repository behavior.
 (referenced via devDependencies). In addition to `dist/index.js` and the worker
 entry, its package build emits `dist/mcp-server.js`, which dispatches exactly one
 built-in GraphQL MCP implementation from an explicit server argument, and
-`dist/git-credential-helper.js`, which supplies runtime-scoped GitHub credentials
-only to host Git subprocesses. Agent-triggered publication, bounded
+`dist/git-credential-helper.js`, which supplies the direct host GitHub credential
+only to host Git subprocesses and performs no network credential resolution.
+Agent-triggered publication, bounded
 orchestrator teardown backstops, and the worker-exit backstop transfer the
 checked-out assigned ref into a temporary host-owned bare repository, fetch and
 verify fast-forward ancestry against the orchestrator-owned clone URL, and push

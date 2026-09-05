@@ -375,8 +375,6 @@ global.fetch = async (url, options) => {
       GITHUB_GRAPHQL_TOKEN: "stub-token",
       GITHUB_TOKEN: "stub-github-token",
       GH_TOKEN: "stub-gh-token",
-      GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
-      GITHUB_TOKEN_BROKER_SECRET: "stub-broker-secret",
       GITHUB_GIT_HOST: authenticatedGitServer.host,
       GIT_SSL_NO_VERIFY: "1",
       GIT_CONFIG_COUNT: "1",
@@ -530,7 +528,7 @@ global.fetch = async (url, options) => {
     );
   });
 
-  it("fails the Codex worker lifecycle when post-run Git transport cannot publish", async () => {
+  it("publishes and protects the Codex worker lifecycle with a direct host credential", async () => {
     const root = await mkdtemp(join(tmpdir(), "worker-codex-transport-e2e-"));
     createdRoots.push(root);
     const workspace = join(root, "workspace");
@@ -573,7 +571,10 @@ lines.on("line", (line) => {
     send({ jsonrpc: "2.0", id: message.id, result: { thread: { id: "thread-stub" } } });
   } else if (message.method === "turn/start") {
     send({ jsonrpc: "2.0", id: message.id, result: { turn: { id: "turn-stub" } } });
-    setTimeout(() => send({ jsonrpc: "2.0", method: "turn/completed", params: {} }), 10);
+    setTimeout(() => {
+      send({ jsonrpc: "2.0", method: "turn/completed", params: {} });
+      setTimeout(() => process.exit(0), 25);
+    }, 10);
   }
 });
 `,
@@ -583,6 +584,7 @@ lines.on("line", (line) => {
 
     const remote = join(root, "remote.git");
     await runGit(root, "init", "--bare", remote);
+    await runGit(remote, "config", "http.receivepack", "true");
     await runGit(workspace, "init", "-b", "feat/assigned");
     await runGit(workspace, "config", "user.name", "Symphony E2E");
     await runGit(workspace, "config", "user.email", "e2e@example.com");
@@ -590,6 +592,80 @@ lines.on("line", (line) => {
     await runGit(workspace, "commit", "-m", "test: seed Codex workspace");
     await runGit(workspace, "remote", "add", "origin", remote);
     await runGit(workspace, "push", "origin", "feat/assigned");
+    const authenticatedGitServer = await createAuthenticatedGitServer(
+      root,
+      "stub-token"
+    );
+    createdServers.push(authenticatedGitServer.close);
+    const authenticatedRemoteUrl = `${authenticatedGitServer.url}/${remote.slice(root.length + 1)}`;
+    await runGit(
+      workspace,
+      "remote",
+      "set-url",
+      "origin",
+      authenticatedRemoteUrl
+    );
+    await runGit(
+      workspace,
+      "commit",
+      "--allow-empty",
+      "-m",
+      "test: exercise authenticated Codex push"
+    );
+    const expectedCodexVisibleContext = {
+      ...expectedVisibleContext,
+      SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
+      SYMPHONY_ISSUE_ID: "issue-worker-codex",
+      SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#700",
+      TARGET_REPOSITORY_CLONE_URL: authenticatedRemoteUrl,
+    };
+    const successLeaseServer = await createTurnLeaseServer();
+    let successResult: Awaited<ReturnType<typeof runWorkerProcess>>;
+    try {
+      successResult = await runWorkerProcess({
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          CODEX_PROJECT_ID: "e2e-project",
+          OPENAI_API_KEY: "stub-openai-key",
+          GITHUB_GRAPHQL_TOKEN: "stub-token",
+          GITHUB_TOKEN_BROKER_URL: undefined,
+          GITHUB_TOKEN_BROKER_SECRET: undefined,
+          GITHUB_GIT_HOST: authenticatedGitServer.host,
+          GIT_SSL_NO_VERIFY: "1",
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "credential.helper",
+          GIT_CONFIG_VALUE_0: "",
+          WORKING_DIRECTORY: workspace,
+          ...expectedCodexVisibleContext,
+          WORKSPACE_RUNTIME_DIR: runtimeRoot,
+          SYMPHONY_WORKFLOW_PATH: workflowPath,
+          SYMPHONY_RENDERED_PROMPT: "Handle worker Codex issue.",
+          SYMPHONY_RUN_ID: "run-worker-codex-transport-success",
+          SYMPHONY_MAX_TURNS: "1",
+          SYMPHONY_APPROVAL_POLICY: "never",
+          SYMPHONY_THREAD_SANDBOX: "workspace-write",
+          SYMPHONY_TURN_SANDBOX_POLICY: "dangerFullAccess",
+          SYMPHONY_ORCHESTRATOR_URL: successLeaseServer.url,
+          SYMPHONY_ORCHESTRATOR_TOKEN: "stub-orchestrator-token",
+        },
+      });
+    } finally {
+      await successLeaseServer.close();
+    }
+
+    expect(successResult.exitCode, successResult.stderr).toBe(0);
+    expect(successResult.stderr).toContain(
+      "host Git transport pushed feat/assigned"
+    );
+    expect(authenticatedGitServer.authenticatedPaths).toEqual(
+      expect.arrayContaining([
+        "/remote.git/info/refs?service=git-receive-pack",
+        "/remote.git/git-receive-pack",
+      ])
+    );
+
     const competing = join(root, "competing");
     await runGit(root, "clone", remote, competing);
     await runGit(competing, "switch", "feat/assigned");
@@ -600,13 +676,6 @@ lines.on("line", (line) => {
     await runGit(workspace, "commit", "--allow-empty", "-m", "agent commit");
 
     const leaseServer = await createTurnLeaseServer();
-    const expectedCodexVisibleContext = {
-      ...expectedVisibleContext,
-      SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
-      SYMPHONY_ISSUE_ID: "issue-worker-codex",
-      SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#700",
-      TARGET_REPOSITORY_CLONE_URL: remote,
-    };
     let result: Awaited<ReturnType<typeof runWorkerProcess>>;
     try {
       result = await runWorkerProcess({
@@ -616,7 +685,14 @@ lines.on("line", (line) => {
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
           CODEX_PROJECT_ID: "e2e-project",
           OPENAI_API_KEY: "stub-openai-key",
-          GITHUB_GIT_HOST: agentChildCredentialFixtureValue("GITHUB_GIT_HOST"),
+          GITHUB_GRAPHQL_TOKEN: "stub-token",
+          GITHUB_TOKEN_BROKER_URL: undefined,
+          GITHUB_TOKEN_BROKER_SECRET: undefined,
+          GITHUB_GIT_HOST: authenticatedGitServer.host,
+          GIT_SSL_NO_VERIFY: "1",
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "credential.helper",
+          GIT_CONFIG_VALUE_0: "",
           WORKING_DIRECTORY: workspace,
           ...expectedCodexVisibleContext,
           WORKSPACE_RUNTIME_DIR: runtimeRoot,
@@ -1268,7 +1344,7 @@ async function createTurnLeaseServer(): Promise<{
       response.end(
         JSON.stringify({
           acquired: true,
-          expiresAt: "2026-04-26T01:00:00.000Z",
+          expiresAt: "2027-04-26T01:00:00.000Z",
         })
       );
       return;
