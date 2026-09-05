@@ -7,7 +7,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@clack/prompts", async (importOriginal) => {
@@ -1081,6 +1081,60 @@ describe("init ecosystem generation", () => {
     const hookStats = await stat(hookPath);
     expect(hook).toBe(DEFAULT_AFTER_CREATE_HOOK_CONTENT);
     expect(hookStats.mode & 0o111).not.toBe(0);
+  });
+
+  it("replaces the legacy no-op after_create scaffold during regeneration", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-legacy-hook-"));
+    const hookPath = join(cwd, DEFAULT_AFTER_CREATE_HOOK_PATH);
+    await mkdir(dirname(hookPath), { recursive: true });
+    await writeFile(
+      hookPath,
+      `#!/usr/bin/env bash
+set -euo pipefail
+
+# Customize this hook to prepare a freshly created workspace.
+# This scaffold is intentionally a no-op so generated workflows run cleanly.
+exit 0
+`,
+      "utf8"
+    );
+
+    const result = await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: true,
+    });
+
+    expect(result.afterCreateHookWritten).toBe(true);
+    await expect(readFile(hookPath, "utf8")).resolves.toBe(
+      DEFAULT_AFTER_CREATE_HOOK_CONTENT
+    );
+  });
+
+  it("preserves a customized after_create hook during regeneration", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-custom-hook-"));
+    const hookPath = join(cwd, DEFAULT_AFTER_CREATE_HOOK_PATH);
+    await mkdir(dirname(hookPath), { recursive: true });
+    await writeFile(hookPath, "#!/bin/sh\nprintf custom\\n\n", "utf8");
+
+    const result = await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: true,
+    });
+
+    expect(result.afterCreateHookWritten).toBe(false);
+    await expect(readFile(hookPath, "utf8")).resolves.toBe(
+      "#!/bin/sh\nprintf custom\\n\n"
+    );
   });
 
   it("reflects detected repository commands across generated artifacts", async () => {

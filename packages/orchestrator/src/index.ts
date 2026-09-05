@@ -25,7 +25,6 @@ export { resolveAdaptivePollIntervalMs } from "./service.js";
 export type { OrchestratorLogLevel };
 export * from "./runtime-factory.js";
 export * from "./dispatch-eligibility.js";
-export * from "./repository-cache.js";
 export {
   findGithubProjectIssue,
   getSupportedTrackerKinds,

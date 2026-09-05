@@ -46,6 +46,7 @@ services:
         fi
         printf 'STUB_SCENARIO=%s\n' "$${STUB_SCENARIO:-happy}" > "$$project_dir/.env"
         printf 'GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/e2e/fixtures/issues.json\n' >> "$$project_dir/.env"
+        printf 'SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n' >> "$$project_dir/.env"
         chmod 600 "$$project_dir/.env"
         export GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/e2e/fixtures/issues.json
         exec node /app/packages/cli/dist/index.js \

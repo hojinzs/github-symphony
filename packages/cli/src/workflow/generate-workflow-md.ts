@@ -91,6 +91,7 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
     },
     hooks: {
       after_create: DEFAULT_AFTER_CREATE_HOOK_PATH,
+      timeout_ms: 600000,
     },
     agent: {
       max_concurrent_agents: 10,

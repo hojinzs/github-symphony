@@ -448,6 +448,7 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain(
       `after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}`
     );
+    expect(markdown).toContain("timeout_ms: 600000");
   });
 
   it("includes template variables that resolve without errors", () => {
