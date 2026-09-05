@@ -75,6 +75,39 @@ describe("ClaudePrintRuntimeAdapter", () => {
     );
   });
 
+  it("strips tracker credentials from the adapter declaration", async () => {
+    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { child, stdout, stderr } = createStubChild();
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        env: {
+          TRACKER_ADAPTER_SECRET: "secret",
+          UNDECLARED_TRACKER_VALUE: "visible",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "TRACKER_ADAPTER_SECRET",
+          ]),
+        },
+      },
+      {
+        spawnImpl: (_command, _args, options) => {
+          calls.push(options.env);
+          queueMicrotask(() => {
+            stdout.end();
+            stderr.end();
+            child.emit("close", 0, null);
+          });
+          return child;
+        },
+      }
+    );
+
+    await adapter.spawnTurn({ messages: [] });
+
+    expect(calls[0]?.TRACKER_ADAPTER_SECRET).toBeUndefined();
+    expect(calls[0]?.UNDECLARED_TRACKER_VALUE).toBe("visible");
+  });
+
   it("strips every declared credential name at the agent-child boundary", async () => {
     const calls: Array<NodeJS.ProcessEnv | undefined> = [];
     const { child, stdout, stderr } = createStubChild();
