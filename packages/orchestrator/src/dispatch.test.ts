@@ -9,7 +9,6 @@ import type {
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
   TrackedIssue,
-  TrackedIssueList,
   TrackedPullRequestContext,
   IssueWorkspaceRecord,
 } from "@gh-symphony/core";
@@ -1265,7 +1264,7 @@ describe("targeted canonical subject dispatch", () => {
   );
 
   it.each(["Todo", "In Progress"])(
-    "posts a deduplicated advisory and does not dispatch when linked PR is %s but canonical Issue is inactive",
+    "does not author an advisory or dispatch when linked PR is %s but canonical Issue is inactive",
     async (pullRequestState) => {
       const tempRoot = await mkdtemp(
         join(tmpdir(), "orchestrator-linked-pr-active-advisory-")
@@ -1344,25 +1343,7 @@ describe("targeted canonical subject dispatch", () => {
 
       expect(result.summary.dispatched).toBe(0);
       expect(spawnImpl).not.toHaveBeenCalled();
-      expect(upsertIssueComment).toHaveBeenCalledTimes(1);
-      expect(upsertIssueComment).toHaveBeenCalledWith(
-        projectConfig,
-        expect.objectContaining({
-          id: "issue-9",
-          identifier: "dispatch-acme/platform#9",
-        }),
-        expect.objectContaining({
-          marker:
-            "<!-- gh-symphony:linked-pr-active-while-issue-inactive issue=issue-9 pr=pr-109 -->",
-          body: expect.stringContaining(
-            "Linked PR card status alone does not trigger dispatch."
-          ),
-        }),
-        expect.any(Object)
-      );
-      expect(upsertIssueComment.mock.calls[0]?.[2].body).toContain(
-        "No worker was started for this PR card status change."
-      );
+      expect(upsertIssueComment).not.toHaveBeenCalled();
     }
   );
 
@@ -1427,200 +1408,6 @@ describe("targeted canonical subject dispatch", () => {
 
     expect(result.summary.dispatched).toBe(1);
     expect(upsertIssueComment).not.toHaveBeenCalled();
-  });
-
-  it("aggregates advisory GraphQL costs in a no-run poll without run events", async () => {
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-linked-pr-advisory-rate-limits-")
-    );
-    const repository = await createRepositoryFixture(
-      tempRoot,
-      "dispatch-acme",
-      "platform"
-    );
-    const store = new OrchestratorFsStore(tempRoot);
-    const projectConfig = createProjectConfig(
-      tempRoot,
-      repository.cloneUrl,
-      repository.owner,
-      repository.name
-    );
-    await store.saveProjectConfig(projectConfig);
-    const issue = makeIssue({
-      id: "issue-9",
-      identifier: "dispatch-acme/platform#9",
-      number: 9,
-      state: "In review",
-      repository,
-      metadata: {
-        contentType: "Issue",
-        linkedPullRequests: [
-          makePullRequestContext(repository, 109, "feature/pr-109"),
-        ],
-      },
-    });
-    const linkedPullRequest = makeIssue({
-      id: "pr-109",
-      identifier: "dispatch-acme/platform#109",
-      number: 109,
-      state: "Todo",
-      repository,
-      metadata: {
-        contentType: "PullRequest",
-        pullRequest: makePullRequestContext(repository, 109, "feature/pr-109"),
-      },
-    });
-    const issues = [issue, linkedPullRequest] as TrackedIssueList;
-    issues.rateLimits = {
-      source: "github",
-      resource: "graphql",
-      cycleCost: 11,
-      queryCosts: { ProjectItems: { requestCount: 1, cost: 11 } },
-    };
-    const adapter = createDispatchAdapter(repository, issues);
-    adapter.upsertIssueComment = vi.fn().mockResolvedValue({
-      outcome: "created",
-      rateLimits: {
-        source: "github",
-        resource: "graphql",
-        cycleCost: 5,
-        queryCosts: {
-          IssueCommentsById: { requestCount: 1, cost: 2 },
-          AddIssueComment: { requestCount: 1, cost: 3 },
-        },
-      },
-    });
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
-
-    const result = await new OrchestratorService(store, projectConfig, {
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
-    }).runOnce({ issueIdentifier: "dispatch-acme/platform#109" });
-
-    expect(result.summary.dispatched).toBe(0);
-    expect(result.rateLimits).toMatchObject({
-      cycleCost: 16,
-      queryCosts: {
-        ProjectItems: { requestCount: 1, cost: 11 },
-        IssueCommentsById: { requestCount: 1, cost: 2 },
-        AddIssueComment: { requestCount: 1, cost: 3 },
-      },
-    });
-    expect(await store.loadAllRuns()).toEqual([]);
-  });
-
-  it("aggregates advisory costs once without adding them to an active run", async () => {
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-linked-pr-advisory-active-run-")
-    );
-    const repository = await createRepositoryFixture(
-      tempRoot,
-      "dispatch-acme",
-      "platform"
-    );
-    const store = new OrchestratorFsStore(tempRoot);
-    const projectConfig = createProjectConfig(
-      tempRoot,
-      repository.cloneUrl,
-      repository.owner,
-      repository.name
-    );
-    await store.saveProjectConfig(projectConfig);
-    const issue = makeIssue({
-      id: "issue-9",
-      identifier: "dispatch-acme/platform#9",
-      number: 9,
-      state: "In review",
-      repository,
-      metadata: {
-        contentType: "Issue",
-        linkedPullRequests: [
-          makePullRequestContext(repository, 109, "feature/pr-109"),
-        ],
-      },
-    });
-    const linkedPullRequest = makeIssue({
-      id: "pr-109",
-      identifier: "dispatch-acme/platform#109",
-      number: 109,
-      state: "Todo",
-      repository,
-      metadata: {
-        contentType: "PullRequest",
-        pullRequest: makePullRequestContext(repository, 109, "feature/pr-109"),
-      },
-    });
-    const issues = [issue, linkedPullRequest] as TrackedIssueList;
-    issues.rateLimits = {
-      source: "github",
-      resource: "graphql",
-      cycleCost: 11,
-      queryCosts: { ProjectItems: { requestCount: 1, cost: 11 } },
-    };
-    const adapter = createDispatchAdapter(repository, issues);
-    adapter.upsertIssueComment = vi.fn().mockResolvedValue({
-      outcome: "updated",
-      rateLimits: {
-        source: "github",
-        resource: "graphql",
-        cycleCost: 5,
-        queryCosts: {
-          IssueCommentsById: { requestCount: 1, cost: 2 },
-          UpdateIssueComment: { requestCount: 1, cost: 3 },
-        },
-      },
-    });
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
-    await store.saveRun(
-      makeRun({
-        runId: "run-9",
-        issueId: issue.id,
-        issueIdentifier: issue.identifier,
-        issueState: issue.state,
-        repository,
-        processId: 5409,
-        rateLimits: {
-          source: "github",
-          resource: "graphql",
-          cycleCost: 11,
-          queryCosts: { WorkerStatus: { requestCount: 1, cost: 11 } },
-        },
-      })
-    );
-
-    const result = await new OrchestratorService(store, projectConfig, {
-      isProcessRunning: (pid) => pid === 5409,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
-    }).runOnce({ issueIdentifier: "dispatch-acme/platform#109" });
-
-    expect(result.rateLimits).toMatchObject({
-      cycleCost: 16,
-      queryCosts: {
-        WorkerStatus: { requestCount: 1, cost: 11 },
-        IssueCommentsById: { requestCount: 1, cost: 2 },
-        UpdateIssueComment: { requestCount: 1, cost: 3 },
-      },
-    });
-    const events = (
-      await readFile(
-        join(store.runDir("run-9", projectConfig.projectId), "events.ndjson"),
-        "utf8"
-      )
-    )
-      .trim()
-      .split("\n")
-      .map(
-        (line) => JSON.parse(line) as { rateLimits?: Record<string, unknown> }
-      );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({
-        rateLimits: expect.objectContaining({
-          cycleCost: 5,
-          queryCosts: expect.objectContaining({
-            UpdateIssueComment: expect.anything(),
-          }),
-        }),
-      })
-    );
   });
 
   it("evaluates linked PR advisory states with each issue repository workflow", async () => {

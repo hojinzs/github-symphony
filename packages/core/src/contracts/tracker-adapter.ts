@@ -231,16 +231,6 @@ export type TrackerStateRequest =
       commentBody?: string;
     };
 
-export type TrackerCommentWriteResult = {
-  outcome: "created" | "unchanged";
-  rateLimits: Record<string, unknown> | null;
-};
-
-export type TrackerIssueCommentUpsertResult = {
-  outcome: "created" | "updated" | "unchanged";
-  rateLimits: Record<string, unknown> | null;
-};
-
 export type TrackerStateResult = {
   ok: boolean;
   outcome: "confirmed" | "expected_state_mismatch" | "rejected" | "failed";
@@ -354,21 +344,4 @@ export type OrchestratorTrackerAdapter = {
     },
     dependencies?: OrchestratorTrackerDependencies
   ): Promise<TrackerStateResult>;
-  upsertTransitionComment?(
-    project: OrchestratorProjectConfig,
-    input: {
-      issueSubjectId: string;
-      body: string;
-    },
-    dependencies?: OrchestratorTrackerDependencies
-  ): Promise<TrackerCommentWriteResult>;
-  upsertIssueComment?(
-    project: OrchestratorProjectConfig,
-    issue: TrackedIssue,
-    input: {
-      marker: string;
-      body: string;
-    },
-    dependencies?: OrchestratorTrackerDependencies
-  ): Promise<TrackerIssueCommentUpsertResult>;
 };

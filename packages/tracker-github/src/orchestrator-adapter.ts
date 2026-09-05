@@ -21,8 +21,6 @@ import {
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
   requestGithubProjectItemState,
-  upsertGithubTransitionComment,
-  upsertGithubIssueComment,
 } from "./adapter.js";
 
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
@@ -354,26 +352,6 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       trackerConfig,
       input,
       dependencies.fetchImpl
-    );
-  },
-
-  async upsertTransitionComment(project, input, dependencies = {}) {
-    const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
-    return upsertGithubTransitionComment(
-      trackerConfig,
-      input,
-      dependencies.fetchImpl
-    );
-  },
-
-  async upsertIssueComment(project, issue, input, dependencies = {}) {
-    const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
-    return upsertGithubIssueComment(
-      trackerConfig,
-      issue,
-      input,
-      dependencies.fetchImpl,
-      dependencies.issueCommentCache
     );
   },
 };
