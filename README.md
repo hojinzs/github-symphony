@@ -380,9 +380,6 @@ gh-symphony project status --project-dir <path>              # Show project orch
 gh-symphony project start --project-dir <path>               # Start this project
 gh-symphony project start --project-dir <path> --once        # Run one orchestration tick
 gh-symphony project stop --project-dir <path>                # Stop this project
-gh-symphony cache status             # Inspect shared bare caches, sizes, locks, and worktrees
-gh-symphony cache prune --dry-run    # Preview 30-day cache eviction
-gh-symphony cache prune --max-age-days 30 # Remove old idle caches safely
 ```
 
 ### Projects
@@ -393,11 +390,10 @@ repository it targets. The folder owns `WORKFLOW.md` (which must declare
 `.agent/skills/`; the referenced repository itself stays unmodified. Issue
 workspaces are created under the project's `workspace.root`, relative to the
 project folder and defaulting to `<project-dir>/.runtime/workspaces`. They are
-populated as worktrees from a shared bare clone cache, and branches default to
-`symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the
-same repository without branch collisions.
-
-If cache storage is unavailable or lock acquisition times out, workspace population falls back to an isolated direct clone. Cache locks heartbeat during long clone/fetch operations. Cleanup is operator-driven: `cache prune` defaults to entries at least 30 days old and skips every locked cache, linked worktree, or cache whose worktree state cannot be verified.
+populated by the configured `after_create` hook; `setup` ships a default hook
+that clones the target and checks out the project-scoped issue branch. The
+orchestrator itself creates and removes directories without cloning repositories
+or maintaining Git worktrees.
 
 ```bash
 cd <projectDir> && gh-symphony project start   # Start the project in this folder
@@ -856,16 +852,21 @@ In CI, regular process env can override the project `.env` without changing `WOR
 
 All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatically receive the following variables in addition to the merged environment above:
 
-| Variable                       | Description                                      |
-| ------------------------------ | ------------------------------------------------ |
-| `SYMPHONY_PROJECT_ID`          | Orchestrator project ID                          |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY` | Workspace key for the issue                      |
-| `SYMPHONY_ISSUE_SUBJECT_ID`    | Issue subject ID (tracker-specific)              |
-| `SYMPHONY_ISSUE_IDENTIFIER`    | e.g. `acme/platform#42`                          |
-| `SYMPHONY_WORKSPACE_PATH`      | Absolute path to the issue workspace             |
-| `SYMPHONY_REPOSITORY_PATH`     | Absolute path to the cloned repository           |
-| `SYMPHONY_RUN_ID`              | Current run ID (absent in `after_create`)        |
-| `SYMPHONY_ISSUE_STATE`         | Current tracker state (absent in `after_create`) |
+| Variable                        | Description                                      |
+| ------------------------------- | ------------------------------------------------ |
+| `SYMPHONY_PROJECT_ID`           | Orchestrator project ID                          |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY`  | Workspace key for the issue                      |
+| `SYMPHONY_ISSUE_SUBJECT_ID`     | Issue subject ID (tracker-specific)              |
+| `SYMPHONY_ISSUE_IDENTIFIER`     | e.g. `acme/platform#42`                          |
+| `SYMPHONY_WORKSPACE_PATH`       | Absolute path to the issue workspace             |
+| `SYMPHONY_REPOSITORY_PATH`      | Absolute path to the cloned repository           |
+| `SYMPHONY_REPOSITORY_CLONE_URL` | Clone source for repository population hooks     |
+| `SYMPHONY_REPOSITORY_OWNER`     | Target repository owner                          |
+| `SYMPHONY_REPOSITORY_NAME`      | Target repository name                           |
+| `SYMPHONY_ASSIGNED_BRANCH`      | Issue branch (present for fresh `after_create`)  |
+| `SYMPHONY_BASE_BRANCH`          | Optional configured or pull-request base ref     |
+| `SYMPHONY_RUN_ID`               | Current run ID (absent in `after_create`)        |
+| `SYMPHONY_ISSUE_STATE`          | Current tracker state (absent in `after_create`) |
 
 #### Example: External Script File
 
