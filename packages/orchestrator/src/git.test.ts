@@ -65,6 +65,22 @@ describe("issue workspaces", () => {
     ).resolves.toBe("preserve\n");
   });
 
+  it("recreates only a missing repository directory for reuse recovery", async () => {
+    const issueWorkspacePath = join(testDirectory, "workspace");
+    await mkdir(issueWorkspacePath, { recursive: true });
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: true,
+    });
+
+    await expect(access(repositoryDirectory)).resolves.toBeUndefined();
+    await expect(
+      access(join(repositoryDirectory, ".git"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("supports a front matter branch template", () => {
     expect(
       renderIssueBranchName({

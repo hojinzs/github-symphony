@@ -34,9 +34,7 @@ export async function ensureIssueWorkspaceRepository(input: {
   existingWorkspace: boolean;
 }): Promise<string> {
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
-  if (!input.existingWorkspace) {
-    await mkdir(repositoryDirectory, { recursive: true, mode: 0o700 });
-  }
+  await mkdir(repositoryDirectory, { recursive: true, mode: 0o700 });
   return repositoryDirectory;
 }
 
