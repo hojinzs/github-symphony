@@ -178,7 +178,7 @@ gh-symphony project status --project-dir <path>                  # Show current 
 gh-symphony project status --project-dir <path> --watch          # Live terminal status
 ```
 
-For each active run, the status view labels and displays the opaque
+For each active run that has a recorded digest, the status view labels and displays the opaque
 `sha256:...` project-environment digest. Compare this value across runs to
 detect project `.env` changes; Symphony never exposes environment names or
 values through this surface.

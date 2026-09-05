@@ -213,6 +213,28 @@ describe("status command", () => {
     );
   });
 
+  it("omits the project-environment line when an active run has no digest", async () => {
+    const configDir = await createConfigFixture();
+    const statusPath = join(configDir, "status.json");
+    const status = JSON.parse(await readFile(statusPath, "utf8"));
+    status.activeRuns[0].environmentDigest = null;
+    await writeFile(statusPath, JSON.stringify(status));
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).not.toContain("Project environment:");
+  });
+
   it("labels a suffixless legacy workspace key", async () => {
     const configDir = await createConfigFixture();
     const stdout = captureWrites(process.stdout);

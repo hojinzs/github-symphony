@@ -406,7 +406,8 @@ gh-symphony project status --project-dir <path>                  # Show current 
 gh-symphony project status --project-dir <path> --watch          # Live dashboard
 ```
 
-Active-run rows include an opaque `sha256:...` project-environment digest.
+Active-run rows with a recorded digest include the opaque `sha256:...`
+project-environment digest.
 Operators can compare the digest across runs to detect project `.env` changes;
 the status surface never expands it into environment names or values.
 

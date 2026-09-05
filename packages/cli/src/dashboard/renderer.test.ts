@@ -129,6 +129,50 @@ describe("renderDashboard", () => {
     );
   });
 
+  it("wraps the complete project-environment digest in a narrow terminal", () => {
+    const snapshot = loadFixture("busy");
+    const digest =
+      "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    snapshot.activeRuns[0] = {
+      ...snapshot.activeRuns[0],
+      environmentDigest: digest,
+    };
+
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 80,
+      noColor: true,
+      now: NOW,
+    });
+    const lines = output.split("\n");
+    const digestStart = lines.findIndex((line) =>
+      line.includes("Project environment:")
+    );
+    const renderedDigest = lines
+      .slice(digestStart, digestStart + 2)
+      .join("")
+      .replace(/\s+/g, " ")
+      .replace(" Project environment: ", "")
+      .replaceAll(" ", "");
+
+    expect(renderedDigest).toBe(digest);
+  });
+
+  it("omits the project-environment line when an active run has no digest", () => {
+    const snapshot = loadFixture("busy");
+    snapshot.activeRuns[0] = {
+      ...snapshot.activeRuns[0],
+      environmentDigest: null,
+    };
+
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+    });
+
+    expect(output).not.toContain("Project environment:");
+  });
+
   it("noColor=true produces no ANSI escape sequences", () => {
     const snapshot = loadFixture("busy");
     const output = renderDashboard([snapshot], {
