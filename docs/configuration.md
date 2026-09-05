@@ -405,12 +405,13 @@ precedence:
 
 The worker, workflow hooks, and coding-agent child are three distinct
 environment boundaries. The coding-agent child does not inherit the merged
-worker environment. Every built-in and custom runtime constructs its child
-environment separately from the following contract:
+worker environment. Every built-in runtime and, by default, every custom runtime
+constructs its child environment separately from the following contract. The
+custom compatibility-mode exception is documented below.
 
 | Source                             | Agent-child result                                                                                                                                                                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Portable runtime variables         | Codex and Claude copy their runtime-safe process allowlist; default custom runtimes copy their portable allowlist. `LC_*` locale variables are also preserved.                                                                                                          |
+| Portable runtime variables         | Codex copies its runtime-safe process allowlist, including `LC_*` locale variables. Claude and default custom runtimes copy fixed portable allowlists that include `LANG` but not `LC_*`.                                                                               |
 | Symphony run context               | Only the non-secret names in the [agent-visible Symphony context](#agent-visible-symphony-context) are copied.                                                                                                                                                          |
 | Runtime-managed values             | `HOME`, `USERPROFILE`, and `GH_CONFIG_DIR` point into the private child home. Codex and Claude also receive a private `DOCKER_CONFIG`; runtime authentication is added only through the selected built-in provider contract or `runtime.auth.env` for a custom runtime. |
 | Credentials and host configuration | Tracker-declared secrets, broker controls, Git/SSH credential plumbing, operator `gh` configuration, and Docker registry configuration are always stripped or replaced with private runtime paths.                                                                      |
@@ -491,7 +492,8 @@ configuration.
 
 These variables are inputs to the selected built-in runtime's authentication
 contract. The CLI also uses them during setup and doctor checks where
-applicable; they are not part of the general child environment allowlist.
+applicable; provider credentials are not part of the general child environment
+allowlist.
 
 | Variable            | Default | Read by                                    | Audience             | Notes                                                                                                                                    |
 | ------------------- | ------- | ------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -520,10 +522,8 @@ availability remains unchanged.
 
 Custom commands are untrusted children. By default they receive portable
 execution variables, a private workspace-contained `HOME` and `GH_CONFIG_DIR`,
-`GIT_TERMINAL_PROMPT=0`, the rendered prompt, and stdin. They receive no raw
-GitHub/Linear tracker token, GitHub token-broker URL/secret/cache, agent
-credential-broker controls, host Git credential-helper variables, or operator
-`gh auth` store.
+`GIT_TERMINAL_PROMPT=0`, the rendered prompt, and stdin. Unlike the built-in
+runtimes, they do not receive a runtime-managed `DOCKER_CONFIG`.
 
 Declare the one provider credential a custom command needs with `runtime.auth.env`:
 
@@ -549,10 +549,13 @@ and the dispatched worker.
 for commands that cannot yet operate under the explicit contract. It restores
 the non-credential worker environment, but still overrides `HOME` and
 `GH_CONFIG_DIR` and removes tracker credentials, broker/authentication controls,
-and host Git credential-helper settings. Starting with the #812 runtime context
-fix, compatibility inheritance no longer passes raw tracker or broker credentials
-through to the custom agent; commands that relied on those inherited values must
-declare a dedicated least-privilege provider credential with `runtime.auth.env`.
+and host Git credential-helper settings. Compatibility mode does not install a
+private `DOCKER_CONFIG`; an operator-provided value can therefore be inherited
+from the non-credential worker environment. Starting with the #812 runtime
+context fix, compatibility inheritance no longer passes raw tracker or broker
+credentials through to the custom agent; commands that relied on those inherited
+values must declare a dedicated least-privilege provider credential with
+`runtime.auth.env`.
 This is an intentional repository-local divergence from upstream Symphony
 §10.5, §15.3, and §17.5. Use compatibility inheritance only during migration
 and remove it as soon as the command's required inputs can be declared.
@@ -656,7 +659,7 @@ variables are removed after environment composition, even if a runtime enables
 process-environment compatibility inheritance. Runtime authentication explicitly
 configured for the coding agent remains separate from this context allowlist.
 
-### GitHub Tracker Transition Extension
+## GitHub Tracker Transition Extension
 
 GitHub Project state writes are a repository extension to upstream Symphony SPEC §11.5. Workers send issue-scoped intent to the internal orchestrator API; the orchestrator authorizes the current `SYMPHONY_RUN_ID`, uses its persisted canonical tracker item, serializes requests against the shared GraphQL budget, and confirms an exact-item readback.
 
@@ -666,7 +669,7 @@ This intentionally differs from the upstream spec's typical agent-tool ownership
 
 The comment publication is an explicit §11.5 divergence and implements the upstream §18.2 recommended extension. The orchestrator owns transport, serialization, retry, and readback sequencing; `WORKFLOW.md` owns the comment body policy, while `packages/tracker-github` owns GitHub GraphQL mutation semantics.
 
-### Workspace-Key Migration
+## Workspace-Key Migration
 
 New issue workspaces preserve readable sanitized identifiers and append a stable
 64-bit SHA-256 suffix whenever sanitization changes the identifier, for example
