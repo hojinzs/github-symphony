@@ -16078,10 +16078,12 @@ Keep skipped hooks inert.
         "utf8"
       );
       const spawnImpl = vi.fn().mockReturnValue({ pid: 4304, unref: vi.fn() });
+      const writeStderr = vi.fn();
       const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
         spawnImpl: spawnImpl as never,
         now: () => new Date("2026-03-08T00:00:00.000Z"),
+        stderr: { write: writeStderr },
       });
 
       await service.runOnce();
@@ -16090,6 +16092,9 @@ Keep skipped hooks inert.
       await expect(
         store.loadProjectIssueOrchestrations(projectConfig.projectId)
       ).resolves.toEqual([expect.objectContaining({ state: "retry_queued" })]);
+      expect(writeStderr.mock.calls.flat().join("\n")).toContain(
+        "after_create hook skipped"
+      );
     }
   );
 
@@ -17667,6 +17672,9 @@ Prefer focused changes.
 }
 
 function ensureAfterCreateFixture(content: string): string {
+  // Most service fixtures exercise a successful dispatch and therefore need a
+  // population hook. Tests for a missing after_create hook must bypass this
+  // helper by constructing their repository and WORKFLOW.md directly.
   if (!content.startsWith("---\n") || content.includes("after_create:")) {
     return content;
   }
