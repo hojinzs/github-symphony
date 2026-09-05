@@ -5064,8 +5064,9 @@ export class OrchestratorService {
           repositoryPath: repositoryDirectory,
           env: hookEnv,
           trusted: isWorkflowHookExecutionAllowed(hookEnv),
-          envAllowlist: parseCommaSeparatedEnvList(
-            hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV]
+          envAllowlist: parseWorkflowHookEnvAllowlist(
+            hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
+            hookEnv
           ),
           timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
         });
@@ -6338,14 +6339,33 @@ function parseOwnerProcessId(ownerToken: string): number | null {
   return separator > 0 && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
-function parseCommaSeparatedEnvList(value: string | undefined): string[] {
+export function parseWorkflowHookEnvAllowlist(
+  value: string | undefined,
+  environment: Readonly<Record<string, string>>
+): string[] {
   if (!value) {
     return [];
   }
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => /^[A-Z_][A-Z0-9_]*$/.test(entry));
+  const entries = value.split(",").map((entry) => entry.trim());
+  const invalidEntry = entries.find(
+    (entry) => !/^[A-Z_][A-Z0-9_]*$/.test(entry)
+  );
+  if (invalidEntry !== undefined) {
+    throw new Error(
+      `${WORKFLOW_HOOK_ENV_ALLOWLIST_ENV} contains an invalid environment variable name: ${JSON.stringify(invalidEntry)}`
+    );
+  }
+
+  const unknownEntry = entries.find(
+    (entry) => !Object.hasOwn(environment, entry)
+  );
+  if (unknownEntry !== undefined) {
+    throw new Error(
+      `${WORKFLOW_HOOK_ENV_ALLOWLIST_ENV} names an environment variable that is not defined: ${unknownEntry}`
+    );
+  }
+
+  return entries;
 }
 
 function hasTokenUsage(

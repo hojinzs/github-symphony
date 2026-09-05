@@ -37,11 +37,32 @@ import {
   applyStateReadRoutability,
   clampPollInterval,
   OrchestratorService,
+  parseWorkflowHookEnvAllowlist,
   resolveDirtyWorkAttributionBranches,
   sortRunsForReconciliation,
   shouldAwaitTrackerProgressExit,
   shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
+
+describe("workflow hook environment allowlist", () => {
+  it("rejects invalid and unknown entries instead of silently dropping them", () => {
+    expect(() =>
+      parseWorkflowHookEnvAllowlist("VALID_NAME,not-valid", {
+        VALID_NAME: "present",
+      })
+    ).toThrow(
+      'SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST contains an invalid environment variable name: "not-valid"'
+    );
+
+    expect(() =>
+      parseWorkflowHookEnvAllowlist("VALID_NAME,MISSPELLED_NAME", {
+        VALID_NAME: "present",
+      })
+    ).toThrow(
+      "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST names an environment variable that is not defined: MISSPELLED_NAME"
+    );
+  });
+});
 import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("state-read routability", () => {

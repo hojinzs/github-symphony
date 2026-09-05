@@ -89,6 +89,17 @@ are rejected. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host
 environment to permit hook execution. The gate and path-only rule intentionally
 diverge from the upstream shell-command hook model.
 
+Hook children receive portable process variables (`HOME`, `LANG`, `LOGNAME`,
+`PATH`, `PWD`, `SHELL`, `TERM`, `TMPDIR`, `USER`, and `LC_*`) plus Symphony's
+injected `SYMPHONY_*` hook context. To expose additional variables from the
+effective project/daemon environment, set
+`SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST` to a comma-separated list of names, for
+example `STAGING_API_HOST,FILE_ONLY`. Every entry must use uppercase shell-name
+syntax (`[A-Z_][A-Z0-9_]*`) and must be defined in that effective environment.
+Hook execution fails when the list contains an empty, malformed, or unknown
+entry; names are never silently ignored. This allowlist affects hooks only and
+does not expose its entries to the coding-agent child.
+
 ## WORKFLOW.md Front-matter Validation
 
 `gh-symphony workflow validate` and `gh-symphony doctor` use the same
@@ -380,6 +391,24 @@ precedence:
 | 1        | Project `.env` file              | Hooks and worker processes                        |
 | 2        | Orchestrator process environment | CLI, orchestrator, worker, runtime adapters       |
 | 3        | Symphony-injected context        | Worker identity, issue metadata, runtime settings |
+
+The coding-agent child does not inherit this merged worker environment. Its
+environment is constructed separately at the runtime boundary:
+
+| Source                             | Agent-child result                                                                                                                                                                                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Portable runtime variables         | Codex and Claude copy their runtime-safe process allowlist; default custom runtimes copy their portable allowlist. `LC_*` locale variables are also preserved.                                                                                                          |
+| Symphony run context               | Only the non-secret names in the [agent-visible Symphony context](#agent-visible-symphony-context) are copied.                                                                                                                                                          |
+| Runtime-managed values             | `HOME`, `USERPROFILE`, and `GH_CONFIG_DIR` point into the private child home. Codex and Claude also receive a private `DOCKER_CONFIG`; runtime authentication is added only through the selected built-in provider contract or `runtime.auth.env` for a custom runtime. |
+| Credentials and host configuration | Tracker-declared secrets, broker controls, Git/SSH credential plumbing, operator `gh` configuration, and Docker registry configuration are always stripped or replaced with private runtime paths.                                                                      |
+
+A value placed in the project `.env` therefore reaches the worker host, and can
+reach an approved hook only when the hook rules above allow it, but it does
+**not** automatically reach the coding-agent child. This is deliberate: the
+worker needs host-side configuration for orchestration, tracker tools, and Git
+transport, while the child is a separate least-privilege boundary. There is no
+declarative general-purpose channel for forwarding project `.env` entries to an
+agent child.
 
 Tracker credentials are the narrow exception to the general process-environment
 allowlist: at dispatch, the tracker adapter resolves a tenant-scoped credential
