@@ -1,20 +1,21 @@
-import {
-  resolveGitHubGraphQLToken,
-  type GitHubGraphQLToolConfig,
-} from "@gh-symphony/tool-github-graphql";
 import { writeSync } from "node:fs";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { validateGitHubTokenBrokerUrl } from "@gh-symphony/tool-github-graphql";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
 const DEFAULT_TOKEN_BROKER_TIMEOUT_MS = 5_000;
 const MAX_TOKEN_BROKER_TIMEOUT_MS = 2_147_483_647;
+const TOKEN_REUSE_WINDOW_MS = 60 * 1000;
 
 export type GitCredentialRequest = Record<string, string>;
 
-export type GitCredentialHelperConfig = Pick<
-  GitHubGraphQLToolConfig,
-  "token" | "tokenBrokerUrl" | "tokenBrokerSecret" | "tokenCachePath"
-> & {
+export type GitCredentialHelperConfig = {
+  token?: string;
+  tokenBrokerUrl?: string;
+  tokenBrokerSecret?: string;
+  tokenCachePath?: string;
   gitHost?: string;
   gitUsername?: string;
   tokenBrokerTimeoutMs?: number;
@@ -51,9 +52,7 @@ export async function resolveGitCredential(
 
   let token: string;
   try {
-    token = await resolveGitHubGraphQLToken(config, {
-      fetchImpl: brokerFetch,
-    });
+    token = await resolveGitCredentialToken(config, brokerFetch);
   } catch (error) {
     if (tokenBrokerUrl && isTimeoutError(error)) {
       throw new Error(
@@ -70,6 +69,99 @@ export async function resolveGitCredential(
     username: config.gitUsername ?? DEFAULT_GITHUB_GIT_USERNAME,
     password: token,
   });
+}
+
+async function resolveGitCredentialToken(
+  config: GitCredentialHelperConfig,
+  fetchImpl: typeof fetch
+): Promise<string> {
+  if (config.token) {
+    return config.token;
+  }
+  if (!config.tokenBrokerUrl || !config.tokenBrokerSecret) {
+    throw new Error(
+      "Either GITHUB_GRAPHQL_TOKEN or the Git token broker configuration is required."
+    );
+  }
+
+  const tokenCachePath = config.tokenCachePath;
+  const cachedToken = tokenCachePath
+    ? await readCachedToken(tokenCachePath)
+    : null;
+  if (
+    cachedToken &&
+    tokenCachePath &&
+    cachedToken.expiresAt.getTime() - Date.now() > TOKEN_REUSE_WINDOW_MS
+  ) {
+    await chmodExistingSecretFile(tokenCachePath);
+    return cachedToken.token;
+  }
+
+  const tokenBrokerUrl = validateGitHubTokenBrokerUrl(config.tokenBrokerUrl);
+  const response = await fetchImpl(tokenBrokerUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${config.tokenBrokerSecret}`,
+    },
+  });
+  const payload = (await response.json()) as {
+    token?: string;
+    expiresAt?: string;
+    error?: string;
+  };
+  if (!response.ok || !payload.token || !payload.expiresAt) {
+    throw new Error(
+      payload.error ??
+        `Git token broker request failed with status ${response.status}.`
+    );
+  }
+  if (tokenCachePath) {
+    await writeSecretFile(tokenCachePath, JSON.stringify(payload));
+  }
+  return payload.token;
+}
+
+async function writeSecretFile(path: string, data: string): Promise<void> {
+  const parentDir = dirname(path);
+  const createdDir = await mkdir(parentDir, { recursive: true, mode: 0o700 });
+  if (createdDir !== undefined) {
+    await chmod(parentDir, 0o700);
+  }
+  await chmodExistingSecretFile(path);
+  await writeFile(path, data, { encoding: "utf8", mode: 0o600 });
+  await chmod(path, 0o600);
+}
+
+async function chmodExistingSecretFile(path: string): Promise<void> {
+  try {
+    await chmod(path, 0o600);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function readCachedToken(
+  path: string
+): Promise<{ token: string; expiresAt: Date } | null> {
+  try {
+    const payload = JSON.parse(await readFile(path, "utf8")) as {
+      token?: string;
+      expiresAt?: string;
+    };
+    return payload.token && payload.expiresAt
+      ? { token: payload.token, expiresAt: new Date(payload.expiresAt) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 export function parseGitCredentialRequest(
