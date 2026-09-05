@@ -50,9 +50,6 @@ export function resolveLocalRuntimeLaunchConfig(
         ? { WORKSPACE_RUNTIME_DIR: env.WORKSPACE_RUNTIME_DIR }
         : {}),
     },
-    agentCredentialBrokerUrl: env.AGENT_CREDENTIAL_BROKER_URL,
-    agentCredentialBrokerSecret: env.AGENT_CREDENTIAL_BROKER_SECRET,
-    agentCredentialCachePath: env.AGENT_CREDENTIAL_CACHE_PATH,
     githubProjectId: env.GITHUB_PROJECT_ID,
     githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
     enableLinearGraphqlTool: env.SYMPHONY_TRACKER_KIND === "linear",
@@ -139,9 +136,7 @@ function emitLaunchSummary(config: CodexRuntimeConfig) {
   const githubAuthMode = config.githubToken ? "direct token" : "missing";
   const agentAuthMode = config.agentEnv?.OPENAI_API_KEY
     ? "direct env"
-    : config.agentCredentialBrokerUrl && config.agentCredentialBrokerSecret
-      ? "broker"
-      : "local codex auth or inherited environment";
+    : "local codex auth or inherited environment";
 
   process.stdout.write(
     [
