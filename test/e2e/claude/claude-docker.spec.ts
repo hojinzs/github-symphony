@@ -12,7 +12,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createClaudePrintRuntimeAdapter } from "@gh-symphony/runtime-claude";
 import {
   AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES,
-  buildAgentChildEnvironmentAssignments,
+  AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES,
   type AgentEvent,
 } from "@gh-symphony/core";
 import { CustomCommandWorkerRuntimeAdapter } from "../../../packages/worker/src/non-codex-runtime.js";
@@ -69,6 +69,43 @@ const stubWrapperPath = resolve(repoRoot, "test/e2e/stubs/claude");
 const createdRoots: string[] = [];
 const createdServers: Array<() => Promise<void>> = [];
 const execFileAsync = promisify(execFile);
+
+const expectedCredentialEnvironmentNames = [
+  "AGENT_CREDENTIAL_BROKER_URL",
+  "AGENT_CREDENTIAL_BROKER_SECRET",
+  "AGENT_CREDENTIAL_CACHE_PATH",
+  "GITHUB_GIT_HOST",
+  "GITHUB_GIT_USERNAME",
+  "GIT_ASKPASS",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_KEY_0",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_VALUE_0",
+  "GIT_DIR",
+  "GIT_SSH",
+  "GIT_SSH_COMMAND",
+  "GIT_WORK_TREE",
+  "GITHUB_TOKEN_BROKER_URL",
+  "GITHUB_TOKEN_CACHE_PATH",
+  "SSH_AGENT_PID",
+  "SSH_ASKPASS",
+  "SSH_AUTH_SOCK",
+  "XDG_CONFIG_HOME",
+] as const;
+
+const expectedVisibleContext = {
+  SYMPHONY_ASSIGNED_BRANCH: "symphony/e2e-child-contract",
+  SYMPHONY_ISSUE_ID: "issue-child-contract",
+  SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#872",
+  SYMPHONY_ISSUE_STATE: "In progress",
+  SYMPHONY_TRACKER_KIND: "github-project",
+  TARGET_REPOSITORY_CLONE_URL: "https://github.com/test-owner/test-repo.git",
+  TARGET_REPOSITORY_NAME: "test-repo",
+  TARGET_REPOSITORY_OWNER: "test-owner",
+  TARGET_REPOSITORY_URL: "https://github.com/test-owner/test-repo",
+} as const;
 
 beforeAll(async () => {
   await chmodExecutable(stubPath);
@@ -222,20 +259,14 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
 
   it("enforces the exported agent-child environment contract", async () => {
     const injectedCredentials = Object.fromEntries(
-      AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.map((name) => [
+      expectedCredentialEnvironmentNames.map((name) => [
         name,
         agentChildCredentialFixtureValue(name),
       ])
     );
     const injectedEnvironment = {
       ...injectedCredentials,
-      SYMPHONY_ASSIGNED_BRANCH: "symphony/e2e-child-contract",
-      SYMPHONY_ISSUE_ID: "issue-child-contract",
-      SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#872",
-      SYMPHONY_ISSUE_STATE: "In progress",
-      SYMPHONY_TRACKER_KIND: "github-project",
-      TARGET_REPOSITORY_NAME: "test-repo",
-      TARGET_REPOSITORY_OWNER: "test-owner",
+      ...expectedVisibleContext,
     };
     const harness = await createHarness("success", injectedEnvironment);
 
@@ -245,20 +276,10 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
 
     const invocation = (await harness.readInvocations()).at(-1);
     const childEnvironment = invocation?.environment ?? {};
-    for (const name of AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES) {
-      expect(childEnvironment[name], name).toBeUndefined();
-    }
-    expect(childEnvironment).toMatchObject(
-      buildAgentChildEnvironmentAssignments({
-        childHome: join(harness.root, "workspace-runtime", "child-home"),
-        sources: [process.env, injectedEnvironment],
-      })
+    assertAgentChildEnvironment(
+      childEnvironment,
+      join(harness.root, "workspace-runtime", "child-home")
     );
-    expect(
-      Object.values(childEnvironment).filter((value) =>
-        String(value).includes("e2e-secret")
-      )
-    ).toEqual([]);
   });
 
   it("routes worker claude-print runtime through the adapter lifecycle", async () => {
@@ -516,6 +537,7 @@ global.fetch = async (url, options) => {
     const runtimeRoot = join(root, "runtime");
     const binDir = join(root, "bin");
     const workflowPath = join(workspace, "WORKFLOW.md");
+    const childEnvironmentPath = join(root, "codex-child-environment.json");
     await mkdir(workspace, { recursive: true });
     await mkdir(runtimeRoot, { recursive: true });
     await mkdir(binDir, { recursive: true });
@@ -538,6 +560,8 @@ Worker prompt.
     await writeFile(
       codexStub,
       `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(childEnvironmentPath)}, JSON.stringify(process.env));
 const readline = require("node:readline");
 const lines = readline.createInterface({ input: process.stdin });
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
@@ -576,6 +600,13 @@ lines.on("line", (line) => {
     await runGit(workspace, "commit", "--allow-empty", "-m", "agent commit");
 
     const leaseServer = await createTurnLeaseServer();
+    const expectedCodexVisibleContext = {
+      ...expectedVisibleContext,
+      SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
+      SYMPHONY_ISSUE_ID: "issue-worker-codex",
+      SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#700",
+      TARGET_REPOSITORY_CLONE_URL: remote,
+    };
     let result: Awaited<ReturnType<typeof runWorkerProcess>>;
     try {
       result = await runWorkerProcess({
@@ -585,16 +616,13 @@ lines.on("line", (line) => {
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
           CODEX_PROJECT_ID: "e2e-project",
           OPENAI_API_KEY: "stub-openai-key",
+          GITHUB_GIT_HOST: agentChildCredentialFixtureValue("GITHUB_GIT_HOST"),
           WORKING_DIRECTORY: workspace,
-          SYMPHONY_ASSIGNED_BRANCH: "feat/assigned",
-          TARGET_REPOSITORY_CLONE_URL: remote,
+          ...expectedCodexVisibleContext,
           WORKSPACE_RUNTIME_DIR: runtimeRoot,
           SYMPHONY_WORKFLOW_PATH: workflowPath,
           SYMPHONY_RENDERED_PROMPT: "Handle worker Codex issue.",
           SYMPHONY_RUN_ID: "run-worker-codex-transport-failure",
-          SYMPHONY_ISSUE_ID: "issue-worker-codex",
-          SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#700",
-          SYMPHONY_ISSUE_STATE: "In progress",
           SYMPHONY_MAX_TURNS: "1",
           SYMPHONY_APPROVAL_POLICY: "never",
           SYMPHONY_THREAD_SANDBOX: "workspace-write",
@@ -613,6 +641,14 @@ lines.on("line", (line) => {
       '"runPhase":"failed","lastError":"git_transport_failed:'
     );
     expect(result.stderr).toContain("origin/feat/assigned is not an ancestor");
+    const childEnvironment = JSON.parse(
+      await readFile(childEnvironmentPath, "utf8")
+    ) as NodeJS.ProcessEnv;
+    assertAgentChildEnvironment(
+      childEnvironment,
+      join(runtimeRoot, "child-home"),
+      expectedCodexVisibleContext
+    );
   });
 
   it("fails a built Codex worker startup with a terminal failed heartbeat", async () => {
@@ -818,6 +854,35 @@ function agentChildCredentialFixtureValue(name: string): string {
     return `/tmp/e2e-secret-${name.toLowerCase()}`;
   }
   return `e2e-secret-${name}`;
+}
+
+function assertAgentChildEnvironment(
+  childEnvironment: NodeJS.ProcessEnv,
+  childHome: string,
+  visibleContext: Record<string, string> = expectedVisibleContext
+): void {
+  expect([...AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES]).toEqual(
+    expectedCredentialEnvironmentNames
+  );
+  expect([...AGENT_VISIBLE_SYMPHONY_CONTEXT_ENVIRONMENT_NAMES]).toEqual(
+    Object.keys(visibleContext)
+  );
+  for (const name of expectedCredentialEnvironmentNames) {
+    expect(childEnvironment[name], name).toBeUndefined();
+  }
+  expect(childEnvironment).toMatchObject({
+    ...visibleContext,
+    HOME: childHome,
+    USERPROFILE: childHome,
+    GH_CONFIG_DIR: join(childHome, "gh"),
+    DOCKER_CONFIG: join(childHome, ".docker"),
+    GIT_TERMINAL_PROMPT: "0",
+  });
+  expect(
+    Object.values(childEnvironment).filter((value) =>
+      String(value).includes("e2e-secret")
+    )
+  ).toEqual([]);
 }
 
 async function createHarness(
