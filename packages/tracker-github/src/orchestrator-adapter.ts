@@ -47,6 +47,9 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       "GH_ENTERPRISE_TOKEN",
       "GITHUB_TOKEN",
       "GITHUB_GRAPHQL_TOKEN",
+      "GITHUB_TOKEN_BROKER_URL",
+      "GITHUB_TOKEN_BROKER_SECRET",
+      "GITHUB_TOKEN_CACHE_PATH",
     ];
   },
 
@@ -57,7 +60,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
         return { GITHUB_GRAPHQL_TOKEN: token };
       }
     }
-    return {} as Record<string, string>;
+    return {};
   },
 
   agentToolSpecs() {

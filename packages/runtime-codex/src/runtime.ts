@@ -24,12 +24,12 @@ import {
   type AgentEvent,
   type AgentRuntimeEvent,
 } from "@gh-symphony/core";
-import {
-  createGitHubGraphQLMcpServerEntry,
-  validateGitHubTokenBrokerUrl,
-} from "@gh-symphony/tool-github-graphql";
+import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
-import { parseGitCredentialBrokerTimeoutMs } from "./git-credential-helper.js";
+import {
+  parseGitCredentialBrokerTimeoutMs,
+  validateGitHubTokenBrokerUrl,
+} from "./git-credential-helper.js";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
@@ -586,12 +586,9 @@ function resolveRuntimeProcessEnv(
 export function buildCodexRuntimePlan(
   config: CodexRuntimeConfig
 ): CodexRuntimePlan {
-  const usesGitHubTokenBroker = Boolean(
-    config.githubTokenBrokerUrl && config.githubTokenBrokerSecret
-  );
   const githubTool = createGitHubGraphQLToolDefinition({
     ...config,
-    githubToken: usesGitHubTokenBroker ? undefined : config.githubToken,
+    githubToken: config.githubToken,
   });
   const linearTool = config.enableLinearGraphqlTool
     ? createLinearGraphQLToolDefinition({

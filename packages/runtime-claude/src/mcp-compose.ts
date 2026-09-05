@@ -12,9 +12,6 @@ import {
 export type ClaudeMcpTokenEnvironment = {
   GITHUB_GRAPHQL_TOKEN?: string;
   GITHUB_GRAPHQL_API_URL?: string;
-  GITHUB_TOKEN_BROKER_URL?: string;
-  GITHUB_TOKEN_BROKER_SECRET?: string;
-  GITHUB_TOKEN_CACHE_PATH?: string;
   GITHUB_PROJECT_ID?: string;
   LINEAR_API_KEY?: string;
   LINEAR_AUTHORIZATION?: string;
