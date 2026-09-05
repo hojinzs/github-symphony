@@ -5053,7 +5053,12 @@ export class OrchestratorService {
           tenant,
           buildHookEnv(context)
         );
-        if (resolveHookCommand(workflowResolution.workflow.hooks, kind)) {
+        const hookCommand = resolveHookCommand(
+          workflowResolution.workflow.hooks,
+          kind
+        );
+        const trusted = isWorkflowHookExecutionAllowed(hookEnv);
+        if (hookCommand) {
           this.writeStderr(
             `[orchestrator] starting ${kind} hook for ${context.issueIdentifier}`
           );
@@ -5063,10 +5068,14 @@ export class OrchestratorService {
           hooks: workflowResolution.workflow.hooks,
           repositoryPath: repositoryDirectory,
           env: hookEnv,
-          trusted: isWorkflowHookExecutionAllowed(hookEnv),
-          envAllowlist: parseCommaSeparatedEnvList(
-            hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV]
-          ),
+          trusted,
+          envAllowlist:
+            hookCommand && trusted
+              ? parseWorkflowHookEnvAllowlist(
+                  hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV],
+                  hookEnv
+                )
+              : [],
           timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
         });
       }
@@ -6338,14 +6347,40 @@ function parseOwnerProcessId(ownerToken: string): number | null {
   return separator > 0 && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
-function parseCommaSeparatedEnvList(value: string | undefined): string[] {
+export function parseWorkflowHookEnvAllowlist(
+  value: string | undefined,
+  environment: Readonly<Record<string, string>>
+): string[] {
   if (!value) {
     return [];
   }
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => /^[A-Z_][A-Z0-9_]*$/.test(entry));
+  const entries = [
+    ...new Set(
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    ),
+  ];
+  const invalidEntry = entries.find(
+    (entry) => !/^[A-Z_][A-Z0-9_]*$/.test(entry)
+  );
+  if (invalidEntry !== undefined) {
+    throw new Error(
+      `${WORKFLOW_HOOK_ENV_ALLOWLIST_ENV} contains an invalid environment variable name: ${JSON.stringify(invalidEntry)}`
+    );
+  }
+
+  const unknownEntry = entries.find(
+    (entry) => !Object.hasOwn(environment, entry)
+  );
+  if (unknownEntry !== undefined) {
+    throw new Error(
+      `${WORKFLOW_HOOK_ENV_ALLOWLIST_ENV} names an environment variable that is not defined: ${unknownEntry}`
+    );
+  }
+
+  return entries;
 }
 
 function hasTokenUsage(

@@ -165,6 +165,11 @@ the tracker adapter:
   credential resolution is empty and the project status snapshot carries an
   operator warning; the worker repeats the provider-aware check before runtime
   launch as a defense-in-depth startup failure.
+- Workflow-hook environment expansion is validated at the orchestrator boundary:
+  allowlist entries must be valid uppercase environment names already present in
+  the effective hook environment. Invalid or unknown entries fail the hook
+  instead of being silently discarded; the allowlist does not cross the
+  independently constructed agent-child boundary.
 
 ### 6. Observability — events and status surfaces
 

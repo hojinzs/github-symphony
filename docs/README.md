@@ -52,6 +52,7 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 
 | Document                                                                                                         | Status                                                                                 |
 | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [2026-09-05-maintainability-and-reliability-review.md](reports/2026-09-05-maintainability-and-reliability-review.md) | Review complete — proposed fixes and trade-offs for CI, orchestration, storage, and Linear normalization |
 | [2026-05-04-single-repo-orchestrator-feasibility.md](reports/2026-05-04-single-repo-orchestrator-feasibility.md) | Concluded — promoted to an ADR                                                         |
 | [2026-06-25-spec-gap-analysis.md](reports/2026-06-25-spec-gap-analysis.md)                                       | Retired — living-map upkeep stopped, final snapshot                                    |
 | [2026-07-06-risk-audit-report.md](reports/2026-07-06-risk-audit-report.md)                                       | Awaiting review (issues not filed)                                                     |
