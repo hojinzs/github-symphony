@@ -113,6 +113,9 @@ describe("merged-PR lifecycle guards", () => {
     expect(workflow).toContain(
       "created at or before that approval is absorbed by the approval"
     );
+    expect(workflow).toContain(
+      "When no qualifying approval exists, any unresolved actionable review thread triggers rework as before"
+    );
   });
 
   it("generates the same precedence guard in the published CLI land skill", () => {
