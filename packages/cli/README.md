@@ -203,10 +203,12 @@ login material into a private, workspace-contained child home. It does not
 expose the host `gh` configuration, Codex configuration, Claude MCP OAuth, or
 tracker credentials to the coding-agent process.
 
-The orchestrator does retain a tenant-scoped tracker credential at the worker
-host boundary. Project `.env` credentials take precedence over the daemon's
-resolved credential, enabling host-side tracker tools and authenticated Git
-transport while the agent child remains credential-free.
+The orchestrator retains a tenant-scoped direct tracker credential at the
+worker host boundary. Project `.env` credentials take precedence over the
+daemon's resolved credential, enabling GitHub polling and host-side tracker
+tools while the agent child remains credential-free. The Git publication
+broker branch remains in code for later removal, but the required direct token
+takes precedence and therefore must also permit repository pushes.
 `gh-symphony doctor` reports a required `Worker GitHub credential` check for
 the selected tenant using that same precedence. Without a usable GitHub or
 Linear worker credential, startup fails before the agent launches; known-empty

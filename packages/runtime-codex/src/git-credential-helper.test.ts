@@ -4,6 +4,7 @@ import {
   parseGitCredentialRequest,
   resolveGitCredentialHelperConfig,
   resolveGitCredential,
+  validateGitHubTokenBrokerUrl,
 } from "./git-credential-helper.js";
 
 describe("parseGitCredentialRequest", () => {
@@ -193,4 +194,23 @@ describe("resolveGitCredentialHelperConfig", () => {
       );
     }
   );
+});
+
+describe("validateGitHubTokenBrokerUrl", () => {
+  it("accepts public HTTPS broker URLs", () => {
+    expect(validateGitHubTokenBrokerUrl("https://broker.example/token")).toBe(
+      "https://broker.example/token"
+    );
+  });
+
+  it.each([
+    "http://broker.example/token",
+    "https://localhost/token",
+    "https://127.0.0.1/token",
+    "https://[::1]/token",
+  ])("rejects insecure or private broker URL %s", (url) => {
+    expect(() => validateGitHubTokenBrokerUrl(url)).toThrow(
+      /must use https|must not target localhost or private networks/
+    );
+  });
 });

@@ -39,18 +39,14 @@ export function resolveTrackerCredentialPreflight(
   }
 
   if (adapter === "github-project" || adapter === "github") {
-    const hasDirectToken = hasValue(env.GITHUB_GRAPHQL_TOKEN);
-    const hasCompleteBroker =
-      hasValue(env.GITHUB_TOKEN_BROKER_URL) &&
-      hasValue(env.GITHUB_TOKEN_BROKER_SECRET);
-    if (hasDirectToken || hasCompleteBroker) {
+    if (hasValue(env.GITHUB_GRAPHQL_TOKEN)) {
       return { ok: true };
     }
 
     return {
       ok: false,
       reason:
-        "Worker GitHub credential preflight failed: GITHUB_GRAPHQL_TOKEN or both GITHUB_TOKEN_BROKER_URL and GITHUB_TOKEN_BROKER_SECRET are required. " +
+        "Worker GitHub credential preflight failed: GITHUB_GRAPHQL_TOKEN is required. " +
         remediation(env),
     };
   }

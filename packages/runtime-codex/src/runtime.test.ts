@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("createGitHubGraphQLToolDefinition", () => {
-  it("builds a runtime tool definition for brokered GitHub GraphQL access", () => {
+  it("does not wire broker credentials into the GitHub GraphQL tool", () => {
     const tool = createGitHubGraphQLToolDefinition({
       githubTokenBrokerUrl:
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
@@ -66,10 +66,6 @@ describe("createGitHubGraphQLToolDefinition", () => {
     expect(tool.args[0]).toContain("mcp-server.js");
     expect(tool.env).toEqual({
       GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-      GITHUB_TOKEN_BROKER_URL:
-        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-      GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
-      GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-token.json",
       GITHUB_PROJECT_ID: "project-123",
     });
   });

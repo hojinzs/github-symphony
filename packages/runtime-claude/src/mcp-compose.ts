@@ -7,15 +7,11 @@ import {
   composeMcpServers,
   type McpServerDefinition,
   readMcpConfig,
-  stripMcpServerSecretEnvironmentValues,
 } from "@gh-symphony/core";
 
 export type ClaudeMcpTokenEnvironment = {
   GITHUB_GRAPHQL_TOKEN?: string;
   GITHUB_GRAPHQL_API_URL?: string;
-  GITHUB_TOKEN_BROKER_URL?: string;
-  GITHUB_TOKEN_BROKER_SECRET?: string;
-  GITHUB_TOKEN_CACHE_PATH?: string;
   GITHUB_PROJECT_ID?: string;
   LINEAR_API_KEY?: string;
   LINEAR_AUTHORIZATION?: string;
@@ -70,23 +66,6 @@ export async function composeClaudeMcpConfig(
   if (symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear") {
     delete mcpServers.linear_graphql;
   }
-  if (
-    symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear" &&
-    symphonyTokenEnv.GITHUB_TOKEN_BROKER_URL &&
-    symphonyTokenEnv.GITHUB_TOKEN_BROKER_SECRET
-  ) {
-    const trackerSecretEnvironment: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...symphonyTokenEnv,
-    };
-    mcpServers = stripMcpServerSecretEnvironmentValues(
-      mcpServers,
-      readTrackerSecretEnvironmentNames(symphonyTokenEnv),
-      readTrackerSecretEnvironmentNames(symphonyTokenEnv)
-        .map((name) => trackerSecretEnvironment[name])
-        .filter((value): value is string => value !== undefined)
-    );
-  }
   const repositoryConfig = trustRepoConfig
     ? readMcpConfig(join(workspaceRoot, ".mcp.json"))
     : undefined;
@@ -106,21 +85,6 @@ export async function composeClaudeMcpConfig(
     cleanupPath: finalPath,
     ...(excludedServerNames.length > 0 ? { excludedServerNames } : {}),
   };
-}
-
-function readTrackerSecretEnvironmentNames(
-  env: ClaudeMcpTokenEnvironment
-): string[] {
-  try {
-    const names = JSON.parse(
-      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
-    );
-    return Array.isArray(names)
-      ? names.filter((name): name is string => typeof name === "string")
-      : [];
-  } catch {
-    return [];
-  }
 }
 
 async function ensureSecureConfigParent(path: string): Promise<void> {
@@ -177,9 +141,6 @@ function createSymphonyMcpServers(
     github_graphql: createGitHubGraphQLMcpServerEntry({
       githubToken: env.GITHUB_GRAPHQL_TOKEN,
       githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
-      githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
-      githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
-      githubTokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
       githubProjectId: env.GITHUB_PROJECT_ID,
     }),
   };
