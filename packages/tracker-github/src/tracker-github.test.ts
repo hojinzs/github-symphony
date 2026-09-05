@@ -1259,6 +1259,48 @@ Prompt`,
     });
   });
 
+  it("declares every GitHub credential environment name it can inject", () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+    });
+    const directCredentials = adapter.resolveWorkerCredentials?.(
+      makeProjectConfig(),
+      {
+        project: { GITHUB_GRAPHQL_TOKEN: "github-token" },
+        daemon: {},
+      }
+    );
+    const brokerCredentials = adapter.resolveWorkerCredentials?.(
+      makeProjectConfig(),
+      {
+        project: {
+          GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+          GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+          GITHUB_TOKEN_CACHE_PATH: "/runtime/github-token.json",
+        },
+        daemon: {},
+      }
+    );
+    // Keep one fixture per resolveWorkerCredentials return branch.
+    expect(directCredentials).toEqual({
+      GITHUB_GRAPHQL_TOKEN: "github-token",
+    });
+    expect(brokerCredentials).toEqual({
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+      GITHUB_TOKEN_CACHE_PATH: "/runtime/github-token.json",
+    });
+    const injectedNames = new Set([
+      ...Object.keys(directCredentials ?? {}),
+      ...Object.keys(brokerCredentials ?? {}),
+    ]);
+
+    expect(adapter.secretEnvironmentNames()).toEqual(
+      expect.arrayContaining([...injectedNames])
+    );
+  });
+
   it("propagates the configured GitHub GraphQL endpoint into worker env", () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",

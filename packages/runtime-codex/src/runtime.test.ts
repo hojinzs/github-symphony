@@ -121,6 +121,21 @@ describe("createCodexDynamicToolSpecs", () => {
 });
 
 describe("buildCodexRuntimePlan", () => {
+  it("strips tracker credentials from the adapter declaration", () => {
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      trackerSecretEnvironmentNames: ["TRACKER_ADAPTER_SECRET"],
+      extraEnv: {
+        TRACKER_ADAPTER_SECRET: "secret",
+        UNDECLARED_TRACKER_VALUE: "visible",
+      },
+    });
+
+    expect(plan.env.TRACKER_ADAPTER_SECRET).toBeUndefined();
+    expect(plan.env.UNDECLARED_TRACKER_VALUE).toBe("visible");
+  });
+
   it("strips every declared credential name at the agent-child boundary", () => {
     const injectedCredentials = Object.fromEntries(
       AGENT_CHILD_CREDENTIAL_ENVIRONMENT_NAMES.map((name) => [name, "secret"])

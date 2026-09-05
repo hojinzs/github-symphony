@@ -1487,6 +1487,27 @@ Prompt`,
     expect(env).toEqual({ LINEAR_API_KEY: "lin_project_key" });
   });
 
+  it("declares every Linear credential environment name it can inject", () => {
+    const credentials = linearTrackerAdapter.resolveWorkerCredentials?.(
+      makeProject(),
+      {
+        project: {
+          LINEAR_API_KEY: "lin_api_key",
+          LINEAR_AUTHORIZATION: "Bearer lin-authorization",
+        },
+        daemon: {},
+      }
+    );
+
+    expect(credentials).toEqual({
+      LINEAR_AUTHORIZATION: "Bearer lin-authorization",
+      LINEAR_API_KEY: "lin_api_key",
+    });
+    expect(linearTrackerAdapter.secretEnvironmentNames()).toEqual(
+      expect.arrayContaining(Object.keys(credentials ?? {}))
+    );
+  });
+
   it("defaults blank tracker apiUrl to the Linear GraphQL endpoint", () => {
     const env = linearTrackerAdapter.buildWorkerEnvironment(
       makeProject({ apiUrl: "   " }),
