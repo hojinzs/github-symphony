@@ -1,15 +1,5 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import {
-  access,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, rename } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import {
@@ -34,14 +24,6 @@ const workflowConfigStores = new WeakMap<
   WorkflowTrackerAdapterHooks,
   WorkflowConfigStore
 >();
-const LOCK_RETRY_MS = 100;
-const LOCK_STALE_MS = 30 * 60 * 1000;
-const LOCK_TIMEOUT_MS = 2 * 60 * 1000;
-
-export type RepositoryLockHeartbeat = {
-  stop: () => Promise<void>;
-};
-
 export type PullRequestBranchCheckoutTarget = {
   headRefName: string;
 };
@@ -309,162 +291,6 @@ function runCommandCapture(command: string, args: string[]): Promise<string> {
         )
       );
     });
-  });
-}
-
-export async function acquireRepositoryLock(
-  lockDirectory: string
-): Promise<string> {
-  const startedAt = Date.now();
-  const ownerToken = `${process.pid}:${randomUUID()}`;
-
-  for (;;) {
-    try {
-      await mkdir(lockDirectory);
-      await writeFile(
-        join(lockDirectory, "owner"),
-        `${ownerToken}\n${new Date().toISOString()}\n`,
-        "utf8"
-      );
-      return ownerToken;
-    } catch (error) {
-      if (!isAlreadyExistsError(error)) {
-        throw error;
-      }
-    }
-
-    const stale = await isRepositoryLockStale(lockDirectory);
-    if (stale) {
-      await rm(lockDirectory, { recursive: true, force: true });
-      continue;
-    }
-
-    if (Date.now() - startedAt >= LOCK_TIMEOUT_MS) {
-      throw new Error(
-        `Timed out waiting for repository cache lock: ${lockDirectory}`
-      );
-    }
-
-    await wait(LOCK_RETRY_MS);
-  }
-}
-
-/** Attempts lock acquisition once; maintenance callers use this to skip busy caches. */
-export async function tryAcquireRepositoryLock(
-  lockDirectory: string,
-  options: { breakStale?: boolean } = {}
-): Promise<string | null> {
-  const ownerToken = `${process.pid}:${randomUUID()}`;
-  for (;;) {
-    try {
-      await mkdir(lockDirectory);
-      await writeFile(
-        join(lockDirectory, "owner"),
-        `${ownerToken}\n${new Date().toISOString()}\n`,
-        "utf8"
-      );
-      return ownerToken;
-    } catch (error) {
-      if (!isAlreadyExistsError(error)) {
-        throw error;
-      }
-    }
-
-    if (!options.breakStale || !(await isRepositoryLockStale(lockDirectory))) {
-      return null;
-    }
-    await rm(lockDirectory, { recursive: true, force: true });
-  }
-}
-
-export async function releaseRepositoryLock(
-  lockDirectory: string,
-  ownerToken: string
-): Promise<void> {
-  try {
-    const owner = await readLockOwner(lockDirectory);
-    if (owner !== ownerToken) {
-      return;
-    }
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return;
-    }
-    throw error;
-  }
-
-  await rm(lockDirectory, { recursive: true, force: true });
-}
-
-/**
- * Keeps a long-running lock lease fresh without changing the generic lock's
- * stale timeout. Ownership is checked before every touch so a replaced lock is
- * never intentionally renewed by its previous holder.
- */
-export function startRepositoryLockHeartbeat(
-  lockDirectory: string,
-  ownerToken: string,
-  intervalMs = 60_000
-): RepositoryLockHeartbeat {
-  let stopped = false;
-  let heartbeat = Promise.resolve();
-  const timer = setInterval(() => {
-    heartbeat = heartbeat
-      .then(async () => {
-        if (stopped || (await readLockOwner(lockDirectory)) !== ownerToken) {
-          return;
-        }
-        const now = new Date();
-        await utimes(lockDirectory, now, now);
-      })
-      .catch(() => {
-        // The cache operation itself remains authoritative. A removed or
-        // inaccessible lock will be handled by its normal failure path.
-      });
-  }, intervalMs);
-  timer.unref();
-
-  return {
-    async stop(): Promise<void> {
-      stopped = true;
-      clearInterval(timer);
-      await heartbeat;
-    },
-  };
-}
-
-export async function isRepositoryLockStale(
-  lockDirectory: string
-): Promise<boolean> {
-  try {
-    const details = await stat(lockDirectory);
-    return Date.now() - details.mtimeMs >= LOCK_STALE_MS;
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return false;
-    }
-    throw error;
-  }
-}
-
-function isAlreadyExistsError(error: unknown): boolean {
-  return Boolean(
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    error.code === "EEXIST"
-  );
-}
-
-async function readLockOwner(lockDirectory: string): Promise<string | null> {
-  await access(join(lockDirectory, "owner"), constants.R_OK);
-  const owner = await readFile(join(lockDirectory, "owner"), "utf8");
-  return owner.split("\n", 1)[0] || null;
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
   });
 }
 

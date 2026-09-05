@@ -437,6 +437,7 @@ export class OrchestratorService {
     string,
     WorkflowResolution
   >();
+  private readonly workflowHookBaseDirectories = new Map<string, string>();
   private readonly lastTrackerRateLimitsByProject = new Map<
     string,
     Record<string, unknown>
@@ -5040,19 +5041,19 @@ export class OrchestratorService {
           workflowResolution.workflow.hooks,
           kind
         );
+        const hookBaseDirectory = workflowResolution.usedLastKnownGood
+          ? this.workflowHookBaseDirectories.get(
+              this.workflowCacheKey(repository)
+            )
+          : workflowResolution.workflowPath
+            ? dirname(workflowResolution.workflowPath)
+            : null;
         const hookCommand =
           kind === "after_create" &&
           configuredHookCommand &&
           !isAbsolute(configuredHookCommand) &&
-          (tenant.workflowSource?.path ?? workflowResolution.workflowPath)
-            ? resolve(
-                dirname(
-                  tenant.workflowSource?.path ??
-                    workflowResolution.workflowPath ??
-                    ""
-                ),
-                configuredHookCommand
-              )
+          hookBaseDirectory
+            ? resolve(hookBaseDirectory, configuredHookCommand)
             : configuredHookCommand;
         const trusted = isWorkflowHookExecutionAllowed(hookEnv);
         if (hookCommand) {
@@ -5827,6 +5828,12 @@ export class OrchestratorService {
         usedLastKnownGood: false,
         validationError: null,
       };
+      if (effectiveResolution.workflowPath) {
+        this.workflowHookBaseDirectories.set(
+          cacheKey,
+          dirname(effectiveResolution.workflowPath)
+        );
+      }
       let workflowPath = effectiveResolution.workflowPath;
       try {
         workflowPath =

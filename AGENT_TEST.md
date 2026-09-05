@@ -236,7 +236,7 @@ Run the folder-addressed project lifecycle test directly:
 
 It builds the packaged CLI image, creates two independent project folders,
 starts both through `project start`, dispatches file-tracker issues, and checks
-their runtime state, shared bare repository cache, worktrees, skills, and clean
+their runtime state, hook-populated repository clones, skills, and clean
 shutdown. The runner owns Compose cleanup and returns non-zero on failure.
 
 Run the packaged deprecated-key validation separately:
@@ -361,7 +361,6 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project`                |
 | `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                                           |
 | `e2e/scenarios/15-terminal-candidate-reconciliation.md` | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                               |
-| `e2e/scenarios/15-cache-maintenance.md`                 | Verify cache inventory, dry-run eviction, and active-worktree preservation                                                               |
 | `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                               |
 | `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                                     |
 | `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication                             |

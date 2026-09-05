@@ -12,7 +12,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14660,7 +14660,7 @@ tracker:
   terminal_states:
     - Done
 hooks:
-  after_create: ""
+  after_create: hooks/after_create.sh
   after_remove: ""
 codex:
   command: node ${join(tempRoot, "worker.js")}
@@ -15628,6 +15628,7 @@ Handle Linear issue.`,
       await readFile(join(repository.path, "WORKFLOW.md"), "utf8"),
       "utf8"
     );
+    await installWorkflowHookFixture(repository.path, externalWorkflowPath);
     const projectConfig = {
       ...createProjectConfig(tempRoot, repository, workspaceRoot),
       projectDir,
@@ -15762,6 +15763,7 @@ Handle Linear issue.`,
       await readFile(join(repository.path, "WORKFLOW.md"), "utf8"),
       "utf8"
     );
+    await installWorkflowHookFixture(repository.path, externalWorkflowPath);
     await writeFile(
       join(repository.path, "WORKFLOW.md"),
       "---\ninvalid: [\n---\n",
@@ -16036,7 +16038,7 @@ Prefer focused changes.
       hookConfig: "hooks:\n  before_run: scripts/before-run.sh\n",
     },
   ])(
-    "keeps an invalid hook allowlist skipped when $name",
+    "does not let an invalid hook allowlist bypass fresh population when $name",
     async ({ hookConfig }) => {
       process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
       delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
@@ -16084,7 +16086,10 @@ Keep skipped hooks inert.
 
       await service.runOnce();
 
-      expect(spawnImpl).toHaveBeenCalledOnce();
+      expect(spawnImpl).not.toHaveBeenCalled();
+      await expect(
+        store.loadProjectIssueOrchestrations(projectConfig.projectId)
+      ).resolves.toEqual([expect.objectContaining({ state: "retry_queued" })]);
     }
   );
 
@@ -17589,6 +17594,21 @@ async function ensurePopulatedIssueWorkspaceRepository(
     );
   }
   return repositoryDirectory;
+}
+
+async function installWorkflowHookFixture(
+  repositoryRoot: string,
+  workflowPath: string
+): Promise<void> {
+  const hookDirectory = join(dirname(workflowPath), "hooks");
+  const hookPath = join(hookDirectory, "after_create.sh");
+  await mkdir(hookDirectory, { recursive: true });
+  await writeFile(
+    hookPath,
+    await readFile(join(repositoryRoot, "hooks", "after_create.sh"), "utf8"),
+    "utf8"
+  );
+  await chmod(hookPath, 0o755);
 }
 
 async function writeWorkflowFixture(
