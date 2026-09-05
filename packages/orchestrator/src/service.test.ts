@@ -37,12 +37,43 @@ import {
   applyStateReadRoutability,
   clampPollInterval,
   OrchestratorService,
+  parseWorkflowHookEnvAllowlist,
   resolveDirtyWorkAttributionBranches,
   sortRunsForReconciliation,
   shouldAwaitTrackerProgressExit,
   shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
+
+describe("workflow hook environment allowlist", () => {
+  it("rejects a malformed name", () => {
+    expect(() =>
+      parseWorkflowHookEnvAllowlist("VALID_NAME,not-valid", {
+        VALID_NAME: "present",
+      })
+    ).toThrow(
+      'SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST contains an invalid environment variable name: "not-valid"'
+    );
+  });
+
+  it("rejects an undefined name", () => {
+    expect(() =>
+      parseWorkflowHookEnvAllowlist("VALID_NAME,MISSPELLED_NAME", {
+        VALID_NAME: "present",
+      })
+    ).toThrow(
+      "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST names an environment variable that is not defined: MISSPELLED_NAME"
+    );
+  });
+
+  it("ignores empty separators and returns unique names", () => {
+    expect(
+      parseWorkflowHookEnvAllowlist("VALID_NAME,, VALID_NAME,", {
+        VALID_NAME: "present",
+      })
+    ).toEqual(["VALID_NAME"]);
+  });
+});
 
 describe("state-read routability", () => {
   const confirmed = {
@@ -16072,6 +16103,65 @@ Prefer focused changes.
       readFile(join(repositoryPath, ".after_create_issue_state"), "utf8")
     ).resolves.toBe("unset\n");
   });
+
+  it.each([
+    { name: "no hook is configured", hookConfig: "" },
+    {
+      name: "hook execution is not trusted",
+      hookConfig: "hooks:\n  before_run: scripts/before-run.sh\n",
+    },
+  ])(
+    "keeps an invalid hook allowlist skipped when $name",
+    async ({ hookConfig }) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+      delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-skipped-hook-allowlist-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+${hookConfig}workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 1
+codex:
+  command: codex app-server
+---
+Keep skipped hooks inert.
+`,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await writeFile(
+        join(store.projectDir(projectConfig.projectId), ".env"),
+        "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=MISSPELLED_NAME\n",
+        "utf8"
+      );
+      const spawnImpl = vi.fn().mockReturnValue({ pid: 4304, unref: vi.fn() });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      expect(spawnImpl).toHaveBeenCalledOnce();
+    }
+  );
 
   it("fails a before_run hook without spawning the worker and queues a retry", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
