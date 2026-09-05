@@ -40,8 +40,8 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return `Skipped ${event.operation} (${event.reason})`;
     case "convergence-lock-expired":
       return `Convergence lock expired after ${event.ttlMs}ms`;
-    case "recovery-quarantined":
-      return `Workspace quarantined before recovery: ${event.reason}`;
+    case "recovery-dirty-workspace":
+      return "Dirty workspace retained; recovery is continuing";
     case "hook-executed":
       return `${event.hook}: ${event.outcome}`;
     case "hook-failed":

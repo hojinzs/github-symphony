@@ -18,7 +18,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
-  attributeDirtyWorkToIssue,
   type IssueOrchestrationRecord,
   type OrchestratorProjectConfig,
   type OrchestratorRunRecord,
@@ -38,7 +37,6 @@ import {
   clampPollInterval,
   OrchestratorService,
   parseWorkflowHookEnvAllowlist,
-  resolveDirtyWorkAttributionBranches,
   sortRunsForReconciliation,
   shouldAwaitTrackerProgressExit,
   shouldRecordConfirmedTrackerProgress,
@@ -156,48 +154,6 @@ describe("state-read routability", () => {
       routableReason: "tracker_issue_snapshot_missing",
       error: null,
     });
-  });
-});
-
-describe("dirty-workspace attribution branches", () => {
-  it("passes Linear branch evidence to dirty-workspace attribution without selecting a checkout ref", () => {
-    const trackedIssue = {
-      id: "issue-123",
-      identifier: "ENG-123",
-      title: "Per-turn reads",
-      description: null,
-      priority: null,
-      state: "Todo",
-      branchName: "eng-123-per-turn-reads",
-      url: null,
-      labels: [],
-      dispatchable: true,
-      assigneeId: null,
-      blockedBy: [],
-      createdAt: null,
-      updatedAt: null,
-      repository: { owner: "acme", name: "platform" },
-      tracker: { adapter: "linear", bindingId: "project" },
-      metadata: {},
-    } as TrackedIssue;
-    const adapter = {
-      resolveAttributableBranches: () => ["eng-123-per-turn-reads"],
-    };
-
-    const expectedBranches = resolveDirtyWorkAttributionBranches(
-      adapter,
-      trackedIssue
-    );
-
-    expect(expectedBranches).toEqual(["eng-123-per-turn-reads"]);
-    expect(
-      attributeDirtyWorkToIssue({
-        issueIdentifier: trackedIssue.identifier,
-        currentBranch: "eng-123-per-turn-reads",
-        dirtyFiles: ["partial.txt"],
-        expectedBranches,
-      })
-    ).toMatchObject({ attributed: true });
   });
 });
 
@@ -3338,10 +3294,10 @@ describe("OrchestratorService", () => {
     ).toContain("?? partial.txt");
   });
 
-  it("quarantines dirty recovery workspaces whose work belongs to another issue", async () => {
+  it("warns and continues when a recovery workspace is dirty", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-quarantine-foreign-dirty-")
+      join(tmpdir(), "orchestrator-warn-foreign-dirty-")
     );
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -3478,55 +3434,49 @@ describe("OrchestratorService", () => {
     expect(redispatched.summary.dispatched).toBe(1);
     expect(freshRun).toMatchObject({
       status: "running",
-      retryKind: null,
-      recovery: null,
+      retryKind: "recovery",
+      recovery: { kind: "incomplete-turn-dirty-workspace" },
     });
-    expect(spawnEnv?.SYMPHONY_RECOVERY_KIND).toBe("");
+    expect(spawnEnv?.SYMPHONY_RECOVERY_KIND).toBe(
+      "incomplete-turn-dirty-workspace"
+    );
     expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "## Engine-Enforced Run Identity"
     );
-    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).not.toContain(
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "## Recovery Context — Incomplete Turn Dirty Workspace"
     );
 
-    // The contaminated workspace is preserved under a quarantine directory
-    // and the active workspace is a fresh, clean clone.
+    // The dirty workspace remains visible in place and no quarantine is made.
     const workspaceParent = join(issueWorkspacePath, "..");
     const quarantined = (await readdir(workspaceParent)).filter((entry) =>
       entry.startsWith(`${workspaceKey}.quarantine-`)
     );
-    expect(quarantined).toHaveLength(1);
+    expect(quarantined).toHaveLength(0);
     expect(
       await readFile(
-        join(
-          workspaceParent,
-          quarantined[0]!,
-          "repository",
-          ".gh-symphony",
-          "workpads",
-          "2.md"
-        ),
+        join(repositoryDirectory, ".gh-symphony", "workpads", "2.md"),
         "utf8"
       )
     ).toBe("# workpad for issue 2\n");
     expect(
       execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
         encoding: "utf8",
-      }).trim()
-    ).toBe("");
+      })
+    ).toContain("?? .gh-symphony/");
     expect(
       execSync(
         `git -C ${shell(repositoryDirectory)} rev-parse --abbrev-ref HEAD`,
         { encoding: "utf8" }
       ).trim()
-    ).not.toBe("fix/2-foreign");
+    ).toBe("fix/2-foreign");
 
     const eventsRaw = await readFile(
       join(store.runDir(freshRun!.runId, "tenant-1"), "events.ndjson"),
       "utf8"
     );
-    expect(eventsRaw).toContain('"event":"recovery-quarantined"');
-    expect(eventsRaw).toContain("fix/2-foreign");
+    expect(eventsRaw).toContain('"event":"recovery-dirty-workspace"');
+    expect(eventsRaw).toContain('"dirtyFiles":[".gh-symphony/"]');
   });
 
   it("requeues a recovery retry when recovery context lookup fails", async () => {

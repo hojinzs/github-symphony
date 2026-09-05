@@ -62,6 +62,16 @@ describe("event-formatter", () => {
 
     expect(
       formatEventMessage({
+        at: "2026-03-16T00:01:15.000Z",
+        event: "recovery-dirty-workspace",
+        workspaceKey: "workspace-1",
+        issueIdentifier: "acme/repo#1",
+        dirtyFiles: ["partial.txt"],
+      })
+    ).toBe("Dirty workspace retained; recovery is continuing");
+
+    expect(
+      formatEventMessage({
         at: "2026-03-16T00:01:30.000Z",
         event: "run-ownership-skipped",
         projectId: "project-1",
@@ -227,9 +237,7 @@ describe("event-formatter", () => {
         maxDeferrals: 3,
         exhausted: true,
       })
-    ).toBe(
-      "Finalization deferred 3/3 (tracker-read-failed) — bound exhausted"
-    );
+    ).toBe("Finalization deferred 3/3 (tracker-read-failed) — bound exhausted");
   });
 
   it("parses recent events while skipping partial and invalid lines", () => {

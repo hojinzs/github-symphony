@@ -4,7 +4,6 @@ import {
   access,
   mkdir,
   readFile,
-  rename,
   rm,
   stat,
   utimes,
@@ -480,29 +479,6 @@ export async function readGitCurrentBranch(
   } catch {
     return null;
   }
-}
-
-/**
- * Preserve a workspace whose dirty state cannot be attributed to the run's
- * issue by renaming it out of the active workspace path. Returns the
- * quarantine directory, or null when the workspace no longer exists.
- */
-export async function quarantineIssueWorkspace(
-  issueWorkspacePath: string,
-  now: Date = new Date()
-): Promise<string | null> {
-  const timestamp = now.toISOString().replace(/[:.]/g, "-");
-  const quarantinePath = `${issueWorkspacePath}.quarantine-${timestamp}`;
-  try {
-    await rename(issueWorkspacePath, quarantinePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  }
-
-  return quarantinePath;
 }
 
 export async function loadRepositoryWorkflow(
