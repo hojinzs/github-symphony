@@ -97,6 +97,27 @@ describe("merged-PR lifecycle guards", () => {
     );
   });
 
+  it("gates Land rework on actionable threads created after approval", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const landSkill = await repositoryFile(".codex/skills/land/SKILL.md");
+
+    expect(landSkill).toContain("comments(first: 1)");
+    expect(landSkill).toContain("createdAt");
+    expect(landSkill).toContain("approval's `submittedAt`");
+    expect(landSkill).toContain(
+      "created at or before that approval is absorbed by the approval"
+    );
+    expect(workflow).toContain(
+      "thread's first comment `createdAt` with the approval review's `submittedAt`"
+    );
+    expect(workflow).toContain(
+      "created at or before that approval is absorbed by the approval"
+    );
+    expect(workflow).toContain(
+      "When no qualifying approval exists, any unresolved actionable review thread triggers rework as before"
+    );
+  });
+
   it("generates the same precedence guard in the published CLI land skill", () => {
     const generated = generateLandSkill(context);
 
