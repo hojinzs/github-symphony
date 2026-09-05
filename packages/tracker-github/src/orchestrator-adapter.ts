@@ -53,7 +53,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     ];
   },
 
-  resolveWorkerCredentials(_project, environments) {
+  resolveWorkerCredentials(_project, environments): Record<string, string> {
     for (const environment of [environments.project, environments.daemon]) {
       const token = environment.GITHUB_GRAPHQL_TOKEN?.trim();
       if (token) {
