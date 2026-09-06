@@ -16010,6 +16010,63 @@ Test hook failure.
     ]);
   });
 
+  it("reports a missing hook as a project fault without consuming issue retries", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-missing-hook-project-fault-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxFailureRetries: 3 }
+    );
+    const missingHookPath = join(repository.path, "hooks", "after_create.sh");
+    await rm(missingHookPath);
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme-platform-1",
+        state: "released",
+        failureRetryCount: 2,
+        failureRetrySuppressedState: null,
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    const spawnImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const first = await service.runOnce();
+    const second = await service.runOnce();
+
+    expect(first.health).toBe("degraded");
+    expect(second.health).toBe("degraded");
+    expect(second.lastError).toContain("Project configuration fault");
+    expect(second.lastError).toContain(missingHookPath);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        issueId: "issue-1",
+        state: "released",
+        failureRetryCount: 2,
+        failureRetrySuppressedState: null,
+        retryEntry: null,
+      }),
+    ]);
+  });
+
   it("passes host Git credential plumbing only to after_create population", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.GITHUB_GIT_HOST = "github.enterprise.test";

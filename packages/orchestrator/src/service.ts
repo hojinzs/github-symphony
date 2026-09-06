@@ -25,7 +25,9 @@ import {
   extractIssueNumberFromIdentifier,
   extractIssueNumbersFromBranch,
   executeWorkspaceHook,
+  formatWorkflowHookPathProblems,
   resolveHookCommand,
+  validateWorkflowHookPaths,
   isStateTerminal,
   issueRoutable,
   isMatchingIssueRun,
@@ -1387,6 +1389,26 @@ export class OrchestratorService {
         tenant,
         tenant.repository
       );
+      if (isUsableWorkflowResolution(workflowResolution)) {
+        const workflowBaseDirectory =
+          this.workflowHookBaseDirectories.get(
+            this.workflowCacheKey(tenant.repository)
+          ) ??
+          (workflowResolution.workflowPath
+            ? dirname(workflowResolution.workflowPath)
+            : null);
+        if (workflowBaseDirectory) {
+          const hookValidation = await validateWorkflowHookPaths(
+            workflowResolution.workflow.hooks,
+            workflowBaseDirectory
+          );
+          if (hookValidation.problems.length > 0) {
+            throw new Error(
+              `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
+            );
+          }
+        }
+      }
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
       const currentActiveRuns = (await this.store.loadAllRuns()).filter(
         (run) =>

@@ -288,6 +288,15 @@ retained in plaintext cache metadata. An explicit `--config <dir>` is exported
 to `GH_SYMPHONY_CONFIG_DIR` for the process so spawned workers use the same
 directory as the rest of the CLI state.
 
+`gh-symphony workflow init` creates the referenced
+`hooks/after_create.sh` as an executable file. A manually assembled standalone
+folder must copy it, provide its own executable file, or symlink the configured
+path to an executable regular file. Relative hook paths resolve from the
+directory containing `WORKFLOW.md`. `project start`, default `doctor`, and each
+orchestrator reconciliation tick validate path-like hooks before dispatch; a
+failure is a project configuration fault and does not alter per-issue failure
+retry counts.
+
 Changing `workspace.root` emits a `workspace-root-relocated` event and a stderr
 warning naming the previous and new paths before replacing the workspace
 record; inspect the previous path for work to recover or delete.

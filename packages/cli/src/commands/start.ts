@@ -35,7 +35,12 @@ import type {
   TrackerStateResult,
   UnpublishedWorktree,
 } from "@gh-symphony/core";
-import { parseWorkflowMarkdown, type ParsedWorkflow } from "@gh-symphony/core";
+import {
+  formatWorkflowHookPathProblems,
+  parseWorkflowMarkdown,
+  validateWorkflowHookPaths,
+  type ParsedWorkflow,
+} from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -246,6 +251,15 @@ async function preflightWorkflowStart(
         workflowPath,
       }
     );
+    const hookValidation = await validateWorkflowHookPaths(
+      workflow.hooks,
+      dirname(workflowPath)
+    );
+    if (hookValidation.problems.length > 0) {
+      throw new Error(
+        `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
+      );
+    }
     return { ok: true, workflow };
   } catch (error) {
     if (!configuredPath) {

@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import {
   buildHookExecutionEnv,
   executeWorkspaceHook,
   MAX_HOOK_OUTPUT_BYTES,
+  validateWorkflowHookPaths,
 } from "./hooks.js";
 
 const tempDirs: string[] = [];
@@ -209,5 +211,70 @@ describe("executeWorkspaceHook", () => {
       SYMPHONY_REPOSITORY_PATH: "/repo",
       STAGING_API_HOST: "https://staging.example.com",
     });
+  });
+});
+
+describe("validateWorkflowHookPaths", () => {
+  it("reports absent and non-executable hook scripts with resolved paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-validation-"));
+    tempDirs.push(root);
+    await mkdir(join(root, "hooks"));
+    await writeFile(join(root, "hooks", "before-run.sh"), "#!/bin/sh\n", {
+      mode: 0o644,
+    });
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "hooks/missing.sh",
+        beforeRun: "hooks/before-run.sh",
+        afterRun: "echo ready",
+        beforeRemove: null,
+      },
+      root
+    );
+
+    expect(result).toMatchObject({
+      inline: 1,
+      checked: [],
+      problems: [
+        {
+          hook: "after_create",
+          path: join(root, "hooks", "missing.sh"),
+          reason: "missing",
+        },
+        {
+          hook: "before_run",
+          path: join(root, "hooks", "before-run.sh"),
+          reason: "not_executable",
+        },
+      ],
+    });
+  });
+
+  it("accepts a symlink to an executable regular file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-validation-symlink-"));
+    tempDirs.push(root);
+    await mkdir(join(root, "hooks"));
+    const target = join(root, "provisioned-hook.sh");
+    await writeFile(target, "#!/bin/sh\n", { mode: 0o755 });
+    await symlink(target, join(root, "hooks", "after-create.sh"));
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "hooks/after-create.sh",
+        beforeRun: null,
+        afterRun: null,
+        beforeRemove: null,
+      },
+      root
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.checked).toEqual([
+      expect.objectContaining({
+        hook: "after_create",
+        path: join(root, "hooks", "after-create.sh"),
+      }),
+    ]);
   });
 });

@@ -71,6 +71,18 @@ EOF
 
 write_project "$PROJECT_ROOT/project-alpha" alpha
 write_project "$PROJECT_ROOT/project-beta" beta
+write_project "$PROJECT_ROOT/project-broken" broken
+rm "$PROJECT_ROOT/project-broken/hooks/after_create.sh"
+
+if (cd "$PROJECT_ROOT/project-broken" && \
+  GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
+  node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project start \
+    > /tmp/project-broken.log 2>&1); then
+  echo "missing hook unexpectedly passed project start" >&2
+  exit 1
+fi
+grep -q "Project configuration fault" /tmp/project-broken.log
+grep -q "$PROJECT_ROOT/project-broken/hooks/after_create.sh" /tmp/project-broken.log
 
 cat > "$FIXTURE" <<EOF
 [

@@ -416,6 +416,51 @@ Handle {{issue.identifier}}.\n`,
   });
 
   it.each([
+    ["absent", false, "missing"],
+    ["non-executable", true, "not executable"],
+  ])(
+    "rejects an %s configured hook before acquiring the project lock",
+    async (_label, createHook, expectedReason) => {
+      const configDir = await createConfigFixture({
+        activeProject: "tenant-a",
+        projects: [createProject("tenant-a", "acme", "platform")],
+      });
+      const projectDir = join(configDir, "projects", "tenant-a");
+      const workflowPath = join(projectDir, "WORKFLOW.md");
+      const hookPath = join(projectDir, "hooks", "after_create.sh");
+      const projectPath = join(projectDir, "project.json");
+      const project = JSON.parse(
+        await readFile(projectPath, "utf8")
+      ) as CliProjectConfig;
+      project.workflowSource = { type: "external", path: workflowPath };
+      await writeFile(projectPath, JSON.stringify(project), "utf8");
+      await mkdir(join(projectDir, "hooks"), { recursive: true });
+      if (createHook) {
+        await writeFile(hookPath, "#!/bin/sh\n", { mode: 0o644 });
+      }
+      await writeFile(
+        workflowPath,
+        `---\ntracker:\n  kind: github-project\n  provider:\n    project_id: project-1\nhooks:\n  after_create: hooks/after_create.sh\ncodex:\n  command: codex app-server\n---\nHandle {{issue.identifier}}.\n`,
+        "utf8"
+      );
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await startModule.default([], baseOptions(configDir));
+      } finally {
+        stderr.restore();
+      }
+
+      expect(stderr.output()).toContain("Project configuration fault");
+      expect(stderr.output()).toContain(hookPath);
+      expect(stderr.output()).toContain(expectedReason);
+      expect(acquireProjectLock).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    }
+  );
+
+  it.each([
     [
       "not_installed",
       "gh CLI is not installed.",

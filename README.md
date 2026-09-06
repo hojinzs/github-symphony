@@ -900,6 +900,13 @@ echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 > fresh checkout does not exist yet, relative `after_create` script paths are
 > resolved from the directory containing the loaded `WORKFLOW.md`.
 
+`gh-symphony workflow init` provisions the default executable
+`hooks/after_create.sh` beside the generated `WORKFLOW.md`. For a project folder
+assembled by hand, copy that script into the same relative location or use a
+symlink to an executable regular file. Both `project start` and the default
+`doctor` run reject absent, non-file, or non-executable hook paths and print the
+resolved absolute path before any issue dispatch can consume retry budget.
+
 The trusted `after_create` hook also receives the daemon's host Git credential
 helper environment, including the token consumed by that helper, so its clone
 can authenticate to private repositories. Token-broker minting credentials are
