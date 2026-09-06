@@ -1,5 +1,48 @@
 # @gh-symphony/cli
 
+## 3.0.0
+
+### Major Changes
+
+- [#913](https://github.com/hojinzs/github-symphony/pull/913) [`b3c1b7b`](https://github.com/hojinzs/github-symphony/commit/b3c1b7bede01482f1f17fc3e0bc9872e775b9013) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Move repository population out of the orchestrator and into the shipped default `after_create` hook, preserving fresh-workspace cleanup and non-destructive reuse ([#901](https://github.com/hojinzs/github-symphony/issues/901)).
+
+  Before upgrading, configure `hooks.after_create` and enable trusted hooks with
+  `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1`. The obsolete `cache status` and `cache prune`
+  commands are removed; existing linked-worktree workspaces still require their
+  legacy bare cache until those workspaces are removed and recreated.
+
+- [#911](https://github.com/hojinzs/github-symphony/pull/911) [`0b92091`](https://github.com/hojinzs/github-symphony/commit/0b92091ba950c80df3384ffd78c937f37c65d2f4) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Remove the `gh-symphony instances` command, the host-global orchestrator instance registry, and the registry-backed `project start --allow-duplicate` option ([#906](https://github.com/hojinzs/github-symphony/issues/906)). The removal also drops the cross-runtime-root check that prevented starting the same project twice; project locks continue to prevent duplicate starts within one runtime root.
+
+  The `instance` field is no longer present in `project list` JSON output. Use `project status --project-dir <path>` for daemon liveness and runtime status. Existing daemon PID records and project locks continue to support the project lifecycle commands.
+
+  After upgrading, `~/.gh-symphony/instances/` is unused and can be deleted manually.
+
+### Minor Changes
+
+- [#912](https://github.com/hojinzs/github-symphony/pull/912) [`fa8cca2`](https://github.com/hojinzs/github-symphony/commit/fa8cca28148cd5c1d4ec01bffe0c73b924ff9485) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Require the declared direct host GitHub credential for tracker polling and the host-owned `github_graphql` tool. The same token takes precedence for Git publication and must permit repository pushes ([#902](https://github.com/hojinzs/github-symphony/issues/902)).
+
+### Patch Changes
+
+- [#924](https://github.com/hojinzs/github-symphony/pull/924) [`fcbc3be`](https://github.com/hojinzs/github-symphony/commit/fcbc3be587d7e1e14da37b389b780c550603d801) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Remove the agent-provider credential broker and cache plumbing. Codex now uses direct OpenAI environment credentials or staged local login, while bare Claude runtimes require a direct `ANTHROPIC_API_KEY` ([#904](https://github.com/hojinzs/github-symphony/issues/904)).
+
+- [#919](https://github.com/hojinzs/github-symphony/pull/919) [`db7f44e`](https://github.com/hojinzs/github-symphony/commit/db7f44e4d71d5ed8b1c13f02b03a536227944389) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Stop the orchestrator from authoring tracker comments during state transitions or linked pull request reconciliation ([#907](https://github.com/hojinzs/github-symphony/issues/907)). The tracker-state API now rejects the retired `comment_body` field, and worker policy publishes status reports only after confirmed transition readback.
+
+- [#923](https://github.com/hojinzs/github-symphony/pull/923) [`1a20ef0`](https://github.com/hojinzs/github-symphony/commit/1a20ef0f6270d94baf106651577bad0a975dc68f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Publish assigned branches with the direct host GitHub credential and remove the Git credential helper's broker fetch path ([#903](https://github.com/hojinzs/github-symphony/issues/903)).
+
+- [#931](https://github.com/hojinzs/github-symphony/pull/931) [`7c67b97`](https://github.com/hojinzs/github-symphony/commit/7c67b97bdea12a7422464b08cae539c82d65c217) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Ship the Land-bounce policy guards in generated workflow skills so merged pull requests and approval-absorbed review threads are classified correctly ([#928](https://github.com/hojinzs/github-symphony/issues/928)).
+
+- [#880](https://github.com/hojinzs/github-symphony/pull/880) [`19778b9`](https://github.com/hojinzs/github-symphony/commit/19778b9ff69573b13827a988f59ee2648fb4fb07) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep `USERPROFILE` aligned with the isolated agent child home in both built-in runtimes while preserving declared secret exclusions from the child environment ([#870](https://github.com/hojinzs/github-symphony/issues/870)).
+
+- [#886](https://github.com/hojinzs/github-symphony/pull/886) [`5bc1374`](https://github.com/hojinzs/github-symphony/commit/5bc137470a2006585d2cbf435accccfc4d5c6a69) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject malformed or unknown `SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST` entries instead of silently ignoring them, and document the coding-agent child environment boundary ([#871](https://github.com/hojinzs/github-symphony/issues/871)).
+
+- [#884](https://github.com/hojinzs/github-symphony/pull/884) [`f59e24a`](https://github.com/hojinzs/github-symphony/commit/f59e24a8736874755cdd3a0379e70c866cbc2b84) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Report the effective runtime timeout values and their configuration source from `workflow validate`, including a stable three-field JSON timeout object ([#882](https://github.com/hojinzs/github-symphony/issues/882)).
+
+- [#941](https://github.com/hojinzs/github-symphony/pull/941) [`43f7bdd`](https://github.com/hojinzs/github-symphony/commit/43f7bddb79b270a9827b5892e1ffe3988848710a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prevent duplicate orchestrators from starting for the same project folder through different runtime roots ([#921](https://github.com/hojinzs/github-symphony/issues/921)).
+
+- [#915](https://github.com/hojinzs/github-symphony/pull/915) [`66eaf9b`](https://github.com/hojinzs/github-symphony/commit/66eaf9b5873fb9089c21e416a84fed3040ff96f3) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep dirty recovery workspaces in place and continue with an observable warning instead of quarantining or attributing their changes. Recovery from a workspace on another issue's branch now starts from a stable fresh path while reporting the retained path and branch ([#905](https://github.com/hojinzs/github-symphony/issues/905)).
+
+- [#932](https://github.com/hojinzs/github-symphony/pull/932) [`d1c07b4`](https://github.com/hojinzs/github-symphony/commit/d1c07b454b671fe1636222d795f17ccc014bcacd) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Stop reporting the redundant worker GitHub credential diagnostic whose failure was already covered by the host authentication check ([#908](https://github.com/hojinzs/github-symphony/issues/908)).
+
 ## 2.0.1
 
 ### Patch Changes
