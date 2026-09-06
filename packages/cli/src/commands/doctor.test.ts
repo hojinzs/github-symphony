@@ -1200,101 +1200,6 @@ Prompt body`
     ).toContain("project start");
   });
 
-  it("fails the worker GitHub credential check when the tenant environment has no credential", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
-    const workspaceDir = join(configDir, "workspaces");
-    await prepareDoctorPaths(configDir, workspaceDir);
-    const { repoDir, pathEnv } = await createWorkflowFixture();
-
-    const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(baseOptions(configDir), [], {
-        ...authDependencies({
-          checkGhAuthenticated: () => ({ authenticated: false }),
-        }),
-        inspectManagedProjectSelection: async () => ({
-          kind: "resolved",
-          projectId: "tenant-a",
-          projectConfig: createProjectConfig(workspaceDir),
-        }),
-        pathEnv,
-      })
-    );
-
-    expect(
-      report.checks.find((check) => check.id === "worker_github_credential")
-    ).toMatchObject({
-      title: "Worker GitHub credential",
-      status: "fail",
-      remediation: expect.stringContaining("projects/tenant-a/.env"),
-    });
-  });
-
-  it("passes the worker GitHub credential check with daemon auth injection", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
-    const workspaceDir = join(configDir, "workspaces");
-    await prepareDoctorPaths(configDir, workspaceDir);
-    const { repoDir, pathEnv } = await createWorkflowFixture();
-
-    const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(baseOptions(configDir), [], {
-        ...authDependencies(),
-        inspectManagedProjectSelection: async () => ({
-          kind: "resolved",
-          projectId: "tenant-a",
-          projectConfig: createProjectConfig(workspaceDir),
-        }),
-        pathEnv,
-      })
-    );
-
-    expect(
-      report.checks.find((check) => check.id === "worker_github_credential")
-    ).toMatchObject({
-      title: "Worker GitHub credential",
-      status: "pass",
-      details: expect.objectContaining({ source: "daemon_auth" }),
-    });
-  });
-
-  it("prefers the managed project credential for the worker check", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
-    const workspaceDir = join(configDir, "workspaces");
-    await prepareDoctorPaths(configDir, workspaceDir);
-    const projectDir = join(
-      resolveRuntimeRoot(configDir),
-      "projects",
-      "tenant-a"
-    );
-    await mkdir(projectDir, { recursive: true });
-    await writeFile(
-      join(projectDir, ".env"),
-      "GITHUB_GRAPHQL_TOKEN=project-token\n",
-      "utf8"
-    );
-    const { repoDir, pathEnv } = await createWorkflowFixture();
-
-    const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(baseOptions(configDir), [], {
-        ...authDependencies({
-          checkGhAuthenticated: () => ({ authenticated: false }),
-        }),
-        inspectManagedProjectSelection: async () => ({
-          kind: "resolved",
-          projectId: "tenant-a",
-          projectConfig: createProjectConfig(workspaceDir),
-        }),
-        pathEnv,
-      })
-    );
-
-    expect(
-      report.checks.find((check) => check.id === "worker_github_credential")
-    ).toMatchObject({
-      status: "pass",
-      details: expect.objectContaining({ source: "project_env" }),
-    });
-  });
-
   it("accepts env-token auth when gh CLI is unavailable", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
@@ -1334,6 +1239,9 @@ Prompt body`
       })
     );
     expect(report.ok).toBe(true);
+    expect(
+      report.checks.some((check) => check.title === "Worker GitHub credential")
+    ).toBe(false);
     expect(
       report.checks.find((check) => check.id === "gh_installation")
     ).toMatchObject({
