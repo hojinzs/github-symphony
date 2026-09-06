@@ -52,7 +52,6 @@ import {
   runGhAuthLogin,
   runGhAuthRefresh,
 } from "../github/gh-auth.js";
-import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
