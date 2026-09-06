@@ -2877,12 +2877,13 @@ export class OrchestratorService {
       existingWorkspaceRecord &&
       resolve(existingWorkspaceRecord.workspacePath) === recoveryWorkspacePath
     );
-    const retainedWorkspaceBranch =
-      existingWorkspaceRecord &&
-      (recovery?.kind === "incomplete-turn-dirty-workspace" ||
-        existingWorkspaceUsesStableRecoveryPath)
-        ? await readGitCurrentBranch(existingWorkspaceRecord.repositoryPath)
-        : null;
+    // Inspect every persisted checkout before worker startup. Dirty recovery
+    // already reaches this branch check, but a clean reused workspace can also
+    // have been left on another issue's branch and must not bypass worker
+    // identity preflight on that foreign branch.
+    const retainedWorkspaceBranch = existingWorkspaceRecord
+      ? await readGitCurrentBranch(existingWorkspaceRecord.repositoryPath)
+      : null;
     const issueNumber = extractIssueNumberFromIdentifier(issue.identifier);
     const retainedWorkspaceHasForeignBranch = Boolean(
       retainedWorkspaceBranch &&
@@ -2890,10 +2891,11 @@ export class OrchestratorService {
         (branchIssueNumber) => branchIssueNumber !== issueNumber
       )
     );
-    // Once a foreign dirty workspace has forced the run onto the stable
-    // recovery path, that persisted path remains the issue's active workspace
-    // on later dispatches. Falling back to the configured key path would
-    // repopulate (and therefore delete) the retained dirty workspace.
+    // Once a foreign workspace has forced the run onto the stable recovery
+    // path, that persisted path remains the issue's active workspace on later
+    // dispatches. Falling back to the configured key path would repopulate
+    // (and therefore delete) the retained workspace, including user commits in
+    // an otherwise clean checkout.
     const reuseStableRecoveryWorkspace =
       existingWorkspaceUsesStableRecoveryPath;
     const useFreshRecoveryWorkspace =
