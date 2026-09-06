@@ -304,24 +304,6 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     return { headRefName };
   },
 
-  findActiveLinkedPullRequest(issue, lifecycle) {
-    const activeStates = new Set(
-      lifecycle.activeStates.map((state) => state.trim().toLowerCase())
-    );
-    const pullRequest = githubNative(issue).linkedPullRequests?.find(
-      (candidate) =>
-        typeof candidate.projectState === "string" &&
-        activeStates.has(candidate.projectState.trim().toLowerCase())
-    );
-    return pullRequest?.projectState
-      ? {
-          id: pullRequest.id,
-          identifier: pullRequest.identifier,
-          projectState: pullRequest.projectState,
-        }
-      : null;
-  },
-
   resolveTerminalFact(issue) {
     const native = githubNative(issue);
     if (native.sourceState?.trim().toLowerCase() === "closed") {

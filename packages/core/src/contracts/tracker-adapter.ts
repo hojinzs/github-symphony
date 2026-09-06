@@ -322,11 +322,6 @@ export type OrchestratorTrackerAdapter = {
   ): { headRefName: string } | null;
   /** Return tracker-owned branch evidence for dirty-workspace attribution. */
   resolveAttributableBranches?(issue: TrackedIssue): string[];
-  /** Return an adapter-owned active linked PR fact for a canonical issue. */
-  findActiveLinkedPullRequest?(
-    issue: TrackedIssue,
-    lifecycle: WorkflowLifecycleConfig
-  ): { id: string; identifier: string; projectState: string } | null;
   /** Provider-specific structured event fields that are safe to expose. */
   buildStructuredEventMetadata?(
     project: OrchestratorProjectConfig,

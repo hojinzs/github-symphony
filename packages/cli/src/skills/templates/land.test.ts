@@ -97,6 +97,13 @@ describe("merged-PR lifecycle guards", () => {
     expect(failure).toContain(
       "A deleted head branch is not rework after merge"
     );
+    expect(landSkill).toContain("Send only transition intent");
+    expect(landSkill).toContain(
+      "publish the prepared body through `github_graphql`"
+    );
+    expect(landSkill).not.toContain("send it as `comment_body`");
+    expect(landSkill).not.toContain("include it as `comment_body`");
+    expect(landSkill).not.toContain("via `/gh-project` with that body");
   });
 
   it("gates Land rework on actionable threads created after approval", async () => {

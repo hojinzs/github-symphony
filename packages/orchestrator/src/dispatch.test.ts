@@ -2011,23 +2011,6 @@ function createDispatchAdapter(
       issue.linkedPullRequests?.some(
         (pullRequest) => pullRequest.identifier === identifier
       ) === true,
-    findActiveLinkedPullRequest: (issue, lifecycle) => {
-      const states = new Set(
-        lifecycle.activeStates.map((state) => state.toLowerCase())
-      );
-      const pullRequest = issue.linkedPullRequests?.find(
-        (candidate) =>
-          typeof candidate.projectState === "string" &&
-          states.has(candidate.projectState.toLowerCase())
-      );
-      return pullRequest?.projectState
-        ? {
-            id: pullRequest.id,
-            identifier: pullRequest.identifier,
-            projectState: pullRequest.projectState,
-          }
-        : null;
-    },
   };
 }
 
