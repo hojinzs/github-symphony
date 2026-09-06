@@ -1,6 +1,6 @@
 import { access, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   acquireProjectStartLocks,
@@ -43,16 +43,44 @@ describe("project start locks", () => {
     const projectDir = await mkdtemp(join(root, "project-"));
     const direct = await resolveProjectIdentityLock({
       projectDir,
-      temporaryDirectory: root,
     });
     const projectLink = join(root, "project-link");
     await symlink(projectDir, projectLink);
     const viaSymlink = await resolveProjectIdentityLock({
       projectDir: projectLink,
-      temporaryDirectory: root,
     });
 
     expect(viaSymlink).toEqual(direct);
+  });
+
+  it("uses one host-wide namespace regardless of the caller temporary directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "project-start-lock-"));
+    const projectDir = await mkdtemp(join(root, "project-"));
+    const originalTmpdir = process.env.TMPDIR;
+
+    try {
+      process.env.TMPDIR = join(root, "tmp-a");
+      const first = await resolveProjectIdentityLock({ projectDir });
+      process.env.TMPDIR = join(root, "tmp-b");
+      const second = await resolveProjectIdentityLock({ projectDir });
+
+      expect(second).toEqual(first);
+      expect(first.runtimeRoot).toBe(
+        process.platform === "win32"
+          ? join(
+              parse(process.execPath).root,
+              "ProgramData",
+              "gh-symphony-project-locks"
+            )
+          : join("/var", "tmp", "gh-symphony-project-locks")
+      );
+    } finally {
+      if (originalTmpdir === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = originalTmpdir;
+      }
+    }
   });
 
   it("reclaims a folder-identity lock whose owner is stale", async () => {

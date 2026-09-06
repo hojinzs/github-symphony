@@ -431,7 +431,8 @@ Use a project folder as an orchestration instance decoupled from the repository 
 
 Only one orchestrator may own a canonical project folder on a host, even when
 separate `--config` runtime roots are used. Startup retains the project lock in
-each runtime root and additionally acquires a host-local, folder-identity lock;
+each runtime root and additionally acquires a folder-identity lock from a stable
+host-wide namespace independent of caller temporary-directory and user settings;
 both use lease heartbeats and process-owner identity validation so stale owners
 can be reclaimed safely.
 
