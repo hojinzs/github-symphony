@@ -5,7 +5,6 @@ import type {
   OrchestratorProjectConfig,
   OrchestratorRunRecord,
   TrackedIssue,
-  TrackerCommentWriteResult,
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
@@ -291,40 +290,6 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       state: input.request.targetState,
       error: null,
     });
-  },
-
-  async upsertTransitionComment(
-    project,
-    input
-  ): Promise<TrackerCommentWriteResult> {
-    const issuesPath = requireTrackerSetting(project, "issuesPath");
-    const entries = await readIssueEntries(issuesPath);
-    const entry = entries.find(
-      (candidate) => candidate.id === input.issueSubjectId
-    );
-    if (!entry) {
-      throw new Error("file_tracker_issue_not_found");
-    }
-
-    const metadata =
-      entry.metadata &&
-      typeof entry.metadata === "object" &&
-      !Array.isArray(entry.metadata)
-        ? (entry.metadata as Record<string, unknown>)
-        : {};
-    const comments = Array.isArray(metadata.transitionComments)
-      ? metadata.transitionComments.filter(
-          (comment): comment is string => typeof comment === "string"
-        )
-      : [];
-    if (comments.includes(input.body)) {
-      return { outcome: "unchanged", rateLimits: null };
-    }
-
-    metadata.transitionComments = [...comments, input.body];
-    entry.metadata = metadata;
-    await writeIssueEntries(issuesPath, entries);
-    return { outcome: "created", rateLimits: null };
   },
 
   buildWorkerEnvironment(_project, _issue) {

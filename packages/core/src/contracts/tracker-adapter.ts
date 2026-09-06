@@ -227,19 +227,7 @@ export type TrackerStateRequest =
       expectedState: string;
       targetState: string;
       reason: string;
-      /** Agent-authored body to publish after a confirmed readback. */
-      commentBody?: string;
     };
-
-export type TrackerCommentWriteResult = {
-  outcome: "created" | "unchanged";
-  rateLimits: Record<string, unknown> | null;
-};
-
-export type TrackerIssueCommentUpsertResult = {
-  outcome: "created" | "updated" | "unchanged";
-  rateLimits: Record<string, unknown> | null;
-};
 
 export type TrackerStateResult = {
   ok: boolean;
@@ -334,11 +322,6 @@ export type OrchestratorTrackerAdapter = {
   ): { headRefName: string } | null;
   /** Return tracker-owned branch evidence for dirty-workspace attribution. */
   resolveAttributableBranches?(issue: TrackedIssue): string[];
-  /** Return an adapter-owned active linked PR fact for a canonical issue. */
-  findActiveLinkedPullRequest?(
-    issue: TrackedIssue,
-    lifecycle: WorkflowLifecycleConfig
-  ): { id: string; identifier: string; projectState: string } | null;
   /** Provider-specific structured event fields that are safe to expose. */
   buildStructuredEventMetadata?(
     project: OrchestratorProjectConfig,
@@ -354,21 +337,4 @@ export type OrchestratorTrackerAdapter = {
     },
     dependencies?: OrchestratorTrackerDependencies
   ): Promise<TrackerStateResult>;
-  upsertTransitionComment?(
-    project: OrchestratorProjectConfig,
-    input: {
-      issueSubjectId: string;
-      body: string;
-    },
-    dependencies?: OrchestratorTrackerDependencies
-  ): Promise<TrackerCommentWriteResult>;
-  upsertIssueComment?(
-    project: OrchestratorProjectConfig,
-    issue: TrackedIssue,
-    input: {
-      marker: string;
-      body: string;
-    },
-    dependencies?: OrchestratorTrackerDependencies
-  ): Promise<TrackerIssueCommentUpsertResult>;
 };

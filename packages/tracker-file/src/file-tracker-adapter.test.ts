@@ -327,8 +327,8 @@ describe("fileTrackerAdapter", () => {
     });
   });
 
-  describe("tracker state and transition comments", () => {
-    it("confirms a transition and writes an idempotent comment body", async () => {
+  describe("tracker state requests", () => {
+    it("confirms a transition without writing the agent comment body", async () => {
       const issuesPath = join(testDir, "issues.json");
       await writeFile(issuesPath, JSON.stringify([sampleIssue]));
       const project = makeProject(issuesPath);
@@ -351,27 +351,14 @@ describe("fileTrackerAdapter", () => {
         outcome: "confirmed",
         state: "In review",
       });
-      await expect(
-        fileTrackerAdapter.upsertTransitionComment?.(project, {
-          issueSubjectId: "issue-1",
-          body: request.commentBody,
-        })
-      ).resolves.toEqual({ outcome: "created", rateLimits: null });
-      await expect(
-        fileTrackerAdapter.upsertTransitionComment?.(project, {
-          issueSubjectId: "issue-1",
-          body: request.commentBody,
-        })
-      ).resolves.toEqual({ outcome: "unchanged", rateLimits: null });
-
       const entries = JSON.parse(await readFile(issuesPath, "utf8")) as Array<{
         state: string;
-        metadata: { transitionComments: string[] };
+        metadata?: Record<string, unknown>;
       }>;
       expect(entries[0]).toMatchObject({
         state: "In review",
-        metadata: { transitionComments: [request.commentBody] },
       });
+      expect(entries[0]?.metadata).not.toHaveProperty("transitionComments");
     });
 
     it("does not write a comment when the expected state does not match", async () => {

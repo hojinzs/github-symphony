@@ -113,8 +113,6 @@ const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
 const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
 const MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT = 50;
-const LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX =
-  "gh-symphony:linked-pr-active-while-issue-inactive";
 const INHERITED_ENV_ALLOWLIST = new Set([
   "CI",
   "HOME",
@@ -397,37 +395,6 @@ class WorkerCredentialMissingError extends Error {
   constructor(readonly warning: string) {
     super(warning);
   }
-}
-
-function buildLinkedPullRequestActiveAdvisoryMarker(
-  issueId: string,
-  pullRequestId: string
-): string {
-  return `<!-- ${LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX} issue=${issueId} pr=${pullRequestId} -->`;
-}
-
-function buildLinkedPullRequestActiveAdvisoryBody(input: {
-  marker: string;
-  issue: TrackedIssue;
-  linkedPullRequest: {
-    identifier: string;
-    projectState: string;
-  };
-  lifecycle: WorkflowLifecycleConfig;
-}): string {
-  const activeStates = input.lifecycle.activeStates
-    .map((state) => `\`${state}\``)
-    .join(" or ");
-
-  return `${input.marker}
-
-Linked PR card status alone does not trigger dispatch.
-
-- Canonical Issue: ${input.issue.identifier} (${input.issue.state})
-- Linked PR card: ${input.linkedPullRequest.identifier} (${input.linkedPullRequest.projectState})
-- No worker was started for this PR card status change.
-
-To request rework, move the canonical Issue card to ${activeStates}.`;
 }
 
 export class OrchestratorService {
@@ -873,7 +840,7 @@ export class OrchestratorService {
               workflowResolution.lifecycle.activeStates
             );
         }
-        const persistedRun = await this.runSerialized(async () => {
+        await this.runSerialized(async () => {
           // Reconciliation may have updated this run while the provider call
           // waited for GitHub. Preserve that newer lifecycle state and merge
           // only the diagnostics produced by this tracker-state request.
@@ -908,17 +875,9 @@ export class OrchestratorService {
           );
           return diagnosticRun;
         });
-        const transitionCommentRateLimits =
-          await this.publishConfirmedTransitionComment({
-            run: persistedRun,
-            request: input.request,
-            result,
-            trackerAdapter,
-            dependencies: this.createTrackerDependencies(),
-          });
         this.rememberTrackerRateLimits(
           this.projectConfig.projectId,
-          transitionCommentRateLimits ?? result.rateLimits
+          result.rateLimits
         );
         return result;
       } catch (error) {
@@ -998,106 +957,6 @@ export class OrchestratorService {
     } catch (error) {
       this.reportDiagnosticWriteFailure(run, "appendRunEvent", error);
     }
-  }
-
-  private async publishConfirmedTransitionComment(input: {
-    run: OrchestratorRunRecord;
-    request: TrackerStateRequest;
-    result: TrackerStateResult;
-    trackerAdapter: OrchestratorTrackerAdapter;
-    dependencies: OrchestratorTrackerDependencies;
-  }): Promise<Record<string, unknown> | null> {
-    if (
-      input.request.type !== "transition-request" ||
-      input.request.commentBody === undefined ||
-      !isConfirmedTrackerTransition(input.request, input.result)
-    ) {
-      return null;
-    }
-    const transitionRequest = input.request;
-
-    let outcome: "created" | "unchanged" | "failed" = "failed";
-    let error: string | null = null;
-    let rateLimits: Record<string, unknown> | null =
-      input.run.rateLimits ?? null;
-    try {
-      if (!input.trackerAdapter.upsertTransitionComment) {
-        throw new Error("tracker_transition_comments_unsupported");
-      }
-      const commentResult = await input.trackerAdapter.upsertTransitionComment(
-        this.projectConfig,
-        {
-          issueSubjectId: input.run.issueSubjectId,
-          body: input.request.commentBody,
-        },
-        input.dependencies
-      );
-      outcome = commentResult.outcome;
-      rateLimits = commentResult.rateLimits ?? rateLimits;
-    } catch (cause) {
-      error =
-        cause instanceof Error ? cause.message : this.formatErrorMessage(cause);
-      rateLimits = extractTrackerRateLimitsFromError(cause) ?? rateLimits;
-    }
-
-    await this.runSerialized(async () => {
-      // Comment provider I/O is deliberately outside the reconcile lock.
-      // Reload inside the lock before persisting its diagnostics so a
-      // concurrent reconciliation lifecycle update cannot be overwritten.
-      const latestRun =
-        (await this.store.loadRun(
-          input.run.runId,
-          this.projectConfig.projectId
-        )) ?? input.run;
-      const nowIso = this.now().toISOString();
-      const diagnosticRun: OrchestratorRunRecord = {
-        ...latestRun,
-        updatedAt: nowIso,
-        lastEvent:
-          error === null
-            ? "tracker-transition-comment"
-            : "tracker-transition-comment-failed",
-        lastEventAt: nowIso,
-        lastError:
-          error === null
-            ? latestRun.lastError
-            : `tracker_transition_comment_failed: ${error}`,
-        transitionComment: {
-          status: outcome,
-          updatedAt: nowIso,
-          error,
-        },
-        rateLimits: rateLimits ?? latestRun.rateLimits ?? null,
-      };
-      try {
-        await this.store.saveRun(diagnosticRun);
-      } catch (cause) {
-        this.reportDiagnosticWriteFailure(input.run, "saveRun", cause);
-      }
-      try {
-        await this.store.appendRunEvent(input.run.runId, {
-          at: nowIso,
-          event: "tracker.transition-comment",
-          projectId: input.run.projectId,
-          runId: input.run.runId,
-          tracker: {
-            adapter: this.projectConfig.tracker.adapter,
-          },
-          issue: {
-            identifier: input.run.issueIdentifier,
-            id: input.run.issueSubjectId,
-          },
-          expectedState: transitionRequest.expectedState,
-          targetState: transitionRequest.targetState,
-          outcome,
-          error,
-          rateLimits: rateLimits ?? latestRun.rateLimits ?? null,
-        });
-      } catch (cause) {
-        this.reportDiagnosticWriteFailure(input.run, "appendRunEvent", cause);
-      }
-    });
-    return rateLimits;
   }
 
   private reportDiagnosticWriteFailure(
@@ -1731,24 +1590,6 @@ export class OrchestratorService {
             matchesTargetIssueIdentifier(trackerAdapter, issue, issueIdentifier)
           )
         : trackedActionableIssues;
-      const targetedIssues = (
-        issueIdentifier
-          ? canonicalIssues.filter((issue: TrackedIssue) =>
-              matchesTargetIssueIdentifier(
-                trackerAdapter,
-                issue,
-                issueIdentifier
-              )
-            )
-          : canonicalIssues
-      ).filter((issue) => issue.dispatchable);
-      const advisoryRateLimits =
-        await this.publishLinkedPullRequestActiveAdvisories(
-          tenant,
-          trackerAdapter,
-          targetedIssues,
-          trackerDependencies
-        );
       const pollListRateLimits =
         getTrackedIssueListRateLimits(issues) ?? supplementalRateLimits;
       rateLimits = resolveProjectRateLimits(
@@ -1756,16 +1597,12 @@ export class OrchestratorService {
         trackedIssuesByIdentifier.values(),
         pollListRateLimits
       );
-      rateLimits = isTrackerGraphqlRateLimits(rateLimits)
-        ? (mergeTrackerRateLimits(rateLimits, advisoryRateLimits) ?? rateLimits)
-        : rateLimits;
       trackerRateLimits = resolveTrackerRateLimits(
         trackedIssuesByIdentifier.values(),
         pollListRateLimits
       );
       trackerRateLimits = mergeTrackerRateLimits(
         trackerRateLimits,
-        advisoryRateLimits,
         terminalCandidateReconciliation.rateLimits
       );
       this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
@@ -2867,77 +2704,6 @@ export class OrchestratorService {
     }
 
     return isIssueCandidateEligibleWithReason(issue, lifecycle).eligible;
-  }
-
-  private async publishLinkedPullRequestActiveAdvisories(
-    tenant: OrchestratorProjectConfig,
-    trackerAdapter: OrchestratorTrackerAdapter,
-    issues: readonly TrackedIssue[],
-    trackerDependencies: OrchestratorTrackerDependencies
-  ): Promise<Record<string, unknown> | null> {
-    if (!trackerAdapter.upsertIssueComment) {
-      return null;
-    }
-
-    let rateLimits: Record<string, unknown> | null = null;
-
-    for (const issue of issues) {
-      if (issue.isArchived === true) {
-        continue;
-      }
-
-      const resolution = await this.loadProjectWorkflow(
-        tenant,
-        issue.repository
-      );
-      if (!isUsableWorkflowResolution(resolution)) {
-        continue;
-      }
-      const lifecycle = resolution.lifecycle;
-
-      if (isStateTerminal(issue.state, lifecycle)) {
-        continue;
-      }
-
-      if (matchesWorkflowState(issue.state, lifecycle.activeStates)) {
-        continue;
-      }
-
-      const linkedPullRequest = trackerAdapter.findActiveLinkedPullRequest?.(
-        issue,
-        lifecycle
-      );
-      if (!linkedPullRequest) {
-        continue;
-      }
-
-      const marker = buildLinkedPullRequestActiveAdvisoryMarker(
-        issue.id,
-        linkedPullRequest.id
-      );
-      const body = buildLinkedPullRequestActiveAdvisoryBody({
-        marker,
-        issue,
-        linkedPullRequest,
-        lifecycle,
-      });
-
-      try {
-        const result = await trackerAdapter.upsertIssueComment(
-          tenant,
-          issue,
-          { marker, body },
-          trackerDependencies
-        );
-        rateLimits = mergeTrackerRateLimits(rateLimits, result.rateLimits);
-      } catch (error) {
-        this.writeStderr(
-          `[orchestrator] failed to publish linked PR active advisory for ${issue.identifier}: ${this.formatErrorMessage(error)}`
-        );
-      }
-    }
-
-    return rateLimits;
   }
 
   private async loadProjectWorkflow(
@@ -6499,31 +6265,14 @@ function validateTrackerStateRequest(
   if (!request.reason.trim()) {
     return "transition_reason_required";
   }
-  if (request.commentBody !== undefined && !request.commentBody.trim()) {
-    return "transition_comment_body_required";
-  }
   if (
     request.expectedState.length > 200 ||
     request.targetState.length > 200 ||
-    request.reason.length > 2_000 ||
-    (request.commentBody?.length ?? 0) > 8_000
+    request.reason.length > 2_000
   ) {
     return "tracker_state_request_too_large";
   }
   return null;
-}
-
-function isConfirmedTrackerTransition(
-  request: Extract<TrackerStateRequest, { type: "transition-request" }>,
-  result: TrackerStateResult
-): boolean {
-  return (
-    result.ok &&
-    result.outcome === "confirmed" &&
-    result.state !== null &&
-    result.state.trim().toLowerCase() ===
-      request.targetState.trim().toLowerCase()
-  );
 }
 
 function extractTrackerRateLimitsFromError(

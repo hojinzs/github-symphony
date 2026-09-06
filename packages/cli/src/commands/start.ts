@@ -951,7 +951,7 @@ function parseTrackerStateRequest(
     typeof body.expected_state !== "string" ||
     typeof body.target_state !== "string" ||
     typeof body.reason !== "string" ||
-    (body.comment_body !== undefined && typeof body.comment_body !== "string")
+    body.comment_body !== undefined
   ) {
     return null;
   }
@@ -960,9 +960,6 @@ function parseTrackerStateRequest(
     expectedState: body.expected_state,
     targetState: body.target_state,
     reason: body.reason,
-    ...(body.comment_body === undefined
-      ? {}
-      : { commentBody: body.comment_body }),
   };
 }
 
