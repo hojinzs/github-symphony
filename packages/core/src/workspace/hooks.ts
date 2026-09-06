@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { constants } from "node:fs";
+import { access, stat } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 
 /**
  * Hook kinds matching WORKFLOW.md `hooks` configuration keys.
@@ -33,6 +35,131 @@ export type HookExecutionOptions = {
   envAllowlist?: readonly string[];
   timeoutMs: number;
 };
+
+export type WorkflowHookPathProblem = {
+  hook: HookKind;
+  command: string;
+  path: string;
+  reason: "missing" | "not_file" | "not_executable" | "not_a_path";
+};
+
+export type WorkflowHookPathValidation = {
+  checked: Array<{ hook: HookKind; command: string; path: string }>;
+  deferred: number;
+  problems: WorkflowHookPathProblem[];
+};
+
+const SHELL_METACHARACTER_PATTERN = /[;&|`$<>()[\]{}*?!#~="'\\\n\r]/;
+
+export function isWorkflowHookPathLike(command: string): boolean {
+  const trimmed = command.trim();
+  return (
+    trimmed.length > 0 &&
+    !trimmed.includes("\n") &&
+    !/\s/.test(trimmed) &&
+    !SHELL_METACHARACTER_PATTERN.test(trimmed)
+  );
+}
+
+export function resolveWorkflowHookPath(
+  command: string,
+  hook: HookKind,
+  directories: {
+    workflowDirectory: string;
+    repositoryDirectory?: string;
+  }
+): string | null {
+  if (!isWorkflowHookPathLike(command)) return null;
+  const trimmed = command.trim();
+  if (isAbsolute(trimmed)) return trimmed;
+  const baseDirectory =
+    hook === "after_create"
+      ? directories.workflowDirectory
+      : directories.repositoryDirectory;
+  return baseDirectory ? resolve(baseDirectory, trimmed) : null;
+}
+
+export async function validateWorkflowHookPaths(
+  hooks: {
+    afterCreate: string | null;
+    beforeRun: string | null;
+    afterRun: string | null;
+    beforeRemove: string | null;
+  },
+  directories: {
+    workflowDirectory: string;
+    repositoryDirectory?: string;
+  },
+  dependencies: { access: typeof access; stat: typeof stat } = { access, stat }
+): Promise<WorkflowHookPathValidation> {
+  const configured = [
+    ["after_create", hooks.afterCreate],
+    ["before_run", hooks.beforeRun],
+    ["after_run", hooks.afterRun],
+    ["before_remove", hooks.beforeRemove],
+  ] as const;
+  const result: WorkflowHookPathValidation = {
+    checked: [],
+    deferred: 0,
+    problems: [],
+  };
+
+  for (const [hook, command] of configured) {
+    if (!command) continue;
+    if (!isWorkflowHookPathLike(command)) {
+      result.problems.push({
+        hook,
+        command,
+        path: command,
+        reason: "not_a_path",
+      });
+      continue;
+    }
+
+    const path = resolveWorkflowHookPath(command, hook, directories);
+    if (!path) {
+      result.deferred += 1;
+      continue;
+    }
+    try {
+      const pathStat = await dependencies.stat(path);
+      if (!pathStat.isFile()) {
+        result.problems.push({ hook, command, path, reason: "not_file" });
+        continue;
+      }
+      await dependencies.access(path, constants.X_OK);
+      result.checked.push({ hook, command, path });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      result.problems.push({
+        hook,
+        command,
+        path,
+        reason: code === "EACCES" ? "not_executable" : "missing",
+      });
+    }
+  }
+
+  return result;
+}
+
+export function formatWorkflowHookPathProblems(
+  problems: WorkflowHookPathProblem[]
+): string {
+  return problems
+    .map(
+      ({ hook, command, path, reason }) =>
+        `${hook}=${reason === "not_a_path" ? JSON.stringify(command) : path} (${reason.replaceAll("_", " ")})`
+    )
+    .join(", ");
+}
+
+export function formatDeferredWorkflowHookPaths(deferred: number): string {
+  return (
+    `Deferred ${deferred} repository-relative workflow hook${deferred === 1 ? "" : "s"} ` +
+    "until an issue workspace is available; these hooks resolve from that workspace and are validated during run reconciliation."
+  );
+}
 
 const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
 export const MAX_HOOK_OUTPUT_BYTES = 4 * 1024;
@@ -121,11 +248,14 @@ export async function executeHook(
         const leadingIndex = stderr.length - trailingContinuationBytes - 1;
         const leadingByte = stderr[leadingIndex];
         const expectedContinuationBytes =
-          leadingByte !== undefined && (leadingByte & 0b1111_1000) === 0b1111_0000
+          leadingByte !== undefined &&
+          (leadingByte & 0b1111_1000) === 0b1111_0000
             ? 3
-            : leadingByte !== undefined && (leadingByte & 0b1111_0000) === 0b1110_0000
+            : leadingByte !== undefined &&
+                (leadingByte & 0b1111_0000) === 0b1110_0000
               ? 2
-              : leadingByte !== undefined && (leadingByte & 0b1110_0000) === 0b1100_0000
+              : leadingByte !== undefined &&
+                  (leadingByte & 0b1110_0000) === 0b1100_0000
                 ? 1
                 : 0;
         if (trailingContinuationBytes < expectedContinuationBytes) {
@@ -287,8 +417,6 @@ const DEFAULT_HOOK_ENV_KEYS = new Set([
   "TMPDIR",
   "USER",
 ]);
-
-const SHELL_METACHARACTER_PATTERN = /[;&|`$<>()[\]{}*?!#~="'\\\n\r]/;
 
 export function buildHookExecutionEnv(
   env: Record<string, string>,

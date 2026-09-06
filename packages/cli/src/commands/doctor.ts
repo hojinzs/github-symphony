@@ -1,14 +1,17 @@
 import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import {
+  formatDeferredWorkflowHookPaths,
   normalizeLabels,
+  formatWorkflowHookPathProblems,
   parseWorkflowMarkdown,
   parseWorkflowMarkdownForMigration,
   WorkflowValidationError,
   redactObservabilitySecrets,
   redactObservabilityText,
+  validateWorkflowHookPaths,
   type OrchestratorProjectConfig,
   type ParsedWorkflow,
   type TrackedIssue,
@@ -1263,24 +1266,10 @@ function isRepositoryConfigured(
   );
 }
 
-function isHookPathLike(command: string): boolean {
-  const trimmed = command.trim();
-  return (
-    trimmed.length > 0 &&
-    !trimmed.includes("\n") &&
-    !/\s/.test(trimmed) &&
-    (trimmed.startsWith("/") ||
-      trimmed.startsWith("./") ||
-      trimmed.startsWith("../") ||
-      trimmed.includes("/") ||
-      trimmed.includes("\\"))
-  );
-}
-
 async function buildHookChecks(
   repoRoot: string,
   workflow: ParsedWorkflow,
-  deps: Pick<DoctorDependencies, "access">
+  deps: Pick<DoctorDependencies, "access" | "stat">
 ): Promise<DoctorCheckResult[]> {
   const hooks = [
     ["after_create", workflow.hooks.afterCreate],
@@ -1301,61 +1290,48 @@ async function buildHookChecks(
     ];
   }
 
-  const unresolved: Array<{ hook: string; command: string; path: string }> = [];
-  const checked: Array<{ hook: string; command: string; path: string }> = [];
-  let inline = 0;
+  const validation = await validateWorkflowHookPaths(
+    workflow.hooks,
+    { workflowDirectory: repoRoot },
+    deps
+  );
+  const deferredSummary =
+    validation.deferred === 0
+      ? ""
+      : ` ${formatDeferredWorkflowHookPaths(validation.deferred)}`;
 
-  for (const [hook, command] of configured) {
-    if (!command || !isHookPathLike(command)) {
-      inline += 1;
-      continue;
-    }
-    const path = isAbsolute(command) ? command : resolve(repoRoot, command);
-    try {
-      await deps.access(path, constants.F_OK);
-      checked.push({ hook, command, path });
-    } catch {
-      unresolved.push({ hook, command, path });
-    }
-  }
-
-  if (unresolved.length > 0) {
+  if (validation.problems.length > 0) {
     return [
       failCheck(
         "workflow_hooks",
         "Workflow hook paths",
-        `Unresolved WORKFLOW.md hook path${unresolved.length === 1 ? "" : "s"}: ${unresolved.map((entry) => `${entry.hook}=${entry.command}`).join(", ")}.`,
-        "Create the referenced hook script(s), fix the hook path(s), or replace them with inline commands.",
+        `Invalid WORKFLOW.md hook path${validation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(validation.problems)}.${deferredSummary}`,
+        "Create the referenced hook script(s), make them executable, or fix the hook path(s).",
         {
           configured: configured.length,
-          pathsChecked: checked.length,
-          inline,
-          unresolved,
-          checked,
+          pathsChecked: validation.checked.length,
+          deferred: validation.deferred,
+          unresolved: validation.problems,
+          checked: validation.checked,
         }
       ),
     ];
   }
 
   const pathSummary =
-    checked.length === 0
+    validation.checked.length === 0
       ? "No hook paths required filesystem validation."
-      : `Resolved ${checked.length} WORKFLOW.md hook path${checked.length === 1 ? "" : "s"}.`;
-  const inlineSummary =
-    inline === 0
-      ? ""
-      : ` Treated ${inline} hook${inline === 1 ? "" : "s"} as inline command${inline === 1 ? "" : "s"}.`;
-
+      : `Resolved ${validation.checked.length} executable WORKFLOW.md hook path${validation.checked.length === 1 ? "" : "s"}.`;
   return [
     passCheck(
       "workflow_hooks",
       "Workflow hook paths",
-      `${pathSummary}${inlineSummary}`,
+      `${pathSummary}${deferredSummary}`,
       {
         configured: configured.length,
-        pathsChecked: checked.length,
-        inline,
-        checked,
+        pathsChecked: validation.checked.length,
+        deferred: validation.deferred,
+        checked: validation.checked,
       }
     ),
   ];
@@ -1850,14 +1826,6 @@ async function buildDoctorSmokeChecks(input: {
     );
   }
 
-  checks.push(
-    ...(await buildHookChecks(
-      input.repoRoot,
-      input.workflow.workflow,
-      input.deps
-    ))
-  );
-
   return checks;
 }
 
@@ -2302,6 +2270,16 @@ export async function runDoctorDiagnostics(
         "Fix the managed project selection check first, then re-run 'gh-symphony doctor'.",
         { blockedBy: "managed_project" }
       )
+    );
+  }
+
+  if (workflow.status === "pass") {
+    checks.push(
+      ...(await buildHookChecks(
+        dirname(workflow.workflowPath),
+        workflow.workflow,
+        deps
+      ))
     );
   }
 

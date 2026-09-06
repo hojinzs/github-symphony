@@ -3247,6 +3247,7 @@ describe("doctor command handler", () => {
       "#!/bin/sh\n",
       "utf8"
     );
+    await chmod(join(repoDir, "hooks", "after_create.sh"), 0o755);
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
       "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/after_create.sh\n---\nPrompt {{ issue.identifier }}\n",
@@ -3293,41 +3294,36 @@ describe("doctor command handler", () => {
     ).toMatchObject({ status: "pass" });
   });
 
-  it("fails smoke checks for unresolved workflow hook paths", async () => {
+  it("fails the default checks for an absent workflow hook path", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/missing.sh\n  before_run: echo ready\n---\nPrompt {{ issue.identifier }}\n",
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/missing.sh\n  before_run: hooks/before_run.sh\n---\nPrompt {{ issue.identifier }}\n",
       "utf8"
     );
 
     const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(
-        baseOptions(configDir),
-        ["--smoke", "--issue", "acme/widgets#1"],
-        {
-          ...authDependencies(),
-          inspectManagedProjectSelection: async () => ({
-            kind: "resolved",
-            projectId: "tenant-a",
-            projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
-              {
-                owner: "acme",
-                name: "widgets",
-                url: "https://github.com/acme/widgets",
-                cloneUrl: "https://github.com/acme/widgets.git",
-              },
-            ]),
-          }),
-          getProjectDetail: (async () =>
-            createProjectDetail() as never) as never,
-          fetchProjectIssue: (async () => createTrackedIssue()) as never,
-          pathEnv,
-        }
-      )
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+            {
+              owner: "acme",
+              name: "widgets",
+              url: "https://github.com/acme/widgets",
+              cloneUrl: "https://github.com/acme/widgets.git",
+            },
+          ]),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        fetchProjectIssue: (async () => createTrackedIssue()) as never,
+        pathEnv,
+      })
     );
 
     expect(report.ok).toBe(false);
@@ -3335,16 +3331,72 @@ describe("doctor command handler", () => {
       report.checks.find((check) => check.id === "workflow_hooks")
     ).toMatchObject({
       status: "fail",
-      summary: expect.stringContaining("Unresolved WORKFLOW.md hook path"),
+      summary: expect.stringContaining(
+        "Deferred 1 repository-relative workflow hook"
+      ),
       details: expect.objectContaining({
         pathsChecked: 0,
-        inline: 1,
+        deferred: 1,
         unresolved: [
           expect.objectContaining({
             hook: "after_create",
             command: "hooks/missing.sh",
+            path: expect.stringMatching(/\/hooks\/missing\.sh$/),
+            reason: "missing",
           }),
         ],
+      }),
+    });
+    expect(
+      report.checks.find((check) => check.id === "workflow_hooks")?.details
+    ).toEqual(expect.objectContaining({ deferred: 1 }));
+  });
+
+  it("fails the default checks for a non-executable workflow hook path", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await mkdir(join(repoDir, "hooks"), { recursive: true });
+    await writeFile(join(repoDir, "hooks", "after_create.sh"), "#!/bin/sh\n", {
+      mode: 0o644,
+    });
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/after_create.sh\n---\nPrompt {{ issue.identifier }}\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+            {
+              owner: "acme",
+              name: "widgets",
+              url: "https://github.com/acme/widgets",
+              cloneUrl: "https://github.com/acme/widgets.git",
+            },
+          ]),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "workflow_hooks")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining(
+        `${join(repoDir, "hooks", "after_create.sh")} (not executable)`
+      ),
+      details: expect.objectContaining({
+        unresolved: [expect.objectContaining({ reason: "not_executable" })],
       }),
     });
   });
