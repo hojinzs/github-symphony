@@ -31,6 +31,9 @@ mkdir -p "$PROJECT_ROOT/project-alpha/.agent/skills/alpha" "$PROJECT_ROOT/projec
 write_project() {
   project_dir=$1
   label=$2
+  mkdir -p "$project_dir/hooks"
+  cp /e2e/seed/hooks/after_create.sh "$project_dir/hooks/after_create.sh"
+  chmod +x "$project_dir/hooks/after_create.sh"
   cat > "$project_dir/WORKFLOW.md" <<EOF
 ---
 tracker:
@@ -45,6 +48,8 @@ tracker:
         - $(test "$label" = alpha && printf beta || printf alpha)
   active_states:
     - Ready
+hooks:
+  after_create: hooks/after_create.sh
 agent:
   max_concurrent_agents: 1
   max_turns: 1
@@ -59,7 +64,7 @@ workspace:
 Standalone E2E project.
 EOF
   printf "{\"mcpServers\":{\"%s\":{\"command\":\"node\",\"args\":[\"-e\",\"process.exit(0)\"]}}}\n" "$label" > "$project_dir/.mcp.json"
-  printf "STUB_SCENARIO=happy\n" > "$project_dir/.env"
+  printf "STUB_SCENARIO=happy\nSYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n" > "$project_dir/.env"
   chmod 600 "$project_dir/.env"
   printf "%s\n" "---" "name: $label" "---" "$label skill" > "$project_dir/.agent/skills/$label/SKILL.md"
 }
@@ -109,10 +114,6 @@ if [ "${completed_logs:-0}" != 2 ]; then
   done
   exit 1
 fi
-bare="$CONFIG_DIR/repos/test-owner/test-repo.git"
-test -d "$bare"
-test "$(git -C "$bare" rev-parse --is-bare-repository)" = true
-test "$(find "$CONFIG_DIR" "$HOME" "$PROJECT_ROOT" -path "*/repos/test-owner/test-repo.git" -type d | wc -l | tr -d " ")" = 1
 for project in project-alpha project-beta; do
   label=${project#project-}
   issue=101
@@ -123,9 +124,7 @@ for project in project-alpha project-beta; do
   # not under the runtime state directory (spec 9.1).
   test -z "$(find "$CONFIG_DIR/projects/$project_id" -path "*/repository" -type d)"
   repo=$(find "$PROJECT_ROOT/$project/.runtime/workspaces" -path "*/repository" -type d | head -1)
-  # A linked worktree records its gitdir in a .git file; a normal checkout
-  # uses a directory. Either shape proves the populated workspace is a repo.
-  test -e "$repo/.git"
+  test -d "$repo/.git"
   test -f "$repo/.codex/skills/$label/SKILL.md"
   test -z "$(git -C "$repo" status --porcelain)"
   branch=$(git -C "$repo" branch --show-current)

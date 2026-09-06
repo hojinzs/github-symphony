@@ -53,15 +53,6 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
-    title: "Orchestration (host)",
-    entries: [
-      {
-        name: "instances",
-        description: "List registered orchestrator instances across projects",
-      },
-    ],
-  },
-  {
     title: "Orchestration (standalone project)",
     entries: [
       {
@@ -85,14 +76,6 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     title: "Maintenance",
     entries: [
-      {
-        name: "cache status",
-        description: "Inspect the global bare repository cache",
-      },
-      {
-        name: "cache prune",
-        description: "Remove old caches without locks or linked worktrees",
-      },
       {
         name: "upgrade",
         description: "Upgrade the CLI to the latest published version",

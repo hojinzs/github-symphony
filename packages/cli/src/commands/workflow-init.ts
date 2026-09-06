@@ -60,6 +60,7 @@ import {
   DEFAULT_AFTER_CREATE_HOOK_CONTENT,
   DEFAULT_AFTER_CREATE_HOOK_LABEL,
   DEFAULT_AFTER_CREATE_HOOK_PATH,
+  LEGACY_NOOP_AFTER_CREATE_HOOK_CONTENT,
 } from "../workflow/default-hooks.js";
 import {
   buildSkillFilePlans,
@@ -588,12 +589,13 @@ export async function promptLegacyGhSymphonyCleanup(
 async function resolveChangeStatus(
   path: string,
   content: string,
-  mode: PlannedWriteMode
+  mode: PlannedWriteMode,
+  replaceContent?: string
 ): Promise<PlannedChangeStatus> {
   try {
     const existing = await readFile(path, "utf8");
     if (mode === "create-only") {
-      return "unchanged";
+      return existing === replaceContent ? "update" : "unchanged";
     }
     return existing === content ? "unchanged" : "update";
   } catch (error) {
@@ -610,11 +612,18 @@ async function planFileChange(input: {
   label: string;
   content: string;
   mode: PlannedWriteMode;
+  replaceContent?: string;
   executable?: boolean;
 }): Promise<PlannedFileChange> {
+  const { replaceContent, ...file } = input;
   return {
-    ...input,
-    status: await resolveChangeStatus(input.path, input.content, input.mode),
+    ...file,
+    status: await resolveChangeStatus(
+      input.path,
+      input.content,
+      input.mode,
+      replaceContent
+    ),
   };
 }
 
@@ -1278,6 +1287,7 @@ export async function planEcosystem(
       label: DEFAULT_AFTER_CREATE_HOOK_LABEL,
       content: DEFAULT_AFTER_CREATE_HOOK_CONTENT,
       mode: "create-only",
+      replaceContent: LEGACY_NOOP_AFTER_CREATE_HOOK_CONTENT,
       executable: true,
     })
   );

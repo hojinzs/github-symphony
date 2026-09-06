@@ -66,7 +66,9 @@ The package includes internal `dist/mcp-server.js` and
 `dist/git-credential-helper.js` executables for host-side compatibility paths.
 Coding-agent children do not launch these provider MCP or Git credential
 subprocesses; provider tools and authenticated Git transport execute in the
-worker host. Git transport uses the orchestrator-owned target URL from a
+worker host. The Git helper consumes the worker's direct
+`GITHUB_GRAPHQL_TOKEN`; it does not contact a credential broker. Git transport
+uses the orchestrator-owned target URL from a
 temporary bare repository with checkout hooks disabled, so child-authored
 remote and hook configuration is outside the credential-bearing path. These
 entry points are not standalone user-facing commands. Agents publish committed
@@ -203,10 +205,12 @@ login material into a private, workspace-contained child home. It does not
 expose the host `gh` configuration, Codex configuration, Claude MCP OAuth, or
 tracker credentials to the coding-agent process.
 
-The orchestrator does retain a tenant-scoped tracker credential at the worker
-host boundary. Project `.env` credentials take precedence over the daemon's
-resolved credential, enabling host-side tracker tools and authenticated Git
-transport while the agent child remains credential-free.
+The orchestrator retains a tenant-scoped direct tracker credential at the
+worker host boundary. Project `.env` credentials take precedence over the
+daemon's resolved credential, enabling GitHub polling and host-side tracker
+tools while the agent child remains credential-free. The Git publication
+broker branch remains in code for later removal, but the required direct token
+takes precedence and therefore must also permit repository pushes.
 `gh-symphony doctor` reports a required `Worker GitHub credential` check for
 the selected tenant using that same precedence. Without a usable GitHub or
 Linear worker credential, startup fails before the agent launches; known-empty
@@ -421,20 +425,15 @@ project-environment digest.
 Operators can compare the digest across runs to detect project `.env` changes;
 the status surface never expands it into environment names or values.
 
-### Repository Cache Maintenance
-
-```bash
-gh-symphony cache status                 # Paths, sizes, timestamps, locks, and linked worktrees
-gh-symphony cache status --json
-gh-symphony cache prune --dry-run        # Preview the default 30-day eviction policy
-gh-symphony cache prune --max-age-days 7 # Remove old idle cache entries
-```
-
-Cache cleanup is conservative: locked entries, caches with linked worktrees, and caches whose worktree state cannot be verified are skipped. Long-running cache operations heartbeat their locks, and workspace population falls back to an isolated direct clone when cache preparation is unavailable.
-
 ### Standalone Projects
 
-Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`. Issue workspaces are populated as worktrees from a shared bare clone cache with `symphony/<project-slug>/<issue-id>` branches, so multiple projects can share one repository. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
+Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus its `hooks/after_create.sh`, optional `.mcp.json`, `.env`, and `.agent/skills/`. The orchestrator creates issue directories and invokes `after_create`; the shipped default hook clones the target and checks out the project-scoped issue branch. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
+
+The trusted population hook receives host Git credential-helper configuration
+for private clones, and dispatch verifies that it leaves
+`SYMPHONY_ASSIGNED_BRANCH` checked out. Re-running `workflow init` migrates the
+exact legacy generated no-op hook to the population script while preserving any
+customized hook.
 
 A running daemon defensively re-reads and resolves `WORKFLOW.md` at every
 reconciliation tick, so valid edits need no restart and apply at the next tick.
@@ -453,18 +452,6 @@ gh-symphony project stop
 gh-symphony project start --project-dir <projectDir>
 gh-symphony project list                 # List cached projects
 gh-symphony doctor --project-dir <projectDir>
-```
-
-### Host Instances
-
-`gh-symphony instances` lists project orchestrators registered on this host. Use
-`--json` for automation. A verified live cross-runtime duplicate is rejected by
-default; pass `--allow-duplicate` to `project start` only when intentional
-isolation is required.
-
-```bash
-gh-symphony instances
-gh-symphony instances --json
 ```
 
 ## Diagnostics
@@ -547,9 +534,6 @@ Setup:
   config show         Show current configuration
   config set          Set a configuration value
   config edit         Open config in $EDITOR
-
-Orchestration (host):
-  instances           List registered orchestrator instances on this host
 
 Orchestration (project):
   project list        List cached projects as JSON

@@ -228,21 +228,13 @@ export function shouldSynchronizeAssignedBranch(options: {
 export function buildHostGitEnvironment(
   env: NodeJS.ProcessEnv
 ): NodeJS.ProcessEnv {
-  const hasBroker = Boolean(
-    env.GITHUB_TOKEN_BROKER_URL && env.GITHUB_TOKEN_BROKER_SECRET
-  );
-  const credentialEnvironment =
-    env.GITHUB_GRAPHQL_TOKEN || hasBroker
-      ? createGitCredentialHelperEnvironment({
-          githubToken: env.GITHUB_GRAPHQL_TOKEN,
-          githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
-          githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
-          githubTokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
-          tokenBrokerTimeoutMs: env.GITHUB_TOKEN_BROKER_TIMEOUT_MS,
-          gitHost: env.GITHUB_GIT_HOST,
-          gitUsername: env.GITHUB_GIT_USERNAME,
-        })
-      : {};
+  const credentialEnvironment = env.GITHUB_GRAPHQL_TOKEN
+    ? createGitCredentialHelperEnvironment({
+        githubToken: env.GITHUB_GRAPHQL_TOKEN,
+        gitHost: env.GITHUB_GIT_HOST,
+        gitUsername: env.GITHUB_GIT_USERNAME,
+      })
+    : {};
   const {
     GIT_CONFIG_COUNT: _credentialConfigCount,
     GIT_CONFIG_KEY_0: _credentialConfigKey,

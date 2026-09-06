@@ -11,10 +11,6 @@ export function validateGitHubGraphQLApiUrl(value: string): string {
   return validateSecureUrl(value, "GitHub GraphQL API URL");
 }
 
-export function validateGitHubTokenBrokerUrl(value: string): string {
-  return validateSecureUrl(value, "GitHub token broker URL");
-}
-
 function validateSecureUrl(
   value: string,
   label: string,

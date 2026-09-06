@@ -62,6 +62,9 @@ agent:
   max_turns: 2
 repository:
   slug: test-owner/test-repo
+  clone_url: $REPO_DIR
+hooks:
+  after_create: hooks/after_create.sh
 codex:
   command: node $STUB_WORKER_JS
   approval_policy: never
@@ -73,7 +76,11 @@ You are an AI agent working on issue {{issue.identifier}}; phase={{execution_pha
 This is an E2E test environment. Complete the task and report success.
 EOF
 
-  git add WORKFLOW.md
+  mkdir -p hooks
+  cp "$ROOT_DIR/e2e/seed/hooks/after_create.sh" hooks/after_create.sh
+  chmod +x hooks/after_create.sh
+
+  git add WORKFLOW.md hooks/after_create.sh
   git commit -m "Initial commit with WORKFLOW.md"
 )
 
@@ -97,6 +104,9 @@ done
 
 # ── 5. Initialize empty issues fixture ──────────────────────────
 echo "[]" > "$ISSUES_PATH"
+
+printf 'SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n' > "$WORK_DIR/.env"
+chmod 600 "$WORK_DIR/.env"
 
 log "Done. Local E2E environment ready."
 log ""
