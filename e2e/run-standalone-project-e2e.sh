@@ -142,9 +142,10 @@ for project in project-alpha project-beta; do
   # Standalone workspaces live under the workspace.root of the project folder,
   # not under the runtime state directory (spec 9.1).
   test -z "$(find "$CONFIG_DIR/projects/$project_id" -path "*/repository" -type d)"
-  repo=$(find "$PROJECT_ROOT/$project/.runtime/workspaces" -path "*/repository" -type d | head -1)
   if [ "$label" = alpha ]; then
     repo="$PROJECT_ROOT/project-alpha/.runtime/workspaces/$alpha_workspace_key-recovery/repository"
+  else
+    repo=$(find "$PROJECT_ROOT/$project/.runtime/workspaces" -path "*/repository" -type d | head -1)
   fi
   test -d "$repo/.git"
   test -f "$repo/.codex/skills/$label/SKILL.md"
@@ -166,7 +167,9 @@ test "$(git -C "$alpha_original_repo" branch --show-current)" = "fix/2-foreign"
 test "$(git -C "$alpha_original_repo" rev-parse HEAD)" = "$alpha_foreign_head"
 test "$(cat "$alpha_original_repo/foreign-issue.txt")" = "foreign issue committed work"
 test -z "$(git -C "$alpha_original_repo" status --porcelain)"
-! grep -q "Issue identity preflight failed" $(find "$CONFIG_DIR/projects/$alpha_id" -path "*/runs/*/worker.log" -type f)
+alpha_logs=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/runs/*/worker.log" -type f -print)
+test -n "$alpha_logs"
+! grep -q "Issue identity preflight failed" $alpha_logs
 for pid in $run_pids; do kill "$pid" 2>/dev/null || true; done
 echo "standalone-project Docker E2E passed"
 '

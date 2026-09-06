@@ -3041,6 +3041,28 @@ describe("OrchestratorService", () => {
       workspaceKey
     );
     expect(persistedWorkspace?.workspacePath).toBe(recoveryWorkspacePath);
+    const activeRun = (await store.loadAllRuns()).find(
+      (run) => run.issueId === "issue-1"
+    );
+    const events = (
+      await readFile(
+        join(
+          store.runDir(activeRun!.runId, projectConfig.projectId),
+          "events.ndjson"
+        ),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "workspace-root-relocated",
+        previousWorkspacePath: issueWorkspacePath,
+        configuredWorkspacePath: recoveryWorkspacePath,
+      })
+    );
   });
 
   it("warns and continues when a recovery workspace is dirty", async () => {

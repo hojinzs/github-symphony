@@ -2913,7 +2913,10 @@ export class OrchestratorService {
     if (
       existingWorkspaceRecord &&
       !existingWorkspaceAtConfiguredRoot &&
-      !useFreshRecoveryWorkspace
+      !(
+        useFreshRecoveryWorkspace &&
+        recovery?.kind === "incomplete-turn-dirty-workspace"
+      )
     ) {
       this.writeStderr(
         `[orchestrator] workspace root changed for ${issue.identifier}: previous=${existingWorkspaceRecord.workspacePath} configured=${issueWorkspacePath}`
