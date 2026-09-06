@@ -2404,6 +2404,10 @@ export class OrchestratorService {
       issueWorkspaces,
       warnings: [
         ...(await this.resolveWorkflowWarnings(tenant)),
+        ...(await this.resolveRetainedWorkspaceWarnings(
+          tenant,
+          issueWorkspaces
+        )),
         ...dispatchWarnings,
       ],
       workflowResolution,
@@ -2413,6 +2417,35 @@ export class OrchestratorService {
       projectId: tenant.projectId,
     } as ProjectStatusSnapshot & { projectId: string });
     return status;
+  }
+
+  private async resolveRetainedWorkspaceWarnings(
+    tenant: OrchestratorProjectConfig,
+    workspaceRecords: IssueWorkspaceRecord[]
+  ): Promise<string[]> {
+    const warnings: string[] = [];
+    for (const workspace of workspaceRecords) {
+      const configuredWorkspacePath = resolveIssueWorkspaceDirectory(
+        this.resolveIssueWorkspaceRoot(tenant),
+        workspace.workspaceKey
+      );
+      if (resolve(workspace.workspacePath) === configuredWorkspacePath) {
+        continue;
+      }
+      const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
+        issueWorkspacePath: configuredWorkspacePath,
+      });
+      if (!dirtyStatus?.dirty) {
+        continue;
+      }
+      const branch = await readGitCurrentBranch(
+        dirtyStatus.repositoryDirectory
+      );
+      warnings.push(
+        `Retained dirty workspace awaiting operator review: issue=${workspace.issueIdentifier} workspace=${configuredWorkspacePath} branch=${branch ?? "unknown"}`
+      );
+    }
+    return warnings;
   }
 
   private async performStartupCleanup(
@@ -3070,9 +3103,18 @@ export class OrchestratorService {
       workspaceKey
     );
     const recovery = options.recovery ?? null;
+    const recoveryWorkspacePath = resolveIssueWorkspaceDirectory(
+      this.resolveIssueWorkspaceRoot(tenant),
+      `${workspaceKey}-recovery`
+    );
+    const existingWorkspaceUsesStableRecoveryPath = Boolean(
+      existingWorkspaceRecord &&
+      resolve(existingWorkspaceRecord.workspacePath) === recoveryWorkspacePath
+    );
     const retainedWorkspaceBranch =
-      recovery?.kind === "incomplete-turn-dirty-workspace" &&
-      existingWorkspaceRecord
+      existingWorkspaceRecord &&
+      (recovery?.kind === "incomplete-turn-dirty-workspace" ||
+        existingWorkspaceUsesStableRecoveryPath)
         ? await readGitCurrentBranch(existingWorkspaceRecord.repositoryPath)
         : null;
     const issueNumber = extractIssueNumberFromIdentifier(issue.identifier);
@@ -3082,20 +3124,16 @@ export class OrchestratorService {
         (branchIssueNumber) => branchIssueNumber !== issueNumber
       )
     );
-    const recoveryWorkspacePath = resolveIssueWorkspaceDirectory(
-      this.resolveIssueWorkspaceRoot(tenant),
-      `${workspaceKey}-recovery`
-    );
     // Once a foreign dirty workspace has forced the run onto the stable
     // recovery path, that persisted path remains the issue's active workspace
     // on later dispatches. Falling back to the configured key path would
     // repopulate (and therefore delete) the retained dirty workspace.
-    const reuseStableRecoveryWorkspace = Boolean(
-      existingWorkspaceRecord &&
-      resolve(existingWorkspaceRecord.workspacePath) === recoveryWorkspacePath
-    );
+    const reuseStableRecoveryWorkspace =
+      existingWorkspaceUsesStableRecoveryPath;
     const useFreshRecoveryWorkspace =
       retainedWorkspaceHasForeignBranch && !reuseStableRecoveryWorkspace;
+    const repopulateStableRecoveryWorkspace =
+      retainedWorkspaceHasForeignBranch && reuseStableRecoveryWorkspace;
     const issueWorkspacePath =
       useFreshRecoveryWorkspace || reuseStableRecoveryWorkspace
         ? recoveryWorkspacePath
@@ -3195,7 +3233,10 @@ export class OrchestratorService {
         projectSlug: tenant.slug,
         issueIdentifier: issue.identifier,
       });
-      const needsPopulation = createdNow || !existingWorkspaceAtConfiguredRoot;
+      const needsPopulation =
+        createdNow ||
+        !existingWorkspaceAtConfiguredRoot ||
+        repopulateStableRecoveryWorkspace;
       populationWasFresh = needsPopulation;
       // Run after_create when this process created the directory or a prior
       // creator was interrupted before a workspace record could be saved.
@@ -6831,9 +6872,11 @@ function composeWorkerRunPrompt(
     ...formatRecoveryDirtyFileLinesForPrompt(recovery.dirtyFiles),
     "",
     retainedWorkspaceIsOutsideActiveCheckout
-      ? `The dirty workspace above is retained outside this run's active checkout at ${activeWorkspacePath}. Leave the retained workspace untouched; use it only as operator-visible recovery evidence, and make changes for ${issue.identifier} in the active checkout.`
+      ? `The dirty workspace above is retained outside this run's active checkout (${activeWorkspacePath}). Leave the retained workspace untouched; use it only as operator-visible recovery evidence, and make changes for ${issue.identifier} in the active checkout.`
       : `Inspect the dirty diff before editing. If any artifact belongs to a different issue, leave it untouched and stop to record a blocker instead of committing it. If the partial work is correct for ${issue.identifier}, validate it, commit it, and push it to this issue's branch only. If it is invalid, revert it explicitly and record a blocker/comment with the reason. Do not discard uncommitted work without making an intentional recovery decision.`,
-    `Suggested operator command: ${recovery.suggestedCommand}`,
+    retainedWorkspaceIsOutsideActiveCheckout
+      ? `Operator-only inspection command (do not run from this worker): ${recovery.suggestedCommand}`
+      : `Suggested operator command: ${recovery.suggestedCommand}`,
   ].join("\n");
 }
 

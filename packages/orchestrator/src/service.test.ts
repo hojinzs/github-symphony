@@ -3462,10 +3462,16 @@ describe("OrchestratorService", () => {
       "## Recovery Context — Incomplete Turn Dirty Workspace"
     );
     expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
-      `retained outside this run's active checkout at ${recoveryWorkspacePath}`
+      `retained outside this run's active checkout (${recoveryWorkspacePath})`
     );
     expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "Leave the retained workspace untouched"
+    );
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "Operator-only inspection command (do not run from this worker)"
+    );
+    expect(redispatched.warnings).toContain(
+      `Retained dirty workspace awaiting operator review: issue=acme/platform#1 workspace=${issueWorkspacePath} branch=fix/2-foreign`
     );
 
     // The dirty workspace remains visible in place and no quarantine is made.
@@ -3506,11 +3512,35 @@ describe("OrchestratorService", () => {
       `"recoveryWorkspacePath":${JSON.stringify(recoveryWorkspacePath)}`
     );
 
+    // Complete the recovery run so the next tick actually dispatches instead
+    // of merely observing the still-active mocked worker.
+    await store.saveRun({
+      ...freshRun!,
+      status: "succeeded",
+      processId: null,
+      completedAt: "2026-03-08T00:06:30.000Z",
+      updatedAt: "2026-03-08T00:06:30.000Z",
+    });
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: true,
+        failureRetryCount: 0,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:06:30.000Z",
+      },
+    ]);
+
     // A later ordinary dispatch must keep using the persisted recovery path.
     // Re-deriving the configured key path here would delete and repopulate the
     // retained foreign workspace before the worker starts.
     currentTime = new Date("2026-03-08T00:07:00.000Z");
-    await service.runOnce();
+    const laterDispatch = await service.runOnce();
+    expect(laterDispatch.summary.dispatched).toBe(1);
     expect(
       await readFile(
         join(repositoryDirectory, ".gh-symphony", "workpads", "2.md"),
@@ -3528,6 +3558,78 @@ describe("OrchestratorService", () => {
       workspaceKey
     );
     expect(persistedWorkspace?.workspacePath).toBe(recoveryWorkspacePath);
+
+    // The stable recovery checkout is disposable. If it is later left dirty
+    // on another issue's branch, repopulate this same path rather than failing
+    // identity preflight or creating an unbounded recovery-path chain.
+    execSync(
+      `git -C ${shell(join(recoveryWorkspacePath, "repository"))} switch -c fix/3-foreign`,
+      { encoding: "utf8" }
+    );
+    await writeFile(
+      join(recoveryWorkspacePath, "repository", "foreign.txt"),
+      "issue 3\n",
+      "utf8"
+    );
+    const laterRun = (await store.loadAllRuns()).find(
+      (run) => run.runId !== "run-contaminated" && run.runId !== freshRun?.runId
+    );
+    await store.saveRun({
+      ...laterRun!,
+      status: "retrying",
+      processId: null,
+      retryKind: "recovery",
+      recovery: freshRun!.recovery,
+      nextRetryAt: "2026-03-08T00:07:45.000Z",
+      updatedAt: "2026-03-08T00:07:30.000Z",
+    });
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: true,
+        failureRetryCount: 0,
+        state: "retry_queued",
+        currentRunId: laterRun!.runId,
+        retryEntry: {
+          attempt: laterRun!.attempt,
+          dueAt: "2026-03-08T00:07:45.000Z",
+          error: "incomplete dirty turn",
+        },
+        updatedAt: "2026-03-08T00:07:30.000Z",
+      },
+    ]);
+    currentTime = new Date("2026-03-08T00:08:00.000Z");
+    const repeatService = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")),
+      spawnImpl: spawnImpl as never,
+      isProcessRunning: () => false,
+      now: () => currentTime,
+    });
+    const repeatRecovery = await repeatService.runOnce();
+    expect(repeatRecovery.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(3);
+    expect(spawnImpl.mock.calls[2]?.[2]?.env?.SYMPHONY_ASSIGNED_BRANCH).toBe(
+      "symphony/tenant-1/acme-platform-1"
+    );
+    expect(
+      execSync(
+        `git -C ${shell(join(recoveryWorkspacePath, "repository"))} rev-parse --abbrev-ref HEAD`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("symphony/tenant-1/acme-platform-1");
+    await expect(
+      readFile(join(recoveryWorkspacePath, "repository", "foreign.txt"), "utf8")
+    ).rejects.toThrow();
+    expect(
+      await readFile(
+        join(repositoryDirectory, ".gh-symphony", "workpads", "2.md"),
+        "utf8"
+      )
+    ).toBe("# workpad for issue 2\n");
   });
 
   it("requeues a recovery retry when recovery context lookup fails", async () => {
