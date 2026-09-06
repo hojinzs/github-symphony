@@ -155,6 +155,27 @@ describe("buildCustomRuntimeChildEnvironment", () => {
 });
 
 describe("custom runtime reserved-auth provenance", () => {
+  it.each([
+    ["an empty declaration", []],
+    ["another tracker's declaration", ["CUSTOM_TRACKER_SECRET"]],
+  ])("blocks the seven fallback names with %s", (_label, declarations) => {
+    const names = [
+      "GH_ENTERPRISE_TOKEN",
+      "GH_TOKEN",
+      "GITHUB_GRAPHQL_TOKEN",
+      "GITHUB_TOKEN",
+      "GITHUB_TOKEN_BROKER_SECRET",
+      "LINEAR_API_KEY",
+      "LINEAR_AUTHORIZATION",
+    ];
+
+    for (const name of names) {
+      expect(
+        isCustomRuntimeReservedAuthEnvironmentName(name, {}, declarations)
+      ).toBe(true);
+    }
+  });
+
   it("distinguishes an adapter declaration from fallback stripping", () => {
     expect(isCustomRuntimeReservedAuthEnvironmentName("GITHUB_TOKEN", {})).toBe(
       true

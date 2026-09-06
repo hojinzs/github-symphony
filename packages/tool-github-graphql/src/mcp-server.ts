@@ -118,9 +118,6 @@ async function handleRequest(msg: {
         const result = await executeGitHubGraphQL(invocation, {
           token: process.env.GITHUB_GRAPHQL_TOKEN,
           apiUrl: process.env.GITHUB_GRAPHQL_API_URL,
-          tokenBrokerUrl: process.env.GITHUB_TOKEN_BROKER_URL,
-          tokenBrokerSecret: process.env.GITHUB_TOKEN_BROKER_SECRET,
-          tokenCachePath: process.env.GITHUB_TOKEN_CACHE_PATH,
         });
 
         sendResponse(id, {

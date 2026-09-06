@@ -12,7 +12,6 @@ const cancelMock = vi.fn();
 const getProcessIdentityMock = vi.fn();
 const getProcessCwdMock = vi.fn();
 const originalCwd = process.cwd();
-const originalInstancesDir = process.env.GH_SYMPHONY_INSTANCES_DIR;
 const ghAuthMocks = vi.hoisted(() => ({
   resolveGitHubAuth: vi.fn(),
 }));
@@ -69,10 +68,6 @@ beforeEach(() => {
   );
   getProcessCwdMock.mockReturnValue(process.cwd());
   ghAuthMocks.resolveGitHubAuth.mockReset();
-  process.env.GH_SYMPHONY_INSTANCES_DIR = join(
-    tmpdir(),
-    `cli-lifecycle-instances-${process.pid}-${Date.now()}`
-  );
   ghAuthMocks.resolveGitHubAuth.mockResolvedValue({
     source: "gh",
     token: "validated-token",
@@ -89,7 +84,6 @@ afterEach(() => {
   selectMock.mockReset();
   cancelMock.mockReset();
   ghAuthMocks.resolveGitHubAuth.mockReset();
-  process.env.GH_SYMPHONY_INSTANCES_DIR = originalInstancesDir;
   vi.restoreAllMocks();
   process.chdir(originalCwd);
   process.exitCode = undefined;

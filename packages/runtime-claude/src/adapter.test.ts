@@ -18,7 +18,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ClaudePrintRuntimeAdapter,
   createClaudePrintRuntimeAdapter,
-  resolveClaudeCredentials,
 } from "./adapter.js";
 import type { SpawnLike } from "./spawn.js";
 
@@ -513,41 +512,6 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.GIT_CONFIG_GLOBAL).toBeUndefined();
     expect(calls[0]?.XDG_CONFIG_HOME).toBeUndefined();
     expect(calls[0]?.TARGET_REPOSITORY_URL).toBeUndefined();
-  });
-
-  it("does not expose agent credential broker controls to the Claude child", async () => {
-    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
-    const { child, stdout, stderr } = createStubChild();
-    const spawnImpl: SpawnLike = (_command, _args, options) => {
-      calls.push(options.env as NodeJS.ProcessEnv | undefined);
-      queueMicrotask(() => {
-        stdout.end();
-        stderr.end();
-        child.emit("close", 0, null);
-      });
-      return child;
-    };
-    const adapter = new ClaudePrintRuntimeAdapter(
-      {
-        workingDirectory: "/workspace",
-        env: {
-          AGENT_CREDENTIAL_BROKER_URL: "https://broker.example/agent",
-          AGENT_CREDENTIAL_BROKER_SECRET: "agent-broker-secret",
-          AGENT_CREDENTIAL_CACHE_PATH: "/runtime/agent-credentials.json",
-        },
-      },
-      { spawnImpl }
-    );
-
-    await adapter.spawnTurn({
-      messages: [],
-      env: { ANTHROPIC_API_KEY: "resolved-provider-credential" },
-    });
-
-    expect(calls[0]?.ANTHROPIC_API_KEY).toBe("resolved-provider-credential");
-    expect(calls[0]?.AGENT_CREDENTIAL_BROKER_URL).toBeUndefined();
-    expect(calls[0]?.AGENT_CREDENTIAL_BROKER_SECRET).toBeUndefined();
-    expect(calls[0]?.AGENT_CREDENTIAL_CACHE_PATH).toBeUndefined();
   });
 
   it("prepares a private child home with Claude auth but without MCP OAuth", async () => {
@@ -1552,45 +1516,5 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
 
     expect(emitted).toEqual([]);
-  });
-});
-
-describe("resolveClaudeCredentials", () => {
-  it("extracts only the Anthropic runtime credential", () => {
-    expect(
-      resolveClaudeCredentials({
-        env: {
-          ANTHROPIC_API_KEY: "sk-anthropic",
-          OPENAI_API_KEY: "sk-openai",
-        },
-        expires_at: "2026-04-22T10:10:00.000Z",
-      })
-    ).toEqual({
-      ANTHROPIC_API_KEY: "sk-anthropic",
-    });
-  });
-
-  it("fails with a clear ANTHROPIC_API_KEY error when missing", () => {
-    expect(() =>
-      resolveClaudeCredentials({
-        env: {},
-      })
-    ).toThrowError("ANTHROPIC_API_KEY");
-  });
-
-  it("can extract a runtime-configured auth env key", () => {
-    expect(
-      resolveClaudeCredentials(
-        {
-          env: {
-            CUSTOM_ANTHROPIC_KEY: "custom-key",
-            ANTHROPIC_API_KEY: "default-key",
-          },
-        },
-        "CUSTOM_ANTHROPIC_KEY"
-      )
-    ).toEqual({
-      CUSTOM_ANTHROPIC_KEY: "custom-key",
-    });
   });
 });

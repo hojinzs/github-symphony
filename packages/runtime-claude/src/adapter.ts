@@ -6,8 +6,6 @@ import { join } from "node:path";
 import type {
   AgentSessionInvalidatedEvent,
   AgentRuntimeAdapter,
-  AgentRuntimeCredentialBrokerResponse,
-  AgentRuntimeEnv,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
   AgentEvent,
@@ -17,7 +15,6 @@ import {
   buildAgentChildEnvironmentAssignments,
   collectMcpSecretEnvironmentNames,
   CUSTOM_RUNTIME_RESERVED_AUTH_ENVIRONMENT_NAMES,
-  extractEnvForClaude,
   prepareAgentChildHome,
   stripCredentialEnvironmentForAgentChild,
   resolveAgentChildHome,
@@ -191,12 +188,6 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
     return () => {
       this.eventHandlers.delete(handler);
     };
-  }
-
-  resolveCredentials(
-    brokerResponse: AgentRuntimeCredentialBrokerResponse
-  ): AgentRuntimeEnv {
-    return extractEnvForClaude(brokerResponse.env, this.config.authEnvKey);
   }
 
   async shutdown(): Promise<void> {
@@ -626,13 +617,6 @@ export function createClaudePrintRuntimeAdapter(
   return new ClaudePrintRuntimeAdapter(config, dependencies);
 }
 
-export function resolveClaudeCredentials(
-  brokerResponse: AgentRuntimeCredentialBrokerResponse,
-  envKey?: string
-): AgentRuntimeEnv {
-  return extractEnvForClaude(brokerResponse.env, envKey);
-}
-
 const DEFAULT_INHERITED_ENV_KEYS = [
   "HOME",
   "LANG",
@@ -825,13 +809,8 @@ function buildClaudeMcpTokenEnvironment(options: {
       };
 
   return {
-    ...(source.GITHUB_TOKEN_BROKER_URL && source.GITHUB_TOKEN_BROKER_SECRET
-      ? {}
-      : { GITHUB_GRAPHQL_TOKEN: source.GITHUB_GRAPHQL_TOKEN }),
+    GITHUB_GRAPHQL_TOKEN: source.GITHUB_GRAPHQL_TOKEN,
     GITHUB_GRAPHQL_API_URL: source.GITHUB_GRAPHQL_API_URL,
-    GITHUB_TOKEN_BROKER_URL: source.GITHUB_TOKEN_BROKER_URL,
-    GITHUB_TOKEN_BROKER_SECRET: source.GITHUB_TOKEN_BROKER_SECRET,
-    GITHUB_TOKEN_CACHE_PATH: source.GITHUB_TOKEN_CACHE_PATH,
     GITHUB_PROJECT_ID: source.GITHUB_PROJECT_ID,
     LINEAR_API_KEY: source.LINEAR_API_KEY,
     LINEAR_AUTHORIZATION: source.LINEAR_AUTHORIZATION,

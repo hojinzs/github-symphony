@@ -380,9 +380,6 @@ gh-symphony project status --project-dir <path>              # Show project orch
 gh-symphony project start --project-dir <path>               # Start this project
 gh-symphony project start --project-dir <path> --once        # Run one orchestration tick
 gh-symphony project stop --project-dir <path>                # Stop this project
-gh-symphony cache status             # Inspect shared bare caches, sizes, locks, and worktrees
-gh-symphony cache prune --dry-run    # Preview 30-day cache eviction
-gh-symphony cache prune --max-age-days 30 # Remove old idle caches safely
 ```
 
 ### Projects
@@ -393,22 +390,20 @@ repository it targets. The folder owns `WORKFLOW.md` (which must declare
 `.agent/skills/`; the referenced repository itself stays unmodified. Issue
 workspaces are created under the project's `workspace.root`, relative to the
 project folder and defaulting to `<project-dir>/.runtime/workspaces`. They are
-populated as worktrees from a shared bare clone cache, and branches default to
-`symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the
-same repository without branch collisions.
-
-If cache storage is unavailable or lock acquisition times out, workspace population falls back to an isolated direct clone. Cache locks heartbeat during long clone/fetch operations. Cleanup is operator-driven: `cache prune` defaults to entries at least 30 days old and skips every locked cache, linked worktree, or cache whose worktree state cannot be verified.
+populated by the configured `after_create` hook; `setup` ships a default hook
+that clones the target and checks out the project-scoped issue branch. The
+orchestrator itself creates and removes directories without cloning repositories
+or maintaining Git worktrees.
 
 ```bash
 cd <projectDir> && gh-symphony project start   # Start the project in this folder
 gh-symphony project start --project-dir <dir>  # ...or name the folder explicitly
 gh-symphony project status                     # Status for the project in this folder
 gh-symphony project stop                       # Stop its daemon
-gh-symphony project list                       # List cached projects (with live instance metadata when available)
-gh-symphony instances --json                    # List active project instances
+gh-symphony project list                       # List cached projects
 ```
 
-The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--allow-duplicate`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. `--assigned-only` is input to the tracker adapter's `dispatchable` derivation; the scheduler consumes that normalized eligibility result rather than interpreting provider-specific assignment rules. A verified live instance for the same project in another runtime is rejected by default; use `--allow-duplicate` only for intentional isolation. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.provider.pickup_labels.include`, which GitHub and Linear apply as an any-match candidate pre-filter. `tracker.required_labels` is separate: every configured label must remain present for an issue to be routable, including between worker turns. Label comparison is case-insensitive and ignores surrounding whitespace, so `Agent`, `agent`, and `" AGENT "` are the same label. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
+The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. `--assigned-only` is input to the tracker adapter's `dispatchable` derivation; the scheduler consumes that normalized eligibility result rather than interpreting provider-specific assignment rules. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.provider.pickup_labels.include`, which GitHub and Linear apply as an any-match candidate pre-filter. `tracker.required_labels` is separate: every configured label must remain present for an issue to be routable, including between worker turns. Label comparison is case-insensitive and ignores surrounding whitespace, so `Agent`, `agent`, and `" AGENT "` are the same label. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
 
 ### Official Container Deployment
 
@@ -856,16 +851,21 @@ In CI, regular process env can override the project `.env` without changing `WOR
 
 All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatically receive the following variables in addition to the merged environment above:
 
-| Variable                       | Description                                      |
-| ------------------------------ | ------------------------------------------------ |
-| `SYMPHONY_PROJECT_ID`          | Orchestrator project ID                          |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY` | Workspace key for the issue                      |
-| `SYMPHONY_ISSUE_SUBJECT_ID`    | Issue subject ID (tracker-specific)              |
-| `SYMPHONY_ISSUE_IDENTIFIER`    | e.g. `acme/platform#42`                          |
-| `SYMPHONY_WORKSPACE_PATH`      | Absolute path to the issue workspace             |
-| `SYMPHONY_REPOSITORY_PATH`     | Absolute path to the cloned repository           |
-| `SYMPHONY_RUN_ID`              | Current run ID (absent in `after_create`)        |
-| `SYMPHONY_ISSUE_STATE`         | Current tracker state (absent in `after_create`) |
+| Variable                        | Description                                      |
+| ------------------------------- | ------------------------------------------------ |
+| `SYMPHONY_PROJECT_ID`           | Orchestrator project ID                          |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY`  | Workspace key for the issue                      |
+| `SYMPHONY_ISSUE_SUBJECT_ID`     | Issue subject ID (tracker-specific)              |
+| `SYMPHONY_ISSUE_IDENTIFIER`     | e.g. `acme/platform#42`                          |
+| `SYMPHONY_WORKSPACE_PATH`       | Absolute path to the issue workspace             |
+| `SYMPHONY_REPOSITORY_PATH`      | Absolute path to the cloned repository           |
+| `SYMPHONY_REPOSITORY_CLONE_URL` | Clone source for repository population hooks     |
+| `SYMPHONY_REPOSITORY_OWNER`     | Target repository owner                          |
+| `SYMPHONY_REPOSITORY_NAME`      | Target repository name                           |
+| `SYMPHONY_ASSIGNED_BRANCH`      | Issue branch (present for fresh `after_create`)  |
+| `SYMPHONY_BASE_BRANCH`          | Optional configured or pull-request base ref     |
+| `SYMPHONY_RUN_ID`               | Current run ID (absent in `after_create`)        |
+| `SYMPHONY_ISSUE_STATE`          | Current tracker state (absent in `after_create`) |
 
 #### Example: External Script File
 
@@ -896,7 +896,26 @@ echo "Setting up workspace at $SYMPHONY_WORKSPACE_PATH"
 echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 ```
 
-> Hooks always run with `cwd` set to the repository root. Script paths are relative to that root.
+> Hooks run with `cwd` set to the repository root after population. Because a
+> fresh checkout does not exist yet, relative `after_create` script paths are
+> resolved from the directory containing the loaded `WORKFLOW.md`.
+
+The trusted `after_create` hook also receives the daemon's host Git credential
+helper environment, including the token consumed by that helper, so its clone
+can authenticate to private repositories. Token-broker minting credentials are
+excluded, and the shipped hook removes the GitHub token before dependency
+installation and build. Coding-agent children still receive no host Git or
+tracker credentials. After population, Symphony requires the checkout to be on
+`SYMPHONY_ASSIGNED_BRANCH` before dispatch.
+
+Running `gh-symphony workflow init` again automatically replaces only the exact
+legacy generated no-op `hooks/after_create.sh`. Customized hook files remain
+untouched.
+
+Existing workspaces created as linked worktrees remain reusable, but their Git
+metadata still depends on the legacy bare cache. Keep that cache in place until
+those workspaces finish or remove the workspaces explicitly so the next
+dispatch recreates them as standalone clones.
 
 ## Headless orchestration
 
@@ -964,10 +983,12 @@ through host dynamic tools; Claude's generated MCP configuration contains only
 the worker-owned loopback endpoint and its per-run capability. The host-owned
 transport is described in
 [ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
-At dispatch, tracker adapters resolve host-only credentials from the tenant's
-project `.env` before the daemon environment. Workers use that daemon-resolved
-tracker identity for host tools and Git transport without restoring blanket
-environment inheritance.
+At dispatch, tracker adapters resolve host-only direct credentials from the
+tenant's project `.env` before the daemon environment. Workers use that
+daemon-resolved tracker identity for polling and host tools without restoring
+blanket environment inheritance. Host Git publication uses that direct
+credential and fails closed when it is unavailable; reserved GitHub broker
+variables are not a publication fallback.
 GitHub and Linear workers fail startup before launching an agent when this
 effective environment has no provider credential. Candidate dispatch is also
 skipped when the orchestrator can determine the credential is missing, and

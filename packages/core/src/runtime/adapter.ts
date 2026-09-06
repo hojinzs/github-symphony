@@ -1,12 +1,5 @@
 import type { AgentEventName } from "./events.js";
 
-export type AgentRuntimeEnv = Record<string, string>;
-
-export type AgentRuntimeCredentialBrokerResponse = {
-  env: AgentRuntimeEnv;
-  expires_at?: string;
-};
-
 // Loose runtime event shape used by adapters before narrowing to AgentEvent.
 export type AgentRuntimeEvent = {
   name: AgentEventName;
@@ -33,8 +26,6 @@ export interface AgentRuntimeAdapter<
   TurnInput = unknown,
   TurnResult = unknown,
   RuntimeEvent extends AgentRuntimeEvent = AgentRuntimeEvent,
-  BrokerResponse extends AgentRuntimeCredentialBrokerResponse = AgentRuntimeCredentialBrokerResponse,
-  ResolvedCredentials extends AgentRuntimeEnv = AgentRuntimeEnv,
 > {
   /**
    * Perform pre-spawn setup for the run, such as MCP composition, credential
@@ -57,12 +48,6 @@ export interface AgentRuntimeAdapter<
   onEvent(
     handler: AgentRuntimeEventHandler<RuntimeEvent>
   ): AgentRuntimeEventSubscription;
-
-  /**
-   * Extract runtime-specific environment variables from a credential broker
-   * response without coupling the worker to a specific provider.
-   */
-  resolveCredentials(brokerResponse: BrokerResponse): ResolvedCredentials;
 
   /**
    * Release runtime resources once the spawn loop is complete.

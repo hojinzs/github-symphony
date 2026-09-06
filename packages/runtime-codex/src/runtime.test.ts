@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("createGitHubGraphQLToolDefinition", () => {
-  it("builds a runtime tool definition for brokered GitHub GraphQL access", () => {
+  it("does not wire broker credentials into the GitHub GraphQL tool", () => {
     const tool = createGitHubGraphQLToolDefinition({
       githubTokenBrokerUrl:
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
@@ -66,10 +66,6 @@ describe("createGitHubGraphQLToolDefinition", () => {
     expect(tool.args[0]).toContain("mcp-server.js");
     expect(tool.env).toEqual({
       GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
-      GITHUB_TOKEN_BROKER_URL:
-        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-      GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
-      GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-token.json",
       GITHUB_PROJECT_ID: "project-123",
     });
   });
@@ -587,17 +583,8 @@ describe("createGitCredentialHelperEnvironment", () => {
     const injected = Object.keys(
       createGitCredentialHelperEnvironment({
         githubToken: "host-token",
-        githubTokenBrokerUrl:
-          "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-        githubTokenBrokerSecret: "runtime-secret",
-        githubTokenCachePath: "/workspace-runtime/.github-token.json",
-        tokenBrokerTimeoutMs: 1_000,
       })
-    ).filter(
-      (name) =>
-        name !== "GIT_TERMINAL_PROMPT" &&
-        name !== "GITHUB_TOKEN_BROKER_TIMEOUT_MS"
-    );
+    ).filter((name) => name !== "GIT_TERMINAL_PROMPT");
 
     const covered = injected.filter(
       (name) =>
@@ -613,13 +600,9 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(covered).toEqual(injected);
   });
 
-  it("configures git to use a renewable credential helper", () => {
+  it("configures git to use the direct host credential helper", () => {
     const env = createGitCredentialHelperEnvironment({
-      githubTokenBrokerUrl:
-        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-      githubTokenBrokerSecret: "runtime-secret",
-      githubTokenCachePath: "/workspace-runtime/.github-token.json",
-      tokenBrokerTimeoutMs: 7_500,
+      githubToken: "host-token",
     });
 
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");
@@ -628,8 +611,11 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
     expect(env.GITHUB_GIT_HOST).toBe("github.com");
     expect(env.GITHUB_GIT_USERNAME).toBe("x-access-token");
-    expect(env.GITHUB_TOKEN_BROKER_URL).toContain("/runtime-credentials");
-    expect(env.GITHUB_TOKEN_BROKER_TIMEOUT_MS).toBe("7500");
+    expect(env.GITHUB_GRAPHQL_TOKEN).toBe("host-token");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_URL");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_SECRET");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_CACHE_PATH");
+    expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_TIMEOUT_MS");
   });
 
   it("preserves a configured Git host and username for the helper", () => {
@@ -642,37 +628,6 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(env.GITHUB_GIT_HOST).toBe("github.enterprise.example");
     expect(env.GITHUB_GIT_USERNAME).toBe("symphony-service");
   });
-
-  it("rejects non-https broker URLs before exposing them to git", () => {
-    expect(() =>
-      createGitCredentialHelperEnvironment({
-        githubTokenBrokerUrl: "http://broker.example/runtime-credentials",
-        githubTokenBrokerSecret: "runtime-secret",
-      })
-    ).toThrow(/must use https/);
-  });
-
-  it("rejects an invalid broker timeout before exposing it to git", () => {
-    expect(() =>
-      createGitCredentialHelperEnvironment({
-        githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
-        githubTokenBrokerSecret: "runtime-secret",
-        tokenBrokerTimeoutMs: 0,
-      })
-    ).toThrow(/GITHUB_TOKEN_BROKER_TIMEOUT_MS must be a positive integer/);
-  });
-
-  it.each(["", "  "])(
-    "omits an unset broker timeout %j from the helper environment",
-    (tokenBrokerTimeoutMs) => {
-      const env = createGitCredentialHelperEnvironment({
-        githubToken: "host-token",
-        tokenBrokerTimeoutMs,
-      });
-
-      expect(env).not.toHaveProperty("GITHUB_TOKEN_BROKER_TIMEOUT_MS");
-    }
-  );
 });
 
 describe("launchCodexAppServer", () => {
@@ -703,209 +658,28 @@ describe("launchCodexAppServer", () => {
 });
 
 describe("resolveAgentRuntimeEnvironment", () => {
-  it("resolves brokered agent environment before launch", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          env: {
-            OPENAI_API_KEY: "sk-brokered-agent",
-            ANTHROPIC_API_KEY: "sk-anthropic",
-          },
-          expires_at: "2026-04-22T10:10:00.000Z",
-        }),
-        { status: 200 }
-      )
-    );
-    const writeFileImpl = vi.fn().mockResolvedValue(undefined);
-
-    const env = await resolveAgentRuntimeEnvironment(
-      {
-        workingDirectory: "/tmp/workspace-123",
-        agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
-        agentCredentialBrokerSecret: "runtime-secret",
-        agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
+  it("keeps directly configured OpenAI environment values", async () => {
+    const env = await resolveAgentRuntimeEnvironment({
+      workingDirectory: "/tmp/workspace-123",
+      agentEnv: {
+        OPENAI_API_KEY: "sk-direct-agent",
+        OPENAI_BASE_URL: "https://openai.example.test/v1",
+        ANTHROPIC_API_KEY: "sk-anthropic",
       },
-      {
-        fetchImpl: fetchImpl as typeof fetch,
-        writeFileImpl,
-        now: new Date("2026-04-22T10:00:00.000Z"),
-      }
-    );
-
-    expect(env).toEqual({
-      OPENAI_API_KEY: "sk-brokered-agent",
     });
-    expect(writeFileImpl).toHaveBeenCalledWith(
-      "/workspace-runtime/.agent-runtime-auth.json",
-      JSON.stringify({
-        env: {
-          OPENAI_API_KEY: "sk-brokered-agent",
-          ANTHROPIC_API_KEY: "sk-anthropic",
-        },
-        expires_at: "2026-04-22T10:10:00.000Z",
-        cachedAt: "2026-04-22T10:00:00.000Z",
-      }),
-      "utf8"
-    );
-  });
-
-  it("reuses a cached broker response when expires_at is still fresh", async () => {
-    const fetchImpl = vi.fn();
-
-    const env = await resolveAgentRuntimeEnvironment(
-      {
-        workingDirectory: "/tmp/workspace-123",
-        agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
-        agentCredentialBrokerSecret: "runtime-secret",
-        agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
-      },
-      {
-        fetchImpl: fetchImpl as typeof fetch,
-        readFileImpl: vi.fn().mockResolvedValue(
-          JSON.stringify({
-            env: {
-              OPENAI_API_KEY: "sk-cached-agent",
-              OPENAI_BASE_URL: "https://openai.example.test/v1",
-            },
-            expires_at: "2026-04-22T10:10:00.000Z",
-            cachedAt: "2026-04-22T10:00:00.000Z",
-          })
-        ) as never,
-        now: new Date("2026-04-22T10:00:00.000Z"),
-      }
-    );
 
     expect(env).toEqual({
-      OPENAI_API_KEY: "sk-cached-agent",
+      OPENAI_API_KEY: "sk-direct-agent",
       OPENAI_BASE_URL: "https://openai.example.test/v1",
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("refreshes when the cached broker response is inside the reuse window", async () => {
-    const writeFileImpl = vi.fn().mockResolvedValue(undefined);
-
-    const env = await resolveAgentRuntimeEnvironment(
-      {
-        workingDirectory: "/tmp/workspace-123",
-        agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
-        agentCredentialBrokerSecret: "runtime-secret",
-        agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
-      },
-      {
-        fetchImpl: vi.fn().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              env: {
-                OPENAI_API_KEY: "sk-refreshed-agent",
-              },
-              expires_at: "2026-04-22T10:15:00.000Z",
-            }),
-            { status: 200 }
-          )
-        ) as never,
-        readFileImpl: vi.fn().mockResolvedValue(
-          JSON.stringify({
-            env: {
-              OPENAI_API_KEY: "sk-stale-agent",
-            },
-            expires_at: "2026-04-22T10:00:30.000Z",
-            cachedAt: "2026-04-22T09:50:00.000Z",
-          })
-        ) as never,
-        writeFileImpl,
-        now: new Date("2026-04-22T10:00:00.000Z"),
-      }
-    );
-
-    expect(env).toEqual({
-      OPENAI_API_KEY: "sk-refreshed-agent",
-    });
-    expect(writeFileImpl).toHaveBeenCalledOnce();
-  });
-
-  it("reuses a legacy cache entry without expires_at", async () => {
-    const fetchImpl = vi.fn();
-
-    const env = await resolveAgentRuntimeEnvironment(
-      {
-        workingDirectory: "/tmp/workspace-123",
-        agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
-        agentCredentialBrokerSecret: "runtime-secret",
-        agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
-      },
-      {
-        fetchImpl: fetchImpl as typeof fetch,
-        readFileImpl: vi.fn().mockResolvedValue(
-          JSON.stringify({
-            env: {
-              OPENAI_API_KEY: "sk-legacy-agent",
-            },
-          })
-        ) as never,
-        now: new Date("2026-04-22T11:00:00.000Z"),
-      }
-    );
-
-    expect(env).toEqual({
-      OPENAI_API_KEY: "sk-legacy-agent",
-    });
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it("fails when the broker returns an empty credential env", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          env: {},
-        }),
-        { status: 200 }
-      )
-    );
-
+  it("returns an empty environment when direct credentials are absent", async () => {
     await expect(
-      resolveAgentRuntimeEnvironment(
-        {
-          workingDirectory: "/tmp/workspace-123",
-          agentCredentialBrokerUrl:
-            "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
-          agentCredentialBrokerSecret: "runtime-secret",
-        },
-        {
-          fetchImpl: fetchImpl as typeof fetch,
-        }
-      )
-    ).rejects.toThrow(AgentRuntimeResolutionError);
-  });
-
-  it("fails cleanly when the broker cannot resolve the credential", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          error:
-            "A ready platform-default agent credential must be configured before this project can run.",
-        }),
-        { status: 503 }
-      )
-    );
-
-    await expect(
-      resolveAgentRuntimeEnvironment(
-        {
-          workingDirectory: "/tmp/workspace-123",
-          agentCredentialBrokerUrl:
-            "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
-          agentCredentialBrokerSecret: "runtime-secret",
-        },
-        {
-          fetchImpl: fetchImpl as typeof fetch,
-        }
-      )
-    ).rejects.toThrow(AgentRuntimeResolutionError);
+      resolveAgentRuntimeEnvironment({
+        workingDirectory: "/tmp/workspace-123",
+      })
+    ).resolves.toEqual({});
   });
 });
 
@@ -1104,32 +878,12 @@ describe("normalizeCodexRuntimeEvents", () => {
 });
 
 describe("prepareCodexRuntimePlan", () => {
-  it("assembles the runtime environment after resolving agent credentials", async () => {
-    const plan = await prepareCodexRuntimePlan(
-      {
-        projectId: "workspace-123",
-        workingDirectory: "/tmp/workspace-123",
-        githubTokenBrokerUrl:
-          "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
-        githubTokenBrokerSecret: "runtime-secret",
-        agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
-        agentCredentialBrokerSecret: "runtime-secret",
-      },
-      {
-        fetchImpl: vi.fn().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              env: {
-                OPENAI_API_KEY: "sk-plan-agent",
-              },
-              expires_at: "2026-04-22T10:10:00.000Z",
-            }),
-            { status: 200 }
-          )
-        ) as unknown as Promise<Response> as unknown as typeof fetch,
-      }
-    );
+  it("assembles the runtime environment from direct agent credentials", async () => {
+    const plan = await prepareCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      agentEnv: { OPENAI_API_KEY: "sk-plan-agent" },
+    });
 
     expect(plan.env.OPENAI_API_KEY).toBe("sk-plan-agent");
     expect(plan.env.CODEX_HOME).toBe(

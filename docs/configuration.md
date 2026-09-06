@@ -274,37 +274,28 @@ The cached `projectDir` is always absolute; persisted relative values are
 rejected instead of being resolved against the daemon working directory. Issue workspaces are
 created under the project's `workspace.root` (spec 9.1), resolved relative to
 the project folder and defaulting to `<project-dir>/.runtime/workspaces`; the
-directory is created with mode `0700` when it does not exist. Populated issue
-workspaces live at `<workspace.root>/<sanitized-issue-identifier>`. Each issue is
-populated from the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git`
-using a worktree. Branches default to
-`symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
-one repository without branch collisions. The project `.env` is loaded first
+directory is created with mode `0700` when it does not exist. Issue workspaces
+live at `<workspace.root>/<sanitized-issue-identifier>`. For a fresh workspace,
+the orchestrator creates its `repository` directory and invokes `after_create`;
+the generated default hook clones the configured target and checks out
+`symphony/<project-slug>/<sanitized-issue-id>` (or the configured branch
+template). Repository population and synchronization are hook policy, not
+orchestrator behavior. The project `.env` is loaded first
 for project hooks and workers, then host process values override it; keep it
 mode `0600` and do not commit it. Workflow reload caching compares a SHA-256
 digest of the effective environment so project and host secret values are not
-retained in plaintext cache metadata. An explicit `--config <dir>` is exported to
-`GH_SYMPHONY_CONFIG_DIR` for the process, so the bare cache and spawned workers
-use the same directory as the rest of the CLI state. The cache is keyed by
-`<owner>/<name>`; when a project's clone URL changes, the cache re-points
-`origin` and refetches on the next populate.
-Cache operations heartbeat their repository lock once per minute so a healthy
-large clone or fetch is not treated as stale. If the cache directory is
-unavailable or its lock times out, workspace creation uses an isolated direct
-clone. `gh-symphony cache status` inventories cache size and safety state;
-`gh-symphony cache prune` applies an operator-triggered 30-day default age
-policy and skips locked caches, linked worktrees, and unverifiable entries.
+retained in plaintext cache metadata. An explicit `--config <dir>` is exported
+to `GH_SYMPHONY_CONFIG_DIR` for the process so spawned workers use the same
+directory as the rest of the CLI state.
 
 Changing `workspace.root` emits a `workspace-root-relocated` event and a stderr
 warning naming the previous and new paths before replacing the workspace
 record; inspect the previous path for work to recover or delete.
 
-When a project targets a repository that also commits its own
-`WORKFLOW.md`, the status surface reports a shadow warning naming the
-repository. The repository file is never executed — only the project-folder
-policy is. The check reads the shared bare cache rather than the working
-directory, so it reflects the repository as of the cache's last fetch and
-catches up on the next issue populate.
+When a local project targets a repository that also commits its own
+`WORKFLOW.md`, the status surface reports a shadow warning naming the repository.
+For a remote-only target, the orchestrator does not clone merely to inspect a
+possibly shadowed workflow; only the explicit project-folder policy is loaded.
 
 ## Workflow Lifecycle Phases
 
@@ -390,7 +381,9 @@ attempt can clean up only what Symphony wrote, and the runtime skills
 directory is appended to the repository's `.git/info/exclude` so injected
 skills never show up as untracked changes.
 
-## Environment Loading Order
+<a id="environment-loading-order"></a>
+
+## Worker And Agent-Child Environment Boundary
 
 Worker and hook environments are merged in this order, with later values taking
 precedence:
@@ -401,36 +394,38 @@ precedence:
 | 2        | Orchestrator process environment | CLI, orchestrator, worker, runtime adapters       |
 | 3        | Symphony-injected context        | Worker identity, issue metadata, runtime settings |
 
-The coding-agent child does not inherit this merged worker environment. Its
-environment is constructed separately at the runtime boundary:
+The worker, workflow hooks, and coding-agent child are three distinct
+environment boundaries. The coding-agent child does not inherit the merged
+worker environment. Every built-in runtime and, by default, every custom runtime
+constructs its child environment separately, according to the following
+contract. The custom compatibility-mode exception is documented below.
 
 | Source                             | Agent-child result                                                                                                                                                                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Portable runtime variables         | Codex and Claude copy their runtime-safe process allowlist; default custom runtimes copy their portable allowlist. `LC_*` locale variables are also preserved.                                                                                                          |
+| Portable runtime variables         | Codex copies its runtime-safe process allowlist, including `LC_*` locale variables. Claude and default custom runtimes copy fixed portable allowlists that include `LANG` but not `LC_*`.                                                                               |
 | Symphony run context               | Only the non-secret names in the [agent-visible Symphony context](#agent-visible-symphony-context) are copied.                                                                                                                                                          |
 | Runtime-managed values             | `HOME`, `USERPROFILE`, and `GH_CONFIG_DIR` point into the private child home. Codex and Claude also receive a private `DOCKER_CONFIG`; runtime authentication is added only through the selected built-in provider contract or `runtime.auth.env` for a custom runtime. |
 | Credentials and host configuration | Tracker-declared secrets, broker controls, Git/SSH credential plumbing, operator `gh` configuration, and Docker registry configuration are always stripped or replaced with private runtime paths.                                                                      |
 
-A value placed in the project `.env` therefore reaches the worker host, and can
+A value placed in the project `.env` therefore reaches the worker host and can
 reach an approved hook only when the hook rules above allow it, but it does
-**not** automatically reach the coding-agent child. This is deliberate: the
-worker needs host-side configuration for orchestration, tracker tools, and Git
-transport, while the child is a separate least-privilege boundary. There is no
-declarative general-purpose channel for forwarding project `.env` entries to an
-agent child.
+**not** automatically reach the coding-agent child. The worker needs host-side
+configuration for orchestration, tracker tools, and Git transport, while the
+child is a separate least-privilege boundary. There is no declarative
+general-purpose channel for forwarding project `.env` entries to an agent
+child.
 
 Tracker credentials are the narrow exception to the general process-environment
 allowlist: at dispatch, the tracker adapter resolves a tenant-scoped credential
 from the project `.env` first and the daemon environment second, then injects it
 only into the worker host environment. The credential remains excluded from the
-coding-agent child. GitHub accepts either `GITHUB_GRAPHQL_TOKEN` or a complete
-`GITHUB_TOKEN_BROKER_URL`/`GITHUB_TOKEN_BROKER_SECRET` pair; incomplete pairs do
-not combine values across project and daemon scopes. Linear likewise treats
+coding-agent child. GitHub tracker polling and host-owned tools require
+`GITHUB_GRAPHQL_TOKEN`. Linear likewise treats
 each scope atomically: when either `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`
 is present in the project `.env`, only values from that project scope are
 forwarded and daemon values are not mixed into the credential set.
 The worker validates this effective credential set before runtime launch.
-GitHub requires `GITHUB_GRAPHQL_TOKEN` or a complete broker URL/secret pair;
+GitHub requires `GITHUB_GRAPHQL_TOKEN`;
 Linear requires `LINEAR_AUTHORIZATION` or `LINEAR_API_KEY`. `doctor` applies
 the GitHub adapter's same project-first selection and reports the managed
 project `.env` path when remediation is required.
@@ -449,16 +444,10 @@ record stores only a SHA-256 digest of that project environment snapshot, never
 its variable names or values. The digest excludes run-scoped worker metadata so
 operators can compare whether the project environment changed between runs.
 
-## Auth And API Endpoints
+### Auth And API Endpoints
 
 These variables are user-facing and are safe to set in local shells, CI, or
 container environments.
-
-Child-isolation statements in these tables apply to every runtime. By default,
-`runtime.kind: custom` receives a narrow portable process environment and only
-the authentication variable it declares; it never receives tracker or broker
-credentials. Its private `HOME` and `GH_CONFIG_DIR` are separate from the
-operator's credential stores.
 
 | Variable                 | Default                                                                                                          | Read by                                                                | Audience                                            | Notes                                                                                                                                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -469,23 +458,19 @@ operator's credential stores.
 | `LINEAR_AUTHORIZATION`   | unset                                                                                                            | Linear tracker, worker host tools                                      | Advanced                                            | Optional raw Linear authorization value for host-side Linear operations; it takes priority over `LINEAR_API_KEY` and is not inherited by agent children by default. |
 | `LINEAR_GRAPHQL_URL`     | `https://api.linear.app/graphql` when the Linear tool is enabled                                                 | Codex runtime, Claude runtime                                          | User-facing for Linear Enterprise/proxy setups      | Overrides the Linear GraphQL endpoint.                                                                                                                              |
 
-## Credential Brokers And Git Access
+### Git Access
 
-Use these when workers need short-lived credentials or when Git traffic must
-target a non-`github.com` host.
+The Git host and username settings support Git traffic targeting a
+non-`github.com` host. Retired GitHub broker names, including
+`GITHUB_TOKEN_BROKER_SECRET`, remain reserved only in the child-boundary
+denylist; they are not configuration inputs and host Git publication does not
+use them.
 
-| Variable                                                     | Default          | Read by                                 | Audience          | Notes                                                                                                                                                  |
-| ------------------------------------------------------------ | ---------------- | --------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GITHUB_TOKEN_BROKER_URL`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Broker endpoint for GitHub tokens. It is host-only and not inherited by agent children by default.                                                     |
-| `GITHUB_TOKEN_BROKER_SECRET`                                 | unset            | Worker host tools and Git transport     | User-facing/ops   | Shared secret sent to the GitHub token broker. Core always removes it from agent children as a backstop; its tracker-secret declaration is separate.   |
-| `GITHUB_TOKEN_BROKER_TIMEOUT_MS`                             | `5000`           | Git credential helper                   | User-facing/ops   | Maximum broker request duration in milliseconds. Increase this positive integer for brokers that legitimately need longer than five seconds.           |
-| `GITHUB_TOKEN_CACHE_PATH`                                    | unset            | Worker host tools and Git transport     | User-facing/ops   | Optional host-side file path for caching brokered GitHub tokens.                                                                                       |
-| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper                   | User-facing, GHES | Git host matched by the credential helper, for example `github.example`; retained at the host boundary.                                                |
-| `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper                   | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
-| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport               | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
-| `AGENT_CREDENTIAL_BROKER_URL`                                | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Broker endpoint for agent provider credentials such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.                                                        |
-| `AGENT_CREDENTIAL_BROKER_SECRET`                             | unset            | Codex runtime, Claude preflight/runtime | User-facing/ops   | Shared secret sent to the agent credential broker. Set with `AGENT_CREDENTIAL_BROKER_URL`.                                                             |
-| `AGENT_CREDENTIAL_CACHE_PATH`                                | unset            | Codex runtime                           | User-facing/ops   | Optional file path for caching brokered agent credentials.                                                                                             |
+| Variable                                                     | Default          | Read by                   | Audience          | Notes                                                                                                                                                  |
+| ------------------------------------------------------------ | ---------------- | ------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GITHUB_GIT_HOST`                                            | `github.com`     | Git credential helper     | User-facing, GHES | Git host matched by the direct-token credential helper, for example `github.example`; retained at the host boundary.                                   |
+| `GITHUB_GIT_USERNAME`                                        | `x-access-token` | Git credential helper     | User-facing       | Username emitted by the credential helper for HTTPS Git auth.                                                                                          |
+| `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n` | unset            | Worker host Git transport | Advanced          | Process-level Git configuration entries honored by host Git operations. `GIT_CONFIG_COUNT` must be a non-negative safe integer or the transport fails. |
 
 When host Git credentials are available, Symphony appends its
 `credential.helper` entry after the caller-supplied indexed Git configuration.
@@ -494,18 +479,20 @@ that returns complete credentials can shadow Symphony's tenant-scoped helper.
 Treat `GIT_CONFIG_*` values from the process or project `.env` as trusted host
 configuration.
 
-## Agent Runtime Credentials
+### Agent Runtime Authentication
 
-These variables are passed through to the selected agent runtime. The CLI also
-uses them during setup and doctor checks where applicable.
+These variables are inputs to the selected built-in runtime's authentication
+contract. The CLI also uses them during setup and doctor checks where
+applicable; provider credentials are not part of the general child environment
+allowlist.
 
 | Variable            | Default | Read by                                    | Audience             | Notes                                                                                                                                    |
 | ------------------- | ------- | ------------------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`    | unset   | Codex runtime                              | User-facing          | Direct Codex/OpenAI credential. A broker can provide this instead.                                                                       |
+| `OPENAI_API_KEY`    | unset   | Codex runtime                              | User-facing          | Direct Codex/OpenAI credential.                                                                                                          |
 | `OPENAI_BASE_URL`   | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI-compatible endpoint override passed to Codex.                                                                            |
 | `OPENAI_ORG_ID`     | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI organization value passed to Codex.                                                                                      |
 | `OPENAI_PROJECT`    | unset   | Codex runtime                              | User-facing/advanced | Optional OpenAI project value passed to Codex.                                                                                           |
-| `ANTHROPIC_API_KEY` | unset   | CLI setup/doctor, Claude preflight/runtime | User-facing          | Direct Claude credential. Required for bare Claude runtimes unless an agent credential broker supplies it.                               |
+| `ANTHROPIC_API_KEY` | unset   | CLI setup/doctor, Claude preflight/runtime | User-facing          | Direct Claude credential. Required for bare Claude runtimes.                                                                             |
 | `CODEX_HOME`        | unset   | Codex runtime launcher                     | User-facing/advanced | Host-side source for Codex `auth.json`. The child always receives a workspace-contained `CODEX_HOME`; host configuration is not exposed. |
 
 When a direct provider API key is absent, the non-bare Codex and Claude
@@ -522,14 +509,12 @@ that private directory. Symphony never copies the operator's Docker
 When the host has no CLI plugin directory, nothing is staged and Docker
 availability remains unchanged.
 
-### Custom Runtime Environment Contract
+### Custom Runtime Authentication And Compatibility
 
 Custom commands are untrusted children. By default they receive portable
 execution variables, a private workspace-contained `HOME` and `GH_CONFIG_DIR`,
-`GIT_TERMINAL_PROMPT=0`, the rendered prompt, and stdin. They receive no raw
-GitHub/Linear tracker token, GitHub token-broker URL/secret/cache, agent
-credential-broker controls, host Git credential-helper variables, or operator
-`gh auth` store.
+`GIT_TERMINAL_PROMPT=0`, the rendered prompt, and stdin. Unlike the built-in
+runtimes, they do not receive a runtime-managed `DOCKER_CONFIG`.
 
 Declare the one provider credential a custom command needs with `runtime.auth.env`:
 
@@ -555,25 +540,27 @@ and the dispatched worker.
 for commands that cannot yet operate under the explicit contract. It restores
 the non-credential worker environment, but still overrides `HOME` and
 `GH_CONFIG_DIR` and removes tracker credentials, broker/authentication controls,
-and host Git credential-helper settings. Starting with the #812 runtime context
-fix, compatibility inheritance no longer passes raw tracker or broker credentials
-through to the custom agent; commands that relied on those inherited values must
-declare a dedicated least-privilege provider credential with `runtime.auth.env`.
+and host Git credential-helper settings. Compatibility mode does not install a
+private `DOCKER_CONFIG`; an operator-provided value can therefore be inherited
+from the non-credential worker environment. Starting with the #812 runtime
+context fix, compatibility inheritance no longer passes raw tracker or broker
+credentials through to the custom agent; commands that relied on those inherited
+values must declare a dedicated least-privilege provider credential with
+`runtime.auth.env`.
 This is an intentional repository-local divergence from upstream Symphony
 §10.5, §15.3, and §17.5. Use compatibility inheritance only during migration
 and remove it as soon as the command's required inputs can be declared.
 It is valid only with `runtime.kind: custom`; other runtime kinds fail workflow
 validation rather than silently ignoring it.
 
-## CLI And Project Runtime
+### CLI And Project Runtime
 
 These variables affect the local `gh-symphony` process or project runtime
 layout.
 
 | Variable                               | Default                                                                                       | Read by                       | Audience           | Notes                                                                                                                                                                                                                                                                                   |
 | -------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GH_SYMPHONY_CONFIG_DIR`               | CLI default config directory; official container sets `/var/lib/gh-symphony`                  | CLI                           | User-facing/ops    | Overrides the global runtime config directory. `--config <dir>` takes precedence. It also selects the explicit global `instances/` registry namespace; `--config` alone never splits that index.                                                                                        |
-| `GH_SYMPHONY_INSTANCES_DIR`            | `${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances`                                         | CLI daemon + `instances`      | User-facing/ops    | Host-global instance registry namespace. Captured before a `--config` runtime override and inherited by daemon children.                                                                                                                                                                |
+| `GH_SYMPHONY_CONFIG_DIR`               | CLI default config directory; official container sets `/var/lib/gh-symphony`                  | CLI                           | User-facing/ops    | Overrides the global runtime config directory. `--config <dir>` takes precedence and selects project runtime state, including daemon PID records.                                                                                                                                       |
 | `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` | unset                                                                                         | CLI file tracker              | Internal/E2E       | Compatibility fallback for a file workflow without `tracker.provider.path`; provider paths may also use this variable or another environment reference. Not needed for GitHub or Linear trackers.                                                                                       |
 | `GH_SYMPHONY_HTTP_TOKEN`               | random per `project start` process                                                            | CLI HTTP servers              | User-facing/ops    | Shared bearer secret for all `/api/v1/*` routes. Set this for scripts, daemon clients, or a stable dashboard URL.                                                                                                                                                                       |
 | `SYMPHONY_EVENTS_DIR`                  | runtime-managed event storage                                                                 | Orchestrator package CLI      | User-facing/ops    | Optional override for where orchestrator events are written.                                                                                                                                                                                                                            |
@@ -584,7 +571,7 @@ layout.
 | `EDITOR` / `VISUAL`                    | `vi` fallback                                                                                 | CLI `config edit`             | User-facing        | Selects the editor for interactive config editing.                                                                                                                                                                                                                                      |
 | `PATH` / `PATHEXT`                     | inherited from shell                                                                          | CLI doctor, child processes   | User-facing/system | Used for prerequisite and command discovery.                                                                                                                                                                                                                                            |
 
-## Tuning Knobs
+### Tuning Knobs
 
 Prefer `WORKFLOW.md` runtime and agent settings for committed policy. These
 environment variables are useful for host-level overrides or are injected from
@@ -603,7 +590,7 @@ workflow config into the worker.
 | `SYMPHONY_TURN_SANDBOX_POLICY`       | unset                                            | Worker                              | Internal/injected | Optional per-turn sandbox policy. Configure through `WORKFLOW.md`; injected into workers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `SYMPHONY_AGENT_COMMAND`             | workflow runtime command                         | Codex runtime launcher              | Internal/injected | Shell command used by the runtime launcher. Configure through `WORKFLOW.md` instead of setting directly.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
-## Worker Context Variables
+### Worker Host Context
 
 The orchestrator injects these into worker processes. They are documented for
 debugging, custom worker wrappers, and hook authors; operators usually should
@@ -638,7 +625,9 @@ not set them manually.
 | `TARGET_REPOSITORY_NAME`          | target repo name                             | Worker                                            | Internal/injected | Repository name.                                                                                                                                                                                                                                                              |
 | `TARGET_REPOSITORY_URL`           | target repo URL                              | Worker                                            | Internal/injected | Browser URL for the repository.                                                                                                                                                                                                                                               |
 
-### Agent-visible Symphony context
+<a id="agent-visible-symphony-context"></a>
+
+### Agent-Visible Symphony Context
 
 Every Codex, Claude, and custom coding-agent child receives the same explicit,
 non-secret run context. The allowlist is defined by
@@ -661,7 +650,38 @@ variables are removed after environment composition, even if a runtime enables
 process-environment compatibility inheritance. Runtime authentication explicitly
 configured for the coding agent remains separate from this context allowlist.
 
-### GitHub tracker transition extension
+### Workflow Hook Context
+
+Workspace hooks receive the merged project/process environment plus these
+context variables:
+
+| Variable                        | Default                  | Read by | Audience          | Notes                                       |
+| ------------------------------- | ------------------------ | ------- | ----------------- | ------------------------------------------- |
+| `SYMPHONY_PROJECT_ID`           | active project ID        | Hooks   | Internal/injected | Orchestrator project ID.                    |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY`  | workspace key            | Hooks   | Internal/injected | Stable workspace key for the issue.         |
+| `SYMPHONY_ISSUE_SUBJECT_ID`     | tracker subject ID       | Hooks   | Internal/injected | Tracker-specific subject ID.                |
+| `SYMPHONY_ISSUE_IDENTIFIER`     | issue identifier         | Hooks   | Internal/injected | Example: `acme/platform#42`.                |
+| `SYMPHONY_WORKSPACE_PATH`       | issue workspace root     | Hooks   | Internal/injected | Absolute path to the issue workspace.       |
+| `SYMPHONY_REPOSITORY_PATH`      | repository checkout path | Hooks   | Internal/injected | Absolute path to the cloned repository.     |
+| `SYMPHONY_REPOSITORY_CLONE_URL` | target clone URL         | Hooks   | Internal/injected | Repository source used by population hooks. |
+| `SYMPHONY_REPOSITORY_OWNER`     | target owner             | Hooks   | Internal/injected | Repository owner.                           |
+| `SYMPHONY_REPOSITORY_NAME`      | target name              | Hooks   | Internal/injected | Repository name.                            |
+| `SYMPHONY_ASSIGNED_BRANCH`      | issue branch             | Hooks   | Internal/injected | Present for fresh `after_create`.           |
+| `SYMPHONY_BASE_BRANCH`          | checkout base            | Hooks   | Internal/injected | Optional configured or PR base ref.         |
+| `SYMPHONY_RUN_ID`               | current run ID           | Hooks   | Internal/injected | Absent for `after_create`.                  |
+| `SYMPHONY_ISSUE_STATE`          | tracker state            | Hooks   | Internal/injected | Absent for `after_create`.                  |
+
+An approved `after_create` hook additionally receives the host Git credential
+helper variables needed to clone private repositories, including the GitHub
+token consumed by that helper. Token-broker minting credentials are not
+exposed. This credential-bearing environment is supplied only to the trusted
+population hook; the shipped script removes the token before dependency
+installation and build, and these values remain excluded from `before_run`,
+`after_run`, `before_remove`, and coding-agent children.
+After the hook succeeds, the orchestrator rejects the workspace unless its
+current branch equals `SYMPHONY_ASSIGNED_BRANCH`.
+
+## GitHub Tracker Transition Extension
 
 GitHub Project state writes are a repository extension to upstream Symphony SPEC §11.5. Workers send issue-scoped intent to the internal orchestrator API; the orchestrator authorizes the current `SYMPHONY_RUN_ID`, uses its persisted canonical tracker item, serializes requests against the shared GraphQL budget, and confirms an exact-item readback.
 
@@ -669,7 +689,7 @@ For `transition-request`, the worker sends only `expected_state`, `target_state`
 
 This follows the upstream spec's agent-tool ownership of tracker comments. The GitHub extension is limited to orchestrator-authorized Project state changes and exact-item readback; lifecycle and comment-body policy remain in `WORKFLOW.md`, and Symphony core does not contain GitHub comment mutation semantics.
 
-### Workspace-key migration
+## Workspace-Key Migration
 
 New issue workspaces preserve readable sanitized identifiers and append a stable
 64-bit SHA-256 suffix whenever sanitization changes the identifier, for example
@@ -679,22 +699,6 @@ in place; Symphony does not rename directories. `gh-symphony project status`
 displays `workspace key: legacy` when a suffixless directory is being reused.
 
 The `In review` → `Land` move is a human-owned project-board transition that happens before the Land worker is dispatched. The worker must not synthesize a no-op `Land` → `Land` request or publish a duplicate comment for that external trigger; the orchestrator-owned publication guarantee applies to transitions requested through `/gh-project`.
-
-## Hook Variables
-
-Workspace hooks receive the merged project/process environment plus these
-context variables:
-
-| Variable                       | Default                  | Read by | Audience          | Notes                                   |
-| ------------------------------ | ------------------------ | ------- | ----------------- | --------------------------------------- |
-| `SYMPHONY_PROJECT_ID`          | active project ID        | Hooks   | Internal/injected | Orchestrator project ID.                |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY` | workspace key            | Hooks   | Internal/injected | Stable workspace key for the issue.     |
-| `SYMPHONY_ISSUE_SUBJECT_ID`    | tracker subject ID       | Hooks   | Internal/injected | Tracker-specific subject ID.            |
-| `SYMPHONY_ISSUE_IDENTIFIER`    | issue identifier         | Hooks   | Internal/injected | Example: `acme/platform#42`.            |
-| `SYMPHONY_WORKSPACE_PATH`      | issue workspace root     | Hooks   | Internal/injected | Absolute path to the issue workspace.   |
-| `SYMPHONY_REPOSITORY_PATH`     | repository checkout path | Hooks   | Internal/injected | Absolute path to the cloned repository. |
-| `SYMPHONY_RUN_ID`              | current run ID           | Hooks   | Internal/injected | Absent for `after_create`.              |
-| `SYMPHONY_ISSUE_STATE`         | tracker state            | Hooks   | Internal/injected | Absent for `after_create`.              |
 
 ## Recovery And Resume Context
 

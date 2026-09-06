@@ -16,7 +16,7 @@ describe("resolveTrackerCredentialPreflight", () => {
     ).toEqual({
       ok: false,
       reason:
-        "Worker GitHub credential preflight failed: GITHUB_GRAPHQL_TOKEN or both GITHUB_TOKEN_BROKER_URL and GITHUB_TOKEN_BROKER_SECRET are required. Add the credential to /managed/projects/acme/.env, or authenticate the daemon environment and restart it.",
+        "Worker GitHub credential preflight failed: GITHUB_GRAPHQL_TOKEN is required. Add the credential to /managed/projects/acme/.env, or authenticate the daemon environment and restart it.",
     });
   });
 
@@ -29,7 +29,7 @@ describe("resolveTrackerCredentialPreflight", () => {
     ).toEqual({ ok: true });
   });
 
-  it("requires a complete GitHub broker configuration", () => {
+  it("rejects GitHub broker configuration without a direct token", () => {
     expect(
       resolveTrackerCredentialPreflight({
         SYMPHONY_TRACKER_ADAPTER: "github-project",
@@ -43,7 +43,7 @@ describe("resolveTrackerCredentialPreflight", () => {
         GITHUB_TOKEN_BROKER_URL: "https://broker.example/token",
         GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
       })
-    ).toEqual({ ok: true });
+    ).toMatchObject({ ok: false });
   });
 
   it("accepts either supported Linear credential", () => {

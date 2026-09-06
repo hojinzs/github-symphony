@@ -51,25 +51,11 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     ];
   },
 
-  resolveWorkerCredentials(_project, environments) {
+  resolveWorkerCredentials(_project, environments): Record<string, string> {
     for (const environment of [environments.project, environments.daemon]) {
       const token = environment.GITHUB_GRAPHQL_TOKEN?.trim();
       if (token) {
         return { GITHUB_GRAPHQL_TOKEN: token };
-      }
-
-      const brokerUrl = environment.GITHUB_TOKEN_BROKER_URL?.trim();
-      const brokerSecret = environment.GITHUB_TOKEN_BROKER_SECRET?.trim();
-      if (brokerUrl && brokerSecret) {
-        const credentials: Record<string, string> = {
-          GITHUB_TOKEN_BROKER_URL: brokerUrl,
-          GITHUB_TOKEN_BROKER_SECRET: brokerSecret,
-        };
-        const cachePath = environment.GITHUB_TOKEN_CACHE_PATH?.trim();
-        if (cachePath) {
-          credentials.GITHUB_TOKEN_CACHE_PATH = cachePath;
-        }
-        return credentials;
       }
     }
     return {};
@@ -113,9 +99,6 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       {
         token: context.environment?.GITHUB_GRAPHQL_TOKEN,
         apiUrl: context.environment?.GITHUB_GRAPHQL_API_URL,
-        tokenBrokerUrl: context.environment?.GITHUB_TOKEN_BROKER_URL,
-        tokenBrokerSecret: context.environment?.GITHUB_TOKEN_BROKER_SECRET,
-        tokenCachePath: context.environment?.GITHUB_TOKEN_CACHE_PATH,
       },
       fetch,
       context

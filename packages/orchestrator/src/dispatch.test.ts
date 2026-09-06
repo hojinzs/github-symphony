@@ -1,8 +1,8 @@
 import { execSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OrchestratorService, sortCandidatesForDispatch } from "./service.js";
 import type {
   OrchestratorTrackerAdapter,
@@ -18,6 +18,18 @@ import {
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as trackerAdapters from "./tracker-adapters.js";
+
+const originalAllowWorkflowHooks = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+beforeEach(() => {
+  process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
+});
+afterEach(() => {
+  if (originalAllowWorkflowHooks === undefined) {
+    delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+  } else {
+    process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = originalAllowWorkflowHooks;
+  }
+});
 
 function makeIssue(
   overrides: Partial<TrackedIssue> & { identifier: string }
@@ -1803,9 +1815,19 @@ async function createRepositoryFixture(
   );
   execSync(`git -C ${shell(repositoryRoot)} config user.name tester`);
   await writeWorkflowFixture(repositoryRoot, options);
-  execSync(`git -C ${shell(repositoryRoot)} add WORKFLOW.md`, {
-    stdio: "ignore",
-  });
+  await mkdir(join(repositoryRoot, "hooks"), { recursive: true });
+  await writeFile(
+    join(repositoryRoot, "hooks", "after_create.sh"),
+    '#!/usr/bin/env bash\nset -euo pipefail\ngit clone "$SYMPHONY_REPOSITORY_CLONE_URL" "$SYMPHONY_REPOSITORY_PATH" >/dev/null 2>&1\ngit -C "$SYMPHONY_REPOSITORY_PATH" checkout -B "$SYMPHONY_ASSIGNED_BRANCH" "origin/${SYMPHONY_BASE_BRANCH:-HEAD}" >/dev/null 2>&1\n',
+    "utf8"
+  );
+  await chmod(join(repositoryRoot, "hooks", "after_create.sh"), 0o755);
+  execSync(
+    `git -C ${shell(repositoryRoot)} add WORKFLOW.md hooks/after_create.sh`,
+    {
+      stdio: "ignore",
+    }
+  );
   execSync(`git -C ${shell(repositoryRoot)} commit -m init`, {
     stdio: "ignore",
   });

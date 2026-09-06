@@ -7,8 +7,6 @@ import { finished } from "node:stream/promises";
 import { join } from "node:path";
 import type {
   AgentRuntimeAdapter,
-  AgentRuntimeCredentialBrokerResponse,
-  AgentRuntimeEnv,
   AgentRuntimeEvent,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
@@ -17,7 +15,6 @@ import type {
 } from "@gh-symphony/core";
 import {
   buildCustomRuntimeChildEnvironment,
-  extractEnvForClaude,
   prepareAgentChildHome,
   resolveAgentChildHome,
   stageGitUserIdentity,
@@ -180,15 +177,6 @@ export class CustomCommandWorkerRuntimeAdapter implements AgentRuntimeAdapter<
     _handler: AgentRuntimeEventHandler<AgentRuntimeEvent>
   ): AgentRuntimeEventSubscription {
     return () => {};
-  }
-
-  resolveCredentials(
-    brokerResponse: AgentRuntimeCredentialBrokerResponse
-  ): AgentRuntimeEnv {
-    if (!this.config.authEnvKey) {
-      return {};
-    }
-    return extractEnvForClaude(brokerResponse.env, this.config.authEnvKey);
   }
 
   shutdown(): void {
