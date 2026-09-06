@@ -430,9 +430,11 @@ Use a project folder as an orchestration instance decoupled from the repository 
 Create the folder with `gh-symphony workflow init` to scaffold
 `hooks/after_create.sh` with executable permissions. Hand-built folders may
 copy that generated script or symlink the configured path to an executable
-regular file. `project start` and the default `doctor` run validate every
-path-like hook command and report its resolved absolute path; invalid hook
-configuration stops the project before issue retry accounting begins.
+regular file. `project start` and the default `doctor` run validate project-root
+and absolute hook paths immediately, report their resolved absolute paths, and
+surface repository-relative run/remove hooks as deferred until an issue
+workspace exists. Invalid hook configuration stops the project before issue
+retry accounting begins.
 
 The trusted population hook receives host Git credential-helper configuration
 for private clones, and dispatch verifies that it leaves

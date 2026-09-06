@@ -40,7 +40,7 @@ export type WorkflowHookPathProblem = {
   hook: HookKind;
   command: string;
   path: string;
-  reason: "missing" | "not_file" | "not_executable";
+  reason: "missing" | "not_file" | "not_executable" | "not_a_path";
 };
 
 export type WorkflowHookPathValidation = {
@@ -106,7 +106,12 @@ export async function validateWorkflowHookPaths(
   for (const [hook, command] of configured) {
     if (!command) continue;
     if (!isWorkflowHookPathLike(command)) {
-      result.deferred += 1;
+      result.problems.push({
+        hook,
+        command,
+        path: command,
+        reason: "not_a_path",
+      });
       continue;
     }
 
@@ -142,8 +147,8 @@ export function formatWorkflowHookPathProblems(
 ): string {
   return problems
     .map(
-      ({ hook, path, reason }) =>
-        `${hook}=${path} (${reason.replace("_", " ")})`
+      ({ hook, command, path, reason }) =>
+        `${hook}=${reason === "not_a_path" ? JSON.stringify(command) : path} (${reason.replaceAll("_", " ")})`
     )
     .join(", ");
 }

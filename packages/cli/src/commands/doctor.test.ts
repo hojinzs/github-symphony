@@ -3301,7 +3301,7 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/missing.sh\n  before_run: echo ready\n---\nPrompt {{ issue.identifier }}\n",
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/missing.sh\n  before_run: hooks/before_run.sh\n---\nPrompt {{ issue.identifier }}\n",
       "utf8"
     );
 

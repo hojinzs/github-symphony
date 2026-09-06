@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildHookExecutionEnv,
   executeWorkspaceHook,
+  formatWorkflowHookPathProblems,
   MAX_HOOK_OUTPUT_BYTES,
   validateWorkflowHookPaths,
 } from "./hooks.js";
@@ -234,7 +235,7 @@ describe("validateWorkflowHookPaths", () => {
     );
 
     expect(result).toMatchObject({
-      deferred: 1,
+      deferred: 0,
       checked: [],
       problems: [
         {
@@ -247,8 +248,44 @@ describe("validateWorkflowHookPaths", () => {
           path: join(root, "hooks", "before-run.sh"),
           reason: "not_executable",
         },
+        {
+          hook: "after_run",
+          command: "echo ready",
+          path: "echo ready",
+          reason: "not_a_path",
+        },
       ],
     });
+  });
+
+  it("rejects shell syntax and arguments instead of deferring them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-invalid-command-"));
+    tempDirs.push(root);
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "hooks/setup.sh --verbose",
+        beforeRun: "hooks/setup.sh; echo injected",
+        afterRun: null,
+        beforeRemove: null,
+      },
+      { workflowDirectory: root }
+    );
+
+    expect(result.deferred).toBe(0);
+    expect(result.problems).toEqual([
+      expect.objectContaining({
+        hook: "after_create",
+        reason: "not_a_path",
+      }),
+      expect.objectContaining({
+        hook: "before_run",
+        reason: "not_a_path",
+      }),
+    ]);
+    expect(formatWorkflowHookPathProblems(result.problems)).toContain(
+      'after_create="hooks/setup.sh --verbose" (not a path)'
+    );
   });
 
   it("accepts a symlink to an executable regular file", async () => {
