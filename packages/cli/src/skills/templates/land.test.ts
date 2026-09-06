@@ -80,8 +80,8 @@ describe("merged-PR lifecycle guards", () => {
     );
   });
 
-  it("places installed land-skill merged precedence before pre-flight and failure classification", async () => {
-    const landSkill = await repositoryFile(".codex/skills/land/SKILL.md");
+  it("places generated land-skill merged precedence before pre-flight and failure classification", () => {
+    const landSkill = generateLandSkill(context);
 
     const guardIndex = landSkill.indexOf("## Merged-PR Precedence Guard");
     const preflightIndex = landSkill.indexOf("## Pre-flight Checks");
@@ -97,7 +97,16 @@ describe("merged-PR lifecycle guards", () => {
     expect(failure).toContain(
       "A deleted head branch is not rework after merge"
     );
-    expect(landSkill).toContain("Send only transition intent");
+    expect(failure).toContain(
+      "**Approval or other external wait-only failure**"
+    );
+    expect(failure).toContain("send `Land` → `In review` transition intent");
+    expect(failure).toContain("This is not a `⛔ Blocker` and is not rework");
+    expect(failure).toContain("**External or permission blocker**");
+    expect(failure).toContain("send `Land` → `Backlog` transition intent");
+    expect(failure).toContain(
+      "\n\nFor every classification, send only transition intent"
+    );
     expect(landSkill).toContain(
       "publish the prepared body through `github_graphql`"
     );
@@ -108,13 +117,18 @@ describe("merged-PR lifecycle guards", () => {
 
   it("gates Land rework on actionable threads created after approval", async () => {
     const workflow = await repositoryFile("WORKFLOW.md");
-    const landSkill = await repositoryFile(".codex/skills/land/SKILL.md");
+    const landSkill = generateLandSkill(context);
 
     expect(landSkill).toContain("comments(first: 1)");
     expect(landSkill).toContain("createdAt");
     expect(landSkill).toContain("approval's `submittedAt`");
     expect(landSkill).toContain(
       "created at or before that approval is absorbed by the approval"
+    );
+    expect(landSkill).toContain("reason `Land-return rework: <cause>`");
+    expect(landSkill).toContain("send `Land` → `Ready` transition intent");
+    expect(landSkill).toContain(
+      "Ready-return rework guard opens the next work cycle"
     );
     expect(workflow).toContain(
       "thread's first comment `createdAt` with the approval review's `submittedAt`"
