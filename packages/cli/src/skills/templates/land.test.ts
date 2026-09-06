@@ -90,7 +90,7 @@ describe("merged-PR lifecycle guards", () => {
     expect(generatedLandSkill).toContain(
       "regenerate the lockfile with the repository package manager"
     );
-    expect(generatedLandSkill).not.toContain("or `pnpm-lock.yaml`");
+    expect(generatedLandSkill).not.toContain("pnpm-lock.yaml");
   });
 
   it("places Ready merged precedence before rework classification and verifies candidate linkage", async () => {
