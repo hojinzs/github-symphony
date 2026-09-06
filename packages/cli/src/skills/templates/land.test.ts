@@ -97,6 +97,12 @@ describe("merged-PR lifecycle guards", () => {
     expect(failure).toContain(
       "A deleted head branch is not rework after merge"
     );
+    expect(failure).toContain(
+      "**Approval or other external wait-only failure**"
+    );
+    expect(failure).toContain("This is not a `⛔ Blocker` and is not rework");
+    expect(failure).toContain("**External or permission blocker**");
+    expect(failure).toContain("send `Land` → `Backlog` transition intent");
     expect(landSkill).toContain("Send only transition intent");
     expect(landSkill).toContain(
       "publish the prepared body through `github_graphql`"
@@ -115,6 +121,11 @@ describe("merged-PR lifecycle guards", () => {
     expect(landSkill).toContain("approval's `submittedAt`");
     expect(landSkill).toContain(
       "created at or before that approval is absorbed by the approval"
+    );
+    expect(landSkill).toContain("reason `Land-return rework: <cause>`");
+    expect(landSkill).toContain("send `Land` → `Ready` transition intent");
+    expect(landSkill).toContain(
+      "Ready-return rework guard opens the next work cycle"
     );
     expect(workflow).toContain(
       "thread's first comment `createdAt` with the approval review's `submittedAt`"
