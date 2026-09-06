@@ -391,7 +391,8 @@ repository it targets. The folder owns `WORKFLOW.md` (which must declare
 workspaces are created under the project's `workspace.root`, relative to the
 project folder and defaulting to `<project-dir>/.runtime/workspaces`. They are
 populated by the configured `after_create` hook; `setup` ships a default hook
-that clones the target and checks out the project-scoped issue branch. The
+that fully clones the target and checks out the project-scoped issue branch so
+the host publication transport can fetch the branch from the workspace. The
 orchestrator itself creates and removes directories without cloning repositories
 or maintaining Git worktrees.
 
