@@ -56,6 +56,37 @@ describe("generateLandSkill", () => {
 });
 
 describe("merged-PR lifecycle guards", () => {
+  it("documents every Land lifecycle exit and in-cycle conflict recovery", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const lifecycle = section(
+      workflow,
+      "### Workpad Lifecycle",
+      "### Status Transition Log"
+    );
+    const installedLandSkill = await repositoryFile(
+      ".codex/skills/land/SKILL.md"
+    );
+    const generatedLandSkill = generateLandSkill(context);
+
+    expect(lifecycle).toContain("`Land` → `Land` (trivial-conflict recovery)");
+    expect(lifecycle).toContain("continue the current land cycle");
+    expect(lifecycle).toContain(
+      "`Land` → `In review` (external wait-only failure)"
+    );
+    expect(lifecycle).toContain("`Land` → `Ready` (Land-return rework)");
+    expect(lifecycle).toContain(
+      "`Land` → `Backlog` (external or permission blocker)"
+    );
+
+    for (const skill of [installedLandSkill, generatedLandSkill]) {
+      expect(skill).toContain("send `Land` → `In review` transition intent");
+      expect(skill).toContain("send `Land` → `Ready` transition intent");
+      expect(skill).toContain("send `Land` → `Backlog` transition intent");
+      expect(skill).toContain("**Trivial conflict**");
+      expect(skill).toContain("remaining in `Land`");
+    }
+  });
+
   it("places Ready merged precedence before rework classification and verifies candidate linkage", async () => {
     const workflow = await repositoryFile("WORKFLOW.md");
     const ready = section(
