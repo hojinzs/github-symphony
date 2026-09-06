@@ -27,11 +27,10 @@ PROJECT_ROOT=/tmp/standalone-projects
 FIXTURE=/tmp/standalone-issues.json
 
 mkdir -p "$HOME"
-mkdir -p "$PROJECT_ROOT/project-alpha/.agent/skills/alpha" "$PROJECT_ROOT/project-beta/.agent/skills/beta"
 write_project() {
   project_dir=$1
   label=$2
-  mkdir -p "$project_dir/hooks"
+  mkdir -p "$project_dir/hooks" "$project_dir/.agent/skills/$label"
   cp /e2e/seed/hooks/after_create.sh "$project_dir/hooks/after_create.sh"
   chmod +x "$project_dir/hooks/after_create.sh"
   cat > "$project_dir/WORKFLOW.md" <<EOF
