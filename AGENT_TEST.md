@@ -226,7 +226,9 @@ STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml up -d --build
 
 `./e2e/run-standalone-project-e2e.sh` starts two project folders concurrently
 against one repository and verifies that both dispatches complete with isolated
-project state and workspaces.
+project state and workspaces. [TC-23](e2e/scenarios/23-cross-runtime-root-project-lock.md)
+also attempts to start one of those live folders through a second runtime root
+and verifies that the folder-identity lock rejects the duplicate owner.
 
 ## How to Run E2E Tests
 
