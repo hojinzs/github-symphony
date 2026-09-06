@@ -207,10 +207,12 @@ tracker credentials to the coding-agent process.
 
 The orchestrator retains tracker and Git publication credentials at the worker
 host boundary, enabling polling and host-side tools while the agent child
-remains credential-free. `gh-symphony doctor` validates the operator-facing
-host authentication and tracker/project resolution. Without usable host
-credentials, startup fails before the agent launches; known-empty dispatches
-are skipped and surfaced in status snapshot warnings.
+remains credential-free. Project `.env` credentials take precedence over the
+daemon's resolved credential. The required direct token must also permit
+repository pushes. `gh-symphony doctor` validates the operator-facing host
+authentication and tracker/project resolution. Without usable host credentials,
+startup fails before the agent launches; known-empty dispatches are skipped and
+surfaced in status snapshot warnings.
 
 Custom commands are isolated by default: they receive portable process values,
 a private `HOME`/`GH_CONFIG_DIR`, the rendered prompt, and only the dedicated
