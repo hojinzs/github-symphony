@@ -170,6 +170,28 @@ describe("merged-PR lifecycle guards", () => {
     );
   });
 
+  it("treats an actionable steward issue comment as Ready-return rework", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const ready = section(
+      workflow,
+      "##### Ready-return rework guard",
+      "##### Stalled-handoff safety net"
+    );
+
+    expect(ready).toContain(
+      "a recent issue comment from a non-`Bot` author that requests changes or reports findings"
+    );
+    expect(ready).toContain(
+      "issue comment triggers rework even when its author login matches the worker account"
+    );
+    expect(ready).toContain(
+      "without treating automated boilerplate or passing reports as actionable"
+    );
+    expect(workflow).toContain(
+      "comments(last:50){nodes{id body author{login __typename} createdAt}}"
+    );
+  });
+
   it("generates the same precedence guard in the published CLI land skill", () => {
     const generated = generateLandSkill(context);
 
