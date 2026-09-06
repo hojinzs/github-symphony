@@ -112,7 +112,11 @@ type WorkflowValidationReport = {
       stallTimeoutMs: number;
       turnTimeoutMs: number;
     };
-    runtimeTimeoutSource: "runtime.timeouts" | "codex/defaults";
+    runtimeTimeoutSources: {
+      readTimeoutMs: "runtime.timeouts" | "codex/defaults";
+      stallTimeoutMs: "runtime.timeouts" | "codex/defaults";
+      turnTimeoutMs: "runtime.timeouts" | "codex/defaults";
+    };
     hooks: {
       afterCreate: string | null;
       beforeRun: string | null;
@@ -889,9 +893,11 @@ function validateWorkflow(
         stallTimeoutMs: effectiveTimeouts.stallTimeoutMs,
         turnTimeoutMs: effectiveTimeouts.turnTimeoutMs,
       },
-      runtimeTimeoutSource: workflow.runtime
-        ? "runtime.timeouts"
-        : "codex/defaults",
+      runtimeTimeoutSources: workflow.runtime?.timeoutSources ?? {
+        readTimeoutMs: "codex/defaults",
+        stallTimeoutMs: "codex/defaults",
+        turnTimeoutMs: "codex/defaults",
+      },
       hooks: {
         afterCreate: workflow.hooks.afterCreate,
         beforeRun: workflow.hooks.beforeRun,
@@ -930,9 +936,9 @@ Runtime
   codex.approval_policy=${report.summary.codex.approvalPolicy ?? "unset"}
   codex.thread_sandbox=${report.summary.codex.threadSandbox ?? "unset"}
   codex.turn_sandbox_policy=${report.summary.codex.turnSandboxPolicy ?? "unset"}
-  runtime.timeouts.read_timeout_ms=${report.summary.runtimeTimeouts.readTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
-  runtime.timeouts.stall_timeout_ms=${report.summary.runtimeTimeouts.stallTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
-  runtime.timeouts.turn_timeout_ms=${report.summary.runtimeTimeouts.turnTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
+  runtime.timeouts.read_timeout_ms=${report.summary.runtimeTimeouts.readTimeoutMs} (source: ${report.summary.runtimeTimeoutSources.readTimeoutMs})
+  runtime.timeouts.stall_timeout_ms=${report.summary.runtimeTimeouts.stallTimeoutMs} (source: ${report.summary.runtimeTimeoutSources.stallTimeoutMs})
+  runtime.timeouts.turn_timeout_ms=${report.summary.runtimeTimeouts.turnTimeoutMs} (source: ${report.summary.runtimeTimeoutSources.turnTimeoutMs})
 
 Hooks
   after_create=${report.summary.hooks.afterCreate ?? "unset"}

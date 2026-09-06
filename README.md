@@ -797,7 +797,7 @@ gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.
 gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 ```
 
-`gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, and prints a compact runtime/lifecycle summary. Its `runtime.timeouts.*` values are the effective runtime settings: each explicit runtime timeout takes precedence over its legacy `codex.*_timeout_ms` counterpart, omitted runtime fields inherit legacy values, and documented defaults apply when neither is configured.
+`gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, and prints a compact runtime/lifecycle summary. Its `runtime.timeouts.*` values are the effective runtime settings: each explicit runtime timeout takes precedence over its legacy `codex.*_timeout_ms` counterpart, omitted runtime fields inherit legacy values, and documented defaults apply when neither is configured. The source printed beside each field reflects that field's precedence result, including mixed-source timeout blocks.
 
 `gh-symphony workflow preview --issue owner/repo#123` is the fastest validation step after `workflow init`: it resolves the active managed project (or `--project-id`) and renders the exact worker prompt from the live GitHub Project issue. Linear workflows can preview a single issue with `gh-symphony workflow preview ENG-123`, which routes through the configured Linear tracker adapter and `LINEAR_API_KEY`. Keep `--sample <path-to-json>` for fixture-based debugging, and use `--attempt <n>` to inspect retry prompts before changing policy files.
 

@@ -178,6 +178,10 @@ In JSON output, effective timeout values are exposed as
 `summary.runtimeTimeouts.{readTimeoutMs,stallTimeoutMs,turnTimeoutMs}`. These
 replace the former `summary.codex.*TimeoutMs` fields, which could report values
 that the runtime did not use; no compatibility aliases are emitted.
+Per-field origins are exposed as
+`summary.runtimeTimeoutSources.{readTimeoutMs,stallTimeoutMs,turnTimeoutMs}` so
+partial `runtime.timeouts` blocks identify which values came from
+`runtime.timeouts` and which came from `codex/defaults`.
 
 Lifecycle generation enables blocker checks for the first configured active
 state (`Todo` with built-in defaults) while leaving planning states disabled.

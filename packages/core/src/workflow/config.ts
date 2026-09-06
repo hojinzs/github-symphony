@@ -122,6 +122,16 @@ export type WorkflowRuntimeTimeoutsConfig = {
   stallTimeoutMs: number;
 };
 
+export type WorkflowRuntimeTimeoutSource =
+  | "runtime.timeouts"
+  | "codex/defaults";
+
+export type WorkflowRuntimeTimeoutSourcesConfig = {
+  turnTimeoutMs: WorkflowRuntimeTimeoutSource;
+  readTimeoutMs: WorkflowRuntimeTimeoutSource;
+  stallTimeoutMs: WorkflowRuntimeTimeoutSource;
+};
+
 export type WorkflowRuntimeConfig = {
   kind: WorkflowRuntimeKind;
   command: string;
@@ -129,6 +139,7 @@ export type WorkflowRuntimeConfig = {
   isolation: WorkflowRuntimeIsolationConfig;
   auth: WorkflowRuntimeAuthConfig;
   timeouts: WorkflowRuntimeTimeoutsConfig;
+  timeoutSources: WorkflowRuntimeTimeoutSourcesConfig;
 };
 
 export type WorkflowSourceFormat =

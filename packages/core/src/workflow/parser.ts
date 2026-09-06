@@ -1075,6 +1075,9 @@ function parseRuntimeConfig(
   const isolation = readObject(runtime, "isolation", "runtime.isolation");
   const auth = readObject(runtime, "auth", "runtime.auth");
   const timeouts = readObject(runtime, "timeouts", "runtime.timeouts");
+  const turnTimeoutMs = readOptionalIntegerLike(timeouts, "turn_timeout_ms");
+  const readTimeoutMs = readOptionalIntegerLike(timeouts, "read_timeout_ms");
+  const stallTimeoutMs = readOptionalIntegerLike(timeouts, "stall_timeout_ms");
   const configuredCommand = readOptionalString(runtime, "command");
   const command = configuredCommand ?? defaultRuntimeCommand(kind);
 
@@ -1141,15 +1144,17 @@ function parseRuntimeConfig(
       env: authEnv,
     },
     timeouts: {
+      turnTimeoutMs: turnTimeoutMs ?? codex.turnTimeoutMs,
+      readTimeoutMs: readTimeoutMs ?? codex.readTimeoutMs,
+      stallTimeoutMs: stallTimeoutMs ?? codex.stallTimeoutMs,
+    },
+    timeoutSources: {
       turnTimeoutMs:
-        readOptionalIntegerLike(timeouts, "turn_timeout_ms") ??
-        codex.turnTimeoutMs,
+        turnTimeoutMs === null ? "codex/defaults" : "runtime.timeouts",
       readTimeoutMs:
-        readOptionalIntegerLike(timeouts, "read_timeout_ms") ??
-        codex.readTimeoutMs,
+        readTimeoutMs === null ? "codex/defaults" : "runtime.timeouts",
       stallTimeoutMs:
-        readOptionalIntegerLike(timeouts, "stall_timeout_ms") ??
-        codex.stallTimeoutMs,
+        stallTimeoutMs === null ? "codex/defaults" : "runtime.timeouts",
     },
   };
 }

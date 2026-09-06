@@ -1467,6 +1467,11 @@ Prompt body.
         turnTimeoutMs: 120000,
         stallTimeoutMs: 60000,
       },
+      timeoutSources: {
+        readTimeoutMs: "runtime.timeouts",
+        turnTimeoutMs: "runtime.timeouts",
+        stallTimeoutMs: "runtime.timeouts",
+      },
     });
     expect(workflow.agentCommand).toBe("claude -p --verbose");
     expect(workflow.codex.command).toBe("codex app-server");
@@ -1535,6 +1540,11 @@ Prompt body.
       stallTimeoutMs: 88888,
       turnTimeoutMs: 999999,
     });
+    expect(workflow.runtime?.timeoutSources).toEqual({
+      readTimeoutMs: "codex/defaults",
+      stallTimeoutMs: "codex/defaults",
+      turnTimeoutMs: "codex/defaults",
+    });
   });
 
   it("prefers explicit runtime timeouts over legacy codex timeouts", () => {
@@ -1599,6 +1609,11 @@ Prompt body.
       readTimeoutMs: 7000,
       stallTimeoutMs: 88888,
       turnTimeoutMs: 999999,
+    });
+    expect(workflow.runtime?.timeoutSources).toEqual({
+      readTimeoutMs: "runtime.timeouts",
+      stallTimeoutMs: "codex/defaults",
+      turnTimeoutMs: "codex/defaults",
     });
   });
 
