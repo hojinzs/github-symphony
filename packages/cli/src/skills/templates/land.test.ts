@@ -150,12 +150,21 @@ describe("merged-PR lifecycle guards", () => {
     );
 
     expect(ready).toContain(
-      "a non-empty top-level `COMMENTED` review body submitted after the most recent transition to `In review`"
+      "a non-empty top-level `COMMENTED` review body from a non-`Bot` author submitted after the most recent transition to `In review`"
     );
-    expect(ready).toContain("regardless of author identity");
+    expect(ready).toContain("from a non-`Bot` author");
+    expect(ready).toContain(
+      "even when its author login matches the worker account"
+    );
     expect(ready).toContain("does not require an inline thread");
+    expect(ready).toContain(
+      "If no such status comment exists, no top-level review body qualifies"
+    );
+    expect(ready).toContain(
+      "Only `COMMENTED` review bodies qualify through this condition"
+    );
     expect(workflow).toContain(
-      "reviews(last:30){nodes{state body author{login} submittedAt"
+      "reviews(last:30){nodes{state body author{login __typename} submittedAt"
     );
   });
 
