@@ -3461,6 +3461,12 @@ describe("OrchestratorService", () => {
     expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "## Recovery Context — Incomplete Turn Dirty Workspace"
     );
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      `retained outside this run's active checkout at ${recoveryWorkspacePath}`
+    );
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "Leave the retained workspace untouched"
+    );
 
     // The dirty workspace remains visible in place and no quarantine is made.
     const workspaceParent = join(issueWorkspacePath, "..");
@@ -3499,6 +3505,29 @@ describe("OrchestratorService", () => {
     expect(eventsRaw).toContain(
       `"recoveryWorkspacePath":${JSON.stringify(recoveryWorkspacePath)}`
     );
+
+    // A later ordinary dispatch must keep using the persisted recovery path.
+    // Re-deriving the configured key path here would delete and repopulate the
+    // retained foreign workspace before the worker starts.
+    currentTime = new Date("2026-03-08T00:07:00.000Z");
+    await service.runOnce();
+    expect(
+      await readFile(
+        join(repositoryDirectory, ".gh-symphony", "workpads", "2.md"),
+        "utf8"
+      )
+    ).toBe("# workpad for issue 2\n");
+    expect(
+      execSync(
+        `git -C ${shell(repositoryDirectory)} rev-parse --abbrev-ref HEAD`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("fix/2-foreign");
+    const persistedWorkspace = await store.loadIssueWorkspace(
+      projectConfig.projectId,
+      workspaceKey
+    );
+    expect(persistedWorkspace?.workspacePath).toBe(recoveryWorkspacePath);
   });
 
   it("requeues a recovery retry when recovery context lookup fails", async () => {
