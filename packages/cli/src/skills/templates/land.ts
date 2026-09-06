@@ -84,7 +84,7 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
     "2. **Required CI pending or registering** — keep `Land` and wait inside the current turn. When checks complete, restart the merged guard and all pre-flight checks. A failed required check is a rework failure; a green result proceeds to merge."
   );
   lines.push(
-    "3. **Approval or other external wait-only failure** — no valid human `APPROVED` review on the current head, a dismissed approval, or a protection-rule block the worker cannot satisfy: prepare a status body naming the concrete gate that failed, the head SHA it was evaluated against, and what a human must do; send transition intent through the gh-project skill, then publish the body through `github_graphql` after confirmed readback. This is not a `⛔ Blocker` and is not rework."
+    "3. **Approval or other external wait-only failure** — no valid human `APPROVED` review on the current head, a dismissed approval, or a protection-rule block the worker cannot satisfy: prepare a status body naming the concrete gate that failed, the head SHA it was evaluated against, and what a human must do; send `Land` → `In review` transition intent through the gh-project skill, then publish the body through `github_graphql` after confirmed readback. This is not a `⛔ Blocker` and is not rework."
   );
   lines.push(
     "4. **Rework failure** — failed required CI, a source-file merge conflict, a missing required changeset, or an unresolved actionable review thread created after the latest qualifying human approval on the current head (compare its first comment's `createdAt` with the approval's `submittedAt`): prepare a status body with reason `Land-return rework: <cause>`, send `Land` → `Ready` transition intent through the gh-project skill, then publish the body through `github_graphql` after confirmed readback. An unresolved actionable thread created at or before that approval is absorbed by the approval and does not block Land. The Ready-return rework guard opens the next work cycle and routes the item to `In progress`."
@@ -92,8 +92,9 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push(
     "5. **External or permission blocker** — missing required context, authentication or board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what, why, and how to unblock; prepare a status body stating the unblock condition, send `Land` → `Backlog` transition intent through the gh-project skill, then publish the body through `github_graphql` after confirmed readback."
   );
+  lines.push("");
   lines.push(
-    "For every classification, Send only transition intent through the gh-project skill; after confirmed readback, publish the prepared body through `github_graphql`. Never include the prepared comment body in the tracker request."
+    "For every classification, send only transition intent through the gh-project skill; after confirmed readback, publish the prepared body through `github_graphql`. Never include the prepared comment body in the tracker request."
   );
   lines.push("");
   lines.push("## Guardrails");

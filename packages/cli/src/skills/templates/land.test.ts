@@ -100,10 +100,13 @@ describe("merged-PR lifecycle guards", () => {
     expect(failure).toContain(
       "**Approval or other external wait-only failure**"
     );
+    expect(failure).toContain("send `Land` → `In review` transition intent");
     expect(failure).toContain("This is not a `⛔ Blocker` and is not rework");
     expect(failure).toContain("**External or permission blocker**");
     expect(failure).toContain("send `Land` → `Backlog` transition intent");
-    expect(landSkill).toContain("Send only transition intent");
+    expect(failure).toContain(
+      "\n\nFor every classification, send only transition intent"
+    );
     expect(landSkill).toContain(
       "publish the prepared body through `github_graphql`"
     );
