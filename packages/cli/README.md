@@ -149,7 +149,7 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 ### Customizing Agent Behavior
 
-`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
+`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval as absorbed by that approval. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
@@ -205,16 +205,14 @@ login material into a private, workspace-contained child home. It does not
 expose the host `gh` configuration, Codex configuration, Claude MCP OAuth, or
 tracker credentials to the coding-agent process.
 
-The orchestrator retains a tenant-scoped direct tracker credential at the
-worker host boundary. Project `.env` credentials take precedence over the
-daemon's resolved credential, enabling GitHub polling and host-side tracker
-tools while the agent child remains credential-free. The Git publication
-broker branch remains in code for later removal, but the required direct token
-takes precedence and therefore must also permit repository pushes.
-`gh-symphony doctor` reports a required `Worker GitHub credential` check for
-the selected tenant using that same precedence. Without a usable GitHub or
-Linear worker credential, startup fails before the agent launches; known-empty
-dispatches are skipped and surfaced in status snapshot warnings.
+The orchestrator retains tracker and Git publication credentials at the worker
+host boundary, enabling polling and host-side tools while the agent child
+remains credential-free. Project `.env` credentials take precedence over the
+daemon's resolved credential. The required direct token must also permit
+repository pushes. `gh-symphony doctor` validates the operator-facing host
+authentication and tracker/project resolution. Without usable host credentials,
+startup fails before the agent launches; known-empty dispatches are skipped and
+surfaced in status snapshot warnings.
 
 Custom commands are isolated by default: they receive portable process values,
 a private `HOME`/`GH_CONFIG_DIR`, the rendered prompt, and only the dedicated
@@ -427,7 +425,7 @@ the status surface never expands it into environment names or values.
 
 ### Standalone Projects
 
-Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus its `hooks/after_create.sh`, optional `.mcp.json`, `.env`, and `.agent/skills/`. The orchestrator creates issue directories and invokes `after_create`; the shipped default hook clones the target and checks out the project-scoped issue branch. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
+Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus its `hooks/after_create.sh`, optional `.mcp.json`, `.env`, and `.agent/skills/`. The orchestrator creates issue directories and invokes `after_create`; the shipped default hook fully clones the target and checks out the project-scoped issue branch so the host publication transport can fetch the branch from the workspace. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
 
 The trusted population hook receives host Git credential-helper configuration
 for private clones, and dispatch verifies that it leaves
