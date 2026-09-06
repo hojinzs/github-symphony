@@ -138,7 +138,11 @@ codex:
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
       expected: [30000, 900000, 1800000],
-      expectedSource: "runtime.timeouts",
+      expectedSources: [
+        "runtime.timeouts",
+        "runtime.timeouts",
+        "runtime.timeouts",
+      ],
     },
     {
       name: "legacy codex timeout fallback",
@@ -147,10 +151,10 @@ codex:
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
       expected: [7000, 60000, 120000],
-      expectedSource: "codex/defaults",
+      expectedSources: ["codex/defaults", "codex/defaults", "codex/defaults"],
     },
     {
-      name: "runtime defaults over legacy codex timeouts",
+      name: "legacy codex timeout fallback with a runtime block",
       frontMatter: `runtime:
   kind: codex-app-server
   command: codex
@@ -159,18 +163,30 @@ codex:
   read_timeout_ms: 7000
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
-      expected: [5000, 300000, 3600000],
-      expectedSource: "runtime.timeouts",
+      expected: [7000, 60000, 120000],
+      expectedSources: ["codex/defaults", "codex/defaults", "codex/defaults"],
     },
     {
       name: "documented timeout defaults",
       frontMatter: "codex:\n  command: codex app-server",
       expected: [5000, 300000, 3600000],
-      expectedSource: "codex/defaults",
+      expectedSources: ["codex/defaults", "codex/defaults", "codex/defaults"],
+    },
+    {
+      name: "partial runtime timeout precedence",
+      frontMatter: `runtime:
+  kind: codex-app-server
+  timeouts:
+    read_timeout_ms: 30000
+codex:
+  stall_timeout_ms: 60000
+  turn_timeout_ms: 120000`,
+      expected: [30000, 60000, 120000],
+      expectedSources: ["runtime.timeouts", "codex/defaults", "codex/defaults"],
     },
   ])(
     "reports $name as effective runtime timeouts",
-    async ({ frontMatter, expected, expectedSource }) => {
+    async ({ frontMatter, expected, expectedSources }) => {
       const root = await mkdtemp(join(tmpdir(), "workflow-validate-timeouts-"));
       const workflowPath = join(root, "WORKFLOW.md");
       const stdout = captureWrites(process.stdout);
@@ -202,7 +218,15 @@ codex:
         `runtime.timeouts.turn_timeout_ms=${expected[2]}`
       );
       expect(stdout.output()).not.toContain("codex.read_timeout_ms=");
-      expect(stdout.output()).toContain(`(source: ${expectedSource})`);
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.read_timeout_ms=${expected[0]} (source: ${expectedSources[0]})`
+      );
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.stall_timeout_ms=${expected[1]} (source: ${expectedSources[1]})`
+      );
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.turn_timeout_ms=${expected[2]} (source: ${expectedSources[2]})`
+      );
 
       const jsonStdout = captureWrites(process.stdout);
       try {
@@ -219,7 +243,7 @@ codex:
       const report = JSON.parse(jsonStdout.output()) as {
         summary: {
           runtimeTimeouts: Record<string, number>;
-          runtimeTimeoutSource: string;
+          runtimeTimeoutSources: Record<string, string>;
         };
       };
       expect(report.summary.runtimeTimeouts).toEqual({
@@ -227,7 +251,11 @@ codex:
         stallTimeoutMs: expected[1],
         turnTimeoutMs: expected[2],
       });
-      expect(report.summary.runtimeTimeoutSource).toBe(expectedSource);
+      expect(report.summary.runtimeTimeoutSources).toEqual({
+        readTimeoutMs: expectedSources[0],
+        stallTimeoutMs: expectedSources[1],
+        turnTimeoutMs: expectedSources[2],
+      });
     }
   );
 

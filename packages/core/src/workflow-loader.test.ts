@@ -1467,6 +1467,11 @@ Prompt body.
         turnTimeoutMs: 120000,
         stallTimeoutMs: 60000,
       },
+      timeoutSources: {
+        readTimeoutMs: "runtime.timeouts",
+        turnTimeoutMs: "runtime.timeouts",
+        stallTimeoutMs: "runtime.timeouts",
+      },
     });
     expect(workflow.agentCommand).toBe("claude -p --verbose");
     expect(workflow.codex.command).toBe("codex app-server");
@@ -1512,6 +1517,104 @@ Prompt body.
     });
     expect(workflow.codex.command).toBe("codex app-server");
     expect(workflow.agentCommand).toBe("node worker.js --flag");
+  });
+
+  it("inherits legacy codex timeouts when runtime omits timeouts", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  command: codex
+  args: [app-server]
+codex:
+  read_timeout_ms: 7777
+  stall_timeout_ms: 88888
+  turn_timeout_ms: 999999
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 7777,
+      stallTimeoutMs: 88888,
+      turnTimeoutMs: 999999,
+    });
+    expect(workflow.runtime?.timeoutSources).toEqual({
+      readTimeoutMs: "codex/defaults",
+      stallTimeoutMs: "codex/defaults",
+      turnTimeoutMs: "codex/defaults",
+    });
+  });
+
+  it("prefers explicit runtime timeouts over legacy codex timeouts", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  timeouts:
+    read_timeout_ms: 7000
+    stall_timeout_ms: 80000
+    turn_timeout_ms: 900000
+codex:
+  read_timeout_ms: 7777
+  stall_timeout_ms: 88888
+  turn_timeout_ms: 999999
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 7000,
+      stallTimeoutMs: 80000,
+      turnTimeoutMs: 900000,
+    });
+  });
+
+  it("uses documented timeout defaults when neither location configures them", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 5000,
+      stallTimeoutMs: 300000,
+      turnTimeoutMs: 3600000,
+    });
+  });
+
+  it("merges partial runtime timeouts over legacy codex values per field", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  timeouts:
+    read_timeout_ms: 7000
+codex:
+  read_timeout_ms: 7777
+  stall_timeout_ms: 88888
+  turn_timeout_ms: 999999
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 7000,
+      stallTimeoutMs: 88888,
+      turnTimeoutMs: 999999,
+    });
+    expect(workflow.runtime?.timeoutSources).toEqual({
+      readTimeoutMs: "runtime.timeouts",
+      stallTimeoutMs: "codex/defaults",
+      turnTimeoutMs: "codex/defaults",
+    });
   });
 
   it("parses explicit custom runtime environment compatibility opt-in", () => {
