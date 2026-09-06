@@ -3331,7 +3331,9 @@ describe("doctor command handler", () => {
       report.checks.find((check) => check.id === "workflow_hooks")
     ).toMatchObject({
       status: "fail",
-      summary: expect.stringContaining("Invalid WORKFLOW.md hook path"),
+      summary: expect.stringContaining(
+        "Deferred 1 repository-relative workflow hook"
+      ),
       details: expect.objectContaining({
         pathsChecked: 0,
         deferred: 1,
@@ -3345,6 +3347,9 @@ describe("doctor command handler", () => {
         ],
       }),
     });
+    expect(
+      report.checks.find((check) => check.id === "workflow_hooks")?.details
+    ).toEqual(expect.objectContaining({ deferred: 1 }));
   });
 
   it("fails the default checks for a non-executable workflow hook path", async () => {

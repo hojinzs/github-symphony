@@ -370,6 +370,8 @@ tracker:
     project_id: project-1
 codex:
   command: $WORKFLOW_CODEX_COMMAND
+hooks:
+  before_run: hooks/before_run.sh
 ---
 Handle {{issue.identifier}}.\n`,
       "utf8"
@@ -381,8 +383,16 @@ Handle {{issue.identifier}}.\n`,
       startedAt: "2026-08-28T00:00:00.000Z",
     });
 
-    await startModule.default([], baseOptions(configDir));
+    const stderr = captureWrites(process.stderr);
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
 
+    expect(stderr.output()).toContain(
+      "Deferred 1 repository-relative workflow hook until an issue workspace is available"
+    );
     expect(run).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBeUndefined();
   });

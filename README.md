@@ -905,8 +905,13 @@ echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 `hooks/after_create.sh` beside the generated `WORKFLOW.md`. For a project folder
 assembled by hand, copy that script into the same relative location or use a
 symlink to an executable regular file. Both `project start` and the default
-`doctor` run reject absent, non-file, or non-executable hook paths and print the
-resolved absolute path before any issue dispatch can consume retry budget.
+`doctor` run reject absent, non-file, or non-executable `after_create` and
+absolute hook paths and print the resolved absolute path before issue dispatch.
+They explicitly report relative run/remove hooks as deferred because those
+paths resolve from the populated issue workspace; the orchestrator validates
+them during run reconciliation before a retry restarts. An initial
+workspace-relative hook execution can still be the first point at which an
+invalid path is observable and can consume one retry.
 
 The trusted `after_create` hook also receives the daemon's host Git credential
 helper environment, including the token consumed by that helper, so its clone

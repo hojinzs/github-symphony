@@ -148,6 +148,13 @@ export function formatWorkflowHookPathProblems(
     .join(", ");
 }
 
+export function formatDeferredWorkflowHookPaths(deferred: number): string {
+  return (
+    `Deferred ${deferred} repository-relative workflow hook${deferred === 1 ? "" : "s"} ` +
+    "until an issue workspace is available; these hooks resolve from that workspace and are validated during run reconciliation."
+  );
+}
+
 const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
 export const MAX_HOOK_OUTPUT_BYTES = 4 * 1024;
 

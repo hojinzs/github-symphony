@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  formatDeferredWorkflowHookPaths,
   normalizeLabels,
   formatWorkflowHookPathProblems,
   parseWorkflowMarkdown,
@@ -1294,13 +1295,17 @@ async function buildHookChecks(
     { workflowDirectory: repoRoot },
     deps
   );
+  const deferredSummary =
+    validation.deferred === 0
+      ? ""
+      : ` ${formatDeferredWorkflowHookPaths(validation.deferred)}`;
 
   if (validation.problems.length > 0) {
     return [
       failCheck(
         "workflow_hooks",
         "Workflow hook paths",
-        `Invalid WORKFLOW.md hook path${validation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(validation.problems)}.`,
+        `Invalid WORKFLOW.md hook path${validation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(validation.problems)}.${deferredSummary}`,
         "Create the referenced hook script(s), make them executable, or fix the hook path(s).",
         {
           configured: configured.length,
@@ -1317,11 +1322,6 @@ async function buildHookChecks(
     validation.checked.length === 0
       ? "No hook paths required filesystem validation."
       : `Resolved ${validation.checked.length} executable WORKFLOW.md hook path${validation.checked.length === 1 ? "" : "s"}.`;
-  const deferredSummary =
-    validation.deferred === 0
-      ? ""
-      : ` Deferred ${validation.deferred} repository-relative hook${validation.deferred === 1 ? "" : "s"} until a workspace is available.`;
-
   return [
     passCheck(
       "workflow_hooks",

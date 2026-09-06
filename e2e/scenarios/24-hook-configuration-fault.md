@@ -1,4 +1,4 @@
-# TC-23: Standalone hook configuration fault
+# TC-24: Standalone hook configuration fault
 
 ## Setup
 

@@ -2,4 +2,4 @@
 "@gh-symphony/cli": patch
 ---
 
-Validate configured workflow hook scripts before project dispatch and report invalid hook paths in the default doctor diagnostics for #929.
+Validate project-root and absolute workflow hook scripts before dispatch, surface workspace-relative hooks as deferred until reconciliation, and report invalid hook paths in the default doctor diagnostics for #929.

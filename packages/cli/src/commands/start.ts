@@ -36,6 +36,7 @@ import type {
   UnpublishedWorktree,
 } from "@gh-symphony/core";
 import {
+  formatDeferredWorkflowHookPaths,
   formatWorkflowHookPathProblems,
   parseWorkflowMarkdown,
   validateWorkflowHookPaths,
@@ -257,6 +258,11 @@ async function preflightWorkflowStart(
     if (hookValidation.problems.length > 0) {
       throw new Error(
         `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
+      );
+    }
+    if (hookValidation.deferred > 0) {
+      process.stderr.write(
+        `Workflow preflight warning: ${formatDeferredWorkflowHookPaths(hookValidation.deferred)}\n`
       );
     }
     return { ok: true, workflow };
