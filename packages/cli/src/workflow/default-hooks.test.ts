@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,11 +82,20 @@ describe("default after_create hook", () => {
         "refs/heads/symphony/project/acme-platform-901:README.md",
       ])
     ).toBe("populated\n");
-    expect(
-      git(["-C", repositoryPath, "config", "--get", "remote.origin.promisor"], {
-        allowFailure: true,
-      }).trim()
-    ).toBe("");
+    const promisorConfig = spawnSync(
+      "git",
+      [
+        "-C",
+        repositoryPath,
+        "config",
+        "--get-regexp",
+        "^remote\\.origin\\.(promisor|partialclonefilter)$",
+      ],
+      { encoding: "utf8" }
+    );
+    expect(promisorConfig.status).toBe(1);
+    expect(promisorConfig.stdout).toBe("");
+    expect(promisorConfig.stderr).toBe("");
   });
 });
 
