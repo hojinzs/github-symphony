@@ -15,7 +15,6 @@ import {
   TrackerRateLimitError,
   assertIssueOrchestrationTransition,
   assertIssueWorkspaceRootOutsideRepository,
-  attributeDirtyWorkToIssue,
   buildHookEnv,
   buildIssueIdentityHeader,
   buildPromptVariables,
@@ -23,6 +22,8 @@ import {
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
   deriveLegacyWorkspaceKey,
+  extractIssueNumberFromIdentifier,
+  extractIssueNumbersFromBranch,
   executeWorkspaceHook,
   resolveHookCommand,
   isStateTerminal,
@@ -77,7 +78,6 @@ import {
   inspectIssueWorkspaceDirtyStatus,
   loadWorkflowFile,
   loadRepositoryWorkflow,
-  quarantineIssueWorkspace,
   readGitCurrentBranch,
   renderIssueBranchName,
 } from "./git.js";
@@ -191,18 +191,6 @@ export function shouldRecordConfirmedTrackerProgress(
     result.state !== null &&
     !matchesWorkflowState(result.state, activeStates)
   );
-}
-
-export function resolveDirtyWorkAttributionBranches(
-  trackerAdapter: OrchestratorTrackerAdapter,
-  issue: TrackedIssue
-): string[] {
-  const branches = trackerAdapter.resolveAttributableBranches?.(issue);
-  if (branches) {
-    return branches;
-  }
-  const checkoutTarget = trackerAdapter.resolveBranchCheckoutTarget?.(issue);
-  return checkoutTarget ? [checkoutTarget.headRefName] : [];
 }
 
 /**
@@ -2253,6 +2241,10 @@ export class OrchestratorService {
       issueWorkspaces,
       warnings: [
         ...(await this.resolveWorkflowWarnings(tenant)),
+        ...(await this.resolveRetainedWorkspaceWarnings(
+          tenant,
+          issueWorkspaces
+        )),
         ...dispatchWarnings,
       ],
       workflowResolution,
@@ -2262,6 +2254,35 @@ export class OrchestratorService {
       projectId: tenant.projectId,
     } as ProjectStatusSnapshot & { projectId: string });
     return status;
+  }
+
+  private async resolveRetainedWorkspaceWarnings(
+    tenant: OrchestratorProjectConfig,
+    workspaceRecords: IssueWorkspaceRecord[]
+  ): Promise<string[]> {
+    const warnings: string[] = [];
+    for (const workspace of workspaceRecords) {
+      const configuredWorkspacePath = resolveIssueWorkspaceDirectory(
+        this.resolveIssueWorkspaceRoot(tenant),
+        workspace.workspaceKey
+      );
+      if (resolve(workspace.workspacePath) === configuredWorkspacePath) {
+        continue;
+      }
+      const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
+        issueWorkspacePath: configuredWorkspacePath,
+      });
+      if (!dirtyStatus?.dirty) {
+        continue;
+      }
+      const branch = await readGitCurrentBranch(
+        dirtyStatus.repositoryDirectory
+      );
+      warnings.push(
+        `Retained dirty workspace awaiting operator review: issue=${workspace.issueIdentifier} workspace=${configuredWorkspacePath} branch=${branch ?? "unknown"}`
+      );
+    }
+    return warnings;
   }
 
   private async performStartupCleanup(
@@ -2843,15 +2864,55 @@ export class OrchestratorService {
     );
     const workspaceKey =
       existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
-    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+    const configuredIssueWorkspacePath = resolveIssueWorkspaceDirectory(
       this.resolveIssueWorkspaceRoot(tenant),
       workspaceKey
     );
+    const recovery = options.recovery ?? null;
+    const recoveryWorkspacePath = resolveIssueWorkspaceDirectory(
+      this.resolveIssueWorkspaceRoot(tenant),
+      `${workspaceKey}-recovery`
+    );
+    const existingWorkspaceUsesStableRecoveryPath = Boolean(
+      existingWorkspaceRecord &&
+      resolve(existingWorkspaceRecord.workspacePath) === recoveryWorkspacePath
+    );
+    const retainedWorkspaceBranch =
+      existingWorkspaceRecord &&
+      (recovery?.kind === "incomplete-turn-dirty-workspace" ||
+        existingWorkspaceUsesStableRecoveryPath)
+        ? await readGitCurrentBranch(existingWorkspaceRecord.repositoryPath)
+        : null;
+    const issueNumber = extractIssueNumberFromIdentifier(issue.identifier);
+    const retainedWorkspaceHasForeignBranch = Boolean(
+      retainedWorkspaceBranch &&
+      extractIssueNumbersFromBranch(retainedWorkspaceBranch).some(
+        (branchIssueNumber) => branchIssueNumber !== issueNumber
+      )
+    );
+    // Once a foreign dirty workspace has forced the run onto the stable
+    // recovery path, that persisted path remains the issue's active workspace
+    // on later dispatches. Falling back to the configured key path would
+    // repopulate (and therefore delete) the retained dirty workspace.
+    const reuseStableRecoveryWorkspace =
+      existingWorkspaceUsesStableRecoveryPath;
+    const useFreshRecoveryWorkspace =
+      retainedWorkspaceHasForeignBranch && !reuseStableRecoveryWorkspace;
+    const repopulateStableRecoveryWorkspace =
+      retainedWorkspaceHasForeignBranch && reuseStableRecoveryWorkspace;
+    const issueWorkspacePath =
+      useFreshRecoveryWorkspace || reuseStableRecoveryWorkspace
+        ? recoveryWorkspacePath
+        : configuredIssueWorkspacePath;
     const existingWorkspaceAtConfiguredRoot = Boolean(
       existingWorkspaceRecord &&
       resolve(existingWorkspaceRecord.workspacePath) === issueWorkspacePath
     );
-    if (existingWorkspaceRecord && !existingWorkspaceAtConfiguredRoot) {
+    if (
+      existingWorkspaceRecord &&
+      !existingWorkspaceAtConfiguredRoot &&
+      !useFreshRecoveryWorkspace
+    ) {
       this.writeStderr(
         `[orchestrator] workspace root changed for ${issue.identifier}: previous=${existingWorkspaceRecord.workspacePath} configured=${issueWorkspacePath}`
       );
@@ -2868,54 +2929,27 @@ export class OrchestratorService {
     }
     const pullRequestBranch =
       trackerAdapter.resolveBranchCheckoutTarget?.(issue) ?? null;
-    const attributableBranches = resolveDirtyWorkAttributionBranches(
-      trackerAdapter,
-      issue
-    );
-
-    // #507: dirty recovery may only reuse the workspace when the dirty state
-    // is attributable to this run's issue. Otherwise quarantine the workspace
-    // (preserving the foreign work for operators) and start from a fresh clone.
-    let recovery = options.recovery ?? null;
-    let workspaceQuarantined = false;
     if (
       recovery?.kind === "incomplete-turn-dirty-workspace" &&
-      existingWorkspaceAtConfiguredRoot
+      existingWorkspaceRecord
     ) {
-      const currentBranch = await readGitCurrentBranch(
-        join(issueWorkspacePath, "repository")
+      this.writeStderr(
+        `[orchestrator] dirty workspace retained for ${issue.identifier}: workspace=${existingWorkspaceRecord.workspacePath} branch=${retainedWorkspaceBranch ?? "unknown"}; continuing recovery${useFreshRecoveryWorkspace ? ` from fresh workspace=${issueWorkspacePath}` : ""} without moving or deleting files`
       );
-      const attribution = attributeDirtyWorkToIssue({
+      await this.store.appendRunEvent(runId, {
+        at: now.toISOString(),
+        event: "recovery-dirty-workspace",
+        projectId: tenant.projectId,
+        issueId: issue.id,
         issueIdentifier: issue.identifier,
-        currentBranch,
-        dirtyFiles: recovery.dirtyFiles,
-        expectedBranches: attributableBranches,
+        workspaceKey,
+        workspacePath: existingWorkspaceRecord.workspacePath,
+        currentBranch: retainedWorkspaceBranch,
+        recoveryWorkspacePath: useFreshRecoveryWorkspace
+          ? issueWorkspacePath
+          : null,
+        dirtyFiles: formatRecoveryDirtyFiles(recovery.dirtyFiles),
       });
-      if (!attribution.attributed) {
-        const quarantinePath = await quarantineIssueWorkspace(
-          issueWorkspacePath,
-          now
-        );
-        workspaceQuarantined = true;
-        recovery = null;
-        this.writeStderr(
-          `[orchestrator] quarantined dirty workspace for ${issue.identifier}: ${attribution.reason}`
-        );
-        await this.store.appendRunEvent(runId, {
-          at: now.toISOString(),
-          event: "recovery-quarantined",
-          projectId: tenant.projectId,
-          issueId: issue.id,
-          issueIdentifier: issue.identifier,
-          workspaceKey,
-          reason: attribution.reason,
-          currentBranch,
-          quarantinePath,
-          dirtyFiles: formatRecoveryDirtyFiles(
-            options.recovery?.dirtyFiles ?? []
-          ),
-        });
-      }
     }
 
     const workflowForPopulate = await this.loadProjectWorkflow(
@@ -2944,11 +2978,11 @@ export class OrchestratorService {
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
-      existingWorkspace: !createdNow && !workspaceQuarantined,
+      existingWorkspace: !createdNow,
     });
 
     const shouldSaveWorkspaceRecord =
-      !existingWorkspaceAtConfiguredRoot || workspaceQuarantined || createdNow;
+      !existingWorkspaceAtConfiguredRoot || createdNow;
 
     const agentCommand = resolveWorkflowRuntimeCommand(
       workflowForPopulate.workflow
@@ -2965,7 +2999,10 @@ export class OrchestratorService {
         projectSlug: tenant.slug,
         issueIdentifier: issue.identifier,
       });
-      const needsPopulation = createdNow || !existingWorkspaceAtConfiguredRoot;
+      const needsPopulation =
+        createdNow ||
+        !existingWorkspaceAtConfiguredRoot ||
+        repopulateStableRecoveryWorkspace;
       populationWasFresh = needsPopulation;
       // Run after_create when this process created the directory or a prior
       // creator was interrupted before a workspace record could be saved.
@@ -3059,7 +3096,8 @@ export class OrchestratorService {
       issue,
       workflow.promptTemplate,
       promptVariables,
-      recovery
+      recovery,
+      issueWorkspacePath
     );
 
     // Run before_run hook before spawning the worker
@@ -4575,6 +4613,26 @@ export class OrchestratorService {
     );
   }
 
+  private async resolveRunIssueWorkspacePath(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord
+  ): Promise<string> {
+    const workspace = await this.loadWorkspaceForIssue(
+      tenant.projectId,
+      tenant.tracker.adapter,
+      run.issueSubjectId,
+      run.issueIdentifier
+    );
+    if (workspace) {
+      return resolve(workspace.workspacePath);
+    }
+    const workspaceKey = await this.resolveRunWorkspaceKey(tenant, run);
+    return resolveIssueWorkspaceDirectory(
+      this.resolveIssueWorkspaceRoot(tenant),
+      workspaceKey
+    );
+  }
+
   private async classifyIncompleteTurnDirtyWorkspace(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
@@ -4584,10 +4642,9 @@ export class OrchestratorService {
       return null;
     }
 
-    const workspaceKey = await this.resolveRunWorkspaceKey(tenant, run);
-    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-      this.resolveIssueWorkspaceRoot(tenant),
-      workspaceKey
+    const issueWorkspacePath = await this.resolveRunIssueWorkspacePath(
+      tenant,
+      run
     );
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
       issueWorkspacePath,
@@ -4628,11 +4685,10 @@ export class OrchestratorService {
       return null;
     }
 
-    const workspaceKey = await this.resolveRunWorkspaceKey(tenant, latestRun);
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
-      issueWorkspacePath: resolveIssueWorkspaceDirectory(
-        this.resolveIssueWorkspaceRoot(tenant),
-        workspaceKey
+      issueWorkspacePath: await this.resolveRunIssueWorkspacePath(
+        tenant,
+        latestRun
       ),
     });
 
@@ -4659,12 +4715,8 @@ export class OrchestratorService {
       return null;
     }
 
-    const workspaceKey = await this.resolveRunWorkspaceKey(tenant, run);
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
-      issueWorkspacePath: resolveIssueWorkspaceDirectory(
-        this.resolveIssueWorkspaceRoot(tenant),
-        workspaceKey
-      ),
+      issueWorkspacePath: await this.resolveRunIssueWorkspacePath(tenant, run),
     });
 
     if (!dirtyStatus?.dirty) {
@@ -6530,7 +6582,8 @@ function composeWorkerRunPrompt(
   issue: TrackedIssue,
   promptTemplate: string,
   promptVariables: ReturnType<typeof buildPromptVariables>,
-  recovery: IncompleteTurnRecoveryContext | null
+  recovery: IncompleteTurnRecoveryContext | null,
+  activeWorkspacePath?: string
 ): string {
   const identityHeader = buildIssueIdentityHeader({
     issueIdentifier: issue.identifier,
@@ -6544,6 +6597,11 @@ function composeWorkerRunPrompt(
   if (!recovery) {
     return [identityHeader, "", renderedPrompt].join("\n");
   }
+
+  const retainedWorkspaceIsOutsideActiveCheckout = Boolean(
+    activeWorkspacePath &&
+    resolve(activeWorkspacePath) !== dirname(recovery.workspacePath)
+  );
 
   return [
     identityHeader,
@@ -6562,8 +6620,12 @@ function composeWorkerRunPrompt(
     "Dirty files:",
     ...formatRecoveryDirtyFileLinesForPrompt(recovery.dirtyFiles),
     "",
-    `Inspect the dirty diff before editing. This dirty state was attributed to ${issue.identifier}; if any artifact turns out to belong to a different issue, stop and record a blocker instead of committing it. If the partial work is correct, validate it, commit it, and push it to this issue's branch only. If it is invalid, revert it explicitly and record a blocker/comment with the reason. Do not discard uncommitted work without making an intentional recovery decision.`,
-    `Suggested operator command: ${recovery.suggestedCommand}`,
+    retainedWorkspaceIsOutsideActiveCheckout
+      ? `The dirty workspace above is retained outside this run's active checkout (${activeWorkspacePath}). Leave the retained workspace untouched; use it only as operator-visible recovery evidence, and make changes for ${issue.identifier} in the active checkout.`
+      : `Inspect the dirty diff before editing. If any artifact belongs to a different issue, leave it untouched and stop to record a blocker instead of committing it. If the partial work is correct for ${issue.identifier}, validate it, commit it, and push it to this issue's branch only. If it is invalid, revert it explicitly and record a blocker/comment with the reason. Do not discard uncommitted work without making an intentional recovery decision.`,
+    retainedWorkspaceIsOutsideActiveCheckout
+      ? `Operator-only inspection command (do not run from this worker): ${recovery.suggestedCommand}`
+      : `Suggested operator command: ${recovery.suggestedCommand}`,
   ].join("\n");
 }
 

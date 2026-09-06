@@ -320,8 +320,6 @@ export type OrchestratorTrackerAdapter = {
   resolveBranchCheckoutTarget?(
     issue: TrackedIssue
   ): { headRefName: string } | null;
-  /** Return tracker-owned branch evidence for dirty-workspace attribution. */
-  resolveAttributableBranches?(issue: TrackedIssue): string[];
   /** Provider-specific structured event fields that are safe to expose. */
   buildStructuredEventMetadata?(
     project: OrchestratorProjectConfig,

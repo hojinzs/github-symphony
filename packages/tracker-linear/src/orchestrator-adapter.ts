@@ -402,11 +402,6 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     return typeof itemId === "string" ? itemId : null;
   },
 
-  resolveAttributableBranches(issue) {
-    const branchName = issue.branchName?.trim();
-    return branchName ? [branchName] : [];
-  },
-
   async requestState(project, input, dependencies = {}) {
     if (input.request.type === "transition-request") {
       return {

@@ -28,7 +28,7 @@ Start the runtime with `LINEAR_API_KEY` set and the `linear_graphql` worker tool
 3. Trigger reconciliation with `curl -X POST http://localhost:4680/api/v1/refresh`.
 4. Verify the worker, not orchestrator coordination code, moves the issue from `Todo` to `In Progress` using `linear_graphql`.
 5. Keep a healthy worker active for at least three turn boundaries; after each boundary, inspect the run's tracker-state event and verify it reports a confirmed active state with a boolean `routable` value rather than an unsupported or unknown response.
-6. Create a dirty worker workspace on the issue's Linear-provided `branchName`, then trigger recovery and verify the workspace is retained rather than quarantined as unattributed work.
+6. Create a dirty worker workspace, then trigger recovery and verify the workspace is retained and reported without attribution or quarantine.
 7. Let the worker complete and move the issue to `Human Review` or `Done` using `linear_graphql`.
 8. Inspect `/api/v1/state` and the run `events.ndjson`.
 9. Repeat with an active worker and move the issue directly from `Todo` or `In Progress` to `Cancelled` or `Duplicate`.
@@ -39,7 +39,7 @@ Start the runtime with `LINEAR_API_KEY` set and the `linear_graphql` worker tool
 
 - The golden path observes `Todo -> In Progress -> Human Review/Done`.
 - Each healthy per-turn state read is confirmed and routable, so no three-read fail-closed gate is reached.
-- A dirty workspace checked out on the issue `branchName` is attributed to the Linear issue and retained for recovery.
+- A dirty workspace checked out on the issue `branchName` is retained in place for recovery and remains visible to the worker.
 - State writes are performed by the worker through `linear_graphql`; the orchestrator only dispatches and reconciles.
 - `tracker.list` and `tracker.fetchByIds` structured events include `tracker.adapter="linear"`, `tracker.projectSlug`, `issue.identifier`, and `issue.id`.
 - Linear rate-limit headers appear in the project `rateLimits` snapshot with `source="linear"`.
