@@ -149,7 +149,7 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 ### Customizing Agent Behavior
 
-`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
+`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval as absorbed by that approval. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
