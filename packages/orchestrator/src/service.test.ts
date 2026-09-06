@@ -2946,6 +2946,10 @@ describe("OrchestratorService", () => {
     execSync(`git -C ${shell(repositoryDirectory)} switch -c fix/2-foreign`, {
       encoding: "utf8",
     });
+    execSync(
+      `git -C ${shell(repositoryDirectory)} config user.email tester@example.com`
+    );
+    execSync(`git -C ${shell(repositoryDirectory)} config user.name tester`);
     await writeFile(
       join(repositoryDirectory, "foreign-issue.txt"),
       "issue 2 committed work\n",
