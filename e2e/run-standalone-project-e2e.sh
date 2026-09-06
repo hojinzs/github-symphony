@@ -101,6 +101,23 @@ done
 test -f "$CONFIG_DIR/projects/$alpha_id/project.json"
 test -f "$CONFIG_DIR/projects/$beta_id/project.json"
 
+# A second runtime root must not start another orchestrator for the same
+# canonical project folder while the first owner is live.
+for _ in $(seq 1 20); do
+  test -f "$CONFIG_DIR/projects/$alpha_id/.lock" && break
+  sleep 1
+done
+test -f "$CONFIG_DIR/projects/$alpha_id/.lock"
+set +e
+(cd "$PROJECT_ROOT/project-alpha" && \
+  GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
+  node /app/packages/cli/dist/index.js --config /tmp/alternate-runtime project start \
+    > /tmp/duplicate-project.log 2>&1)
+duplicate_status=$?
+set -e
+test "$duplicate_status" -ne 0
+grep -q "is already running" /tmp/duplicate-project.log
+
 for _ in $(seq 1 60); do
   completed_logs=$(find "$CONFIG_DIR/projects" -path "*/runs/*/worker.log" -type f -exec grep -l "\\[stub-worker\\] status=completed" {} + 2>/dev/null | wc -l | tr -d " " || true)
   test "$completed_logs" = 2 && break

@@ -429,6 +429,12 @@ the status surface never expands it into environment names or values.
 
 Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus its `hooks/after_create.sh`, optional `.mcp.json`, `.env`, and `.agent/skills/`. The orchestrator creates issue directories and invokes `after_create`; the shipped default hook fully clones the target and checks out the project-scoped issue branch so the host publication transport can fetch the branch from the workspace. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
 
+Only one orchestrator may own a canonical project folder on a host, even when
+separate `--config` runtime roots are used. Startup retains the project lock in
+each runtime root and additionally acquires a host-local, folder-identity lock;
+both use lease heartbeats and process-owner identity validation so stale owners
+can be reclaimed safely.
+
 The trusted population hook receives host Git credential-helper configuration
 for private clones, and dispatch verifies that it leaves
 `SYMPHONY_ASSIGNED_BRANCH` checked out. Re-running `workflow init` migrates the
