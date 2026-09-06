@@ -21,8 +21,6 @@ import {
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
   requestGithubProjectItemState,
-  upsertGithubTransitionComment,
-  upsertGithubIssueComment,
 } from "./adapter.js";
 
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
@@ -289,24 +287,6 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     return { headRefName };
   },
 
-  findActiveLinkedPullRequest(issue, lifecycle) {
-    const activeStates = new Set(
-      lifecycle.activeStates.map((state) => state.trim().toLowerCase())
-    );
-    const pullRequest = githubNative(issue).linkedPullRequests?.find(
-      (candidate) =>
-        typeof candidate.projectState === "string" &&
-        activeStates.has(candidate.projectState.trim().toLowerCase())
-    );
-    return pullRequest?.projectState
-      ? {
-          id: pullRequest.id,
-          identifier: pullRequest.identifier,
-          projectState: pullRequest.projectState,
-        }
-      : null;
-  },
-
   resolveTerminalFact(issue) {
     const native = githubNative(issue);
     if (native.sourceState?.trim().toLowerCase() === "closed") {
@@ -337,26 +317,6 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       trackerConfig,
       input,
       dependencies.fetchImpl
-    );
-  },
-
-  async upsertTransitionComment(project, input, dependencies = {}) {
-    const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
-    return upsertGithubTransitionComment(
-      trackerConfig,
-      input,
-      dependencies.fetchImpl
-    );
-  },
-
-  async upsertIssueComment(project, issue, input, dependencies = {}) {
-    const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
-    return upsertGithubIssueComment(
-      trackerConfig,
-      issue,
-      input,
-      dependencies.fetchImpl,
-      dependencies.issueCommentCache
     );
   },
 };

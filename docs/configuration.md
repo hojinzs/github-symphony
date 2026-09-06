@@ -685,11 +685,9 @@ current branch equals `SYMPHONY_ASSIGNED_BRANCH`.
 
 GitHub Project state writes are a repository extension to upstream Symphony SPEC §11.5. Workers send issue-scoped intent to the internal orchestrator API; the orchestrator authorizes the current `SYMPHONY_RUN_ID`, uses its persisted canonical tracker item, serializes requests against the shared GraphQL budget, and confirms an exact-item readback.
 
-For `transition-request`, the worker may also send an agent-authored `comment_body`. After and only after the response is `ok: true`, `outcome: confirmed`, and the exact requested target state, the orchestrator asks the tracker adapter to idempotently publish that body. The adapter returns the finalized GraphQL budget for the comment operation so the same rate-limit accounting and adaptive polling path includes comment history reads, mutations, and retries. A comment-write failure is recorded in the structured run event log and run snapshot without changing the confirmed transition result; an exact existing body is treated as unchanged.
+For `transition-request`, the worker sends only `expected_state`, `target_state`, and `reason`. The API rejects the retired `comment_body` field so callers cannot receive a successful transition while silently losing a report. After and only after the response confirms the exact requested state, worker policy directs the agent to publish its prepared status body through its host-side GitHub tool.
 
-This intentionally differs from the upstream spec's typical agent-tool ownership of tracker writes. The extension is limited to GitHub tracker integration and quota coordination; lifecycle policy remains in `WORKFLOW.md`, and Symphony core does not contain GitHub-specific mutation semantics.
-
-The comment publication is an explicit §11.5 divergence and implements the upstream §18.2 recommended extension. The orchestrator owns transport, serialization, retry, and readback sequencing; `WORKFLOW.md` owns the comment body policy, while `packages/tracker-github` owns GitHub GraphQL mutation semantics.
+This follows the upstream spec's agent-tool ownership of tracker comments. The GitHub extension is limited to orchestrator-authorized Project state changes and exact-item readback; lifecycle and comment-body policy remain in `WORKFLOW.md`, and Symphony core does not contain GitHub comment mutation semantics.
 
 ## Workspace-Key Migration
 

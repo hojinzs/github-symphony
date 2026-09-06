@@ -358,7 +358,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/09-linear-sandbox.md`                    | Verify Linear sandbox lifecycle, confirmed per-turn state reads, dirty-workspace recovery, and reconciliation edge cases  |
 | `e2e/scenarios/10-http-auth-hardening.md`               | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                            |
 | `e2e/scenarios/10-orchestrator-tracker-state.md`        | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                |
-| `e2e/scenarios/12-transition-comment-race.md`           | Verify orchestrator-owned transition comments survive reconciliation races                                                |
+| `e2e/scenarios/12-transition-comment-race.md`           | Verify transition intent changes tracker state without orchestrator-authored comment metadata                             |
 | `e2e/scenarios/13-api-progress-convergence.md`          | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                          |
 | `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
 | `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                            |

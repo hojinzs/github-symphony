@@ -272,12 +272,6 @@ export type OrchestratorRunRecord = {
   runPhase?: RunAttemptPhase | null;
   /** Latest rate-limit payload observed from the worker runtime */
   rateLimits?: Record<string, unknown> | null;
-  /** Latest orchestrator-owned transition comment publication outcome. */
-  transitionComment?: {
-    status: "created" | "unchanged" | "failed";
-    updatedAt: string;
-    error: string | null;
-  } | null;
   /** Confirmed API lifecycle progress awaiting the worker's clean exit. */
   trackerProgressConfirmedAt?: string | null;
   /** Consecutive unknown canonical reads while finalizing a successful run. */
