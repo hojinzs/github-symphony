@@ -294,7 +294,7 @@ gh-symphony workflow init
 
 ### Customizing Agent Behavior
 
-The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
+The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval as absorbed by that approval. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
 
 The generated `/push` skill requests the run-scoped host publication action
 after a commit. The credential remains in the worker host, while the assigned

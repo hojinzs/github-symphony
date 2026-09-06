@@ -80,8 +80,8 @@ describe("merged-PR lifecycle guards", () => {
     );
   });
 
-  it("places installed land-skill merged precedence before pre-flight and failure classification", async () => {
-    const landSkill = await repositoryFile(".codex/skills/land/SKILL.md");
+  it("places generated land-skill merged precedence before pre-flight and failure classification", () => {
+    const landSkill = generateLandSkill(context);
 
     const guardIndex = landSkill.indexOf("## Merged-PR Precedence Guard");
     const preflightIndex = landSkill.indexOf("## Pre-flight Checks");
@@ -108,7 +108,7 @@ describe("merged-PR lifecycle guards", () => {
 
   it("gates Land rework on actionable threads created after approval", async () => {
     const workflow = await repositoryFile("WORKFLOW.md");
-    const landSkill = await repositoryFile(".codex/skills/land/SKILL.md");
+    const landSkill = generateLandSkill(context);
 
     expect(landSkill).toContain("comments(first: 1)");
     expect(landSkill).toContain("createdAt");

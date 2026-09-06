@@ -34,6 +34,9 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
     "   gh pr view --json reviews --jq '.reviews[] | select(.state == \"APPROVED\")'"
   );
   lines.push("   ```");
+  lines.push(
+    "   Save the latest qualifying human approval's `submittedAt`. Read review threads with `comments(first: 1) { nodes { createdAt } }`. An unresolved actionable thread created after the approval fails Land as rework; a thread created at or before that approval is absorbed by the approval and does not block Land."
+  );
   lines.push("2. **All CI checks are green**:");
   lines.push("   ```bash");
   lines.push("   gh pr checks");
@@ -71,6 +74,27 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push("   - Resolve the blocking issue (re-run pre-flight checks)");
   lines.push("   - Retry the merge");
   lines.push("5. Loop until merged or blocked by an unresolvable issue");
+  lines.push("");
+  lines.push("## Failure Handling");
+  lines.push("");
+  lines.push(
+    "1. **Merged-PR precedence is always first.** Re-read the linked PR's `state` before classifying a failure. If it is `MERGED`, discard the pending failure classification, record the merge commit SHA, transition `Land` → `Done` through the gh-project skill, and exit. A deleted head branch is not rework after merge."
+  );
+  lines.push(
+    "2. **Rework failure** — failed required CI, a source-file merge conflict, a missing required changeset, or an unresolved actionable review thread created after the latest qualifying human approval on the current head (compare its first comment's `createdAt` with the approval's `submittedAt`). An unresolved actionable thread created at or before that approval is absorbed by the approval and does not block Land."
+  );
+  lines.push(
+    "3. Send only transition intent through the gh-project skill; after confirmed readback, publish the prepared body through `github_graphql`."
+  );
+  lines.push("");
+  lines.push("## Guardrails");
+  lines.push("");
+  lines.push(
+    "- Run the Merged-PR Precedence Guard before pre-flight and before applying any failure classification"
+  );
+  lines.push(
+    "- Never treat a deleted head branch as rework after the linked PR has merged"
+  );
   lines.push("");
   lines.push("## Rules");
   lines.push("");
