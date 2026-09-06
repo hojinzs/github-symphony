@@ -79,6 +79,27 @@ cat > "$FIXTURE" <<EOF
 ]
 EOF
 
+# Seed project alpha with a persisted, clean checkout on another issue branch.
+# Dispatch must preserve this committed work and start the real worker
+# from the stable recovery workspace on the assigned branch for issue #101.
+alpha_id=$(node -e "const {createHash}=require(\"crypto\");const d=\"$PROJECT_ROOT/project-alpha\";console.log(\"project-alpha-\"+createHash(\"sha256\").update(d).digest(\"hex\").slice(0,8))")
+beta_id=$(node -e "const {createHash}=require(\"crypto\");const d=\"$PROJECT_ROOT/project-beta\";console.log(\"project-beta-\"+createHash(\"sha256\").update(d).digest(\"hex\").slice(0,8))")
+alpha_workspace_key=$(node --input-type=module -e "import { deriveIssueWorkspaceKey } from \"/app/packages/core/dist/index.js\"; console.log(deriveIssueWorkspaceKey({ adapter: \"file\", issueSubjectId: \"standalone-alpha\" }, \"test-owner/test-repo#101\"));")
+alpha_workspace="$PROJECT_ROOT/project-alpha/.runtime/workspaces/$alpha_workspace_key"
+alpha_original_repo="$alpha_workspace/repository"
+mkdir -p "$alpha_workspace" "$CONFIG_DIR/projects/$alpha_id/$alpha_workspace_key"
+git clone /e2e/repos/test-owner/test-repo "$alpha_original_repo" >/dev/null
+git -C "$alpha_original_repo" config user.email "e2e@test.local"
+git -C "$alpha_original_repo" config user.name "E2E Test"
+git -C "$alpha_original_repo" switch -c fix/2-foreign
+printf "foreign issue committed work\n" > "$alpha_original_repo/foreign-issue.txt"
+git -C "$alpha_original_repo" add foreign-issue.txt
+git -C "$alpha_original_repo" commit -m "fix: preserve foreign issue work" >/dev/null
+alpha_foreign_head=$(git -C "$alpha_original_repo" rev-parse HEAD)
+cat > "$CONFIG_DIR/projects/$alpha_id/$alpha_workspace_key/workspace.json" <<EOF
+{"workspaceKey":"$alpha_workspace_key","projectId":"$alpha_id","adapter":"file","issueSubjectId":"standalone-alpha","issueIdentifier":"test-owner/test-repo#101","workspacePath":"$alpha_workspace","repositoryPath":"$alpha_original_repo","status":"active","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","lastError":null}
+EOF
+
 # Both projects run at once against one repository, addressed only by their
 # folder: no registration step, no shared active-project state.
 run_pids=""
@@ -89,8 +110,6 @@ for project in project-alpha project-beta; do
       > "/tmp/$project.log" 2>&1) &
   run_pids="$run_pids $!"
 done
-alpha_id=$(node -e "const {createHash}=require(\"crypto\");const d=\"$PROJECT_ROOT/project-alpha\";console.log(\"project-alpha-\"+createHash(\"sha256\").update(d).digest(\"hex\").slice(0,8))")
-beta_id=$(node -e "const {createHash}=require(\"crypto\");const d=\"$PROJECT_ROOT/project-beta\";console.log(\"project-beta-\"+createHash(\"sha256\").update(d).digest(\"hex\").slice(0,8))")
 for _ in $(seq 1 40); do
   if test -f "$CONFIG_DIR/projects/$alpha_id/project.json" &&
      test -f "$CONFIG_DIR/projects/$beta_id/project.json"; then
@@ -141,7 +160,11 @@ for project in project-alpha project-beta; do
   # Standalone workspaces live under the workspace.root of the project folder,
   # not under the runtime state directory (spec 9.1).
   test -z "$(find "$CONFIG_DIR/projects/$project_id" -path "*/repository" -type d)"
-  repo=$(find "$PROJECT_ROOT/$project/.runtime/workspaces" -path "*/repository" -type d | head -1)
+  if [ "$label" = alpha ]; then
+    repo="$PROJECT_ROOT/project-alpha/.runtime/workspaces/$alpha_workspace_key-recovery/repository"
+  else
+    repo=$(find "$PROJECT_ROOT/$project/.runtime/workspaces" -path "*/repository" -type d | head -1)
+  fi
   test -d "$repo/.git"
   test -f "$repo/.codex/skills/$label/SKILL.md"
   test -z "$(git -C "$repo" status --porcelain)"
@@ -153,11 +176,18 @@ for project in project-alpha project-beta; do
   grep -q "\\[stub-worker\\] mcp_servers=$label" $logs
   grep -q "\\[stub-worker\\] status=completed" $logs
 done
-alpha_repo=$(find "$PROJECT_ROOT/project-alpha/.runtime/workspaces" -path "*/repository" -type d | head -1)
+alpha_repo="$PROJECT_ROOT/project-alpha/.runtime/workspaces/$alpha_workspace_key-recovery/repository"
 beta_repo=$(find "$PROJECT_ROOT/project-beta/.runtime/workspaces" -path "*/repository" -type d | head -1)
 alpha_branch=$(git -C "$alpha_repo" branch --show-current)
 beta_branch=$(git -C "$beta_repo" branch --show-current)
 test "$alpha_branch" != "$beta_branch"
+test "$(git -C "$alpha_original_repo" branch --show-current)" = "fix/2-foreign"
+test "$(git -C "$alpha_original_repo" rev-parse HEAD)" = "$alpha_foreign_head"
+test "$(cat "$alpha_original_repo/foreign-issue.txt")" = "foreign issue committed work"
+test -z "$(git -C "$alpha_original_repo" status --porcelain)"
+alpha_logs=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/runs/*/worker.log" -type f -print)
+test -n "$alpha_logs"
+! grep -q "Issue identity preflight failed" $alpha_logs
 for pid in $run_pids; do kill "$pid" 2>/dev/null || true; done
 echo "standalone-project Docker E2E passed"
 '
