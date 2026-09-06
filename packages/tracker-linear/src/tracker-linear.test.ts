@@ -236,7 +236,7 @@ describe("linearTrackerAdapter", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("exposes a Linear issue branch name for dirty-workspace attribution without a checkout target", () => {
+  it("preserves a Linear issue branch name without using it as a checkout target", () => {
     const issue = normalizeLinearIssue(
       makeProject(),
       "project-slug",
@@ -247,9 +247,6 @@ describe("linearTrackerAdapter", () => {
 
     expect(issue.branchName).toBe("eng-123-per-turn-state-read");
     expect(linearTrackerAdapter.resolveBranchCheckoutTarget).toBeUndefined();
-    expect(linearTrackerAdapter.resolveAttributableBranches?.(issue)).toEqual([
-      "eng-123-per-turn-state-read",
-    ]);
   });
 
   it("normalizes labels and timestamps and maps priority zero to null", () => {

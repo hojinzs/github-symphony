@@ -22,6 +22,8 @@ import {
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
   deriveLegacyWorkspaceKey,
+  extractIssueNumberFromIdentifier,
+  extractIssueNumbersFromBranch,
   executeWorkspaceHook,
   resolveHookCommand,
   isStateTerminal,
@@ -3063,15 +3065,47 @@ export class OrchestratorService {
     );
     const workspaceKey =
       existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
-    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+    const configuredIssueWorkspacePath = resolveIssueWorkspaceDirectory(
       this.resolveIssueWorkspaceRoot(tenant),
       workspaceKey
     );
+    const recovery = options.recovery ?? null;
+    const retainedWorkspaceBranch =
+      recovery?.kind === "incomplete-turn-dirty-workspace" &&
+      existingWorkspaceRecord
+        ? await readGitCurrentBranch(existingWorkspaceRecord.repositoryPath)
+        : null;
+    const issueNumber = extractIssueNumberFromIdentifier(issue.identifier);
+    const retainedWorkspaceHasForeignBranch = Boolean(
+      retainedWorkspaceBranch &&
+      extractIssueNumbersFromBranch(retainedWorkspaceBranch).some(
+        (branchIssueNumber) => branchIssueNumber !== issueNumber
+      )
+    );
+    const recoveryWorkspacePath = resolveIssueWorkspaceDirectory(
+      this.resolveIssueWorkspaceRoot(tenant),
+      `${workspaceKey}-recovery`
+    );
+    const reuseStableRecoveryWorkspace = Boolean(
+      recovery?.kind === "incomplete-turn-dirty-workspace" &&
+      existingWorkspaceRecord &&
+      resolve(existingWorkspaceRecord.workspacePath) === recoveryWorkspacePath
+    );
+    const useFreshRecoveryWorkspace =
+      retainedWorkspaceHasForeignBranch && !reuseStableRecoveryWorkspace;
+    const issueWorkspacePath =
+      useFreshRecoveryWorkspace || reuseStableRecoveryWorkspace
+        ? recoveryWorkspacePath
+        : configuredIssueWorkspacePath;
     const existingWorkspaceAtConfiguredRoot = Boolean(
       existingWorkspaceRecord &&
       resolve(existingWorkspaceRecord.workspacePath) === issueWorkspacePath
     );
-    if (existingWorkspaceRecord && !existingWorkspaceAtConfiguredRoot) {
+    if (
+      existingWorkspaceRecord &&
+      !existingWorkspaceAtConfiguredRoot &&
+      !useFreshRecoveryWorkspace
+    ) {
       this.writeStderr(
         `[orchestrator] workspace root changed for ${issue.identifier}: previous=${existingWorkspaceRecord.workspacePath} configured=${issueWorkspacePath}`
       );
@@ -3088,13 +3122,12 @@ export class OrchestratorService {
     }
     const pullRequestBranch =
       trackerAdapter.resolveBranchCheckoutTarget?.(issue) ?? null;
-    const recovery = options.recovery ?? null;
     if (
       recovery?.kind === "incomplete-turn-dirty-workspace" &&
-      existingWorkspaceAtConfiguredRoot
+      existingWorkspaceRecord
     ) {
       this.writeStderr(
-        `[orchestrator] dirty workspace retained for ${issue.identifier}; continuing recovery without moving or deleting files`
+        `[orchestrator] dirty workspace retained for ${issue.identifier}: workspace=${existingWorkspaceRecord.workspacePath} branch=${retainedWorkspaceBranch ?? "unknown"}; continuing recovery${useFreshRecoveryWorkspace ? ` from fresh workspace=${issueWorkspacePath}` : ""} without moving or deleting files`
       );
       await this.store.appendRunEvent(runId, {
         at: now.toISOString(),
@@ -3103,6 +3136,11 @@ export class OrchestratorService {
         issueId: issue.id,
         issueIdentifier: issue.identifier,
         workspaceKey,
+        workspacePath: existingWorkspaceRecord.workspacePath,
+        currentBranch: retainedWorkspaceBranch,
+        recoveryWorkspacePath: useFreshRecoveryWorkspace
+          ? issueWorkspacePath
+          : null,
         dirtyFiles: formatRecoveryDirtyFiles(recovery.dirtyFiles),
       });
     }
@@ -3133,7 +3171,7 @@ export class OrchestratorService {
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
-      existingWorkspace: !createdNow && !workspaceQuarantined,
+      existingWorkspace: !createdNow,
     });
 
     const shouldSaveWorkspaceRecord =

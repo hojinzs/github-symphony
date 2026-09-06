@@ -59,11 +59,8 @@ uses its fresh normalized issue snapshot to derive `routable` and
 `linear_state_transitions_unsupported`. Linear lifecycle mutations remain
 worker-owned `linear_graphql` operations.
 
-When a Linear issue provides `branchName`,
-`resolveAttributableBranches()` returns it as dirty-workspace attribution
-evidence. Linear branch names are suggestions and are never used as checkout
-targets, because the corresponding remote ref may not exist yet. Missing or
-blank branch names produce no attribution evidence.
+Linear `branchName` values remain tracker metadata and are not used as checkout
+targets, because the corresponding remote ref may not exist yet.
 
 ## Native tool
 

@@ -208,6 +208,9 @@ export type RecoveryDirtyWorkspaceEvent = {
   issueIdentifier: string;
   issueId?: string;
   workspaceKey: string;
+  workspacePath: string;
+  currentBranch: string | null;
+  recoveryWorkspacePath: string | null;
   dirtyFiles: string[];
 };
 

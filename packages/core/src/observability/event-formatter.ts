@@ -41,7 +41,7 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
     case "convergence-lock-expired":
       return `Convergence lock expired after ${event.ttlMs}ms`;
     case "recovery-dirty-workspace":
-      return "Dirty workspace retained; recovery is continuing";
+      return `Dirty workspace retained at ${event.workspacePath} on branch ${event.currentBranch ?? "unknown"}; recovery is continuing${event.recoveryWorkspacePath ? ` from ${event.recoveryWorkspacePath}` : ""}`;
     case "hook-executed":
       return `${event.hook}: ${event.outcome}`;
     case "hook-failed":

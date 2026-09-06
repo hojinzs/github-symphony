@@ -3439,6 +3439,19 @@ describe("OrchestratorService", () => {
       retryKind: "recovery",
       recovery: { kind: "incomplete-turn-dirty-workspace" },
     });
+    const recoveryWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      `${workspaceKey}-recovery`
+    );
+    expect(freshRun?.workingDirectory).toBe(
+      join(recoveryWorkspacePath, "repository")
+    );
+    expect(spawnEnv?.WORKING_DIRECTORY).toBe(
+      join(recoveryWorkspacePath, "repository")
+    );
+    expect(spawnEnv?.SYMPHONY_ASSIGNED_BRANCH).toBe(
+      "symphony/tenant-1/acme-platform-1"
+    );
     expect(spawnEnv?.SYMPHONY_RECOVERY_KIND).toBe(
       "incomplete-turn-dirty-workspace"
     );
@@ -3479,6 +3492,13 @@ describe("OrchestratorService", () => {
     );
     expect(eventsRaw).toContain('"event":"recovery-dirty-workspace"');
     expect(eventsRaw).toContain('"dirtyFiles":[".gh-symphony/"]');
+    expect(eventsRaw).toContain(
+      `"workspacePath":${JSON.stringify(issueWorkspacePath)}`
+    );
+    expect(eventsRaw).toContain('"currentBranch":"fix/2-foreign"');
+    expect(eventsRaw).toContain(
+      `"recoveryWorkspacePath":${JSON.stringify(recoveryWorkspacePath)}`
+    );
   });
 
   it("requeues a recovery retry when recovery context lookup fails", async () => {

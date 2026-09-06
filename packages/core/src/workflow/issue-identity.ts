@@ -28,7 +28,11 @@ export function buildIssueIdentityHeader(
   ].join("\n");
 }
 
-/** Extract the numeric suffix from a canonical GitHub issue identifier. */
+/**
+ * Extract the numeric issue number from a canonical issue identifier such as
+ * `owner/repo#507`, `#507`, or `507`. Tracker-native identifiers such as
+ * `TEAM-507` remain opaque here so legacy numeric consumers stay fail-closed.
+ */
 export function extractIssueNumberFromIdentifier(
   identifier: string
 ): number | null {
@@ -36,7 +40,13 @@ export function extractIssueNumberFromIdentifier(
   return match ? Number.parseInt(match[1]!, 10) : null;
 }
 
-/** Extract issue numbers at slash-delimited branch segment starts. */
+/**
+ * Extract issue numbers encoded in a branch name using the conventional
+ * `<prefix>/<issue-number>-<slug>` shape (for example `feat/507-identity`).
+ * Only numbers at the start of a slash-delimited segment and followed by a
+ * separator are considered, so version-like fragments such as `node-24`
+ * are ignored.
+ */
 export function extractIssueNumbersFromBranch(branch: string): number[] {
   const numbers = new Set<number>();
   for (const match of branch.matchAll(/(?:^|\/)(\d{1,9})(?=[-_/]|$)/g)) {

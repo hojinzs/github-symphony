@@ -66,9 +66,14 @@ describe("event-formatter", () => {
         event: "recovery-dirty-workspace",
         workspaceKey: "workspace-1",
         issueIdentifier: "acme/repo#1",
+        workspacePath: "/tmp/workspaces/issue-1",
+        currentBranch: "fix/2-foreign",
+        recoveryWorkspacePath: "/tmp/workspaces/issue-1-recovery",
         dirtyFiles: ["partial.txt"],
       })
-    ).toBe("Dirty workspace retained; recovery is continuing");
+    ).toBe(
+      "Dirty workspace retained at /tmp/workspaces/issue-1 on branch fix/2-foreign; recovery is continuing from /tmp/workspaces/issue-1-recovery"
+    );
 
     expect(
       formatEventMessage({

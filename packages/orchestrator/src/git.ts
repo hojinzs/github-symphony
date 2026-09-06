@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdir, rename } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import {

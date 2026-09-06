@@ -332,8 +332,6 @@ export type OrchestratorTrackerAdapter = {
   resolveBranchCheckoutTarget?(
     issue: TrackedIssue
   ): { headRefName: string } | null;
-  /** Return tracker-owned branch evidence for dirty-workspace attribution. */
-  resolveAttributableBranches?(issue: TrackedIssue): string[];
   /** Return an adapter-owned active linked PR fact for a canonical issue. */
   findActiveLinkedPullRequest?(
     issue: TrackedIssue,
