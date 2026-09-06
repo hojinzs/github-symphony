@@ -1110,7 +1110,7 @@ const handler = async (
     projectLocks = await acquireProjectStartLocks({
       runtimeRoot,
       projectId,
-      projectDir: projectConfig.projectDir ?? process.cwd(),
+      projectDir: projectConfig.projectDir,
     });
     const projectLock = projectLocks.projectLock;
 

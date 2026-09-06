@@ -106,4 +106,18 @@ describe("project start locks", () => {
       code: "ENOENT",
     });
   });
+
+  it("preserves legacy runtime-only locking when no project folder is recorded", async () => {
+    const root = await mkdtemp(join(tmpdir(), "project-start-lock-"));
+    const locks = await acquireProjectStartLocks({
+      runtimeRoot: root,
+      projectId: "legacy-project",
+    });
+
+    expect(locks.identityLock).toBeUndefined();
+    await expect(
+      access(join(root, "projects", "legacy-project", ".lock"))
+    ).resolves.toBeUndefined();
+    await releaseProjectStartLocks(locks);
+  });
 });

@@ -12,7 +12,7 @@ const PROJECT_IDENTITY_LOCK_NAMESPACE = "gh-symphony-project-locks";
 
 export type ProjectStartLocks = {
   projectLock: ProjectLockHandle;
-  identityLock: ProjectLockHandle;
+  identityLock?: ProjectLockHandle;
 };
 
 export async function resolveProjectIdentityLock(input: {
@@ -40,8 +40,17 @@ export async function resolveProjectIdentityLock(input: {
 export async function acquireProjectStartLocks(input: {
   runtimeRoot: string;
   projectId: string;
-  projectDir: string;
+  projectDir?: string;
 }): Promise<ProjectStartLocks> {
+  if (!input.projectDir) {
+    return {
+      projectLock: await acquireProjectLock({
+        runtimeRoot: input.runtimeRoot,
+        projectId: input.projectId,
+      }),
+    };
+  }
+
   const identity = await resolveProjectIdentityLock({
     projectDir: input.projectDir,
   });
