@@ -16,6 +16,7 @@ import {
   DEFAULT_WORKFLOW_TRACKER,
   type ParsedWorkflow,
   type WorkflowDiagnostic,
+  type WorkflowCodexConfig,
   type WorkflowPriorityConfig,
   type WorkflowRuntimeConfig,
   type WorkflowRuntimeKind,
@@ -270,9 +271,6 @@ function parseWorkflowConfig(
     "agent.max_concurrent_agents_by_state"
   );
 
-  const runtime = hasRuntime
-    ? parseRuntimeConfig(runtimeNode, env, options)
-    : null;
   const approvalPolicy = readOptionalString(
     codex,
     "approval_policy",
@@ -311,6 +309,9 @@ function parseWorkflowConfig(
         "codex.stall_timeout_ms"
       ) ?? DEFAULT_STALL_TIMEOUT_MS,
   };
+  const runtime = hasRuntime
+    ? parseRuntimeConfig(runtimeNode, codexConfig, env, options)
+    : null;
   const agentCommand = resolveWorkflowRuntimeCommand({
     runtime,
     codex: codexConfig,
@@ -1066,6 +1067,7 @@ function pushInlineArrayEntry(
 
 function parseRuntimeConfig(
   runtime: Record<string, WorkflowFrontMatterNode>,
+  codex: WorkflowCodexConfig,
   env: NodeJS.ProcessEnv,
   options: ParseWorkflowOptions
 ): WorkflowRuntimeConfig {
@@ -1141,13 +1143,13 @@ function parseRuntimeConfig(
     timeouts: {
       turnTimeoutMs:
         readOptionalIntegerLike(timeouts, "turn_timeout_ms") ??
-        DEFAULT_TURN_TIMEOUT_MS,
+        codex.turnTimeoutMs,
       readTimeoutMs:
         readOptionalIntegerLike(timeouts, "read_timeout_ms") ??
-        DEFAULT_READ_TIMEOUT_MS,
+        codex.readTimeoutMs,
       stallTimeoutMs:
         readOptionalIntegerLike(timeouts, "stall_timeout_ms") ??
-        DEFAULT_STALL_TIMEOUT_MS,
+        codex.stallTimeoutMs,
     },
   };
 }

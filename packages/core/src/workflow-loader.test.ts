@@ -1514,6 +1514,94 @@ Prompt body.
     expect(workflow.agentCommand).toBe("node worker.js --flag");
   });
 
+  it("inherits legacy codex timeouts when runtime omits timeouts", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  command: codex
+  args: [app-server]
+codex:
+  read_timeout_ms: 7777
+  stall_timeout_ms: 88888
+  turn_timeout_ms: 999999
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 7777,
+      stallTimeoutMs: 88888,
+      turnTimeoutMs: 999999,
+    });
+  });
+
+  it("prefers explicit runtime timeouts over legacy codex timeouts", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  timeouts:
+    read_timeout_ms: 7000
+    stall_timeout_ms: 80000
+    turn_timeout_ms: 900000
+codex:
+  read_timeout_ms: 7777
+  stall_timeout_ms: 88888
+  turn_timeout_ms: 999999
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 7000,
+      stallTimeoutMs: 80000,
+      turnTimeoutMs: 900000,
+    });
+  });
+
+  it("uses documented timeout defaults when neither location configures them", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 5000,
+      stallTimeoutMs: 300000,
+      turnTimeoutMs: 3600000,
+    });
+  });
+
+  it("merges partial runtime timeouts over legacy codex values per field", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  timeouts:
+    read_timeout_ms: 7000
+codex:
+  read_timeout_ms: 7777
+  stall_timeout_ms: 88888
+  turn_timeout_ms: 999999
+---
+Prompt body.
+`);
+
+    expect(resolveWorkflowRuntimeTimeouts(workflow)).toEqual({
+      readTimeoutMs: 7000,
+      stallTimeoutMs: 88888,
+      turnTimeoutMs: 999999,
+    });
+  });
+
   it("parses explicit custom runtime environment compatibility opt-in", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
