@@ -15794,6 +15794,15 @@ Keep skipped hooks inert.
 `,
         }
       );
+      if (!trusted) {
+        await mkdir(join(repository.path, "scripts"), { recursive: true });
+        await writeFile(
+          join(repository.path, "scripts", "before-run.sh"),
+          "#!/bin/sh\nexit 0\n",
+          "utf8"
+        );
+        await chmod(join(repository.path, "scripts", "before-run.sh"), 0o755);
+      }
       const store = new OrchestratorFsStore(tempRoot);
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
