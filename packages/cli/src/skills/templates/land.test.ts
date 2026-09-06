@@ -90,6 +90,10 @@ describe("merged-PR lifecycle guards", () => {
     expect(generatedLandSkill).toContain(
       "regenerate the lockfile with the repository package manager"
     );
+    expect(generatedLandSkill).toContain("through the pull skill");
+    expect(generatedLandSkill).toContain(
+      "outside the trivial set defined in item 4"
+    );
     expect(generatedLandSkill).not.toContain("pnpm-lock.yaml");
   });
 
