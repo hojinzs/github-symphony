@@ -150,9 +150,11 @@ describe("merged-PR lifecycle guards", () => {
     );
 
     expect(ready).toContain(
-      "a non-empty top-level `COMMENTED` review body from a non-`Bot` author submitted after the most recent transition to `In review`"
+      "a non-empty top-level `COMMENTED` review body from a non-`Bot` author that requests changes or reports findings and was submitted after the handoff boundary defined in item 3"
     );
-    expect(ready).toContain("from a non-`Bot` author");
+    expect(ready).toContain(
+      "without treating automated review boilerplate or passing review bodies as actionable"
+    );
     expect(ready).toContain(
       "even when its author login matches the worker account"
     );
