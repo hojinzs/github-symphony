@@ -150,7 +150,7 @@ codex:
       expectedSource: "codex/defaults",
     },
     {
-      name: "runtime defaults over legacy codex timeouts",
+      name: "legacy codex timeout fallback with a runtime block",
       frontMatter: `runtime:
   kind: codex-app-server
   command: codex
@@ -159,7 +159,7 @@ codex:
   read_timeout_ms: 7000
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
-      expected: [5000, 300000, 3600000],
+      expected: [7000, 60000, 120000],
       expectedSource: "runtime.timeouts",
     },
     {
