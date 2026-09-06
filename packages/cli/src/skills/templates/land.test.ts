@@ -141,6 +141,35 @@ describe("merged-PR lifecycle guards", () => {
     );
   });
 
+  it("treats a recent body-only COMMENTED review as Ready-return rework", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const ready = section(
+      workflow,
+      "##### Ready-return rework guard",
+      "##### Stalled-handoff safety net"
+    );
+
+    expect(ready).toContain(
+      "a non-empty top-level `COMMENTED` review body from a non-`Bot` author that requests changes or reports findings and was submitted after the handoff boundary defined in item 3"
+    );
+    expect(ready).toContain(
+      "without treating automated review boilerplate or passing review bodies as actionable"
+    );
+    expect(ready).toContain(
+      "even when its author login matches the worker account"
+    );
+    expect(ready).toContain("does not require an inline thread");
+    expect(ready).toContain(
+      "If no such status comment exists, no top-level review body qualifies"
+    );
+    expect(ready).toContain(
+      "Only `COMMENTED` review bodies qualify through this condition"
+    );
+    expect(workflow).toContain(
+      "reviews(last:30){nodes{state body author{login __typename} submittedAt"
+    );
+  });
+
   it("generates the same precedence guard in the published CLI land skill", () => {
     const generated = generateLandSkill(context);
 
