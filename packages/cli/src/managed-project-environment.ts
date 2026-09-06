@@ -37,17 +37,3 @@ export function resolveManagedProjectDirectory(
     join(runtimeRoot, "projects", encodeURIComponent(projectConfig.projectId))
   );
 }
-
-/** Reads only the managed project's .env, without daemon-level fallbacks. */
-export function resolveManagedProjectFileEnvironment(
-  projectConfig: Pick<OrchestratorProjectConfig, "projectDir" | "projectId">,
-  runtimeRoot: string
-): Record<string, string> {
-  try {
-    return readEnvFile(
-      join(resolveManagedProjectDirectory(projectConfig, runtimeRoot), ".env")
-    );
-  } catch {
-    return {};
-  }
-}
