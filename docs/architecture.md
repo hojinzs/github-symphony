@@ -79,7 +79,7 @@ the tracker adapter:
   the Linear adapter while retaining the GitHub Project read path for GitHub-backed projects,
   where Project binding checks remain confined; `workspaceDir` is the
   issue-workspace root
-- Folder-addressed project lifecycle commands: `packages/cli/src/commands/project.ts`, `commands/start.ts`, `commands/status.ts`, and `commands/stop.ts`. Daemon PID records and project locks remain the runtime liveness and ownership authorities; there is no separate host-global instance index. `packages/cli/src/project-start-lock.ts` composes the existing per-runtime-root lock with a lock keyed by the canonical project-folder path in a stable host-wide namespace, preventing the same folder from being started through different runtime roots, caller temporary-directory settings, or user namespaces without restoring a mutable instance registry.
+- Folder-addressed project lifecycle commands: `packages/cli/src/commands/project.ts`, `commands/start.ts`, `commands/status.ts`, and `commands/stop.ts`. Daemon PID records and project locks remain the runtime liveness and ownership authorities; there is no separate host-global instance index. `packages/cli/src/project-start-lock.ts` composes the existing per-runtime-root lock with a `.gh-symphony-start.lock` identity lease in the canonical project folder, preventing starts through different runtime roots or process namespaces from owning the same accessible folder without restoring a mutable instance registry.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
 - Workers start with the run directory as their process cwd. Runtime
   launchers do not discover `.env` from cwd; only the managed project `.env`

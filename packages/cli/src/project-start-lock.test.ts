@@ -1,6 +1,12 @@
-import { access, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  realpath,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, parse } from "node:path";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   acquireProjectStartLocks,
@@ -53,49 +59,25 @@ describe("project start locks", () => {
     expect(viaSymlink).toEqual(direct);
   });
 
-  it("uses one host-wide namespace regardless of the caller temporary directory", async () => {
+  it("anchors the identity lock in the canonical project folder", async () => {
     const root = await mkdtemp(join(tmpdir(), "project-start-lock-"));
     const projectDir = await mkdtemp(join(root, "project-"));
-    const originalTmpdir = process.env.TMPDIR;
+    const canonicalProjectDir = await realpath(projectDir);
+    const identity = await resolveProjectIdentityLock({ projectDir });
 
-    try {
-      process.env.TMPDIR = join(root, "tmp-a");
-      const first = await resolveProjectIdentityLock({ projectDir });
-      process.env.TMPDIR = join(root, "tmp-b");
-      const second = await resolveProjectIdentityLock({ projectDir });
-
-      expect(second).toEqual(first);
-      expect(first.runtimeRoot).toBe(
-        process.platform === "win32"
-          ? join(
-              parse(process.execPath).root,
-              "ProgramData",
-              "gh-symphony-project-locks"
-            )
-          : join("/var", "tmp", "gh-symphony-project-locks")
-      );
-    } finally {
-      if (originalTmpdir === undefined) {
-        delete process.env.TMPDIR;
-      } else {
-        process.env.TMPDIR = originalTmpdir;
-      }
-    }
+    expect(identity).toEqual({
+      runtimeRoot: canonicalProjectDir,
+      projectId: "start",
+      canonicalProjectDir,
+      lockPath: join(canonicalProjectDir, ".gh-symphony-start.lock"),
+    });
   });
 
   it("reclaims a folder-identity lock whose owner is stale", async () => {
     const root = await mkdtemp(join(tmpdir(), "project-start-lock-"));
     const projectDir = await mkdtemp(join(root, "project-"));
     const identity = await resolveProjectIdentityLock({ projectDir });
-    const identityLockPath = join(
-      identity.runtimeRoot,
-      "projects",
-      identity.projectId,
-      ".lock"
-    );
-    await mkdir(join(identity.runtimeRoot, "projects", identity.projectId), {
-      recursive: true,
-    });
+    const identityLockPath = identity.lockPath;
     await writeFile(
       identityLockPath,
       JSON.stringify({
@@ -115,6 +97,29 @@ describe("project start locks", () => {
     });
     expect(locks.identityLock.ownerToken).not.toBe("stale-owner");
     await releaseProjectStartLocks(locks);
+  });
+
+  it("names the canonical folder when refusing a duplicate owner", async () => {
+    const root = await mkdtemp(join(tmpdir(), "project-start-lock-"));
+    const projectDir = await mkdtemp(join(root, "project-"));
+    const canonicalProjectDir = await realpath(projectDir);
+    const first = await acquireProjectStartLocks({
+      runtimeRoot: join(root, "runtime-a"),
+      projectId: "project-a",
+      projectDir,
+    });
+
+    try {
+      await expect(
+        acquireProjectStartLocks({
+          runtimeRoot: join(root, "runtime-b"),
+          projectId: "project-b",
+          projectDir,
+        })
+      ).rejects.toThrow(`Project "${canonicalProjectDir}" is already running`);
+    } finally {
+      await releaseProjectStartLocks(first);
+    }
   });
 
   it("keeps and releases the existing per-runtime-root lock", async () => {

@@ -110,8 +110,9 @@ done
 test -f "$CONFIG_DIR/projects/$alpha_id/.lock"
 set +e
 (cd "$PROJECT_ROOT/project-alpha" && \
+  TMPDIR=/tmp/alternate-tmp \
   GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
-  node /app/packages/cli/dist/index.js --config /tmp/alternate-runtime project start \
+  node /app/packages/cli/dist/index.js --config /tmp/alternate-runtime project start --once \
     > /tmp/duplicate-project.log 2>&1)
 duplicate_status=$?
 set -e

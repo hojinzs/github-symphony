@@ -12,7 +12,8 @@ project folders.
 2. The runner starts `project-alpha` and `project-beta` concurrently under the
    primary runtime root.
 3. While `project-alpha` remains live, the runner starts the same folder again
-   with an alternate `--config` root.
+   with an alternate `--config` root and `TMPDIR`, using `--once` so a
+   duplicate-exclusion regression terminates instead of hanging the runner.
 
 ## Expected result
 

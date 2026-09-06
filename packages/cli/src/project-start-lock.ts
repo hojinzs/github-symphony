@@ -1,21 +1,13 @@
-import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { join, parse } from "node:path";
+import { join } from "node:path";
 import {
   acquireProjectLock,
   releaseProjectLock,
   type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
 
-const PROJECT_IDENTITY_LOCK_NAMESPACE = "gh-symphony-project-locks";
-const HOST_PROJECT_IDENTITY_LOCK_ROOT =
-  process.platform === "win32"
-    ? join(
-        parse(process.execPath).root,
-        "ProgramData",
-        PROJECT_IDENTITY_LOCK_NAMESPACE
-      )
-    : join("/var", "tmp", PROJECT_IDENTITY_LOCK_NAMESPACE);
+const PROJECT_IDENTITY_LOCK_ID = "start";
+const PROJECT_IDENTITY_LOCK_FILE = ".gh-symphony-start.lock";
 
 export type ProjectStartLocks = {
   projectLock: ProjectLockHandle;
@@ -28,13 +20,14 @@ export async function resolveProjectIdentityLock(input: {
   runtimeRoot: string;
   projectId: string;
   canonicalProjectDir: string;
+  lockPath: string;
 }> {
   const canonicalProjectDir = await realpath(input.projectDir);
-  const digest = createHash("sha256").update(canonicalProjectDir).digest("hex");
   return {
-    runtimeRoot: HOST_PROJECT_IDENTITY_LOCK_ROOT,
-    projectId: digest,
+    runtimeRoot: canonicalProjectDir,
+    projectId: PROJECT_IDENTITY_LOCK_ID,
     canonicalProjectDir,
+    lockPath: join(canonicalProjectDir, PROJECT_IDENTITY_LOCK_FILE),
   };
 }
 
@@ -58,6 +51,8 @@ export async function acquireProjectStartLocks(input: {
   const identityLock = await acquireProjectLock({
     runtimeRoot: identity.runtimeRoot,
     projectId: identity.projectId,
+    projectLabel: identity.canonicalProjectDir,
+    lockPath: identity.lockPath,
     cwd: identity.canonicalProjectDir,
   });
 
