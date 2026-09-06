@@ -3038,6 +3038,160 @@ Retry hook validation.
     ).toContain("?? partial.txt");
   });
 
+  it("recovers a clean foreign-branch workspace before worker preflight", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-clean-foreign-branch-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryDirectory = await ensurePopulatedIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      projectSlug: "tenant-1",
+      issueIdentifier: "acme/platform#1",
+    });
+    execSync(`git -C ${shell(repositoryDirectory)} switch -c fix/2-foreign`, {
+      encoding: "utf8",
+    });
+    execSync(
+      `git -C ${shell(repositoryDirectory)} config user.email tester@example.com`
+    );
+    execSync(`git -C ${shell(repositoryDirectory)} config user.name tester`);
+    await writeFile(
+      join(repositoryDirectory, "foreign-issue.txt"),
+      "issue 2 committed work\n",
+      "utf8"
+    );
+    execSync(
+      `git -C ${shell(repositoryDirectory)} add foreign-issue.txt && git -C ${shell(repositoryDirectory)} commit -m 'fix: preserve foreign issue work'`,
+      { encoding: "utf8" }
+    );
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toBe("");
+    const foreignHead = execSync(
+      `git -C ${shell(repositoryDirectory)} rev-parse HEAD`,
+      { encoding: "utf8" }
+    ).trim();
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4411,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")),
+      spawnImpl: spawnImpl as never,
+      isProcessRunning: () => false,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    const dispatched = await service.runOnce();
+    const recoveryWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      `${workspaceKey}-recovery`
+    );
+    const recoveryRepositoryDirectory = join(
+      recoveryWorkspacePath,
+      "repository"
+    );
+    const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+
+    expect(dispatched.summary.dispatched).toBe(1);
+    expect(spawnEnv?.WORKING_DIRECTORY).toBe(recoveryRepositoryDirectory);
+    expect(spawnEnv?.SYMPHONY_ASSIGNED_BRANCH).toBe(
+      "symphony/tenant-1/acme-platform-1"
+    );
+    expect(
+      execSync(
+        `git -C ${shell(recoveryRepositoryDirectory)} rev-parse --abbrev-ref HEAD`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe(spawnEnv?.SYMPHONY_ASSIGNED_BRANCH);
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(foreignHead);
+    expect(
+      execSync(
+        `git -C ${shell(repositoryDirectory)} rev-parse --abbrev-ref HEAD`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("fix/2-foreign");
+    expect(
+      await readFile(join(repositoryDirectory, "foreign-issue.txt"), "utf8")
+    ).toBe("issue 2 committed work\n");
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toBe("");
+    const persistedWorkspace = await store.loadIssueWorkspace(
+      projectConfig.projectId,
+      workspaceKey
+    );
+    expect(persistedWorkspace?.workspacePath).toBe(recoveryWorkspacePath);
+    const activeRun = (await store.loadAllRuns()).find(
+      (run) => run.issueId === "issue-1"
+    );
+    const events = (
+      await readFile(
+        join(
+          store.runDir(activeRun!.runId, projectConfig.projectId),
+          "events.ndjson"
+        ),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "workspace-root-relocated",
+        previousWorkspacePath: issueWorkspacePath,
+        configuredWorkspacePath: recoveryWorkspacePath,
+      })
+    );
+  });
+
   it("warns and continues when a recovery workspace is dirty", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

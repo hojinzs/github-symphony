@@ -17,6 +17,7 @@ local seed repository in a one-shot container. Each folder contains
 ## Expected
 
 - Each project hook clones directly into its own issue workspace; no shared repository cache is created.
+- Project alpha recovers a persisted clean `fix/2-foreign` checkout into the stable issue #101 recovery workspace before the real worker identity preflight, while preserving the original foreign commit and file.
 - From the same combined fixture, each dispatches only the issue with its own label and
   runs on distinct branches:
   `symphony/project-alpha/test-owner-test-repo-101` and

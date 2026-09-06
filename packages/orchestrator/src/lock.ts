@@ -44,6 +44,8 @@ const heartbeatTimers = new WeakMap<ProjectLockHandle, NodeJS.Timeout>();
 export async function acquireProjectLock(input: {
   runtimeRoot: string;
   projectId: string;
+  projectLabel?: string;
+  lockPath?: string;
   pid?: number;
   now?: Date;
   isProcessRunning?: (pid: number) => boolean;
@@ -53,13 +55,16 @@ export async function acquireProjectLock(input: {
   onLeaseLost?: LeaseLostHandler;
 }): Promise<ProjectLockHandle> {
   assertValidProjectId(input.projectId);
+  const projectLabel = input.projectLabel ?? input.projectId;
   const pid = input.pid ?? process.pid;
   const startedAt = (input.now ?? new Date()).toISOString();
   const heartbeatAt = startedAt;
   const processIdentity = (input.getProcessIdentity ?? getProcessIdentity)(pid);
   const cwd = resolve(input.cwd ?? process.cwd());
   const ownerToken = `${pid}:${randomUUID()}`;
-  const lockPath = resolveProjectLockPath(input.runtimeRoot, input.projectId);
+  const lockPath = input.lockPath
+    ? resolve(input.lockPath)
+    : resolveProjectLockPath(input.runtimeRoot, input.projectId);
   const record: ProjectLockRecord = {
     ownerToken,
     pid,
@@ -72,7 +77,9 @@ export async function acquireProjectLock(input: {
 
   for (;;) {
     try {
-      await ensureSecureDirectory(dirname(lockPath));
+      if (!input.lockPath) {
+        await ensureSecureDirectory(dirname(lockPath));
+      }
       const handle = await open(lockPath, "wx");
       try {
         await handle.writeFile(JSON.stringify(record, null, 2) + "\n", "utf8");
@@ -113,7 +120,7 @@ export async function acquireProjectLock(input: {
       invalidReadAttempts += 1;
       if (invalidReadAttempts >= LOCK_READ_RETRY_LIMIT) {
         throw new Error(
-          `Project "${input.projectId}" lock file is unreadable at "${lockPath}".`
+          `Project "${projectLabel}" lock file is unreadable at "${lockPath}".`
         );
       }
 
@@ -131,7 +138,7 @@ export async function acquireProjectLock(input: {
       })
     ) {
       throw new Error(
-        `Project "${input.projectId}" is already running (PID ${existing.record.pid}).`
+        `Project "${projectLabel}" is already running (PID ${existing.record.pid}).`
       );
     }
 

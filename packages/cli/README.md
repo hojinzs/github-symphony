@@ -149,7 +149,7 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 ### Customizing Agent Behavior
 
-`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
+`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval as absorbed by that approval. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
@@ -437,6 +437,13 @@ and absolute hook paths immediately, report their resolved absolute paths, and
 surface repository-relative run/remove hooks as deferred until an issue
 workspace exists. Invalid hook configuration stops the project before issue
 retry accounting begins.
+
+Only one orchestrator may own an accessible canonical project folder, even when
+separate `--config` runtime roots, temporary directories, users, or mount
+namespaces are used. Startup retains the project lock in each runtime root and
+additionally acquires a `.gh-symphony-start.lock` identity lease in the project
+folder; both use lease heartbeats and process-owner identity validation so stale
+owners can be reclaimed safely.
 
 The trusted population hook receives host Git credential-helper configuration
 for private clones, and dispatch verifies that it leaves
