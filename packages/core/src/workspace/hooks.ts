@@ -70,12 +70,13 @@ export function resolveWorkflowHookPath(
   }
 ): string | null {
   if (!isWorkflowHookPathLike(command)) return null;
-  if (isAbsolute(command)) return command;
+  const trimmed = command.trim();
+  if (isAbsolute(trimmed)) return trimmed;
   const baseDirectory =
     hook === "after_create"
       ? directories.workflowDirectory
       : directories.repositoryDirectory;
-  return baseDirectory ? resolve(baseDirectory, command) : null;
+  return baseDirectory ? resolve(baseDirectory, trimmed) : null;
 }
 
 export async function validateWorkflowHookPaths(

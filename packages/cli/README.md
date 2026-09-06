@@ -331,6 +331,8 @@ EOF
 `WORKFLOW.md` hooks are path-only and require
 `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host environment. Inline
 shell commands are rejected; use an executable repository script instead.
+`project start` enforces script-path validity when this flag enables execution,
+while `doctor` reports invalid declared paths even when hooks are disabled.
 
 Env precedence during hook execution and worker spawn is:
 

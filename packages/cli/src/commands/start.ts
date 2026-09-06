@@ -67,6 +67,8 @@ import { resolveManagedProjectEnvironment } from "../managed-project-environment
 import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
 
+const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
+
 function timestamp(): string {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, "0");
@@ -252,9 +254,13 @@ async function preflightWorkflowStart(
         workflowPath,
       }
     );
-    const hookValidation = await validateWorkflowHookPaths(workflow.hooks, {
-      workflowDirectory: dirname(workflowPath),
-    });
+    const approval = environment[WORKFLOW_HOOK_APPROVAL_ENV];
+    const hooksTrusted = approval === "1" || approval?.toLowerCase() === "true";
+    const hookValidation = hooksTrusted
+      ? await validateWorkflowHookPaths(workflow.hooks, {
+          workflowDirectory: dirname(workflowPath),
+        })
+      : { checked: [], deferred: 0, problems: [] };
     if (hookValidation.problems.length > 0) {
       throw new Error(
         `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`

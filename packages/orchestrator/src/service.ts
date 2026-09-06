@@ -1390,7 +1390,10 @@ export class OrchestratorService {
         tenant,
         tenant.repository
       );
-      if (isUsableWorkflowResolution(workflowResolution)) {
+      if (
+        isUsableWorkflowResolution(workflowResolution) &&
+        isWorkflowHookExecutionAllowed(this.resolveProjectEnvironment(tenant))
+      ) {
         const workflowBaseDirectory =
           this.workflowHookBaseDirectories.get(
             this.workflowCacheKey(tenant.repository)
@@ -3664,7 +3667,10 @@ export class OrchestratorService {
         tenant,
         run.repository
       );
-      if (isUsableWorkflowResolution(retryWorkflow)) {
+      if (
+        isUsableWorkflowResolution(retryWorkflow) &&
+        isWorkflowHookExecutionAllowed(this.resolveProjectEnvironment(tenant))
+      ) {
         const workflowDirectory =
           this.workflowHookBaseDirectories.get(
             this.workflowCacheKey(run.repository)
@@ -6288,7 +6294,9 @@ function isPopulationGitEnvironmentName(name: string): boolean {
   );
 }
 
-function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
+function isWorkflowHookExecutionAllowed(
+  env: Readonly<Record<string, string | undefined>>
+): boolean {
   const value =
     env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";

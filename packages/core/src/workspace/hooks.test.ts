@@ -216,6 +216,28 @@ describe("executeWorkspaceHook", () => {
 });
 
 describe("validateWorkflowHookPaths", () => {
+  it("trims hook paths before resolving them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-validation-trim-"));
+    tempDirs.push(root);
+    const hookPath = join(root, "setup.sh");
+    await writeFile(hookPath, "#!/bin/sh\n", { mode: 0o755 });
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: `  ${hookPath}  `,
+        beforeRun: null,
+        afterRun: null,
+        beforeRemove: null,
+      },
+      { workflowDirectory: root }
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.checked).toEqual([
+      expect.objectContaining({ hook: "after_create", path: hookPath }),
+    ]);
+  });
+
   it("reports absent and non-executable hook scripts with resolved paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "hook-validation-"));
     tempDirs.push(root);

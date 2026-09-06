@@ -16203,6 +16203,37 @@ Test hook failure.
     ]);
   });
 
+  it("does not report an invalid disabled hook as a configuration fault", async () => {
+    delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-disabled-missing-hook-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    await rm(join(repository.path, "hooks", "after_create.sh"));
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const spawnImpl = vi
+      .fn()
+      .mockReturnValue({ pid: 4314, unref: vi.fn() }) as never;
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.lastError).not.toContain("Project configuration fault");
+    expect(result.lastError).toContain("after_create hook skipped");
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
   it("passes host Git credential plumbing only to after_create population", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.GITHUB_GIT_HOST = "github.enterprise.test";

@@ -358,7 +358,7 @@ Handle {{issue.identifier}}.\n`,
     await writeFile(projectPath, JSON.stringify(project), "utf8");
     await writeFile(
       projectDir + "/.env",
-      "WORKFLOW_CODEX_COMMAND=codex app-server\n",
+      "WORKFLOW_CODEX_COMMAND=codex app-server\nSYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
       "utf8"
     );
     await writeFile(
@@ -444,6 +444,11 @@ Handle {{issue.identifier}}.\n`,
       ) as CliProjectConfig;
       project.workflowSource = { type: "external", path: workflowPath };
       await writeFile(projectPath, JSON.stringify(project), "utf8");
+      await writeFile(
+        join(projectDir, ".env"),
+        "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+        "utf8"
+      );
       await mkdir(join(projectDir, "hooks"), { recursive: true });
       if (createHook) {
         await writeFile(hookPath, "#!/bin/sh\n", { mode: 0o644 });
@@ -469,6 +474,49 @@ Handle {{issue.identifier}}.\n`,
       expect(process.exitCode).toBe(1);
     }
   );
+
+  it("does not reject an invalid hook when hook execution is disabled", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const projectDir = join(configDir, "projects", "tenant-a");
+    const workflowPath = join(projectDir, "WORKFLOW.md");
+    const projectPath = join(projectDir, "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    project.workflowSource = { type: "external", path: workflowPath };
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+    await writeFile(
+      workflowPath,
+      `---\ntracker:\n  kind: github-project\n  provider:\n    project_id: project-1\nhooks:\n  after_create: hooks/missing.sh\ncodex:\n  command: codex app-server\n---\nHandle {{issue.identifier}}.\n`,
+      "utf8"
+    );
+    await writeFile(join(projectDir, ".env"), "", "utf8");
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(projectDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-09-06T00:00:00.000Z",
+    });
+    const originalApproval = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+    delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      if (originalApproval === undefined) {
+        delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+      } else {
+        process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = originalApproval;
+      }
+    }
+
+    expect(acquireProjectLock).toHaveBeenCalled();
+    expect(run).toHaveBeenCalled();
+    expect(process.exitCode).not.toBe(1);
+  });
 
   it.each([
     [

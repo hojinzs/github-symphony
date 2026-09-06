@@ -92,7 +92,9 @@ Hooks are opt-in repository-local extensions, not shell snippets. Each hook
 value must be a path to an executable script; shell syntax and inline commands
 are rejected. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host
 environment to permit hook execution. The gate and path-only rule intentionally
-diverge from the upstream shell-command hook model.
+diverge from the upstream shell-command hook model. Startup and reconciliation
+enforce hook-path validity only when this trust flag enables execution; `doctor`
+still reports invalid declared paths when hooks are disabled.
 
 Hook children receive portable process variables (`HOME`, `LANG`, `LOGNAME`,
 `PATH`, `PWD`, `SHELL`, `TERM`, `TMPDIR`, `USER`, and `LC_*`) plus Symphony's

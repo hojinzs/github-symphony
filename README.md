@@ -873,7 +873,9 @@ All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatic
 Hooks are an opt-in, repository-local divergence from the upstream shell-command
 model. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` in the host environment, and point
 each hook at a committed executable script. Inline shell, `bash` prefixes, and
-shell operators are rejected; Symphony executes no implicit shell.
+shell operators are rejected; Symphony executes no implicit shell. Startup and
+dispatch enforce script-path validity only when hook execution is enabled;
+`doctor` reports invalid declared paths regardless of that trust setting.
 
 ```yaml
 # WORKFLOW.md
