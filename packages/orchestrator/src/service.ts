@@ -27,6 +27,7 @@ import {
   executeWorkspaceHook,
   formatWorkflowHookPathProblems,
   resolveHookCommand,
+  resolveWorkflowHookPath,
   validateWorkflowHookPaths,
   isStateTerminal,
   issueRoutable,
@@ -1400,7 +1401,7 @@ export class OrchestratorService {
         if (workflowBaseDirectory) {
           const hookValidation = await validateWorkflowHookPaths(
             workflowResolution.workflow.hooks,
-            workflowBaseDirectory
+            { workflowDirectory: workflowBaseDirectory }
           );
           if (hookValidation.problems.length > 0) {
             throw new Error(
@@ -3659,6 +3660,36 @@ export class OrchestratorService {
         };
       }
 
+      const retryWorkflow = await this.loadProjectWorkflow(
+        tenant,
+        run.repository
+      );
+      if (isUsableWorkflowResolution(retryWorkflow)) {
+        const workflowDirectory =
+          this.workflowHookBaseDirectories.get(
+            this.workflowCacheKey(run.repository)
+          ) ??
+          (retryWorkflow.workflowPath
+            ? dirname(retryWorkflow.workflowPath)
+            : null);
+        if (workflowDirectory) {
+          const hookValidation = await validateWorkflowHookPaths(
+            retryWorkflow.workflow.hooks,
+            {
+              workflowDirectory,
+              repositoryDirectory: run.workingDirectory,
+            }
+          );
+          if (hookValidation.problems.length > 0) {
+            return {
+              issueRecords,
+              recovered: false,
+              lastError: `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`,
+            };
+          }
+        }
+      }
+
       const retryAction = await this.resolveRetryRestartAction(
         tenant,
         run,
@@ -4937,11 +4968,11 @@ export class OrchestratorService {
             ? dirname(workflowResolution.workflowPath)
             : null;
         const hookCommand =
-          kind === "after_create" &&
-          configuredHookCommand &&
-          !isAbsolute(configuredHookCommand) &&
-          hookBaseDirectory
-            ? resolve(hookBaseDirectory, configuredHookCommand)
+          configuredHookCommand && hookBaseDirectory
+            ? (resolveWorkflowHookPath(configuredHookCommand, kind, {
+                workflowDirectory: hookBaseDirectory,
+                repositoryDirectory,
+              }) ?? configuredHookCommand)
             : configuredHookCommand;
         const trusted = isWorkflowHookExecutionAllowed(hookEnv);
         if (hookCommand) {

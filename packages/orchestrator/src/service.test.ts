@@ -1092,6 +1092,133 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("does not consume a due retry when a repository hook is missing", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-retry-hook-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+hooks:
+  after_create: hooks/after_create.sh
+  before_run: missing-before-run.sh
+agent:
+  max_concurrent_agents: 1
+  max_failure_retries: 3
+codex:
+  command: codex app-server
+---
+Retry hook validation.
+`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const retryIssue: TrackedIssue = {
+      id: "retry-issue",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Retrying issue",
+      description: null,
+      priority: 1,
+      state: "Todo",
+      branchName: null,
+      url: "https://example.test/acme/platform/issues/1",
+      labels: [],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-1",
+      },
+      metadata: {},
+    };
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: retryIssue.id,
+        identifier: retryIssue.identifier,
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "running",
+        currentRunId: "run-retry",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:00.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-retry",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: retryIssue.id,
+      issueSubjectId: retryIssue.id,
+      issueIdentifier: retryIssue.identifier,
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: repository.path,
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "retry-workspace", ".runtime"),
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: "2026-03-08T00:00:00.000Z",
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([retryIssue]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn().mockReturnValue(retryIssue),
+    });
+    const spawnImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.health).toBe("degraded");
+    expect(result.lastError).toContain("missing-before-run.sh");
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations("tenant-1")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        failureRetryCount: 1,
+        failureRetrySuppressedState: null,
+      }),
+    ]);
+  });
+
   it("preserves recovery kind and age when capacity postpones a due retry", async () => {
     const now = new Date("2026-03-08T00:00:00.000Z");
     const tempRoot = await mkdtemp(

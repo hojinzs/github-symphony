@@ -230,11 +230,11 @@ describe("validateWorkflowHookPaths", () => {
         afterRun: "echo ready",
         beforeRemove: null,
       },
-      root
+      { workflowDirectory: root, repositoryDirectory: root }
     );
 
     expect(result).toMatchObject({
-      inline: 1,
+      deferred: 1,
       checked: [],
       problems: [
         {
@@ -266,7 +266,7 @@ describe("validateWorkflowHookPaths", () => {
         afterRun: null,
         beforeRemove: null,
       },
-      root
+      { workflowDirectory: root }
     );
 
     expect(result.problems).toEqual([]);
@@ -274,6 +274,44 @@ describe("validateWorkflowHookPaths", () => {
       expect.objectContaining({
         hook: "after_create",
         path: join(root, "hooks", "after-create.sh"),
+      }),
+    ]);
+  });
+
+  it("validates bare script names and uses hook-specific base directories", async () => {
+    const workflowRoot = await mkdtemp(join(tmpdir(), "hook-workflow-root-"));
+    const repositoryRoot = await mkdtemp(
+      join(tmpdir(), "hook-repository-root-")
+    );
+    tempDirs.push(workflowRoot, repositoryRoot);
+    await writeFile(join(repositoryRoot, "before-run.sh"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "setup.sh",
+        beforeRun: "before-run.sh",
+        afterRun: null,
+        beforeRemove: null,
+      },
+      {
+        workflowDirectory: workflowRoot,
+        repositoryDirectory: repositoryRoot,
+      }
+    );
+
+    expect(result.problems).toEqual([
+      expect.objectContaining({
+        hook: "after_create",
+        path: join(workflowRoot, "setup.sh"),
+        reason: "missing",
+      }),
+    ]);
+    expect(result.checked).toEqual([
+      expect.objectContaining({
+        hook: "before_run",
+        path: join(repositoryRoot, "before-run.sh"),
       }),
     ]);
   });

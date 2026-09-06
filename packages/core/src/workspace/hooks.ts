@@ -45,9 +45,11 @@ export type WorkflowHookPathProblem = {
 
 export type WorkflowHookPathValidation = {
   checked: Array<{ hook: HookKind; command: string; path: string }>;
-  inline: number;
+  deferred: number;
   problems: WorkflowHookPathProblem[];
 };
+
+const SHELL_METACHARACTER_PATTERN = /[;&|`$<>()[\]{}*?!#~="'\\\n\r]/;
 
 export function isWorkflowHookPathLike(command: string): boolean {
   const trimmed = command.trim();
@@ -55,12 +57,25 @@ export function isWorkflowHookPathLike(command: string): boolean {
     trimmed.length > 0 &&
     !trimmed.includes("\n") &&
     !/\s/.test(trimmed) &&
-    (trimmed.startsWith("/") ||
-      trimmed.startsWith("./") ||
-      trimmed.startsWith("../") ||
-      trimmed.includes("/") ||
-      trimmed.includes("\\"))
+    !SHELL_METACHARACTER_PATTERN.test(trimmed)
   );
+}
+
+export function resolveWorkflowHookPath(
+  command: string,
+  hook: HookKind,
+  directories: {
+    workflowDirectory: string;
+    repositoryDirectory?: string;
+  }
+): string | null {
+  if (!isWorkflowHookPathLike(command)) return null;
+  if (isAbsolute(command)) return command;
+  const baseDirectory =
+    hook === "after_create"
+      ? directories.workflowDirectory
+      : directories.repositoryDirectory;
+  return baseDirectory ? resolve(baseDirectory, command) : null;
 }
 
 export async function validateWorkflowHookPaths(
@@ -70,7 +85,10 @@ export async function validateWorkflowHookPaths(
     afterRun: string | null;
     beforeRemove: string | null;
   },
-  baseDirectory: string,
+  directories: {
+    workflowDirectory: string;
+    repositoryDirectory?: string;
+  },
   dependencies: { access: typeof access; stat: typeof stat } = { access, stat }
 ): Promise<WorkflowHookPathValidation> {
   const configured = [
@@ -81,20 +99,22 @@ export async function validateWorkflowHookPaths(
   ] as const;
   const result: WorkflowHookPathValidation = {
     checked: [],
-    inline: 0,
+    deferred: 0,
     problems: [],
   };
 
   for (const [hook, command] of configured) {
     if (!command) continue;
     if (!isWorkflowHookPathLike(command)) {
-      result.inline += 1;
+      result.deferred += 1;
       continue;
     }
 
-    const path = isAbsolute(command)
-      ? command
-      : resolve(baseDirectory, command);
+    const path = resolveWorkflowHookPath(command, hook, directories);
+    if (!path) {
+      result.deferred += 1;
+      continue;
+    }
     try {
       const pathStat = await dependencies.stat(path);
       if (!pathStat.isFile()) {
@@ -384,8 +404,6 @@ const DEFAULT_HOOK_ENV_KEYS = new Set([
   "TMPDIR",
   "USER",
 ]);
-
-const SHELL_METACHARACTER_PATTERN = /[;&|`$<>()[\]{}*?!#~="'\\\n\r]/;
 
 export function buildHookExecutionEnv(
   env: Record<string, string>,

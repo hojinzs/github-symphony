@@ -3406,7 +3406,7 @@ describe("doctor command handler", () => {
       summary: expect.stringContaining("Invalid WORKFLOW.md hook path"),
       details: expect.objectContaining({
         pathsChecked: 0,
-        inline: 1,
+        deferred: 1,
         unresolved: [
           expect.objectContaining({
             hook: "after_create",

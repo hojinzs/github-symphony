@@ -251,10 +251,9 @@ async function preflightWorkflowStart(
         workflowPath,
       }
     );
-    const hookValidation = await validateWorkflowHookPaths(
-      workflow.hooks,
-      dirname(workflowPath)
-    );
+    const hookValidation = await validateWorkflowHookPaths(workflow.hooks, {
+      workflowDirectory: dirname(workflowPath),
+    });
     if (hookValidation.problems.length > 0) {
       throw new Error(
         `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`

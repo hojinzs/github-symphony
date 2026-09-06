@@ -1358,7 +1358,7 @@ async function buildHookChecks(
 
   const validation = await validateWorkflowHookPaths(
     workflow.hooks,
-    repoRoot,
+    { workflowDirectory: repoRoot },
     deps
   );
 
@@ -1368,11 +1368,11 @@ async function buildHookChecks(
         "workflow_hooks",
         "Workflow hook paths",
         `Invalid WORKFLOW.md hook path${validation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(validation.problems)}.`,
-        "Create the referenced hook script(s), make them executable, fix the hook path(s), or replace them with inline commands.",
+        "Create the referenced hook script(s), make them executable, or fix the hook path(s).",
         {
           configured: configured.length,
           pathsChecked: validation.checked.length,
-          inline: validation.inline,
+          deferred: validation.deferred,
           unresolved: validation.problems,
           checked: validation.checked,
         }
@@ -1384,20 +1384,20 @@ async function buildHookChecks(
     validation.checked.length === 0
       ? "No hook paths required filesystem validation."
       : `Resolved ${validation.checked.length} executable WORKFLOW.md hook path${validation.checked.length === 1 ? "" : "s"}.`;
-  const inlineSummary =
-    validation.inline === 0
+  const deferredSummary =
+    validation.deferred === 0
       ? ""
-      : ` Treated ${validation.inline} hook${validation.inline === 1 ? "" : "s"} as inline command${validation.inline === 1 ? "" : "s"}.`;
+      : ` Deferred ${validation.deferred} repository-relative hook${validation.deferred === 1 ? "" : "s"} until a workspace is available.`;
 
   return [
     passCheck(
       "workflow_hooks",
       "Workflow hook paths",
-      `${pathSummary}${inlineSummary}`,
+      `${pathSummary}${deferredSummary}`,
       {
         configured: configured.length,
         pathsChecked: validation.checked.length,
-        inline: validation.inline,
+        deferred: validation.deferred,
         checked: validation.checked,
       }
     ),
