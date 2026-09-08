@@ -70,30 +70,6 @@ describe("merged-PR lifecycle guards", () => {
     expect(generatedLandSkill).not.toContain("pnpm-lock.yaml");
   });
 
-  it("places Ready merged precedence before rework classification and verifies candidate linkage", () => {
-    const generated = generateLandSkill(context);
-    const ready = section(
-      generated,
-      "## Ready-return Rework Guard",
-      "## Pre-flight Checks"
-    );
-
-    const readyGuardIndex = ready.indexOf("**Merged-PR precedence guard:**");
-    const reworkIndex = ready.indexOf("`CHANGES_REQUESTED`");
-    expect(readyGuardIndex).toBeGreaterThanOrEqual(0);
-    expect(reworkIndex).toBeGreaterThan(readyGuardIndex);
-    expect(ready).toContain("closingIssuesReferences");
-    expect(ready).toContain("text-search match alone is never linked evidence");
-    expect(ready).toContain("current delivery PR is `MERGED`");
-    expect(generated).toContain("**Merged-PR invariant.**");
-    expect(generated).toContain(
-      "An issue whose current delivery PR is merged must never transition to `Ready`."
-    );
-    expect(generated).toContain(
-      "`Ready` → `Done` is a merged-PR precedence repair"
-    );
-  });
-
   it("places generated land-skill merged precedence before pre-flight and failure classification", () => {
     const landSkill = generateLandSkill(context);
 
@@ -132,6 +108,10 @@ describe("merged-PR lifecycle guards", () => {
   it("gates Land rework on actionable threads created after approval", () => {
     const landSkill = generateLandSkill(context);
 
+    expect(landSkill).toContain(
+      "headRefOid reviews(last:30){nodes{state body author{login __typename} submittedAt commit{oid}}}"
+    );
+    expect(landSkill).toContain("approval on the current head");
     expect(landSkill).toContain("comments(first: 1)");
     expect(landSkill).toContain("createdAt");
     expect(landSkill).toContain("approval's `submittedAt`");
@@ -141,70 +121,10 @@ describe("merged-PR lifecycle guards", () => {
     expect(landSkill).toContain("reason `Land-return rework: <cause>`");
     expect(landSkill).toContain("send `Land` → `Ready` transition intent");
     expect(landSkill).toContain(
-      "Ready-return rework guard opens the next work cycle"
-    );
-    expect(landSkill).toContain(
-      "thread's first comment `createdAt` with the approval review's `submittedAt`"
+      "compare its first comment's `createdAt` with the approval's `submittedAt`"
     );
     expect(landSkill).toContain(
       "created at or before that approval is absorbed by the approval"
-    );
-    expect(landSkill).toContain(
-      "When no qualifying approval exists, any unresolved actionable review thread triggers rework as before"
-    );
-  });
-
-  it("treats a recent body-only COMMENTED review as Ready-return rework", () => {
-    const generated = generateLandSkill(context);
-    const ready = section(
-      generated,
-      "## Ready-return Rework Guard",
-      "## Pre-flight Checks"
-    );
-
-    expect(ready).toContain(
-      "a non-empty top-level `COMMENTED` review body from a non-`Bot` author that requests changes or reports findings and was submitted after the handoff boundary defined in item 3"
-    );
-    expect(ready).toContain(
-      "without treating automated review boilerplate or passing review bodies as actionable"
-    );
-    expect(ready).toContain(
-      "even when its author login matches the worker account"
-    );
-    expect(ready).toContain("does not require an inline thread");
-    expect(ready).toContain(
-      "If no such status comment exists, neither a top-level review body nor an issue comment qualifies"
-    );
-    expect(ready).toContain(
-      "Only `COMMENTED` review bodies qualify through this condition"
-    );
-    expect(generated).toContain(
-      "reviews(last:30){nodes{state body author{login __typename} submittedAt"
-    );
-  });
-
-  it("treats an actionable steward issue comment as Ready-return rework", () => {
-    const generated = generateLandSkill(context);
-    const ready = section(
-      generated,
-      "## Ready-return Rework Guard",
-      "## Pre-flight Checks"
-    );
-
-    expect(ready).toContain(
-      "a recent issue comment from a non-`Bot` author that requests changes or reports findings and was created after the handoff boundary defined in item 3"
-    );
-    expect(ready).toContain(
-      "its comment `createdAt` is the handoff boundary for top-level review bodies and issue comments"
-    );
-    expect(ready).toContain(
-      "issue comment triggers rework even when its author login matches the worker account"
-    );
-    expect(ready).toContain(
-      "without treating automated boilerplate or passing reports as actionable"
-    );
-    expect(generated).toContain(
-      "comments(last:50){nodes{id body author{login __typename} createdAt}}"
     );
   });
 

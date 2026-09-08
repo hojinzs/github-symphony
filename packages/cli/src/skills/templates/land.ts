@@ -24,34 +24,6 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
     "If the PR is `MERGED`, skip every pre-flight and failure path, record the merge commit, transition `Land` → `Done` through the gh-project skill, and exit. Never return a merged PR to `Ready`, even if its head branch was deleted."
   );
   lines.push("");
-  lines.push("## Ready-return Rework Guard");
-  lines.push("");
-  lines.push(
-    "Resolve the current delivery PR from the newest workpad, then the primary linked PR, then `closedByPullRequestsReferences` / `closingIssuesReferences`. A text-search match alone is never linked evidence."
-  );
-  lines.push(
-    "**Merged-PR precedence guard:** If the current delivery PR is `MERGED`, transition `Ready` → `Done` before inspecting or classifying review feedback."
-  );
-  lines.push(
-    "A `CHANGES_REQUESTED` review, an unresolved actionable review thread, a non-empty top-level `COMMENTED` review body from a non-`Bot` author that requests changes or reports findings and was submitted after the handoff boundary defined in item 3, or a recent issue comment from a non-`Bot` author that requests changes or reports findings and was created after the handoff boundary defined in item 3 triggers rework."
-  );
-  lines.push(
-    "The most recent status comment recording a transition to `In review` supplies the handoff boundary: its comment `createdAt` is the handoff boundary for top-level review bodies and issue comments. If no such status comment exists, neither a top-level review body nor an issue comment qualifies."
-  );
-  lines.push(
-    "Read reviews with `reviews(last:30){nodes{state body author{login __typename} submittedAt ...}}` and issue comments with `comments(last:50){nodes{id body author{login __typename} createdAt}}`."
-  );
-  lines.push(
-    "A qualifying review body or issue comment triggers rework even when its author login matches the worker account, and a qualifying review body does not require an inline thread. Apply these rules without treating automated review boilerplate or passing review bodies as actionable, and without treating automated boilerplate or passing reports as actionable. Only `COMMENTED` review bodies qualify through this condition."
-  );
-  lines.push(
-    "With a latest qualifying human approval, compare the thread's first comment `createdAt` with the approval review's `submittedAt`; a thread created at or before that approval is absorbed by the approval. When no qualifying approval exists, any unresolved actionable review thread triggers rework as before."
-  );
-  lines.push("");
-  lines.push(
-    "**Merged-PR invariant.** An issue whose current delivery PR is merged must never transition to `Ready`. `Ready` → `Done` is a merged-PR precedence repair."
-  );
-  lines.push("");
   lines.push("## Pre-flight Checks");
   lines.push("");
   lines.push("Before merging, verify ALL of the following:");
@@ -63,7 +35,7 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   );
   lines.push("   ```");
   lines.push(
-    "   Save the latest qualifying human approval's `submittedAt`. Read review threads with `comments(first: 1) { nodes { createdAt } }`. An unresolved actionable thread created after the approval fails Land as rework; a thread created at or before that approval is absorbed by the approval and does not block Land."
+    "   Read the current head and reviews with `headRefOid reviews(last:30){nodes{state body author{login __typename} submittedAt commit{oid}}}`. Save the latest qualifying human approval on the current head and its `submittedAt`. Read review threads with `comments(first: 1) { nodes { createdAt } }`. An unresolved actionable thread created after the approval fails Land as rework; a thread created at or before that approval is absorbed by the approval and does not block Land."
   );
   lines.push("2. **All CI checks are green**:");
   lines.push("   ```bash");
