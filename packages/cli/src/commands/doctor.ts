@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   formatDeferredWorkflowHookPaths,
@@ -2298,7 +2298,9 @@ export async function runDoctorDiagnostics(
         ? repository.cloneUrl
         : repository?.cloneUrl.startsWith("file:")
           ? fileURLToPath(repository.cloneUrl)
-          : null);
+          : repository?.cloneUrl.startsWith(".")
+            ? resolve(repoRoot, repository.cloneUrl)
+            : repoRoot);
     if (repositoryDirectory) {
       const repositoryExtension = workflow.workflow.repository;
       const baseRef =
@@ -2320,6 +2322,16 @@ export async function runDoctorDiagnostics(
             "Project workflow source identity",
             `Project WORKFLOW.md is a diverged copy: loaded ${identity.contentRevision}, while committed ${identity.repositoryRef} is ${identity.repositoryRevision}.`,
             `Replace ${identity.path} with a symlink to ${identity.repositoryPath}, or refresh the copy after reviewing the committed policy.`,
+            details
+          )
+        );
+      } else if (identity.relationship === "unavailable") {
+        checks.push(
+          warnCheck(
+            "workflow_source_identity",
+            "Project workflow source identity",
+            `Project WORKFLOW.md source identity could not be determined (${identity.contentRevision ?? "revision unavailable"}); committed ${identity.repositoryRef ?? "workflow ref"} was not readable.`,
+            `Ensure ${identity.repositoryPath ?? "the configured repository"} is a local Git checkout with ${identity.repositoryRef ?? "the configured base branch"} and a committed WORKFLOW.md.`,
             details
           )
         );

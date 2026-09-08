@@ -61,6 +61,7 @@ export async function inspectWorkflowSourceIdentity(input: {
   });
 
   let sourceContent: string;
+  let linked = false;
   try {
     const sourceStats = await lstat(input.workflowPath);
     sourceContent = await readFile(input.workflowPath, "utf8");
@@ -70,12 +71,7 @@ export async function inspectWorkflowSourceIdentity(input: {
         realpath(repositoryWorkflowPath),
       ]);
       if (sourceTarget === repositoryTarget) {
-        const revision = contentRevision(sourceContent);
-        return {
-          ...unavailable(revision),
-          relationship: "linked",
-          repositoryRevision: revision,
-        };
+        linked = true;
       }
     }
   } catch {
@@ -101,6 +97,13 @@ export async function inspectWorkflowSourceIdentity(input: {
       repositoryCommit: repositoryCommit.trim(),
       repositoryRevision,
     };
+    if (linked) {
+      return {
+        ...common,
+        relationship: "linked",
+        matchedRepositoryCommit: repositoryCommit.trim(),
+      };
+    }
     if (sourceContent === repositoryContent) {
       return {
         ...common,
@@ -112,6 +115,7 @@ export async function inspectWorkflowSourceIdentity(input: {
     const revisions = (
       await execGit(input.repositoryDirectory, [
         "rev-list",
+        "--full-history",
         repositoryRef,
         "--",
         "WORKFLOW.md",

@@ -2257,7 +2257,9 @@ export class OrchestratorService {
     const dispatchRateLimits = trackerRateLimits ?? rateLimits;
     const workflowSourceIdentity = await this.resolveWorkflowSourceIdentity(
       tenant,
-      workflowResolution
+      workflowResolution,
+      issueWorkspaces,
+      allTenantRuns
     );
     const status = buildProjectSnapshot({
       project: tenant,
@@ -2814,12 +2816,20 @@ export class OrchestratorService {
 
   private async resolveWorkflowSourceIdentity(
     tenant: OrchestratorProjectConfig,
-    workflowResolution: WorkflowResolution | null
+    workflowResolution: WorkflowResolution | null,
+    issueWorkspaces: IssueWorkspaceRecord[],
+    runs: OrchestratorRunRecord[]
   ): Promise<WorkflowSourceIdentity | null> {
     if (!tenant.workflowSource?.path || !workflowResolution) return null;
-    const repositoryDirectory = this.resolveLocalRepositoryDirectory(
-      tenant.repository
-    );
+    const repositoryDirectory =
+      this.resolveLocalRepositoryDirectory(tenant.repository) ??
+      [...issueWorkspaces]
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .find((workspace) => workspace.repositoryPath)?.repositoryPath ??
+      [...runs]
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .find((run) => run.workingDirectory)?.workingDirectory ??
+      null;
     if (!repositoryDirectory) return null;
     const repositoryExtension = workflowResolution.workflow.repository;
     const baseRef = isRecord(repositoryExtension)
@@ -2835,7 +2845,13 @@ export class OrchestratorService {
   private resolveWorkflowWarnings(
     identity: WorkflowSourceIdentity | null
   ): string[] {
-    if (identity?.relationship !== "stale-copy") return [];
+    if (!identity) return [];
+    if (identity.relationship === "unavailable") {
+      return [
+        `Project WORKFLOW.md source identity could not be determined: loaded ${identity.contentRevision ?? "an unreadable revision"} from ${identity.path}, but committed ${identity.repositoryRef ?? "workflow ref"} could not be read from ${identity.repositoryPath ?? "the configured repository"}.`,
+      ];
+    }
+    if (identity.relationship !== "stale-copy") return [];
     return [
       `Project WORKFLOW.md is a diverged copy: loaded ${identity.contentRevision} from ${identity.path}, but ${identity.repositoryRef} has ${identity.repositoryRevision} at ${identity.repositoryPath}.`,
     ];

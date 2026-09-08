@@ -513,36 +513,36 @@ describe("runDoctorDiagnostics", () => {
     execFileSync("git", ["-C", repoDir, "add", "WORKFLOW.md"]);
     execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "update policy"]);
 
+    const doctorDependencies = {
+      ...authDependencies(),
+      inspectManagedProjectSelection: async () => ({
+        kind: "resolved",
+        projectId: "tenant-a",
+        projectConfig: {
+          ...createProjectConfig(workspaceDir, "PVT_test", {
+            owner: "acme",
+            name: "widgets",
+            url: "https://github.com/acme/widgets",
+            cloneUrl: ".",
+          }),
+          projectDir,
+          workflowSource: { type: "external", path: projectWorkflowPath },
+        },
+      }),
+      getProjectDetail: (async () =>
+        ({
+          id: "PVT_test",
+          title: "Acme Platform",
+          url: "https://github.com/orgs/acme/projects/1",
+          statusFields: [],
+          textFields: [],
+          linkedRepositories: [],
+        }) as never) as never,
+      execFileSync: (() => "git version 2.43.0") as never,
+      pathEnv,
+    };
     const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(baseOptions(configDir), [], {
-        ...authDependencies(),
-        inspectManagedProjectSelection: async () => ({
-          kind: "resolved",
-          projectId: "tenant-a",
-          projectConfig: {
-            ...createProjectConfig(workspaceDir, "PVT_test", {
-              owner: "acme",
-              name: "widgets",
-              url: "https://github.com/acme/widgets",
-              cloneUrl: repoDir,
-              path: repoDir,
-            }),
-            projectDir,
-            workflowSource: { type: "external", path: projectWorkflowPath },
-          },
-        }),
-        getProjectDetail: (async () =>
-          ({
-            id: "PVT_test",
-            title: "Acme Platform",
-            url: "https://github.com/orgs/acme/projects/1",
-            statusFields: [],
-            textFields: [],
-            linkedRepositories: [],
-          }) as never) as never,
-        execFileSync: (() => "git version 2.43.0") as never,
-        pathEnv,
-      })
+      runDoctorDiagnostics(baseOptions(configDir), [], doctorDependencies)
     );
 
     expect(
@@ -555,6 +555,23 @@ describe("runDoctorDiagnostics", () => {
         contentRevision: expect.stringMatching(/^sha256:/),
         repositoryRevision: expect.stringMatching(/^sha256:/),
       },
+    });
+
+    await writeFile(
+      projectWorkflowPath,
+      "---\ntracker:\n  kind: github-project\nrepository:\n  base_branch: no-such-branch\ncodex:\n  command: fake-agent\n---\nCopied prompt\n"
+    );
+    const unavailableReport = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], doctorDependencies)
+    );
+    expect(
+      unavailableReport.checks.find(
+        (check) => check.id === "workflow_source_identity"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("could not be determined"),
+      details: { relationship: "unavailable" },
     });
   });
 

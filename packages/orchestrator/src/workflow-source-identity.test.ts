@@ -31,7 +31,35 @@ describe("inspectWorkflowSourceIdentity", () => {
 
     await expect(
       inspectWorkflowSourceIdentity({ workflowPath, repositoryDirectory })
-    ).resolves.toMatchObject({ relationship: "linked" });
+    ).resolves.toMatchObject({
+      relationship: "linked",
+      repositoryCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+      repositoryRevision: expect.stringMatching(/^sha256:/),
+    });
+  });
+
+  it("compares a linked working-tree workflow with the committed ref", async () => {
+    const repositoryDirectory = await createRepository();
+    const projectDirectory = await mkdtemp(join(tmpdir(), "workflow-project-"));
+    const workflowPath = join(projectDirectory, "WORKFLOW.md");
+    await symlink(join(repositoryDirectory, "WORKFLOW.md"), workflowPath);
+    await writeFile(
+      join(repositoryDirectory, "WORKFLOW.md"),
+      "policy: dirty\n"
+    );
+
+    const identity = await inspectWorkflowSourceIdentity({
+      workflowPath,
+      repositoryDirectory,
+    });
+
+    expect(identity).toMatchObject({
+      relationship: "linked",
+      contentRevision: expect.stringMatching(/^sha256:/),
+      repositoryRevision: expect.stringMatching(/^sha256:/),
+      repositoryCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+    });
+    expect(identity.contentRevision).not.toBe(identity.repositoryRevision);
   });
 
   it("classifies an identical regular-file copy as synchronized", async () => {
@@ -78,5 +106,32 @@ describe("inspectWorkflowSourceIdentity", () => {
       relationship: "independent",
       matchedRepositoryCommit: null,
     });
+  });
+
+  it("requests full reachable history when matching a stale copy", async () => {
+    const repositoryDirectory = await createRepository();
+    const projectDirectory = await mkdtemp(join(tmpdir(), "workflow-project-"));
+    const workflowPath = join(projectDirectory, "WORKFLOW.md");
+    await writeFile(workflowPath, "policy: independent\n");
+    const calls: string[][] = [];
+
+    await inspectWorkflowSourceIdentity({
+      workflowPath,
+      repositoryDirectory,
+      dependencies: {
+        execGit: async (cwd, args) => {
+          calls.push(args);
+          return git(cwd, ...args);
+        },
+      },
+    });
+
+    expect(calls).toContainEqual([
+      "rev-list",
+      "--full-history",
+      "HEAD",
+      "--",
+      "WORKFLOW.md",
+    ]);
   });
 });
