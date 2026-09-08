@@ -2299,7 +2299,7 @@ export async function runDoctorDiagnostics(
       store.loadAllRuns(),
     ]);
     const repositoryDirectory = repository
-      ? resolveWorkflowRepositoryDirectory({
+      ? await resolveWorkflowRepositoryDirectory({
           repository,
           issueWorkspaces,
           runs: allRuns.filter(

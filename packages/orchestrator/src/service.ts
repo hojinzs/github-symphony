@@ -2822,7 +2822,7 @@ export class OrchestratorService {
     runs: OrchestratorRunRecord[]
   ): Promise<WorkflowSourceIdentity | null> {
     if (!tenant.workflowSource?.path || !workflowResolution) return null;
-    const repositoryDirectory = resolveWorkflowRepositoryDirectory({
+    const repositoryDirectory = await resolveWorkflowRepositoryDirectory({
       repository: tenant.repository,
       issueWorkspaces,
       runs,

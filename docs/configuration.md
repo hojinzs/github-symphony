@@ -44,8 +44,9 @@ is healthy, while a policy that never matched repository history is reported as
 deliberately independent rather than repeatedly warned about. An unavailable
 committed ref or checkout is also a warning because the comparison could not be
 verified. Status and `doctor` use the same repository resolver: for an HTTPS
-clone URL they fall back to the newest persisted issue checkout or run working
-directory for that project, and never infer repository identity from the
+clone URL they fall back to the newest usable live issue checkout or run
+working directory for that project. Removed, missing, and non-Git persisted
+paths are skipped, and repository identity is never inferred from the
 operator's current directory. The comparison reads local Git data and never
 fetches.
 

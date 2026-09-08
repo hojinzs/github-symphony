@@ -140,8 +140,10 @@ describe("inspectWorkflowSourceIdentity", () => {
 });
 
 describe("resolveWorkflowRepositoryDirectory", () => {
-  it("uses the newest persisted issue checkout for a remote clone URL", () => {
-    expect(
+  it("uses the newest persisted issue checkout for a remote clone URL", async () => {
+    const olderRepositoryDirectory = await createRepository();
+    const newerRepositoryDirectory = await createRepository();
+    await expect(
       resolveWorkflowRepositoryDirectory({
         repository: {
           owner: "acme",
@@ -156,7 +158,7 @@ describe("resolveWorkflowRepositoryDirectory", () => {
             issueSubjectId: "issue-1",
             issueIdentifier: "acme/widgets#1",
             workspacePath: "/workspaces/older",
-            repositoryPath: "/workspaces/older/repository",
+            repositoryPath: olderRepositoryDirectory,
             status: "active",
             createdAt: "2026-09-08T00:00:00Z",
             updatedAt: "2026-09-08T00:00:00Z",
@@ -169,7 +171,7 @@ describe("resolveWorkflowRepositoryDirectory", () => {
             issueSubjectId: "issue-2",
             issueIdentifier: "acme/widgets#2",
             workspacePath: "/workspaces/newer",
-            repositoryPath: "/workspaces/newer/repository",
+            repositoryPath: newerRepositoryDirectory,
             status: "active",
             createdAt: "2026-09-08T00:00:00Z",
             updatedAt: "2026-09-08T01:00:00Z",
@@ -177,11 +179,64 @@ describe("resolveWorkflowRepositoryDirectory", () => {
           },
         ],
       })
-    ).toBe("/workspaces/newer/repository");
+    ).resolves.toBe(newerRepositoryDirectory);
   });
 
-  it("does not use the process cwd as evidence for a remote repository", () => {
-    expect(
+  it("skips newer removed and missing workspace records", async () => {
+    const removedRepositoryDirectory = await createRepository();
+    const availableRepositoryDirectory = await createRepository();
+    const workspace = (input: {
+      key: string;
+      path: string;
+      status: "active" | "removed";
+      updatedAt: string;
+    }) => ({
+      workspaceKey: input.key,
+      projectId: "tenant-a",
+      adapter: "github-project" as const,
+      issueSubjectId: `issue-${input.key}`,
+      issueIdentifier: `acme/widgets#${input.key}`,
+      workspacePath: `/workspaces/${input.key}`,
+      repositoryPath: input.path,
+      status: input.status,
+      createdAt: "2026-09-08T00:00:00Z",
+      updatedAt: input.updatedAt,
+      lastError: null,
+    });
+
+    await expect(
+      resolveWorkflowRepositoryDirectory({
+        repository: {
+          owner: "acme",
+          name: "widgets",
+          cloneUrl: "https://github.com/acme/widgets.git",
+        },
+        issueWorkspaces: [
+          workspace({
+            key: "removed",
+            path: removedRepositoryDirectory,
+            status: "removed",
+            updatedAt: "2026-09-08T03:00:00Z",
+          }),
+          workspace({
+            key: "missing",
+            path: "/workspaces/missing/repository",
+            status: "active",
+            updatedAt: "2026-09-08T02:00:00Z",
+          }),
+          workspace({
+            key: "available",
+            path: availableRepositoryDirectory,
+            status: "active",
+            updatedAt: "2026-09-08T01:00:00Z",
+          }),
+        ],
+      })
+    ).resolves.toBe(availableRepositoryDirectory);
+  });
+
+  it("does not use the process cwd as evidence for a remote repository", async () => {
+    await expect(
       resolveWorkflowRepositoryDirectory({
         repository: {
           owner: "acme",
@@ -190,6 +245,6 @@ describe("resolveWorkflowRepositoryDirectory", () => {
         },
         baseDirectory: "/unrelated/operator/repository",
       })
-    ).toBeNull();
+    ).resolves.toBeNull();
   });
 });

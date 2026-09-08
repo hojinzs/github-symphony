@@ -466,8 +466,9 @@ current copy, or never-related independent policy as a distinct non-warning
 identity. If the committed ref or checkout cannot be read, `doctor` reports the
 comparison as a warning rather than passing it. Relative local clone paths are
 resolved from the command's repository working directory; remote clone URLs
-use the project's newest persisted issue checkout or run working directory,
-never an unrelated operator cwd. The comparison never fetches from the network.
+use the project's newest usable live issue checkout or run working directory,
+skipping removed, missing, or non-Git persisted paths and never using an
+unrelated operator cwd. The comparison never fetches from the network.
 
 ```bash
 cd <projectDir>

@@ -34,28 +34,41 @@ export type WorkflowSourceIdentityDependencies = {
   execGit?: (cwd: string, args: string[]) => Promise<string>;
 };
 
-export function resolveWorkflowRepositoryDirectory(input: {
+export async function resolveWorkflowRepositoryDirectory(input: {
   repository: RepositoryRef;
   issueWorkspaces?: IssueWorkspaceRecord[];
   runs?: OrchestratorRunRecord[];
   baseDirectory?: string;
-}): string | null {
+  dependencies?: WorkflowSourceIdentityDependencies;
+}): Promise<string | null> {
+  const execGit = input.dependencies?.execGit ?? defaultExecGit;
   const configuredPath = resolveConfiguredRepositoryPath(
     input.repository,
     input.baseDirectory ?? process.cwd()
   );
-  if (configuredPath) return configuredPath;
-
-  const latestWorkspace = [...(input.issueWorkspaces ?? [])]
+  const workspacePaths = [...(input.issueWorkspaces ?? [])]
+    .filter((workspace) => workspace.status !== "removed")
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .find((workspace) => workspace.repositoryPath);
-  if (latestWorkspace) return latestWorkspace.repositoryPath;
+    .map((workspace) => workspace.repositoryPath);
+  const runPaths = [...(input.runs ?? [])]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map((run) => run.workingDirectory);
 
-  return (
-    [...(input.runs ?? [])]
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .find((run) => run.workingDirectory)?.workingDirectory ?? null
-  );
+  for (const candidate of [configuredPath, ...workspacePaths, ...runPaths]) {
+    if (!candidate) continue;
+    try {
+      if (
+        (
+          await execGit(candidate, ["rev-parse", "--is-inside-work-tree"])
+        ).trim() === "true"
+      ) {
+        return candidate;
+      }
+    } catch {
+      // Persisted workspace and run records can outlive their local checkout.
+    }
+  }
+  return null;
 }
 
 function resolveConfiguredRepositoryPath(
