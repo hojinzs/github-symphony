@@ -56,6 +56,47 @@ describe("generateLandSkill", () => {
 });
 
 describe("merged-PR lifecycle guards", () => {
+  it("documents every Land lifecycle exit and in-cycle conflict recovery", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const lifecycle = section(
+      workflow,
+      "### Workpad Lifecycle",
+      "### Status Transition Log"
+    );
+    const installedLandSkill = await repositoryFile(
+      ".codex/skills/land/SKILL.md"
+    );
+    const generatedLandSkill = generateLandSkill(context);
+
+    expect(lifecycle).toContain("`Land` → `Land` (trivial-conflict recovery)");
+    expect(lifecycle).toContain("continue the current land cycle");
+    expect(lifecycle).toContain(
+      "`Land` → `In review` (external wait-only failure)"
+    );
+    expect(lifecycle).toContain("`Land` → `Ready` (Land-return rework)");
+    expect(lifecycle).toContain(
+      "`Land` → `Backlog` (external or permission blocker)"
+    );
+
+    for (const skill of [installedLandSkill, generatedLandSkill]) {
+      expect(skill).toContain("send `Land` → `In review` transition intent");
+      expect(skill).toContain("send `Land` → `Ready` transition intent");
+      expect(skill).toContain("send `Land` → `Backlog` transition intent");
+      expect(skill).toContain("**Trivial conflict**");
+      expect(skill).toContain("remaining in `Land`");
+    }
+
+    expect(generatedLandSkill).toContain("the repository lockfile");
+    expect(generatedLandSkill).toContain(
+      "regenerate the lockfile with the repository package manager"
+    );
+    expect(generatedLandSkill).toContain("through the pull skill");
+    expect(generatedLandSkill).toContain(
+      "outside the trivial set defined in item 4"
+    );
+    expect(generatedLandSkill).not.toContain("pnpm-lock.yaml");
+  });
+
   it("places Ready merged precedence before rework classification and verifies candidate linkage", async () => {
     const workflow = await repositoryFile("WORKFLOW.md");
     const ready = section(
@@ -160,13 +201,38 @@ describe("merged-PR lifecycle guards", () => {
     );
     expect(ready).toContain("does not require an inline thread");
     expect(ready).toContain(
-      "If no such status comment exists, no top-level review body qualifies"
+      "If no such status comment exists, neither a top-level review body nor an issue comment qualifies"
     );
     expect(ready).toContain(
       "Only `COMMENTED` review bodies qualify through this condition"
     );
     expect(workflow).toContain(
       "reviews(last:30){nodes{state body author{login __typename} submittedAt"
+    );
+  });
+
+  it("treats an actionable steward issue comment as Ready-return rework", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const ready = section(
+      workflow,
+      "##### Ready-return rework guard",
+      "##### Stalled-handoff safety net"
+    );
+
+    expect(ready).toContain(
+      "a recent issue comment from a non-`Bot` author that requests changes or reports findings and was created after the handoff boundary defined in item 3"
+    );
+    expect(ready).toContain(
+      "its comment `createdAt` is the handoff boundary for top-level review bodies and issue comments"
+    );
+    expect(ready).toContain(
+      "issue comment triggers rework even when its author login matches the worker account"
+    );
+    expect(ready).toContain(
+      "without treating automated boilerplate or passing reports as actionable"
+    );
+    expect(workflow).toContain(
+      "comments(last:50){nodes{id body author{login __typename} createdAt}}"
     );
   });
 
