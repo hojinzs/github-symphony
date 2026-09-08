@@ -108,10 +108,15 @@ describe("merged-PR lifecycle guards", () => {
   it("gates Land rework on actionable threads created after approval", () => {
     const landSkill = generateLandSkill(context);
 
+    expect(landSkill).not.toContain("Ready-return Rework Guard");
+    expect(landSkill).not.toContain("`Ready` → `Done`");
+    expect(landSkill).toContain("through `github_graphql`");
     expect(landSkill).toContain(
       "headRefOid reviews(last:30){nodes{state body author{login __typename} submittedAt commit{oid}}}"
     );
-    expect(landSkill).toContain("approval on the current head");
+    expect(landSkill).toContain("`state == APPROVED`");
+    expect(landSkill).toContain("`author.__typename != Bot`");
+    expect(landSkill).toContain("`commit.oid == headRefOid`");
     expect(landSkill).toContain("comments(first: 1)");
     expect(landSkill).toContain("createdAt");
     expect(landSkill).toContain("approval's `submittedAt`");
