@@ -38,11 +38,13 @@ the reload decision and scope.
 
 Human-readable `gh-symphony project status` and its `--watch` dashboard show
 the applied and source-of-truth revisions; `--json` exposes the same metadata
-for automation. `doctor` warns only when a regular-file project workflow
-matches an older reachable revision of the repository workflow. A symlink or
-current copy is healthy, while a policy that never matched repository history
-is reported as deliberately independent rather than repeatedly warned about.
-The comparison reads the configured local checkout and never fetches.
+for automation. `doctor` warns when a regular-file project workflow matches an
+older reachable revision of the repository workflow. A symlink or current copy
+is healthy, while a policy that never matched repository history is reported as
+deliberately independent rather than repeatedly warned about. An unavailable
+committed ref or checkout is also a warning because the comparison could not be
+verified. Status may use a persisted issue checkout for an HTTPS clone URL; the
+comparison reads local Git data and never fetches.
 
 ### Tracker provider binding and live reload
 
