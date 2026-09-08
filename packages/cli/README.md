@@ -465,8 +465,9 @@ a regular-file copy matches an older repository revision, but treats a symlink,
 current copy, or never-related independent policy as a distinct non-warning
 identity. If the committed ref or checkout cannot be read, `doctor` reports the
 comparison as a warning rather than passing it. Relative local clone paths are
-resolved from the command's repository working directory, and the comparison
-never fetches from the network.
+resolved from the command's repository working directory; remote clone URLs
+use the project's newest persisted issue checkout or run working directory,
+never an unrelated operator cwd. The comparison never fetches from the network.
 
 ```bash
 cd <projectDir>

@@ -3,7 +3,10 @@ import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { inspectWorkflowSourceIdentity } from "./workflow-source-identity.js";
+import {
+  inspectWorkflowSourceIdentity,
+  resolveWorkflowRepositoryDirectory,
+} from "./workflow-source-identity.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
@@ -133,5 +136,60 @@ describe("inspectWorkflowSourceIdentity", () => {
       "--",
       "WORKFLOW.md",
     ]);
+  });
+});
+
+describe("resolveWorkflowRepositoryDirectory", () => {
+  it("uses the newest persisted issue checkout for a remote clone URL", () => {
+    expect(
+      resolveWorkflowRepositoryDirectory({
+        repository: {
+          owner: "acme",
+          name: "widgets",
+          cloneUrl: "https://github.com/acme/widgets.git",
+        },
+        issueWorkspaces: [
+          {
+            workspaceKey: "older",
+            projectId: "tenant-a",
+            adapter: "github-project",
+            issueSubjectId: "issue-1",
+            issueIdentifier: "acme/widgets#1",
+            workspacePath: "/workspaces/older",
+            repositoryPath: "/workspaces/older/repository",
+            status: "active",
+            createdAt: "2026-09-08T00:00:00Z",
+            updatedAt: "2026-09-08T00:00:00Z",
+            lastError: null,
+          },
+          {
+            workspaceKey: "newer",
+            projectId: "tenant-a",
+            adapter: "github-project",
+            issueSubjectId: "issue-2",
+            issueIdentifier: "acme/widgets#2",
+            workspacePath: "/workspaces/newer",
+            repositoryPath: "/workspaces/newer/repository",
+            status: "active",
+            createdAt: "2026-09-08T00:00:00Z",
+            updatedAt: "2026-09-08T01:00:00Z",
+            lastError: null,
+          },
+        ],
+      })
+    ).toBe("/workspaces/newer/repository");
+  });
+
+  it("does not use the process cwd as evidence for a remote repository", () => {
+    expect(
+      resolveWorkflowRepositoryDirectory({
+        repository: {
+          owner: "acme",
+          name: "widgets",
+          cloneUrl: "https://github.com/acme/widgets.git",
+        },
+        baseDirectory: "/unrelated/operator/repository",
+      })
+    ).toBeNull();
   });
 });

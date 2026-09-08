@@ -1,8 +1,7 @@
 import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   formatDeferredWorkflowHookPaths,
   normalizeLabels,
@@ -29,6 +28,8 @@ import {
   resolveTrackerAdapter,
   resolveWorkflowConfigTrackerAdapter,
   inspectWorkflowSourceIdentity,
+  resolveWorkflowRepositoryDirectory,
+  createStore,
 } from "@gh-symphony/orchestrator";
 import {
   fetchGithubProjectIssueByRepositoryAndNumber,
@@ -2292,15 +2293,21 @@ export async function runDoctorDiagnostics(
     resolvedProjectConfig.kind === "resolved"
   ) {
     const repository = resolvedProjectConfig.projectConfig.repository;
-    const repositoryDirectory =
-      repository?.path ??
-      (repository && isAbsolute(repository.cloneUrl)
-        ? repository.cloneUrl
-        : repository?.cloneUrl.startsWith("file:")
-          ? fileURLToPath(repository.cloneUrl)
-          : repository?.cloneUrl.startsWith(".")
-            ? resolve(repoRoot, repository.cloneUrl)
-            : repoRoot);
+    const store = createStore(runtimeRoot);
+    const [issueWorkspaces, allRuns] = await Promise.all([
+      store.loadIssueWorkspaces(resolvedProjectConfig.projectId),
+      store.loadAllRuns(),
+    ]);
+    const repositoryDirectory = repository
+      ? resolveWorkflowRepositoryDirectory({
+          repository,
+          issueWorkspaces,
+          runs: allRuns.filter(
+            (run) => run.projectId === resolvedProjectConfig.projectId
+          ),
+          baseDirectory: repoRoot,
+        })
+      : null;
     if (repositoryDirectory) {
       const repositoryExtension = workflow.workflow.repository;
       const baseRef =
@@ -2347,6 +2354,24 @@ export async function runDoctorDiagnostics(
           )
         );
       }
+    } else {
+      checks.push(
+        warnCheck(
+          "workflow_source_identity",
+          "Project workflow source identity",
+          "Project WORKFLOW.md source identity could not be determined because no configured repository checkout was found.",
+          "Run the project so it creates a local issue workspace, or configure repository.path with a local Git checkout.",
+          {
+            relationship: "unavailable",
+            contentRevision: null,
+            repositoryPath: null,
+            repositoryRef: null,
+            repositoryCommit: null,
+            repositoryRevision: null,
+            matchedRepositoryCommit: null,
+          }
+        )
+      );
     }
   }
 

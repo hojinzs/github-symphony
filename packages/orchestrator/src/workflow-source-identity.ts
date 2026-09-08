@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
+import { isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type {
+  IssueWorkspaceRecord,
+  OrchestratorRunRecord,
+  RepositoryRef,
+} from "@gh-symphony/core";
 
 const execFileAsync = promisify(execFile);
 
@@ -26,6 +33,47 @@ export type WorkflowSourceIdentity = {
 export type WorkflowSourceIdentityDependencies = {
   execGit?: (cwd: string, args: string[]) => Promise<string>;
 };
+
+export function resolveWorkflowRepositoryDirectory(input: {
+  repository: RepositoryRef;
+  issueWorkspaces?: IssueWorkspaceRecord[];
+  runs?: OrchestratorRunRecord[];
+  baseDirectory?: string;
+}): string | null {
+  const configuredPath = resolveConfiguredRepositoryPath(
+    input.repository,
+    input.baseDirectory ?? process.cwd()
+  );
+  if (configuredPath) return configuredPath;
+
+  const latestWorkspace = [...(input.issueWorkspaces ?? [])]
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .find((workspace) => workspace.repositoryPath);
+  if (latestWorkspace) return latestWorkspace.repositoryPath;
+
+  return (
+    [...(input.runs ?? [])]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .find((run) => run.workingDirectory)?.workingDirectory ?? null
+  );
+}
+
+function resolveConfiguredRepositoryPath(
+  repository: RepositoryRef,
+  baseDirectory: string
+): string | null {
+  if (repository.path) return repository.path;
+  try {
+    const url = new URL(repository.cloneUrl);
+    return url.protocol === "file:" ? fileURLToPath(url) : null;
+  } catch {
+    return isAbsolute(repository.cloneUrl)
+      ? repository.cloneUrl
+      : repository.cloneUrl.startsWith(".")
+        ? resolve(baseDirectory, repository.cloneUrl)
+        : null;
+  }
+}
 
 function contentRevision(content: string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex").slice(0, 12)}`;

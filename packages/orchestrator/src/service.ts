@@ -87,6 +87,7 @@ import {
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
 import {
   inspectWorkflowSourceIdentity,
+  resolveWorkflowRepositoryDirectory,
   type WorkflowSourceIdentity,
 } from "./workflow-source-identity.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
@@ -2821,15 +2822,11 @@ export class OrchestratorService {
     runs: OrchestratorRunRecord[]
   ): Promise<WorkflowSourceIdentity | null> {
     if (!tenant.workflowSource?.path || !workflowResolution) return null;
-    const repositoryDirectory =
-      this.resolveLocalRepositoryDirectory(tenant.repository) ??
-      [...issueWorkspaces]
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .find((workspace) => workspace.repositoryPath)?.repositoryPath ??
-      [...runs]
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .find((run) => run.workingDirectory)?.workingDirectory ??
-      null;
+    const repositoryDirectory = resolveWorkflowRepositoryDirectory({
+      repository: tenant.repository,
+      issueWorkspaces,
+      runs,
+    });
     if (!repositoryDirectory) return null;
     const repositoryExtension = workflowResolution.workflow.repository;
     const baseRef = isRecord(repositoryExtension)

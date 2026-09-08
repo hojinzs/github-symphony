@@ -43,8 +43,11 @@ older reachable revision of the repository workflow. A symlink or current copy
 is healthy, while a policy that never matched repository history is reported as
 deliberately independent rather than repeatedly warned about. An unavailable
 committed ref or checkout is also a warning because the comparison could not be
-verified. Status may use a persisted issue checkout for an HTTPS clone URL; the
-comparison reads local Git data and never fetches.
+verified. Status and `doctor` use the same repository resolver: for an HTTPS
+clone URL they fall back to the newest persisted issue checkout or run working
+directory for that project, and never infer repository identity from the
+operator's current directory. The comparison reads local Git data and never
+fetches.
 
 ### Tracker provider binding and live reload
 
