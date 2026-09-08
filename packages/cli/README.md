@@ -458,7 +458,12 @@ already-scheduled tick before the new interval applies. The daemon intentionally
 does not use a filesystem watcher, a repository-local divergence from the
 upstream Symphony specification. `project status` expose the
 applied `workflow.revision` and `workflow.loadedAt`; dispatch events carry
-`workflowRevision`.
+`workflowRevision`. When the configured repository is local, status also shows
+the project workflow's source path, content revision, relationship to repository
+history, and current committed repository-policy revision. `doctor` warns when
+a regular-file copy matches an older repository revision, but treats a symlink,
+current copy, or never-related independent policy as a distinct non-warning
+identity. The comparison never fetches from the network.
 
 ```bash
 cd <projectDir>

@@ -28,12 +28,21 @@ repository meets the defensive detection/re-read acceptance behavior but does
 not provide immediate event-driven re-application. The status snapshot records
 the effective `workflow.revision` (a short SHA-256-derived identifier) and
 `workflow.loadedAt`; `run-dispatched` structured events record the same
-`workflowRevision`. Neither value contains workflow contents or environment
+`workflowRevision`. For standalone projects backed by a local checkout,
+`workflow.source` also records the source path, relationship (`linked`,
+`synchronized-copy`, `stale-copy`, `independent`, or `unavailable`), raw-content
+revision, and the configured base ref's committed repository path, commit, and
+content revision. These values contain no workflow contents or environment
 values. See [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md) for
-the decision and scope.
+the reload decision and scope.
 
 Human-readable `gh-symphony project status` and its `--watch` dashboard show
-the applied revision; `--json` exposes the same metadata for automation.
+the applied and source-of-truth revisions; `--json` exposes the same metadata
+for automation. `doctor` warns only when a regular-file project workflow
+matches an older reachable revision of the repository workflow. A symlink or
+current copy is healthy, while a policy that never matched repository history
+is reported as deliberately independent rather than repeatedly warned about.
+The comparison reads the configured local checkout and never fetches.
 
 ### Tracker provider binding and live reload
 
