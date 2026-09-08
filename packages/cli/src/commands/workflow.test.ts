@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -120,6 +120,214 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain(`Path: ${workflowPath}`);
     expect(stdout.output()).toContain("continuation_guidance=pass");
     expect(stdout.output()).toContain("active_states=Ready, In progress");
+    expect(stdout.output()).not.toContain("path_checks=");
+  });
+
+  it.each([
+    {
+      name: "invalid path syntax",
+      hook: "bash ./scripts/setup.sh",
+      expected: 'after_create="bash ./scripts/setup.sh" (not a path)',
+    },
+    {
+      name: "missing script",
+      hook: "./scripts/missing.sh",
+      expected: "(missing)",
+    },
+  ])("rejects $name in workflow hooks", async ({ hook, expected }) => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        `hooks:\n  after_create: ${hook}\ncodex:\n`
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("Invalid WORKFLOW.md hook path");
+    expect(stderr.output()).toContain(expected);
+    expect(stderr.output()).toContain(
+      "Create the referenced hook script(s), make them executable, or fix the hook path(s)."
+    );
+  });
+
+  it("prints typed hook path errors from workflow validate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-json-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./scripts/missing.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      error: {
+        code: "workflow_validation_error",
+        path: "hooks.after_create",
+        message: expect.stringContaining("(missing)"),
+      },
+    });
+  });
+
+  it("uses the parent hooks path when multiple hook paths fail", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hooks-json-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./scripts/missing.sh\n  before_run: /missing/before-run.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      error: {
+        code: "workflow_validation_error",
+        path: "hooks",
+        message: expect.stringContaining("after_create="),
+      },
+    });
+    expect(stdout.output()).toContain("before_run=");
+  });
+
+  it("rejects a workflow hook path that is not a file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-dir-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const hookDirectory = join(root, "hook-directory");
+    const stderr = captureWrites(process.stderr);
+    await mkdir(hookDirectory);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./hook-directory\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("after_create=");
+    expect(stderr.output()).toContain("hook-directory (not file)");
+  });
+
+  it("reports checked and deferred workflow hook paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hooks-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const hookPath = join(root, "after-create.sh");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(hookPath, "#!/bin/sh\n", "utf8");
+    await chmod(hookPath, 0o755);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./after-create.sh\n  before_run: ./scripts/before-run.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("path_checks=1 checked, 1 deferred");
+    expect(stdout.output()).toContain(
+      "Deferred 1 repository-relative workflow hook"
+    );
+  });
+
+  it("rejects a non-executable workflow hook script", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-mode-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const hookPath = join(root, "after-create.sh");
+    const stderr = captureWrites(process.stderr);
+    await writeFile(hookPath, "#!/bin/sh\n", { mode: 0o644 });
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./after-create.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("after_create=");
+    expect(stderr.output()).toContain("(not executable)");
   });
 
   it.each([
@@ -138,7 +346,11 @@ codex:
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
       expected: [30000, 900000, 1800000],
-      expectedSource: "runtime.timeouts",
+      expectedSources: [
+        "runtime.timeouts",
+        "runtime.timeouts",
+        "runtime.timeouts",
+      ],
     },
     {
       name: "legacy codex timeout fallback",
@@ -147,10 +359,10 @@ codex:
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
       expected: [7000, 60000, 120000],
-      expectedSource: "codex/defaults",
+      expectedSources: ["codex/defaults", "codex/defaults", "codex/defaults"],
     },
     {
-      name: "runtime defaults over legacy codex timeouts",
+      name: "legacy codex timeout fallback with a runtime block",
       frontMatter: `runtime:
   kind: codex-app-server
   command: codex
@@ -159,18 +371,30 @@ codex:
   read_timeout_ms: 7000
   stall_timeout_ms: 60000
   turn_timeout_ms: 120000`,
-      expected: [5000, 300000, 3600000],
-      expectedSource: "runtime.timeouts",
+      expected: [7000, 60000, 120000],
+      expectedSources: ["codex/defaults", "codex/defaults", "codex/defaults"],
     },
     {
       name: "documented timeout defaults",
       frontMatter: "codex:\n  command: codex app-server",
       expected: [5000, 300000, 3600000],
-      expectedSource: "codex/defaults",
+      expectedSources: ["codex/defaults", "codex/defaults", "codex/defaults"],
+    },
+    {
+      name: "partial runtime timeout precedence",
+      frontMatter: `runtime:
+  kind: codex-app-server
+  timeouts:
+    read_timeout_ms: 30000
+codex:
+  stall_timeout_ms: 60000
+  turn_timeout_ms: 120000`,
+      expected: [30000, 60000, 120000],
+      expectedSources: ["runtime.timeouts", "codex/defaults", "codex/defaults"],
     },
   ])(
     "reports $name as effective runtime timeouts",
-    async ({ frontMatter, expected, expectedSource }) => {
+    async ({ frontMatter, expected, expectedSources }) => {
       const root = await mkdtemp(join(tmpdir(), "workflow-validate-timeouts-"));
       const workflowPath = join(root, "WORKFLOW.md");
       const stdout = captureWrites(process.stdout);
@@ -202,7 +426,15 @@ codex:
         `runtime.timeouts.turn_timeout_ms=${expected[2]}`
       );
       expect(stdout.output()).not.toContain("codex.read_timeout_ms=");
-      expect(stdout.output()).toContain(`(source: ${expectedSource})`);
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.read_timeout_ms=${expected[0]} (source: ${expectedSources[0]})`
+      );
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.stall_timeout_ms=${expected[1]} (source: ${expectedSources[1]})`
+      );
+      expect(stdout.output()).toContain(
+        `runtime.timeouts.turn_timeout_ms=${expected[2]} (source: ${expectedSources[2]})`
+      );
 
       const jsonStdout = captureWrites(process.stdout);
       try {
@@ -219,7 +451,7 @@ codex:
       const report = JSON.parse(jsonStdout.output()) as {
         summary: {
           runtimeTimeouts: Record<string, number>;
-          runtimeTimeoutSource: string;
+          runtimeTimeoutSources: Record<string, string>;
         };
       };
       expect(report.summary.runtimeTimeouts).toEqual({
@@ -227,7 +459,11 @@ codex:
         stallTimeoutMs: expected[1],
         turnTimeoutMs: expected[2],
       });
-      expect(report.summary.runtimeTimeoutSource).toBe(expectedSource);
+      expect(report.summary.runtimeTimeoutSources).toEqual({
+        readTimeoutMs: expectedSources[0],
+        stallTimeoutMs: expectedSources[1],
+        turnTimeoutMs: expectedSources[2],
+      });
     }
   );
 

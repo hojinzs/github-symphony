@@ -1,13 +1,16 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import {
   buildPromptVariables,
+  formatDeferredWorkflowHookPaths,
+  formatWorkflowHookPathProblems,
   type OrchestratorProjectConfig,
   parseWorkflowMarkdown,
   WorkflowValidationError,
   renderPrompt,
   resolveWorkflowExecutionPhase,
   resolveWorkflowRuntimeTimeouts,
+  validateWorkflowHookPaths,
   type TrackedIssue,
 } from "@gh-symphony/core";
 import {
@@ -83,6 +86,10 @@ type WorkflowValidationReport = {
     promptFresh: "pass";
     promptRetry: "pass";
     continuationGuidance: "pass" | "skip";
+    hookPaths: {
+      checked: number;
+      deferred: number;
+    };
   };
   warnings: PriorityDiagnostic[];
   summary: {
@@ -112,7 +119,11 @@ type WorkflowValidationReport = {
       stallTimeoutMs: number;
       turnTimeoutMs: number;
     };
-    runtimeTimeoutSource: "runtime.timeouts" | "codex/defaults";
+    runtimeTimeoutSources: {
+      readTimeoutMs: "runtime.timeouts" | "codex/defaults";
+      stallTimeoutMs: "runtime.timeouts" | "codex/defaults";
+      turnTimeoutMs: "runtime.timeouts" | "codex/defaults";
+    };
     hooks: {
       afterCreate: string | null;
       beforeRun: string | null;
@@ -815,10 +826,10 @@ async function loadLinearIssue(
   };
 }
 
-function validateWorkflow(
+async function validateWorkflow(
   workflowPath: string,
   markdown: string
-): WorkflowValidationReport {
+): Promise<WorkflowValidationReport> {
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
     resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
@@ -848,6 +859,18 @@ function validateWorkflow(
       })()
     : ("skip" as const);
   const effectiveTimeouts = resolveWorkflowRuntimeTimeouts(workflow);
+  const hookValidation = await validateWorkflowHookPaths(workflow.hooks, {
+    workflowDirectory: dirname(workflowPath),
+  });
+  if (hookValidation.problems.length > 0) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      hookValidation.problems.length === 1
+        ? `hooks.${hookValidation.problems[0].hook}`
+        : "hooks",
+      `Invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}. Create the referenced hook script(s), make them executable, or fix the hook path(s).`
+    );
+  }
 
   return {
     ok: true,
@@ -857,6 +880,10 @@ function validateWorkflow(
       promptFresh: "pass",
       promptRetry: "pass",
       continuationGuidance: continuationGuidanceStatus,
+      hookPaths: {
+        checked: hookValidation.checked.length,
+        deferred: hookValidation.deferred,
+      },
     },
     warnings: [
       ...buildPriorityConfigDiagnostics(workflow),
@@ -889,9 +916,11 @@ function validateWorkflow(
         stallTimeoutMs: effectiveTimeouts.stallTimeoutMs,
         turnTimeoutMs: effectiveTimeouts.turnTimeoutMs,
       },
-      runtimeTimeoutSource: workflow.runtime
-        ? "runtime.timeouts"
-        : "codex/defaults",
+      runtimeTimeoutSources: workflow.runtime?.timeoutSources ?? {
+        readTimeoutMs: "codex/defaults",
+        stallTimeoutMs: "codex/defaults",
+        turnTimeoutMs: "codex/defaults",
+      },
       hooks: {
         afterCreate: workflow.hooks.afterCreate,
         beforeRun: workflow.hooks.beforeRun,
@@ -930,9 +959,9 @@ Runtime
   codex.approval_policy=${report.summary.codex.approvalPolicy ?? "unset"}
   codex.thread_sandbox=${report.summary.codex.threadSandbox ?? "unset"}
   codex.turn_sandbox_policy=${report.summary.codex.turnSandboxPolicy ?? "unset"}
-  runtime.timeouts.read_timeout_ms=${report.summary.runtimeTimeouts.readTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
-  runtime.timeouts.stall_timeout_ms=${report.summary.runtimeTimeouts.stallTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
-  runtime.timeouts.turn_timeout_ms=${report.summary.runtimeTimeouts.turnTimeoutMs} (source: ${report.summary.runtimeTimeoutSource})
+  runtime.timeouts.read_timeout_ms=${report.summary.runtimeTimeouts.readTimeoutMs} (source: ${report.summary.runtimeTimeoutSources.readTimeoutMs})
+  runtime.timeouts.stall_timeout_ms=${report.summary.runtimeTimeouts.stallTimeoutMs} (source: ${report.summary.runtimeTimeoutSources.stallTimeoutMs})
+  runtime.timeouts.turn_timeout_ms=${report.summary.runtimeTimeouts.turnTimeoutMs} (source: ${report.summary.runtimeTimeoutSources.turnTimeoutMs})
 
 Hooks
   after_create=${report.summary.hooks.afterCreate ?? "unset"}
@@ -941,6 +970,16 @@ Hooks
   before_remove=${report.summary.hooks.beforeRemove ?? "unset"}
   hooks.timeout_ms=${report.summary.hooks.timeoutMs}
 `);
+  if (report.checks.hookPaths.checked + report.checks.hookPaths.deferred > 0) {
+    process.stdout.write(
+      `  path_checks=${report.checks.hookPaths.checked} checked, ${report.checks.hookPaths.deferred} deferred\n`
+    );
+  }
+  if (report.checks.hookPaths.deferred > 0) {
+    process.stdout.write(
+      `  ${formatDeferredWorkflowHookPaths(report.checks.hookPaths.deferred)}\n`
+    );
+  }
   if (report.warnings.length > 0) {
     process.stdout.write("\nWarnings\n");
     for (const warning of report.warnings) {
@@ -958,7 +997,7 @@ async function runValidate(
 ): Promise<void> {
   const flags = parseValidateFlags(args);
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
-  const report = validateWorkflow(workflowPath, markdown);
+  const report = await validateWorkflow(workflowPath, markdown);
 
   if (options.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
