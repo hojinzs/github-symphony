@@ -201,13 +201,38 @@ describe("merged-PR lifecycle guards", () => {
     );
     expect(ready).toContain("does not require an inline thread");
     expect(ready).toContain(
-      "If no such status comment exists, no top-level review body qualifies"
+      "If no such status comment exists, neither a top-level review body nor an issue comment qualifies"
     );
     expect(ready).toContain(
       "Only `COMMENTED` review bodies qualify through this condition"
     );
     expect(workflow).toContain(
       "reviews(last:30){nodes{state body author{login __typename} submittedAt"
+    );
+  });
+
+  it("treats an actionable steward issue comment as Ready-return rework", async () => {
+    const workflow = await repositoryFile("WORKFLOW.md");
+    const ready = section(
+      workflow,
+      "##### Ready-return rework guard",
+      "##### Stalled-handoff safety net"
+    );
+
+    expect(ready).toContain(
+      "a recent issue comment from a non-`Bot` author that requests changes or reports findings and was created after the handoff boundary defined in item 3"
+    );
+    expect(ready).toContain(
+      "its comment `createdAt` is the handoff boundary for top-level review bodies and issue comments"
+    );
+    expect(ready).toContain(
+      "issue comment triggers rework even when its author login matches the worker account"
+    );
+    expect(ready).toContain(
+      "without treating automated boilerplate or passing reports as actionable"
+    );
+    expect(workflow).toContain(
+      "comments(last:50){nodes{id body author{login __typename} createdAt}}"
     );
   });
 
