@@ -34,7 +34,13 @@ import type {
   TrackerStateResult,
   UnpublishedWorktree,
 } from "@gh-symphony/core";
-import { parseWorkflowMarkdown, type ParsedWorkflow } from "@gh-symphony/core";
+import {
+  formatDeferredWorkflowHookPaths,
+  formatWorkflowHookPathProblems,
+  parseWorkflowMarkdown,
+  validateWorkflowHookPaths,
+  type ParsedWorkflow,
+} from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -64,6 +70,8 @@ import {
   releaseProjectStartLocks,
   type ProjectStartLocks,
 } from "../project-start-lock.js";
+
+const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
 
 function timestamp(): string {
   const now = new Date();
@@ -250,6 +258,23 @@ async function preflightWorkflowStart(
         workflowPath,
       }
     );
+    const approval = environment[WORKFLOW_HOOK_APPROVAL_ENV];
+    const hooksTrusted = approval === "1" || approval?.toLowerCase() === "true";
+    const hookValidation = hooksTrusted
+      ? await validateWorkflowHookPaths(workflow.hooks, {
+          workflowDirectory: dirname(workflowPath),
+        })
+      : { checked: [], deferred: 0, problems: [] };
+    if (hookValidation.problems.length > 0) {
+      throw new Error(
+        `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
+      );
+    }
+    if (hookValidation.deferred > 0) {
+      process.stderr.write(
+        `Workflow preflight warning: ${formatDeferredWorkflowHookPaths(hookValidation.deferred)}\n`
+      );
+    }
     return { ok: true, workflow };
   } catch (error) {
     if (!configuredPath) {

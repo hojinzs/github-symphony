@@ -331,6 +331,8 @@ EOF
 `WORKFLOW.md` hooks are path-only and require
 `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host environment. Inline
 shell commands are rejected; use an executable repository script instead.
+`project start` enforces script-path validity when this flag enables execution,
+while `doctor` reports invalid declared paths even when hooks are disabled.
 
 Env precedence during hook execution and worker spawn is:
 
@@ -426,6 +428,15 @@ the status surface never expands it into environment names or values.
 ### Standalone Projects
 
 Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus its `hooks/after_create.sh`, optional `.mcp.json`, `.env`, and `.agent/skills/`. The orchestrator creates issue directories and invokes `after_create`; the shipped default hook fully clones the target and checks out the project-scoped issue branch so the host publication transport can fetch the branch from the workspace. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
+
+Create the folder with `gh-symphony workflow init` to scaffold
+`hooks/after_create.sh` with executable permissions. Hand-built folders may
+copy that generated script or symlink the configured path to an executable
+regular file. `project start` and the default `doctor` run validate project-root
+and absolute hook paths immediately, report their resolved absolute paths, and
+surface repository-relative run/remove hooks as deferred until an issue
+workspace exists. Invalid hook configuration stops the project before issue
+retry accounting begins.
 
 Only one orchestrator may own an accessible canonical project folder, even when
 separate `--config` runtime roots, temporary directories, users, or mount
