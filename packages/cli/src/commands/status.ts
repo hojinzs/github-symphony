@@ -162,6 +162,17 @@ function renderLegacyStatus(
       ? relativeTime(snapshot.workflow.loadedAt)
       : "unknown";
     lines.push(`  Workflow: ${revision} · loaded ${loadedAt}`);
+    if (snapshot.workflow.source) {
+      const source = snapshot.workflow.source;
+      lines.push(
+        `  Workflow source: ${source.relationship} · ${source.contentRevision ?? "unavailable"} · ${source.path}`
+      );
+      if (source.repositoryRevision) {
+        lines.push(
+          `  Repository policy: ${source.repositoryRevision} · ${source.repositoryRef ?? "HEAD"} · ${source.repositoryPath ?? "unavailable"}`
+        );
+      }
+    }
     lines.push("");
   }
 

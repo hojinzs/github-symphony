@@ -33,6 +33,9 @@ export type SnapshotInput = {
   issueWorkspaces?: readonly IssueWorkspaceRecord[];
   warnings?: string[];
   workflowResolution?: WorkflowResolution | null;
+  workflowSourceIdentity?: NonNullable<
+    ProjectStatusSnapshot["workflow"]
+  >["source"];
 };
 
 /**
@@ -57,6 +60,7 @@ export function buildProjectSnapshot(
     issueWorkspaces,
     warnings,
     workflowResolution,
+    workflowSourceIdentity,
   } = input;
   const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
     allRuns ?? activeRuns
@@ -77,6 +81,9 @@ export function buildProjectSnapshot(
             loadedAt: workflowResolution.loadedAt,
             isValid: workflowResolution.isValid,
             usedLastKnownGood: workflowResolution.usedLastKnownGood,
+            ...(workflowSourceIdentity
+              ? { source: workflowSourceIdentity }
+              : {}),
           },
         }
       : {}),

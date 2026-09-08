@@ -92,6 +92,22 @@ async function createConfigFixture(
         slug: projectId,
         tracker: { adapter: "github-project", bindingId: "project-1" },
         lastTickAt: "2026-03-30T11:00:00.000Z",
+        workflow: {
+          revision: "sha256:123456789abc",
+          loadedAt: "2026-03-30T11:00:00.000Z",
+          isValid: true,
+          usedLastKnownGood: false,
+          source: {
+            path: "/projects/acme/WORKFLOW.md",
+            relationship: "synchronized-copy",
+            contentRevision: "sha256:aaaaaaaaaaaa",
+            repositoryPath: "/repos/acme/WORKFLOW.md",
+            repositoryRef: "main",
+            repositoryCommit: "1111111111111111111111111111111111111111",
+            repositoryRevision: "sha256:aaaaaaaaaaaa",
+            matchedRepositoryCommit: "1111111111111111111111111111111111111111",
+          },
+        },
         health: "running",
         summary: {
           dispatched: 2,
@@ -211,6 +227,8 @@ describe("status command", () => {
     expect(stdout.output()).toContain(
       "Project environment: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     );
+    expect(stdout.output()).toContain("Workflow source: synchronized-copy");
+    expect(stdout.output()).toContain("Repository policy: sha256:aaaaaaaaaaaa");
   });
 
   it("omits the project-environment line when an active run has no digest", async () => {

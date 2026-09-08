@@ -337,6 +337,23 @@ export type ProjectStatusSnapshot = {
     loadedAt: string | null;
     isValid: boolean;
     usedLastKnownGood: boolean;
+    /** Local source identity used to compare project policy with committed repository policy. */
+    source?: {
+      path: string;
+      relationship:
+        | "linked"
+        | "synchronized-copy"
+        | "stale-copy"
+        | "independent"
+        | "no-repository-policy"
+        | "unavailable";
+      contentRevision: string | null;
+      repositoryPath: string | null;
+      repositoryRef: string | null;
+      repositoryCommit: string | null;
+      repositoryRevision: string | null;
+      matchedRepositoryCommit: string | null;
+    };
   };
   /** Non-fatal configuration conditions that operators should review. */
   warnings?: string[];

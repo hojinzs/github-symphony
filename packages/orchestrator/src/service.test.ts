@@ -15732,7 +15732,7 @@ Handle Linear issue.`,
     ).resolves.toBeNull();
   });
 
-  it("loads an external workflow and warns when it shadows the repository workflow", async () => {
+  it("loads an external workflow and warns when it is a stale repository copy", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-external-workflow-")
@@ -15766,6 +15766,9 @@ Handle Linear issue.`,
       "---\ninvalid: [\n---\n",
       "utf8"
     );
+    execSync(
+      `git -C ${JSON.stringify(repository.path)} add WORKFLOW.md && git -C ${JSON.stringify(repository.path)} commit -q -m "update workflow"`
+    );
 
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4309,
@@ -15784,20 +15787,36 @@ Handle Linear issue.`,
 
     expect(snapshot.summary.dispatched).toBe(1);
     expect(workerEnv?.SYMPHONY_WORKFLOW_PATH).toBe(externalWorkflowPath);
+    expect(snapshot.workflow?.source).toMatchObject({
+      path: externalWorkflowPath,
+      relationship: "stale-copy",
+      repositoryPath: join(repository.path, "WORKFLOW.md"),
+      repositoryRef: "HEAD",
+    });
     expect(snapshot.warnings).toEqual([
-      `External workflow source ${externalWorkflowPath} shadows repository WORKFLOW.md at ${join(repository.path, "WORKFLOW.md")}.`,
+      expect.stringMatching(
+        /^Project WORKFLOW\.md is a diverged copy: loaded sha256:[0-9a-f]{12} .* but HEAD has sha256:[0-9a-f]{12} /
+      ),
     ]);
   });
 
-  it("does not warn for a remote repository without a committed WORKFLOW.md", async () => {
+  it("detects a stale copy from an HTTPS-clone project's local issue workspace", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-external-workflow-unaware-")
     );
     const origin = await createRepositoryFixture(tempRoot, "acme", "platform");
-    execSync(`git -C ${JSON.stringify(origin.path)} rm -q WORKFLOW.md`);
+    const copiedWorkflow = await readFile(
+      join(origin.path, "WORKFLOW.md"),
+      "utf8"
+    );
+    await writeFile(
+      join(origin.path, "WORKFLOW.md"),
+      `${copiedWorkflow}\n# updated repository policy\n`,
+      "utf8"
+    );
     execSync(
-      `git -C ${JSON.stringify(origin.path)} commit -q -m "remove workflow"`
+      `git -C ${JSON.stringify(origin.path)} add WORKFLOW.md && git -C ${JSON.stringify(origin.path)} commit -q -m "update workflow"`
     );
     const store = new OrchestratorFsStore(tempRoot);
     const externalWorkflowPath = join(
@@ -15813,11 +15832,20 @@ Handle Linear issue.`,
       workflowSource: { type: "external" as const, path: externalWorkflowPath },
     };
     await store.saveProjectConfig(projectConfig);
-    await writeFile(
-      externalWorkflowPath,
-      "---\ntracker:\n  kind: github-project\n  project_id: project-123\ncodex:\n  command: codex app-server\n---\nExternal prompt\n",
-      "utf8"
-    );
+    await writeFile(externalWorkflowPath, copiedWorkflow, "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey: "existing-issue",
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-0",
+      issueIdentifier: "acme/platform#0",
+      workspacePath: dirname(origin.path),
+      repositoryPath: origin.path,
+      status: "active",
+      createdAt: "2026-03-07T00:00:00.000Z",
+      updatedAt: "2026-03-07T00:00:00.000Z",
+      lastError: null,
+    });
 
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(origin)),
@@ -15829,6 +15857,55 @@ Handle Linear issue.`,
 
     const snapshot = await service.runOnce();
 
+    expect(snapshot.workflow?.source).toMatchObject({
+      relationship: "stale-copy",
+      repositoryPath: expect.stringMatching(/\/WORKFLOW\.md$/),
+    });
+    expect(snapshot.warnings).toEqual([
+      expect.stringContaining("diverged copy"),
+    ]);
+  });
+
+  it("does not warn when the configured repository has no committed workflow", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-no-repository-policy-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    execSync(
+      `git -C ${JSON.stringify(repository.path)} rm WORKFLOW.md && git -C ${JSON.stringify(repository.path)} commit -q -m "remove workflow"`
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(
+      store.projectDir("tenant-1"),
+      "WORKFLOW.md"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      externalWorkflowPath,
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nIndependent prompt\n",
+      "utf8"
+    );
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.workflow?.source).toMatchObject({
+      relationship: "no-repository-policy",
+      repositoryCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+      repositoryRevision: null,
+    });
     expect(snapshot.warnings).toEqual([]);
   });
 

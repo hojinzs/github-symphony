@@ -8,13 +8,15 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { constants } from "node:fs";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseWorkflowMarkdown, type TrackedIssue } from "@gh-symphony/core";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+import { createStore } from "@gh-symphony/orchestrator";
 import { orchestratorLogPath } from "../config.js";
 import doctorCommand, {
   type DoctorDependencies,
@@ -476,6 +478,274 @@ beforeEach(() => {
 });
 
 describe("runDoctorDiagnostics", () => {
+  it("warns when a project workflow is a stale copy of committed repository policy", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    execFileSync("git", ["init", "-q", "--initial-branch=main", repoDir]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "config",
+      "user.email",
+      "test@example.com",
+    ]);
+    execFileSync("git", ["-C", repoDir, "config", "user.name", "Test User"]);
+    execFileSync("git", ["-C", repoDir, "add", "WORKFLOW.md"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "commit",
+      "-q",
+      "-m",
+      "initial policy",
+    ]);
+    const projectDir = await mkdtemp(join(tmpdir(), "doctor-project-"));
+    const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      projectWorkflowPath,
+      await readFile(join(repoDir, "WORKFLOW.md"), "utf8")
+    );
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nUpdated prompt\n"
+    );
+    execFileSync("git", ["-C", repoDir, "add", "WORKFLOW.md"]);
+    execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "update policy"]);
+
+    const doctorDependencies = {
+      ...authDependencies(),
+      inspectManagedProjectSelection: async () => ({
+        kind: "resolved",
+        projectId: "tenant-a",
+        projectConfig: {
+          ...createProjectConfig(workspaceDir, "PVT_test", {
+            owner: "acme",
+            name: "widgets",
+            url: "https://github.com/acme/widgets",
+            cloneUrl: ".",
+          }),
+          projectDir,
+          workflowSource: { type: "external", path: projectWorkflowPath },
+        },
+      }),
+      getProjectDetail: (async () =>
+        ({
+          id: "PVT_test",
+          title: "Acme Platform",
+          url: "https://github.com/orgs/acme/projects/1",
+          statusFields: [],
+          textFields: [],
+          linkedRepositories: [],
+        }) as never) as never,
+      execFileSync: (() => "git version 2.43.0") as never,
+      pathEnv,
+    };
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], doctorDependencies)
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "workflow_source_identity")
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("diverged copy"),
+      details: {
+        relationship: "stale-copy",
+        contentRevision: expect.stringMatching(/^sha256:/),
+        repositoryRevision: expect.stringMatching(/^sha256:/),
+      },
+    });
+
+    await writeFile(
+      projectWorkflowPath,
+      "---\ntracker:\n  kind: github-project\nrepository:\n  base_branch: no-such-branch\ncodex:\n  command: fake-agent\n---\nCopied prompt\n"
+    );
+    const unavailableReport = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], doctorDependencies)
+    );
+    expect(
+      unavailableReport.checks.find(
+        (check) => check.id === "workflow_source_identity"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("could not be determined"),
+      details: { relationship: "unavailable" },
+    });
+  });
+
+  it("uses persisted project workspace identity for an HTTPS repository", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    execFileSync("git", ["init", "-q", "--initial-branch=main", repoDir]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "config",
+      "user.email",
+      "test@example.com",
+    ]);
+    execFileSync("git", ["-C", repoDir, "config", "user.name", "Test User"]);
+    execFileSync("git", ["-C", repoDir, "add", "WORKFLOW.md"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "commit",
+      "-q",
+      "-m",
+      "initial policy",
+    ]);
+
+    const projectDir = await mkdtemp(join(tmpdir(), "doctor-project-"));
+    const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      projectWorkflowPath,
+      await readFile(join(repoDir, "WORKFLOW.md"), "utf8")
+    );
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nUpdated prompt\n"
+    );
+    execFileSync("git", ["-C", repoDir, "add", "WORKFLOW.md"]);
+    execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "update policy"]);
+
+    await createStore(resolveRuntimeRoot(configDir)).saveIssueWorkspace({
+      workspaceKey: "acme_widgets_1",
+      projectId: "tenant-a",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/widgets#1",
+      workspacePath: dirname(repoDir),
+      repositoryPath: repoDir,
+      status: "active",
+      createdAt: "2026-09-08T00:00:00Z",
+      updatedAt: "2026-09-08T01:00:00Z",
+      lastError: null,
+    });
+    const unrelatedCwd = await mkdtemp(join(tmpdir(), "doctor-unrelated-"));
+    const doctorDependencies = {
+      ...authDependencies(),
+      inspectManagedProjectSelection: async () => ({
+        kind: "resolved" as const,
+        projectId: "tenant-a",
+        projectConfig: {
+          ...createProjectConfig(workspaceDir, "PVT_test", {
+            owner: "acme",
+            name: "widgets",
+            url: "https://github.com/acme/widgets",
+            cloneUrl: "https://github.com/acme/widgets.git",
+          }),
+          projectDir,
+          workflowSource: {
+            type: "external" as const,
+            path: projectWorkflowPath,
+          },
+        },
+      }),
+      getProjectDetail: (async () =>
+        ({
+          id: "PVT_test",
+          title: "Acme Platform",
+          url: "https://github.com/orgs/acme/projects/1",
+          statusFields: [],
+          textFields: [],
+          linkedRepositories: [],
+        }) as never) as never,
+      execFileSync: (() => "git version 2.43.0") as never,
+      pathEnv,
+    };
+
+    const report = await withCwd(unrelatedCwd, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], doctorDependencies)
+    );
+    expect(
+      report.checks.find((check) => check.id === "workflow_source_identity")
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("diverged copy"),
+      details: {
+        relationship: "stale-copy",
+        repositoryPath: join(repoDir, "WORKFLOW.md"),
+      },
+    });
+  });
+
+  it("reports an independent project policy when the repository has no policy", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    execFileSync("git", ["init", "-q", "--initial-branch=main", repoDir]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "config",
+      "user.email",
+      "test@example.com",
+    ]);
+    execFileSync("git", ["-C", repoDir, "config", "user.name", "Test User"]);
+    await writeFile(
+      join(repoDir, "README.md"),
+      "# Repository without policy\n"
+    );
+    execFileSync("git", ["-C", repoDir, "add", "README.md"]);
+    execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "initial"]);
+
+    const projectDir = await mkdtemp(join(tmpdir(), "doctor-project-"));
+    const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      projectWorkflowPath,
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nIndependent prompt\n"
+    );
+    const report = await runDoctorDiagnostics(baseOptions(configDir), [], {
+      ...authDependencies(),
+      inspectManagedProjectSelection: async () => ({
+        kind: "resolved" as const,
+        projectId: "tenant-a",
+        projectConfig: {
+          ...createProjectConfig(workspaceDir, "PVT_test", {
+            owner: "acme",
+            name: "widgets",
+            url: "https://github.com/acme/widgets",
+            cloneUrl: repoDir,
+          }),
+          projectDir,
+          workflowSource: {
+            type: "external" as const,
+            path: projectWorkflowPath,
+          },
+        },
+      }),
+      getProjectDetail: (async () =>
+        ({
+          id: "PVT_test",
+          title: "Acme Platform",
+          url: "https://github.com/orgs/acme/projects/1",
+          statusFields: [],
+          textFields: [],
+          linkedRepositories: [],
+        }) as never) as never,
+      execFileSync: (() => "git version 2.43.0") as never,
+      pathEnv,
+    });
+
+    expect(
+      report.checks.find((check) => check.id === "workflow_source_identity")
+    ).toMatchObject({
+      status: "pass",
+      summary: expect.stringContaining("no committed WORKFLOW.md"),
+      details: {
+        relationship: "no-repository-policy",
+        repositoryCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+        repositoryRevision: null,
+      },
+    });
+  });
+
   it("reads the registered external project WORKFLOW.md", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

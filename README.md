@@ -404,7 +404,7 @@ gh-symphony project stop                       # Stop its daemon
 gh-symphony project list                       # List cached projects
 ```
 
-The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. `--assigned-only` is input to the tracker adapter's `dispatchable` derivation; the scheduler consumes that normalized eligibility result rather than interpreting provider-specific assignment rules. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.provider.pickup_labels.include`, which GitHub and Linear apply as an any-match candidate pre-filter. `tracker.required_labels` is separate: every configured label must remain present for an issue to be routable, including between worker turns. Label comparison is case-insensitive and ignores surrounding whitespace, so `Agent`, `agent`, and `" AGENT "` are the same label. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
+The project folder is the runtime source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. Status exposes both the loaded project workflow identity and the current committed repository-policy identity when a configured local checkout or persisted issue checkout is available. `doctor` warns when a regular-file project workflow is a stale copy of an older reachable repository revision, and both surfaces warn when the committed comparison cannot be determined; symlinks, current copies, and deliberately independent policies remain distinct non-stale identities. For remote clone URLs, status and doctor share the project's newest persisted checkout as their local comparison source instead of using the operator's current directory. The comparison never fetches. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. `--assigned-only` is input to the tracker adapter's `dispatchable` derivation; the scheduler consumes that normalized eligibility result rather than interpreting provider-specific assignment rules. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.provider.pickup_labels.include`, which GitHub and Linear apply as an any-match candidate pre-filter. `tracker.required_labels` is separate: every configured label must remain present for an issue to be routable, including between worker turns. Label comparison is case-insensitive and ignores surrounding whitespace, so `Agent`, `agent`, and `" AGENT "` are the same label. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
 
 ### Official Container Deployment
 
@@ -722,9 +722,10 @@ The daemon does not use a filesystem watcher. This is an intentional
 repository-local divergence from the upstream Symphony specification's watch
 requirement, documented in
 [ADR 2026-08-26](docs/adr/2026-08-26-workflow-reload-divergence.md). Inspect
-`project status` for `workflow.revision` and
-`workflow.loadedAt` to identify the policy currently applied by the latest
-tick; dispatch events also include `workflowRevision`.
+`project status` for `workflow.revision`, `workflow.loadedAt`, and
+`workflow.source` to identify the policy currently applied by the latest tick
+and compare it with committed local repository policy; dispatch events also
+include `workflowRevision`.
 
 The generated file includes:
 
@@ -806,8 +807,12 @@ gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 The project folder's `WORKFLOW.md` is the workflow policy source. If it is
 absent, Symphony uses built-in defaults (`Todo`, `In Progress` as active;
 `Done` as terminal; blocker checks enabled for `Todo`; planning states
-disabled). A `WORKFLOW.md` in the target repository is reported as shadowed;
-it is not used as a fallback for a folder-addressed project.
+disabled). A `WORKFLOW.md` in the target repository is not used as a fallback
+for a folder-addressed project. When the repository is local, Symphony compares
+it with the project policy for operator visibility: an older historically
+matching regular-file copy warns, while a never-related independent policy does
+not. A target repository with no committed `WORKFLOW.md` is also reported as an
+intentional non-warning layout.
 
 ### Environment Variables
 

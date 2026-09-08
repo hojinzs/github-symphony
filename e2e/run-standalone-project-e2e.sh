@@ -73,6 +73,41 @@ write_project "$PROJECT_ROOT/project-beta" beta
 write_project "$PROJECT_ROOT/project-broken" broken
 rm "$PROJECT_ROOT/project-broken/hooks/after_create.sh"
 
+# A regular-file project workflow that once matched the repository must expose
+# both revisions and warn after the committed repository policy advances.
+policy_project="$PROJECT_ROOT/project-stale-policy"
+mkdir -p "$policy_project/hooks"
+cp /e2e/repos/test-owner/test-repo/WORKFLOW.md "$policy_project/WORKFLOW.md"
+cp /e2e/seed/hooks/after_create.sh "$policy_project/hooks/after_create.sh"
+chmod +x "$policy_project/hooks/after_create.sh"
+printf "STUB_SCENARIO=happy\nSYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n" > "$policy_project/.env"
+printf "\n# newer committed policy\n" >> /e2e/repos/test-owner/test-repo/WORKFLOW.md
+git -C /e2e/repos/test-owner/test-repo add WORKFLOW.md
+git -C /e2e/repos/test-owner/test-repo commit -m "Update committed workflow policy" >/dev/null
+printf "[]\n" > "$FIXTURE"
+(cd "$policy_project" && \
+  GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
+  node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project start --once)
+node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" --json project status \
+  --project-dir "$policy_project" > /tmp/stale-policy-status.json
+jq -e "
+  .workflow.source.relationship == \"stale-copy\" and
+  (.workflow.source.contentRevision | test(\"^sha256:[0-9a-f]{12}$\")) and
+  (.workflow.source.repositoryRevision | test(\"^sha256:[0-9a-f]{12}$\")) and
+  .workflow.source.contentRevision != .workflow.source.repositoryRevision and
+  (.warnings | any(contains(\"diverged copy\")))
+" /tmp/stale-policy-status.json >/dev/null
+node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" --json doctor \
+  --project-dir "$policy_project" > /tmp/stale-policy-doctor.json
+jq -e "
+  .checks | any(
+    .id == \"workflow_source_identity\" and
+    .status == \"warn\" and
+    .details.relationship == \"stale-copy\" and
+    .details.contentRevision != .details.repositoryRevision
+  )
+" /tmp/stale-policy-doctor.json >/dev/null
+
 if (cd "$PROJECT_ROOT/project-broken" && \
   GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
   node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project start \

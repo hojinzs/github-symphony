@@ -27,6 +27,9 @@ import {
   getSupportedTrackerKinds,
   resolveTrackerAdapter,
   resolveWorkflowConfigTrackerAdapter,
+  inspectWorkflowSourceIdentity,
+  resolveWorkflowRepositoryDirectory,
+  createStore,
 } from "@gh-symphony/orchestrator";
 import {
   fetchGithubProjectIssueByRepositoryAndNumber,
@@ -94,6 +97,7 @@ type DoctorCheckId =
   | "runtime_root"
   | "workspace_root"
   | "workflow_file"
+  | "workflow_source_identity"
   | "provider_deprecation"
   | "runtime_command"
   | "project_repository_link"
@@ -2281,6 +2285,96 @@ export async function runDoctorDiagnostics(
         deps
       ))
     );
+  }
+
+  if (
+    workflow.status === "pass" &&
+    externalWorkflowPath &&
+    resolvedProjectConfig.kind === "resolved"
+  ) {
+    const repository = resolvedProjectConfig.projectConfig.repository;
+    const store = createStore(runtimeRoot);
+    const [issueWorkspaces, allRuns] = await Promise.all([
+      store.loadIssueWorkspaces(resolvedProjectConfig.projectId),
+      store.loadAllRuns(),
+    ]);
+    const repositoryDirectory = repository
+      ? await resolveWorkflowRepositoryDirectory({
+          repository,
+          issueWorkspaces,
+          runs: allRuns.filter(
+            (run) => run.projectId === resolvedProjectConfig.projectId
+          ),
+          baseDirectory: repoRoot,
+        })
+      : null;
+    if (repositoryDirectory) {
+      const repositoryExtension = workflow.workflow.repository;
+      const baseRef =
+        repositoryExtension &&
+        typeof repositoryExtension === "object" &&
+        typeof repositoryExtension.base_branch === "string"
+          ? repositoryExtension.base_branch
+          : null;
+      const identity = await inspectWorkflowSourceIdentity({
+        workflowPath: workflow.workflowPath,
+        repositoryDirectory,
+        baseRef,
+      });
+      const details = { ...identity };
+      if (identity.relationship === "stale-copy") {
+        checks.push(
+          warnCheck(
+            "workflow_source_identity",
+            "Project workflow source identity",
+            `Project WORKFLOW.md is a diverged copy: loaded ${identity.contentRevision}, while committed ${identity.repositoryRef} is ${identity.repositoryRevision}.`,
+            `Replace ${identity.path} with a symlink to ${identity.repositoryPath}, or refresh the copy after reviewing the committed policy.`,
+            details
+          )
+        );
+      } else if (identity.relationship === "unavailable") {
+        checks.push(
+          warnCheck(
+            "workflow_source_identity",
+            "Project workflow source identity",
+            `Project WORKFLOW.md source identity could not be determined (${identity.contentRevision ?? "revision unavailable"}); committed ${identity.repositoryRef ?? "workflow ref"} was not readable.`,
+            `Ensure ${identity.repositoryPath ?? "the configured repository"} is a local Git checkout with ${identity.repositoryRef ?? "the configured base branch"} and a committed WORKFLOW.md.`,
+            details
+          )
+        );
+      } else {
+        checks.push(
+          passCheck(
+            "workflow_source_identity",
+            "Project workflow source identity",
+            identity.relationship === "independent"
+              ? `Project WORKFLOW.md is an independent policy (${identity.contentRevision}); it does not match reachable repository WORKFLOW.md history.`
+              : identity.relationship === "no-repository-policy"
+                ? `Project WORKFLOW.md is an independent policy (${identity.contentRevision}); the configured repository has no committed WORKFLOW.md at ${identity.repositoryRef}.`
+                : `Project WORKFLOW.md source is ${identity.relationship} (${identity.contentRevision ?? "revision unavailable"}).`,
+            details
+          )
+        );
+      }
+    } else {
+      checks.push(
+        warnCheck(
+          "workflow_source_identity",
+          "Project workflow source identity",
+          "Project WORKFLOW.md source identity could not be determined because no configured repository checkout was found.",
+          "Run the project so it creates a local issue workspace, or configure repository.path with a local Git checkout.",
+          {
+            relationship: "unavailable",
+            contentRevision: null,
+            repositoryPath: null,
+            repositoryRef: null,
+            repositoryCommit: null,
+            repositoryRevision: null,
+            matchedRepositoryCommit: null,
+          }
+        )
+      );
+    }
   }
 
   if (workflow.status === "pass") {
