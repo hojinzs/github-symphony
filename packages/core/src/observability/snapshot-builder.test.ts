@@ -112,6 +112,16 @@ describe("buildProjectSnapshot", () => {
         usedLastKnownGood: false,
         validationError: null,
       },
+      workflowSourceIdentity: {
+        path: "/projects/acme/WORKFLOW.md",
+        relationship: "stale-copy",
+        contentRevision: "sha256:aaaaaaaaaaaa",
+        repositoryPath: "/repos/acme/WORKFLOW.md",
+        repositoryRef: "main",
+        repositoryCommit: "1111111111111111111111111111111111111111",
+        repositoryRevision: "sha256:bbbbbbbbbbbb",
+        matchedRepositoryCommit: "0000000000000000000000000000000000000000",
+      },
     });
 
     expect(snapshot.workflow).toEqual({
@@ -119,6 +129,16 @@ describe("buildProjectSnapshot", () => {
       loadedAt: "2026-08-26T12:00:00.000Z",
       isValid: true,
       usedLastKnownGood: false,
+      source: {
+        path: "/projects/acme/WORKFLOW.md",
+        relationship: "stale-copy",
+        contentRevision: "sha256:aaaaaaaaaaaa",
+        repositoryPath: "/repos/acme/WORKFLOW.md",
+        repositoryRef: "main",
+        repositoryCommit: "1111111111111111111111111111111111111111",
+        repositoryRevision: "sha256:bbbbbbbbbbbb",
+        matchedRepositoryCommit: "0000000000000000000000000000000000000000",
+      },
     });
   });
   it("returns idle health when no active runs and no error", () => {

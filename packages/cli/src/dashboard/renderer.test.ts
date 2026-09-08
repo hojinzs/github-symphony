@@ -45,6 +45,16 @@ describe("renderDashboard", () => {
       loadedAt: "2026-03-13T05:00:00Z",
       isValid: true,
       usedLastKnownGood: false,
+      source: {
+        path: "/projects/acme/WORKFLOW.md",
+        relationship: "stale-copy",
+        contentRevision: "sha256:aaaaaaaaaaaa",
+        repositoryPath: "/repos/acme/WORKFLOW.md",
+        repositoryRef: "main",
+        repositoryCommit: "1111111111111111111111111111111111111111",
+        repositoryRevision: "sha256:bbbbbbbbbbbb",
+        matchedRepositoryCommit: "0000000000000000000000000000000000000000",
+      },
     };
 
     const output = renderDashboard([snapshot], {
@@ -55,6 +65,10 @@ describe("renderDashboard", () => {
 
     expect(output).toContain("Workflow");
     expect(output).toContain("sha256:123456789abc");
+    expect(output).toContain("Workflow Source");
+    expect(output).toContain("stale-copy");
+    expect(output).toContain("Repository Policy");
+    expect(output).toContain("sha256:bbbbbbbbbbbb");
   });
 
   it("renders stopped daemon health and restart guidance", () => {

@@ -15732,7 +15732,7 @@ Handle Linear issue.`,
     ).resolves.toBeNull();
   });
 
-  it("loads an external workflow and warns when it shadows the repository workflow", async () => {
+  it("loads an external workflow and warns when it is a stale repository copy", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-external-workflow-")
@@ -15766,6 +15766,9 @@ Handle Linear issue.`,
       "---\ninvalid: [\n---\n",
       "utf8"
     );
+    execSync(
+      `git -C ${JSON.stringify(repository.path)} add WORKFLOW.md && git -C ${JSON.stringify(repository.path)} commit -q -m "update workflow"`
+    );
 
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4309,
@@ -15784,8 +15787,16 @@ Handle Linear issue.`,
 
     expect(snapshot.summary.dispatched).toBe(1);
     expect(workerEnv?.SYMPHONY_WORKFLOW_PATH).toBe(externalWorkflowPath);
+    expect(snapshot.workflow?.source).toMatchObject({
+      path: externalWorkflowPath,
+      relationship: "stale-copy",
+      repositoryPath: join(repository.path, "WORKFLOW.md"),
+      repositoryRef: "HEAD",
+    });
     expect(snapshot.warnings).toEqual([
-      `External workflow source ${externalWorkflowPath} shadows repository WORKFLOW.md at ${join(repository.path, "WORKFLOW.md")}.`,
+      expect.stringMatching(
+        /^Project WORKFLOW\.md is a diverged copy: loaded sha256:[0-9a-f]{12} .* but HEAD has sha256:[0-9a-f]{12} /
+      ),
     ]);
   });
 

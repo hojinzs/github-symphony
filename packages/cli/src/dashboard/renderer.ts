@@ -260,6 +260,17 @@ function buildSummaryLines(
     lines.push(
       `  ${c.dim("Workflow")}  ${formatRepositoryDisplay(snapshot)}  ${revision}`
     );
+    if (snapshot.workflow.source) {
+      const source = snapshot.workflow.source;
+      lines.push(
+        `  ${c.dim("Workflow Source")}  ${source.relationship}  ${source.contentRevision ?? "unavailable"}  ${source.path}`
+      );
+      if (source.repositoryRevision) {
+        lines.push(
+          `  ${c.dim("Repository Policy")}  ${source.repositoryRevision}  ${source.repositoryRef ?? "HEAD"}  ${source.repositoryPath ?? "unavailable"}`
+        );
+      }
+    }
   }
 
   const runtimeStatus = options.runtimeStatus;

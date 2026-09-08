@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
@@ -85,6 +85,10 @@ import {
   renderIssueBranchName,
 } from "./git.js";
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
+import {
+  inspectWorkflowSourceIdentity,
+  type WorkflowSourceIdentity,
+} from "./workflow-source-identity.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import {
@@ -2251,6 +2255,10 @@ export class OrchestratorService {
       trackerRateLimits ??
       resolveProjectRateLimits(latestRuns, []);
     const dispatchRateLimits = trackerRateLimits ?? rateLimits;
+    const workflowSourceIdentity = await this.resolveWorkflowSourceIdentity(
+      tenant,
+      workflowResolution
+    );
     const status = buildProjectSnapshot({
       project: tenant,
       activeRuns: latestRuns,
@@ -2266,7 +2274,7 @@ export class OrchestratorService {
       ),
       issueWorkspaces,
       warnings: [
-        ...(await this.resolveWorkflowWarnings(tenant)),
+        ...this.resolveWorkflowWarnings(workflowSourceIdentity),
         ...(await this.resolveRetainedWorkspaceWarnings(
           tenant,
           issueWorkspaces
@@ -2274,6 +2282,7 @@ export class OrchestratorService {
         ...dispatchWarnings,
       ],
       workflowResolution,
+      workflowSourceIdentity: workflowSourceIdentity ?? undefined,
     });
     await this.store.saveProjectStatus({
       ...status,
@@ -2803,39 +2812,33 @@ export class OrchestratorService {
     return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
   }
 
-  private async resolveWorkflowWarnings(
-    tenant: OrchestratorProjectConfig
-  ): Promise<string[]> {
-    if (!tenant.workflowSource?.path) {
-      return [];
-    }
-
-    const workflowSourceLabel = "External workflow source";
-
-    const localRepositoryDirectory = this.resolveLocalRepositoryDirectory(
+  private async resolveWorkflowSourceIdentity(
+    tenant: OrchestratorProjectConfig,
+    workflowResolution: WorkflowResolution | null
+  ): Promise<WorkflowSourceIdentity | null> {
+    if (!tenant.workflowSource?.path || !workflowResolution) return null;
+    const repositoryDirectory = this.resolveLocalRepositoryDirectory(
       tenant.repository
     );
-    if (localRepositoryDirectory) {
-      const repositoryWorkflowPath = join(
-        localRepositoryDirectory,
-        "WORKFLOW.md"
-      );
-      if (
-        resolve(tenant.workflowSource.path) === resolve(repositoryWorkflowPath)
-      ) {
-        return [];
-      }
-      try {
-        await access(repositoryWorkflowPath);
-        return [
-          `${workflowSourceLabel} ${tenant.workflowSource.path} shadows repository WORKFLOW.md at ${repositoryWorkflowPath}.`,
-        ];
-      } catch {
-        return [];
-      }
-    }
+    if (!repositoryDirectory) return null;
+    const repositoryExtension = workflowResolution.workflow.repository;
+    const baseRef = isRecord(repositoryExtension)
+      ? readOptionalStringValue(repositoryExtension.base_branch)
+      : null;
+    return inspectWorkflowSourceIdentity({
+      workflowPath: tenant.workflowSource.path,
+      repositoryDirectory,
+      baseRef,
+    });
+  }
 
-    return [];
+  private resolveWorkflowWarnings(
+    identity: WorkflowSourceIdentity | null
+  ): string[] {
+    if (identity?.relationship !== "stale-copy") return [];
+    return [
+      `Project WORKFLOW.md is a diverged copy: loaded ${identity.contentRevision} from ${identity.path}, but ${identity.repositoryRef} has ${identity.repositoryRevision} at ${identity.repositoryPath}.`,
+    ];
   }
 
   private resolveLocalRepositoryDirectory(

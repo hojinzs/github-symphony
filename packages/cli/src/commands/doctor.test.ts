@@ -8,6 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { constants } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -476,6 +477,87 @@ beforeEach(() => {
 });
 
 describe("runDoctorDiagnostics", () => {
+  it("warns when a project workflow is a stale copy of committed repository policy", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    execFileSync("git", ["init", "-q", "--initial-branch=main", repoDir]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "config",
+      "user.email",
+      "test@example.com",
+    ]);
+    execFileSync("git", ["-C", repoDir, "config", "user.name", "Test User"]);
+    execFileSync("git", ["-C", repoDir, "add", "WORKFLOW.md"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "commit",
+      "-q",
+      "-m",
+      "initial policy",
+    ]);
+    const projectDir = await mkdtemp(join(tmpdir(), "doctor-project-"));
+    const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      projectWorkflowPath,
+      await readFile(join(repoDir, "WORKFLOW.md"), "utf8")
+    );
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nUpdated prompt\n"
+    );
+    execFileSync("git", ["-C", repoDir, "add", "WORKFLOW.md"]);
+    execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "update policy"]);
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: {
+            ...createProjectConfig(workspaceDir, "PVT_test", {
+              owner: "acme",
+              name: "widgets",
+              url: "https://github.com/acme/widgets",
+              cloneUrl: repoDir,
+              path: repoDir,
+            }),
+            projectDir,
+            workflowSource: { type: "external", path: projectWorkflowPath },
+          },
+        }),
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "workflow_source_identity")
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("diverged copy"),
+      details: {
+        relationship: "stale-copy",
+        contentRevision: expect.stringMatching(/^sha256:/),
+        repositoryRevision: expect.stringMatching(/^sha256:/),
+      },
+    });
+  });
+
   it("reads the registered external project WORKFLOW.md", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

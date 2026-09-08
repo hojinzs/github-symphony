@@ -1,7 +1,8 @@
 import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   formatDeferredWorkflowHookPaths,
   normalizeLabels,
@@ -27,6 +28,7 @@ import {
   getSupportedTrackerKinds,
   resolveTrackerAdapter,
   resolveWorkflowConfigTrackerAdapter,
+  inspectWorkflowSourceIdentity,
 } from "@gh-symphony/orchestrator";
 import {
   fetchGithubProjectIssueByRepositoryAndNumber,
@@ -94,6 +96,7 @@ type DoctorCheckId =
   | "runtime_root"
   | "workspace_root"
   | "workflow_file"
+  | "workflow_source_identity"
   | "provider_deprecation"
   | "runtime_command"
   | "project_repository_link"
@@ -2281,6 +2284,58 @@ export async function runDoctorDiagnostics(
         deps
       ))
     );
+  }
+
+  if (
+    workflow.status === "pass" &&
+    externalWorkflowPath &&
+    resolvedProjectConfig.kind === "resolved"
+  ) {
+    const repository = resolvedProjectConfig.projectConfig.repository;
+    const repositoryDirectory =
+      repository?.path ??
+      (repository && isAbsolute(repository.cloneUrl)
+        ? repository.cloneUrl
+        : repository?.cloneUrl.startsWith("file:")
+          ? fileURLToPath(repository.cloneUrl)
+          : null);
+    if (repositoryDirectory) {
+      const repositoryExtension = workflow.workflow.repository;
+      const baseRef =
+        repositoryExtension &&
+        typeof repositoryExtension === "object" &&
+        typeof repositoryExtension.base_branch === "string"
+          ? repositoryExtension.base_branch
+          : null;
+      const identity = await inspectWorkflowSourceIdentity({
+        workflowPath: workflow.workflowPath,
+        repositoryDirectory,
+        baseRef,
+      });
+      const details = { ...identity };
+      if (identity.relationship === "stale-copy") {
+        checks.push(
+          warnCheck(
+            "workflow_source_identity",
+            "Project workflow source identity",
+            `Project WORKFLOW.md is a diverged copy: loaded ${identity.contentRevision}, while committed ${identity.repositoryRef} is ${identity.repositoryRevision}.`,
+            `Replace ${identity.path} with a symlink to ${identity.repositoryPath}, or refresh the copy after reviewing the committed policy.`,
+            details
+          )
+        );
+      } else {
+        checks.push(
+          passCheck(
+            "workflow_source_identity",
+            "Project workflow source identity",
+            identity.relationship === "independent"
+              ? `Project WORKFLOW.md is an independent policy (${identity.contentRevision}); it does not match reachable repository WORKFLOW.md history.`
+              : `Project WORKFLOW.md source is ${identity.relationship} (${identity.contentRevision ?? "revision unavailable"}).`,
+            details
+          )
+        );
+      }
+    }
   }
 
   if (workflow.status === "pass") {
