@@ -25,7 +25,10 @@ import {
   extractIssueNumberFromIdentifier,
   extractIssueNumbersFromBranch,
   executeWorkspaceHook,
+  formatWorkflowHookPathProblems,
   resolveHookCommand,
+  resolveWorkflowHookPath,
+  validateWorkflowHookPaths,
   isStateTerminal,
   issueRoutable,
   isMatchingIssueRun,
@@ -1387,6 +1390,29 @@ export class OrchestratorService {
         tenant,
         tenant.repository
       );
+      if (
+        isUsableWorkflowResolution(workflowResolution) &&
+        isWorkflowHookExecutionAllowed(this.resolveProjectEnvironment(tenant))
+      ) {
+        const workflowBaseDirectory =
+          this.workflowHookBaseDirectories.get(
+            this.workflowCacheKey(tenant.repository)
+          ) ??
+          (workflowResolution.workflowPath
+            ? dirname(workflowResolution.workflowPath)
+            : null);
+        if (workflowBaseDirectory) {
+          const hookValidation = await validateWorkflowHookPaths(
+            workflowResolution.workflow.hooks,
+            { workflowDirectory: workflowBaseDirectory }
+          );
+          if (hookValidation.problems.length > 0) {
+            throw new Error(
+              `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
+            );
+          }
+        }
+      }
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
       const currentActiveRuns = (await this.store.loadAllRuns()).filter(
         (run) =>
@@ -2877,12 +2903,13 @@ export class OrchestratorService {
       existingWorkspaceRecord &&
       resolve(existingWorkspaceRecord.workspacePath) === recoveryWorkspacePath
     );
-    const retainedWorkspaceBranch =
-      existingWorkspaceRecord &&
-      (recovery?.kind === "incomplete-turn-dirty-workspace" ||
-        existingWorkspaceUsesStableRecoveryPath)
-        ? await readGitCurrentBranch(existingWorkspaceRecord.repositoryPath)
-        : null;
+    // Inspect every persisted checkout before worker startup. Dirty recovery
+    // already reaches this branch check, but a clean reused workspace can also
+    // have been left on another issue's branch and must not bypass worker
+    // identity preflight on that foreign branch.
+    const retainedWorkspaceBranch = existingWorkspaceRecord
+      ? await readGitCurrentBranch(existingWorkspaceRecord.repositoryPath)
+      : null;
     const issueNumber = extractIssueNumberFromIdentifier(issue.identifier);
     const retainedWorkspaceHasForeignBranch = Boolean(
       retainedWorkspaceBranch &&
@@ -2890,10 +2917,11 @@ export class OrchestratorService {
         (branchIssueNumber) => branchIssueNumber !== issueNumber
       )
     );
-    // Once a foreign dirty workspace has forced the run onto the stable
-    // recovery path, that persisted path remains the issue's active workspace
-    // on later dispatches. Falling back to the configured key path would
-    // repopulate (and therefore delete) the retained dirty workspace.
+    // Once a foreign workspace has forced the run onto the stable recovery
+    // path, that persisted path remains the issue's active workspace on later
+    // dispatches. Falling back to the configured key path would repopulate
+    // (and therefore delete) the retained workspace, including user commits in
+    // an otherwise clean checkout.
     const reuseStableRecoveryWorkspace =
       existingWorkspaceUsesStableRecoveryPath;
     const useFreshRecoveryWorkspace =
@@ -2911,7 +2939,10 @@ export class OrchestratorService {
     if (
       existingWorkspaceRecord &&
       !existingWorkspaceAtConfiguredRoot &&
-      !useFreshRecoveryWorkspace
+      !(
+        useFreshRecoveryWorkspace &&
+        recovery?.kind === "incomplete-turn-dirty-workspace"
+      )
     ) {
       this.writeStderr(
         `[orchestrator] workspace root changed for ${issue.identifier}: previous=${existingWorkspaceRecord.workspacePath} configured=${issueWorkspacePath}`
@@ -3635,6 +3666,39 @@ export class OrchestratorService {
           issueRecords,
           recovered: false,
         };
+      }
+
+      const retryWorkflow = await this.loadProjectWorkflow(
+        tenant,
+        run.repository
+      );
+      if (
+        isUsableWorkflowResolution(retryWorkflow) &&
+        isWorkflowHookExecutionAllowed(this.resolveProjectEnvironment(tenant))
+      ) {
+        const workflowDirectory =
+          this.workflowHookBaseDirectories.get(
+            this.workflowCacheKey(run.repository)
+          ) ??
+          (retryWorkflow.workflowPath
+            ? dirname(retryWorkflow.workflowPath)
+            : null);
+        if (workflowDirectory) {
+          const hookValidation = await validateWorkflowHookPaths(
+            retryWorkflow.workflow.hooks,
+            {
+              workflowDirectory,
+              repositoryDirectory: run.workingDirectory,
+            }
+          );
+          if (hookValidation.problems.length > 0) {
+            return {
+              issueRecords,
+              recovered: false,
+              lastError: `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`,
+            };
+          }
+        }
       }
 
       const retryAction = await this.resolveRetryRestartAction(
@@ -4915,11 +4979,11 @@ export class OrchestratorService {
             ? dirname(workflowResolution.workflowPath)
             : null;
         const hookCommand =
-          kind === "after_create" &&
-          configuredHookCommand &&
-          !isAbsolute(configuredHookCommand) &&
-          hookBaseDirectory
-            ? resolve(hookBaseDirectory, configuredHookCommand)
+          configuredHookCommand && hookBaseDirectory
+            ? (resolveWorkflowHookPath(configuredHookCommand, kind, {
+                workflowDirectory: hookBaseDirectory,
+                repositoryDirectory,
+              }) ?? configuredHookCommand)
             : configuredHookCommand;
         const trusted = isWorkflowHookExecutionAllowed(hookEnv);
         if (hookCommand) {
@@ -6235,7 +6299,9 @@ function isPopulationGitEnvironmentName(name: string): boolean {
   );
 }
 
-function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
+function isWorkflowHookExecutionAllowed(
+  env: Readonly<Record<string, string | undefined>>
+): boolean {
   const value =
     env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";

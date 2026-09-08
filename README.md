@@ -873,7 +873,9 @@ All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatic
 Hooks are an opt-in, repository-local divergence from the upstream shell-command
 model. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` in the host environment, and point
 each hook at a committed executable script. Inline shell, `bash` prefixes, and
-shell operators are rejected; Symphony executes no implicit shell.
+shell operators are rejected; Symphony executes no implicit shell. Startup and
+dispatch enforce script-path validity only when hook execution is enabled;
+`doctor` reports invalid declared paths regardless of that trust setting.
 
 ```yaml
 # WORKFLOW.md
@@ -900,6 +902,18 @@ echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
 > Hooks run with `cwd` set to the repository root after population. Because a
 > fresh checkout does not exist yet, relative `after_create` script paths are
 > resolved from the directory containing the loaded `WORKFLOW.md`.
+
+`gh-symphony workflow init` provisions the default executable
+`hooks/after_create.sh` beside the generated `WORKFLOW.md`. For a project folder
+assembled by hand, copy that script into the same relative location or use a
+symlink to an executable regular file. Both `project start` and the default
+`doctor` run reject absent, non-file, or non-executable `after_create` and
+absolute hook paths and print the resolved absolute path before issue dispatch.
+They explicitly report relative run/remove hooks as deferred because those
+paths resolve from the populated issue workspace; the orchestrator validates
+them during run reconciliation before a retry restarts. An initial
+workspace-relative hook execution can still be the first point at which an
+invalid path is observable and can consume one retry.
 
 The trusted `after_create` hook also receives the daemon's host Git credential
 helper environment, including the token consumed by that helper, so its clone
@@ -961,6 +975,13 @@ Healthy continuation retries do not consume the failure budget.
 Read orchestration state via the status API (`/api/v1/state`) rather than reading status files directly.
 
 Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony project start --project-dir <path> --once` is the first production-like run: it validates the real GitHub Project binding, project `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--port [port]` when you want the JSON status API available; `--http [port]` remains a supported alias. With `--once --port`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`. `server.port` in `WORKFLOW.md` enables the same API when no CLI port is supplied. Add `--web` instead when you want the browser dashboard at `/` plus the JSON API.
+
+Project start also holds a `.gh-symphony-start.lock` identity lease in the
+canonical project folder. Consequently, pointing separate `--config` runtime
+roots, temporary directories, users, or mount namespaces at the same accessible
+project folder cannot start duplicate orchestrators. A dead or
+identity-mismatched owner is reclaimed using the same lease and process-identity
+checks as the per-runtime-root project lock.
 
 ## Verification
 

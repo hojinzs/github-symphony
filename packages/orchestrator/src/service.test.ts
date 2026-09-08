@@ -1092,6 +1092,133 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("does not consume a due retry when a repository hook is missing", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-retry-hook-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+hooks:
+  after_create: hooks/after_create.sh
+  before_run: missing-before-run.sh
+agent:
+  max_concurrent_agents: 1
+  max_failure_retries: 3
+codex:
+  command: codex app-server
+---
+Retry hook validation.
+`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const retryIssue: TrackedIssue = {
+      id: "retry-issue",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Retrying issue",
+      description: null,
+      priority: 1,
+      state: "Todo",
+      branchName: null,
+      url: "https://example.test/acme/platform/issues/1",
+      labels: [],
+      dispatchable: true,
+      assigneeId: null,
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-1",
+      },
+      metadata: {},
+    };
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: retryIssue.id,
+        identifier: retryIssue.identifier,
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "running",
+        currentRunId: "run-retry",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:00.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-retry",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: retryIssue.id,
+      issueSubjectId: retryIssue.id,
+      issueIdentifier: retryIssue.identifier,
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: repository.path,
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "retry-workspace", ".runtime"),
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: "2026-03-08T00:00:00.000Z",
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([retryIssue]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn().mockReturnValue(retryIssue),
+    });
+    const spawnImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.health).toBe("degraded");
+    expect(result.lastError).toContain("missing-before-run.sh");
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations("tenant-1")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        failureRetryCount: 1,
+        failureRetrySuppressedState: null,
+      }),
+    ]);
+  });
+
   it("preserves recovery kind and age when capacity postpones a due retry", async () => {
     const now = new Date("2026-03-08T00:00:00.000Z");
     const tempRoot = await mkdtemp(
@@ -2909,6 +3036,160 @@ describe("OrchestratorService", () => {
         encoding: "utf8",
       })
     ).toContain("?? partial.txt");
+  });
+
+  it("recovers a clean foreign-branch workspace before worker preflight", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-clean-foreign-branch-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryDirectory = await ensurePopulatedIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      projectSlug: "tenant-1",
+      issueIdentifier: "acme/platform#1",
+    });
+    execSync(`git -C ${shell(repositoryDirectory)} switch -c fix/2-foreign`, {
+      encoding: "utf8",
+    });
+    execSync(
+      `git -C ${shell(repositoryDirectory)} config user.email tester@example.com`
+    );
+    execSync(`git -C ${shell(repositoryDirectory)} config user.name tester`);
+    await writeFile(
+      join(repositoryDirectory, "foreign-issue.txt"),
+      "issue 2 committed work\n",
+      "utf8"
+    );
+    execSync(
+      `git -C ${shell(repositoryDirectory)} add foreign-issue.txt && git -C ${shell(repositoryDirectory)} commit -m 'fix: preserve foreign issue work'`,
+      { encoding: "utf8" }
+    );
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toBe("");
+    const foreignHead = execSync(
+      `git -C ${shell(repositoryDirectory)} rev-parse HEAD`,
+      { encoding: "utf8" }
+    ).trim();
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4411,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")),
+      spawnImpl: spawnImpl as never,
+      isProcessRunning: () => false,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    const dispatched = await service.runOnce();
+    const recoveryWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      `${workspaceKey}-recovery`
+    );
+    const recoveryRepositoryDirectory = join(
+      recoveryWorkspacePath,
+      "repository"
+    );
+    const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+
+    expect(dispatched.summary.dispatched).toBe(1);
+    expect(spawnEnv?.WORKING_DIRECTORY).toBe(recoveryRepositoryDirectory);
+    expect(spawnEnv?.SYMPHONY_ASSIGNED_BRANCH).toBe(
+      "symphony/tenant-1/acme-platform-1"
+    );
+    expect(
+      execSync(
+        `git -C ${shell(recoveryRepositoryDirectory)} rev-parse --abbrev-ref HEAD`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe(spawnEnv?.SYMPHONY_ASSIGNED_BRANCH);
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(foreignHead);
+    expect(
+      execSync(
+        `git -C ${shell(repositoryDirectory)} rev-parse --abbrev-ref HEAD`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("fix/2-foreign");
+    expect(
+      await readFile(join(repositoryDirectory, "foreign-issue.txt"), "utf8")
+    ).toBe("issue 2 committed work\n");
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toBe("");
+    const persistedWorkspace = await store.loadIssueWorkspace(
+      projectConfig.projectId,
+      workspaceKey
+    );
+    expect(persistedWorkspace?.workspacePath).toBe(recoveryWorkspacePath);
+    const activeRun = (await store.loadAllRuns()).find(
+      (run) => run.issueId === "issue-1"
+    );
+    const events = (
+      await readFile(
+        join(
+          store.runDir(activeRun!.runId, projectConfig.projectId),
+          "events.ndjson"
+        ),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "workspace-root-relocated",
+        previousWorkspacePath: issueWorkspacePath,
+        configuredWorkspacePath: recoveryWorkspacePath,
+      })
+    );
   });
 
   it("warns and continues when a recovery workspace is dirty", async () => {
@@ -15794,6 +16075,15 @@ Keep skipped hooks inert.
 `,
         }
       );
+      if (!trusted) {
+        await mkdir(join(repository.path, "scripts"), { recursive: true });
+        await writeFile(
+          join(repository.path, "scripts", "before-run.sh"),
+          "#!/bin/sh\nexit 0\n",
+          "utf8"
+        );
+        await chmod(join(repository.path, "scripts", "before-run.sh"), 0o755);
+      }
       const store = new OrchestratorFsStore(tempRoot);
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
@@ -16008,6 +16298,94 @@ Test hook failure.
         }),
       }),
     ]);
+  });
+
+  it("reports a missing hook as a project fault without consuming issue retries", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-missing-hook-project-fault-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxFailureRetries: 3 }
+    );
+    const missingHookPath = join(repository.path, "hooks", "after_create.sh");
+    await rm(missingHookPath);
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme-platform-1",
+        state: "released",
+        failureRetryCount: 2,
+        failureRetrySuppressedState: null,
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    const spawnImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const first = await service.runOnce();
+    const second = await service.runOnce();
+
+    expect(first.health).toBe("degraded");
+    expect(second.health).toBe("degraded");
+    expect(second.lastError).toContain("Project configuration fault");
+    expect(second.lastError).toContain(missingHookPath);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    await expect(
+      store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).resolves.toEqual([
+      expect.objectContaining({
+        issueId: "issue-1",
+        state: "released",
+        failureRetryCount: 2,
+        failureRetrySuppressedState: null,
+        retryEntry: null,
+      }),
+    ]);
+  });
+
+  it("does not report an invalid disabled hook as a configuration fault", async () => {
+    delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-disabled-missing-hook-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    await rm(join(repository.path, "hooks", "after_create.sh"));
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const spawnImpl = vi
+      .fn()
+      .mockReturnValue({ pid: 4314, unref: vi.fn() }) as never;
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.lastError).not.toContain("Project configuration fault");
+    expect(result.lastError).toContain("after_create hook skipped");
+    expect(spawnImpl).not.toHaveBeenCalled();
   });
 
   it("passes host Git credential plumbing only to after_create population", async () => {

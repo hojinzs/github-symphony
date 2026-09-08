@@ -103,6 +103,33 @@ describe("project lock", () => {
     await releaseProjectLock(lock);
   });
 
+  it("uses a caller-facing project label in lock diagnostics", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+    const lock = await acquireProjectLock({
+      runtimeRoot,
+      projectId: "start",
+      projectLabel: "/projects/example",
+      pid: 4321,
+      isProcessRunning: () => false,
+      getProcessIdentity: () => "same-process",
+    });
+
+    await expect(
+      acquireProjectLock({
+        runtimeRoot,
+        projectId: "start",
+        projectLabel: "/projects/example",
+        pid: 9999,
+        isProcessRunning: (pid) => pid === 4321,
+        getProcessIdentity: () => "same-process",
+      })
+    ).rejects.toThrow(
+      'Project "/projects/example" is already running (PID 4321).'
+    );
+
+    await releaseProjectLock(lock);
+  });
+
   it("takes over a live reused pid when process identity changed", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
     const first = await acquireProjectLock({

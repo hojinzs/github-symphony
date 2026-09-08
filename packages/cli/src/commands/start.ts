@@ -17,7 +17,6 @@ import {
 } from "../config.js";
 import {
   OrchestratorService,
-  acquireProjectLock,
   createStore,
   getSupportedTrackerKinds,
   getProcessIdentity,
@@ -35,7 +34,13 @@ import type {
   TrackerStateResult,
   UnpublishedWorktree,
 } from "@gh-symphony/core";
-import { parseWorkflowMarkdown, type ParsedWorkflow } from "@gh-symphony/core";
+import {
+  formatDeferredWorkflowHookPaths,
+  formatWorkflowHookPathProblems,
+  parseWorkflowMarkdown,
+  validateWorkflowHookPaths,
+  type ParsedWorkflow,
+} from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -60,6 +65,13 @@ import {
 import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
 import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
+import {
+  acquireProjectStartLocks,
+  releaseProjectStartLocks,
+  type ProjectStartLocks,
+} from "../project-start-lock.js";
+
+const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
 
 function timestamp(): string {
   const now = new Date();
@@ -246,6 +258,23 @@ async function preflightWorkflowStart(
         workflowPath,
       }
     );
+    const approval = environment[WORKFLOW_HOOK_APPROVAL_ENV];
+    const hooksTrusted = approval === "1" || approval?.toLowerCase() === "true";
+    const hookValidation = hooksTrusted
+      ? await validateWorkflowHookPaths(workflow.hooks, {
+          workflowDirectory: dirname(workflowPath),
+        })
+      : { checked: [], deferred: 0, problems: [] };
+    if (hookValidation.problems.length > 0) {
+      throw new Error(
+        `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
+      );
+    }
+    if (hookValidation.deferred > 0) {
+      process.stderr.write(
+        `Workflow preflight warning: ${formatDeferredWorkflowHookPaths(hookValidation.deferred)}\n`
+      );
+    }
     return { ok: true, workflow };
   } catch (error) {
     if (!configuredPath) {
@@ -337,6 +366,7 @@ type ForegroundShutdownOptions = {
   projectId: string;
   httpServer?: Server;
   workerHttpServer?: Server;
+  projectLocks?: ProjectStartLocks | null;
   projectLock?: ProjectLockHandle | null;
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
@@ -1100,12 +1130,14 @@ const handler = async (
   }
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
-  let projectLock: ProjectLockHandle | null = null;
+  let projectLocks: ProjectStartLocks | null = null;
   try {
-    projectLock = await acquireProjectLock({
+    projectLocks = await acquireProjectStartLocks({
       runtimeRoot,
       projectId,
+      projectDir: projectConfig.projectDir,
     });
+    const projectLock = projectLocks.projectLock;
 
     const store = createStore(runtimeRoot);
     let prevSnapshot: ProjectStatusSnapshot | null = null;
@@ -1176,14 +1208,14 @@ const handler = async (
       shuttingDown = true;
       keepHttpAliveResolve?.();
       keepHttpAliveResolve = null;
-      const heldLock = projectLock;
-      projectLock = null;
+      const heldLocks = projectLocks;
+      projectLocks = null;
       shutdownPromise = shutdownForegroundOrchestrator({
         configDir: options.configDir,
         projectId,
         httpServer: httpServer?.server,
         workerHttpServer: workerHttpServer?.server,
-        projectLock: heldLock,
+        projectLocks: heldLocks,
         service,
       });
       return shutdownPromise;
@@ -1338,7 +1370,7 @@ const handler = async (
       }
     }
   } finally {
-    await releaseProjectLock(projectLock);
+    await releaseProjectStartLocks(projectLocks);
   }
 };
 
@@ -1376,7 +1408,11 @@ export async function shutdownForegroundOrchestrator(
   }
 
   try {
-    await (input.releaseLock ?? releaseProjectLock)(input.projectLock);
+    if (input.projectLocks) {
+      await releaseProjectStartLocks(input.projectLocks);
+    } else {
+      await (input.releaseLock ?? releaseProjectLock)(input.projectLock);
+    }
   } catch (error) {
     logLine(
       yellow("\u26A0"),
