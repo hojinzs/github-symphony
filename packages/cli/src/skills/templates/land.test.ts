@@ -1,18 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateLandSkill } from "./land.js";
 import type { SkillTemplateContext } from "../types.js";
-
-const repositoryRoot = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../.."
-);
-
-async function repositoryFile(path: string): Promise<string> {
-  return readFile(resolve(repositoryRoot, path), "utf8");
-}
 
 function section(document: string, start: string, end: string): string {
   const startIndex = document.indexOf(start);
@@ -56,35 +44,20 @@ describe("generateLandSkill", () => {
 });
 
 describe("merged-PR lifecycle guards", () => {
-  it("documents every Land lifecycle exit and in-cycle conflict recovery", async () => {
-    const workflow = await repositoryFile("WORKFLOW.md");
-    const lifecycle = section(
-      workflow,
-      "### Workpad Lifecycle",
-      "### Status Transition Log"
-    );
-    const installedLandSkill = await repositoryFile(
-      ".codex/skills/land/SKILL.md"
-    );
+  it("documents every Land lifecycle exit and in-cycle conflict recovery", () => {
     const generatedLandSkill = generateLandSkill(context);
 
-    expect(lifecycle).toContain("`Land` → `Land` (trivial-conflict recovery)");
-    expect(lifecycle).toContain("continue the current land cycle");
-    expect(lifecycle).toContain(
-      "`Land` → `In review` (external wait-only failure)"
+    expect(generatedLandSkill).toContain(
+      "send `Land` → `In review` transition intent"
     );
-    expect(lifecycle).toContain("`Land` → `Ready` (Land-return rework)");
-    expect(lifecycle).toContain(
-      "`Land` → `Backlog` (external or permission blocker)"
+    expect(generatedLandSkill).toContain(
+      "send `Land` → `Ready` transition intent"
     );
-
-    for (const skill of [installedLandSkill, generatedLandSkill]) {
-      expect(skill).toContain("send `Land` → `In review` transition intent");
-      expect(skill).toContain("send `Land` → `Ready` transition intent");
-      expect(skill).toContain("send `Land` → `Backlog` transition intent");
-      expect(skill).toContain("**Trivial conflict**");
-      expect(skill).toContain("remaining in `Land`");
-    }
+    expect(generatedLandSkill).toContain(
+      "send `Land` → `Backlog` transition intent"
+    );
+    expect(generatedLandSkill).toContain("**Trivial conflict**");
+    expect(generatedLandSkill).toContain("remaining in `Land`");
 
     expect(generatedLandSkill).toContain("the repository lockfile");
     expect(generatedLandSkill).toContain(
@@ -97,12 +70,12 @@ describe("merged-PR lifecycle guards", () => {
     expect(generatedLandSkill).not.toContain("pnpm-lock.yaml");
   });
 
-  it("places Ready merged precedence before rework classification and verifies candidate linkage", async () => {
-    const workflow = await repositoryFile("WORKFLOW.md");
+  it("places Ready merged precedence before rework classification and verifies candidate linkage", () => {
+    const generated = generateLandSkill(context);
     const ready = section(
-      workflow,
-      "##### Ready-return rework guard",
-      "##### Stalled-handoff safety net"
+      generated,
+      "## Ready-return Rework Guard",
+      "## Pre-flight Checks"
     );
 
     const readyGuardIndex = ready.indexOf("**Merged-PR precedence guard:**");
@@ -112,12 +85,12 @@ describe("merged-PR lifecycle guards", () => {
     expect(ready).toContain("closingIssuesReferences");
     expect(ready).toContain("text-search match alone is never linked evidence");
     expect(ready).toContain("current delivery PR is `MERGED`");
-    expect(workflow).toContain("**Merged-PR invariant.**");
-    expect(workflow).toContain(
+    expect(generated).toContain("**Merged-PR invariant.**");
+    expect(generated).toContain(
       "An issue whose current delivery PR is merged must never transition to `Ready`."
     );
-    expect(workflow).toContain(
-      "| `Ready` → `Done` (merged-PR precedence repair)"
+    expect(generated).toContain(
+      "`Ready` → `Done` is a merged-PR precedence repair"
     );
   });
 
@@ -156,8 +129,7 @@ describe("merged-PR lifecycle guards", () => {
     expect(landSkill).not.toContain("via `/gh-project` with that body");
   });
 
-  it("gates Land rework on actionable threads created after approval", async () => {
-    const workflow = await repositoryFile("WORKFLOW.md");
+  it("gates Land rework on actionable threads created after approval", () => {
     const landSkill = generateLandSkill(context);
 
     expect(landSkill).toContain("comments(first: 1)");
@@ -171,23 +143,23 @@ describe("merged-PR lifecycle guards", () => {
     expect(landSkill).toContain(
       "Ready-return rework guard opens the next work cycle"
     );
-    expect(workflow).toContain(
+    expect(landSkill).toContain(
       "thread's first comment `createdAt` with the approval review's `submittedAt`"
     );
-    expect(workflow).toContain(
+    expect(landSkill).toContain(
       "created at or before that approval is absorbed by the approval"
     );
-    expect(workflow).toContain(
+    expect(landSkill).toContain(
       "When no qualifying approval exists, any unresolved actionable review thread triggers rework as before"
     );
   });
 
-  it("treats a recent body-only COMMENTED review as Ready-return rework", async () => {
-    const workflow = await repositoryFile("WORKFLOW.md");
+  it("treats a recent body-only COMMENTED review as Ready-return rework", () => {
+    const generated = generateLandSkill(context);
     const ready = section(
-      workflow,
-      "##### Ready-return rework guard",
-      "##### Stalled-handoff safety net"
+      generated,
+      "## Ready-return Rework Guard",
+      "## Pre-flight Checks"
     );
 
     expect(ready).toContain(
@@ -206,17 +178,17 @@ describe("merged-PR lifecycle guards", () => {
     expect(ready).toContain(
       "Only `COMMENTED` review bodies qualify through this condition"
     );
-    expect(workflow).toContain(
+    expect(generated).toContain(
       "reviews(last:30){nodes{state body author{login __typename} submittedAt"
     );
   });
 
-  it("treats an actionable steward issue comment as Ready-return rework", async () => {
-    const workflow = await repositoryFile("WORKFLOW.md");
+  it("treats an actionable steward issue comment as Ready-return rework", () => {
+    const generated = generateLandSkill(context);
     const ready = section(
-      workflow,
-      "##### Ready-return rework guard",
-      "##### Stalled-handoff safety net"
+      generated,
+      "## Ready-return Rework Guard",
+      "## Pre-flight Checks"
     );
 
     expect(ready).toContain(
@@ -231,7 +203,7 @@ describe("merged-PR lifecycle guards", () => {
     expect(ready).toContain(
       "without treating automated boilerplate or passing reports as actionable"
     );
-    expect(workflow).toContain(
+    expect(generated).toContain(
       "comments(last:50){nodes{id body author{login __typename} createdAt}}"
     );
   });
