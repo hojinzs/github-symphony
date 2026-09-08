@@ -6,7 +6,7 @@ import {
   isActionableState,
   isTrackedIssueActionable,
   normalizeGithubProjectItem,
-  normalizeStateName
+  normalizeStateName,
 } from "./github-tracker.js";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "./workflow-lifecycle.js";
 
@@ -33,14 +33,14 @@ describe("normalizeGithubProjectItem", () => {
           {
             __typename: "ProjectV2ItemFieldSingleSelectValue",
             name: "Todo",
-            field: { name: "Status" }
+            field: { name: "Status" },
           },
           {
             __typename: "ProjectV2ItemFieldTextValue",
             text: "repo context",
-            field: { name: "Repository Context" }
-          }
-        ]
+            field: { name: "Repository Context" },
+          },
+        ],
       },
       content: {
         __typename: "Issue",
@@ -52,17 +52,17 @@ describe("normalizeGithubProjectItem", () => {
         createdAt: "2026-03-07T09:00:00.000Z",
         updatedAt: "2026-03-07T10:00:00.000Z",
         labels: {
-          nodes: [{ name: "Agent" }, { name: "Infra" }]
+          nodes: [{ name: "Agent" }, { name: "Infra" }],
         },
         assignees: {
-          nodes: []
+          nodes: [],
         },
         repository: {
           name: "platform",
           url: "https://github.com/acme/platform",
           owner: {
-            login: "acme"
-          }
+            login: "acme",
+          },
         },
         blockedBy: {
           nodes: [
@@ -73,13 +73,13 @@ describe("normalizeGithubProjectItem", () => {
               repository: {
                 name: "shared",
                 owner: {
-                  login: "other"
-                }
-              }
-            }
-          ]
-        }
-      }
+                  login: "other",
+                },
+              },
+            },
+          ],
+        },
+      },
     });
 
     expect(issue).toMatchObject({
@@ -99,8 +99,8 @@ describe("normalizeGithubProjectItem", () => {
         {
           id: "issue-9",
           identifier: "other/shared#9",
-          state: "CLOSED"
-        }
+          state: "CLOSED",
+        },
       ],
       createdAt: "2026-03-07T09:00:00.000Z",
       updatedAt: "2026-03-07T10:00:00.000Z",
@@ -108,12 +108,12 @@ describe("normalizeGithubProjectItem", () => {
         owner: "acme",
         name: "platform",
         url: "https://github.com/acme/platform",
-        cloneUrl: "https://github.com/acme/platform.git"
+        cloneUrl: "https://github.com/acme/platform.git",
       },
       tracker: {
         adapter: "github-project",
         bindingId: "project-123",
-        itemId: "item-1"
+        itemId: "item-1",
       },
       nativeRef: {
         itemId: "item-1",
@@ -121,7 +121,7 @@ describe("normalizeGithubProjectItem", () => {
       },
       isArchived: false,
       metadata: {},
-      rateLimits: null
+      rateLimits: null,
     });
   });
 });
@@ -134,7 +134,7 @@ describe("isTrackedIssueActionable", () => {
           state: "Plan Review",
         } as never,
         {
-          lifecycle: DEFAULT_WORKFLOW_LIFECYCLE
+          lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
         }
       )
     ).toBe(false);
@@ -145,7 +145,7 @@ describe("isTrackedIssueActionable", () => {
           state: "In Progress",
         } as never,
         {
-          lifecycle: DEFAULT_WORKFLOW_LIFECYCLE
+          lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
         }
       )
     ).toBe(true);
@@ -172,9 +172,9 @@ describe("fetchActionableIssues", () => {
                         {
                           __typename: "ProjectV2ItemFieldSingleSelectValue",
                           name: "Todo",
-                          field: { name: "Status" }
-                        }
-                      ]
+                          field: { name: "Status" },
+                        },
+                      ],
                     },
                     content: {
                       __typename: "Issue",
@@ -190,21 +190,21 @@ describe("fetchActionableIssues", () => {
                       repository: {
                         name: "platform",
                         url: "https://github.com/acme/platform",
-                        owner: { login: "acme" }
+                        owner: { login: "acme" },
                       },
-                      blockedBy: { nodes: [] }
-                    }
-                  }
+                      blockedBy: { nodes: [] },
+                    },
+                  },
                 ],
                 pageInfo: {
                   endCursor: "cursor-1",
-                  hasNextPage: true
-                }
-              }
-            }
-          }
+                  hasNextPage: true,
+                },
+              },
+            },
+          },
         }),
-        text: async () => ""
+        text: async () => "",
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -222,9 +222,9 @@ describe("fetchActionableIssues", () => {
                         {
                           __typename: "ProjectV2ItemFieldSingleSelectValue",
                           name: "Done",
-                          field: { name: "Status" }
-                        }
-                      ]
+                          field: { name: "Status" },
+                        },
+                      ],
                     },
                     content: {
                       __typename: "Issue",
@@ -240,28 +240,28 @@ describe("fetchActionableIssues", () => {
                       repository: {
                         name: "platform",
                         url: "https://github.com/acme/platform",
-                        owner: { login: "acme" }
+                        owner: { login: "acme" },
                       },
-                      blockedBy: { nodes: [] }
-                    }
-                  }
+                      blockedBy: { nodes: [] },
+                    },
+                  },
                 ],
                 pageInfo: {
                   endCursor: null,
-                  hasNextPage: false
-                }
-              }
-            }
-          }
+                  hasNextPage: false,
+                },
+              },
+            },
+          },
         }),
-        text: async () => ""
+        text: async () => "",
       });
 
     const issues = await fetchActionableIssues(
       {
         projectId: "project-123",
         token: "secret",
-        lifecycle: DEFAULT_WORKFLOW_LIFECYCLE
+        lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
       },
       fetchImpl as typeof fetch
     );
@@ -275,7 +275,7 @@ describe("fetchActionableIssues", () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
-      text: async () => "bad gateway"
+      text: async () => "bad gateway",
     });
 
     await expect(
@@ -283,7 +283,7 @@ describe("fetchActionableIssues", () => {
         {
           projectId: "project-123",
           token: "secret",
-          activeStates: ["todo"]
+          activeStates: ["todo"],
         },
         fetchImpl as typeof fetch
       )
@@ -294,9 +294,9 @@ describe("fetchActionableIssues", () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        errors: [{ message: "Something broke" }]
+        errors: [{ message: "Something broke" }],
       }),
-      text: async () => ""
+      text: async () => "",
     });
 
     await expect(
@@ -304,7 +304,7 @@ describe("fetchActionableIssues", () => {
         {
           projectId: "project-123",
           token: "secret",
-          activeStates: ["todo"]
+          activeStates: ["todo"],
         },
         fetchImpl as typeof fetch
       )

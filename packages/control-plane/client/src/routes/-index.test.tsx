@@ -179,8 +179,12 @@ describe("Project overview helpers", () => {
       </Theme>
     );
 
-    expect(markup).toContain('href="https://github.com/acme/platform/issues/42"');
-    expect(markup).toContain('href="https://github.com/acme/platform/issues/43"');
+    expect(markup).toContain(
+      'href="https://github.com/acme/platform/issues/42"'
+    );
+    expect(markup).toContain(
+      'href="https://github.com/acme/platform/issues/43"'
+    );
     expect(markup).toContain("acme/platform#42");
   });
 });

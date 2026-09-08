@@ -109,7 +109,10 @@ describe("layered runtime skills", () => {
       "/worktree/.claude/skills"
     );
     expect(
-      resolveRuntimeSkillsDirectory("/worktree", "/usr/local/bin/codex app-server")
+      resolveRuntimeSkillsDirectory(
+        "/worktree",
+        "/usr/local/bin/codex app-server"
+      )
     ).toBe("/worktree/.codex/skills");
   });
 
@@ -119,15 +122,35 @@ describe("layered runtime skills", () => {
     const seed = join(root, "seed");
     const worktree = join(root, "worktree");
     await execFileAsync("git", ["init", "-q", "-b", "main", seed]);
-    await execFileAsync("git", ["-C", seed, "config", "user.email", "test@example.com"]);
-    await execFileAsync("git", ["-C", seed, "config", "user.name", "Test User"]);
+    await execFileAsync("git", [
+      "-C",
+      seed,
+      "config",
+      "user.email",
+      "test@example.com",
+    ]);
+    await execFileAsync("git", [
+      "-C",
+      seed,
+      "config",
+      "user.name",
+      "Test User",
+    ]);
     await writeFile(join(seed, "README.md"), "seed", "utf8");
     await execFileAsync("git", ["-C", seed, "add", "README.md"]);
     await execFileAsync("git", ["-C", seed, "commit", "-qm", "seed"]);
     await execFileAsync("git", ["init", "-q", "--bare", bare]);
     await execFileAsync("git", ["-C", seed, "remote", "add", "origin", bare]);
     await execFileAsync("git", ["-C", seed, "push", "-q", "origin", "main"]);
-    await execFileAsync("git", ["--git-dir", bare, "worktree", "add", "-q", worktree, "main"]);
+    await execFileAsync("git", [
+      "--git-dir",
+      bare,
+      "worktree",
+      "add",
+      "-q",
+      worktree,
+      "main",
+    ]);
     await excludeRuntimeSkillsFromGit(worktree, "codex app-server");
     await writeSkill(join(worktree, ".codex", "skills"), "injected", "skill");
 
@@ -146,8 +169,20 @@ describe("layered runtime skills", () => {
     const project = join(root, "project");
     const repository = join(root, "repository");
     await execFileAsync("git", ["init", "-q", repository]);
-    await execFileAsync("git", ["-C", repository, "config", "user.email", "test@example.com"]);
-    await execFileAsync("git", ["-C", repository, "config", "user.name", "Test User"]);
+    await execFileAsync("git", [
+      "-C",
+      repository,
+      "config",
+      "user.email",
+      "test@example.com",
+    ]);
+    await execFileAsync("git", [
+      "-C",
+      repository,
+      "config",
+      "user.name",
+      "Test User",
+    ]);
     await writeSkill(
       join(repository, ".codex", "skills"),
       "committed",

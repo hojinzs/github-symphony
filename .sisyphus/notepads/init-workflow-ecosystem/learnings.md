@@ -43,6 +43,7 @@
 - Test files: \*.test.ts alongside source files
 
 ## [Task 6] Core Skill Templates
+
 - gh-symphony.ts: generateGhSymphonySkill() — design/refine/validate WORKFLOW.md
 - gh-project.ts: generateGhProjectSkill() — GitHub Project v2 status management
 - Dynamic Column ID table from ctx.statusColumns
@@ -50,6 +51,7 @@
 - Gotcha: "No unsupported `{{variable}}` patterns" in Validate Mode section triggered the double-brace test; replaced with prose description
 
 ## [Task 7] Workflow Skill Templates
+
 - commit.ts: generateCommitSkill() — conventional commit format, logical units, test before commit
 - push.ts: generatePushSkill() — git push workflow, no --force, verify CI starts
 - pull.ts: generatePullSkill() — git fetch + merge, conflict resolution, record evidence
@@ -62,6 +64,7 @@
 - Commit: feat(cli): add workflow skill templates (commit, push, pull, land)
 
 ## [Task 8] Wire Ecosystem into Init Command
+
 - writeEcosystem() helper: orchestrates detectEnvironment → buildContextYaml → generateReferenceWorkflow → writeAllSkills
 - writeContextYaml(outputDir, ctx) expects repo root as outputDir — it appends .gh-symphony/context.yaml internally
 - `as const` on test fixtures causes readonly array incompatibility with mutable ProjectDetail types — use explicit type annotations instead

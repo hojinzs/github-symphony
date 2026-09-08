@@ -5,7 +5,12 @@ import "../src/index.css";
 const preview: Preview = {
   decorators: [
     (Story) => (
-      <Theme appearance="dark" accentColor="blue" grayColor="gray" radius="medium">
+      <Theme
+        appearance="dark"
+        accentColor="blue"
+        grayColor="gray"
+        radius="medium"
+      >
         <div className="min-h-screen bg-bg-default px-6 py-8 text-text-primary">
           <Story />
         </div>

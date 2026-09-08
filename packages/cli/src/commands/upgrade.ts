@@ -70,12 +70,7 @@ export async function fetchLatestCliVersion(
   const runExecFile = deps?.execFileImpl ?? execFileAsync;
   const { stdout } = await runExecFile(
     resolvePackageManagerExecutable("npm", deps?.platform),
-    [
-      "view",
-      PACKAGE_NAME,
-      "dist-tags.latest",
-      "--json",
-    ]
+    ["view", PACKAGE_NAME, "dist-tags.latest", "--json"]
   );
 
   const raw = stdout.trim();
@@ -166,9 +161,7 @@ export async function runUpgradeInstall(
         resolve();
         return;
       }
-      reject(
-        new Error(`${command} exited with code ${code ?? "unknown"}.`)
-      );
+      reject(new Error(`${command} exited with code ${code ?? "unknown"}.`));
     });
   });
 }
