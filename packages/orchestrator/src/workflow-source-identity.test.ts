@@ -79,6 +79,40 @@ describe("inspectWorkflowSourceIdentity", () => {
     expect(identity.contentRevision).toBe(identity.repositoryRevision);
   });
 
+  it("normalizes line endings when comparing a synchronized copy", async () => {
+    const repositoryDirectory = await createRepository();
+    const projectDirectory = await mkdtemp(join(tmpdir(), "workflow-project-"));
+    const workflowPath = join(projectDirectory, "WORKFLOW.md");
+    await writeFile(workflowPath, "policy: one\r\n");
+
+    const identity = await inspectWorkflowSourceIdentity({
+      workflowPath,
+      repositoryDirectory,
+    });
+
+    expect(identity.relationship).toBe("synchronized-copy");
+    expect(identity.contentRevision).toBe(identity.repositoryRevision);
+  });
+
+  it("reports a repository with no committed policy without warning identity", async () => {
+    const repositoryDirectory = await createRepository();
+    git(repositoryDirectory, "rm", "WORKFLOW.md");
+    git(repositoryDirectory, "commit", "-q", "-m", "remove policy");
+    const projectDirectory = await mkdtemp(join(tmpdir(), "workflow-project-"));
+    const workflowPath = join(projectDirectory, "WORKFLOW.md");
+    await writeFile(workflowPath, "policy: independent\n");
+
+    await expect(
+      inspectWorkflowSourceIdentity({ workflowPath, repositoryDirectory })
+    ).resolves.toMatchObject({
+      relationship: "no-repository-policy",
+      contentRevision: expect.stringMatching(/^sha256:/),
+      repositoryCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+      repositoryRevision: null,
+      matchedRepositoryCommit: null,
+    });
+  });
+
   it("classifies a copy of a prior repository workflow as stale", async () => {
     const repositoryDirectory = await createRepository();
     const projectDirectory = await mkdtemp(join(tmpdir(), "workflow-project-"));

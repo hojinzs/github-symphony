@@ -15866,6 +15866,49 @@ Handle Linear issue.`,
     ]);
   });
 
+  it("does not warn when the configured repository has no committed workflow", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-no-repository-policy-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    execSync(
+      `git -C ${JSON.stringify(repository.path)} rm WORKFLOW.md && git -C ${JSON.stringify(repository.path)} commit -q -m "remove workflow"`
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(
+      store.projectDir("tenant-1"),
+      "WORKFLOW.md"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      externalWorkflowPath,
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nIndependent prompt\n",
+      "utf8"
+    );
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.workflow?.source).toMatchObject({
+      relationship: "no-repository-policy",
+      repositoryCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+      repositoryRevision: null,
+    });
+    expect(snapshot.warnings).toEqual([]);
+  });
+
   it("does not warn when an external workflow is the resolved repository workflow", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

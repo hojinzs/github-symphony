@@ -811,7 +811,8 @@ disabled). A `WORKFLOW.md` in the target repository is not used as a fallback
 for a folder-addressed project. When the repository is local, Symphony compares
 it with the project policy for operator visibility: an older historically
 matching regular-file copy warns, while a never-related independent policy does
-not.
+not. A target repository with no committed `WORKFLOW.md` is also reported as an
+intentional non-warning layout.
 
 ### Environment Variables
 

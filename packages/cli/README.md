@@ -467,7 +467,8 @@ the project workflow's source path, content revision, relationship to repository
 history, and current committed repository-policy revision. `doctor` warns when
 a regular-file copy matches an older repository revision, but treats a symlink,
 current copy, or never-related independent policy as a distinct non-warning
-identity. If the committed ref or checkout cannot be read, `doctor` reports the
+identity. A repository with no committed `WORKFLOW.md` is a separate
+`no-repository-policy` non-warning identity. If the committed ref or checkout cannot be read, `doctor` reports the
 comparison as a warning rather than passing it. Relative local clone paths are
 resolved from the command's repository working directory; remote clone URLs
 use the project's newest usable live issue checkout or run working directory,

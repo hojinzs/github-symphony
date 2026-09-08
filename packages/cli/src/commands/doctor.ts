@@ -2349,7 +2349,9 @@ export async function runDoctorDiagnostics(
             "Project workflow source identity",
             identity.relationship === "independent"
               ? `Project WORKFLOW.md is an independent policy (${identity.contentRevision}); it does not match reachable repository WORKFLOW.md history.`
-              : `Project WORKFLOW.md source is ${identity.relationship} (${identity.contentRevision ?? "revision unavailable"}).`,
+              : identity.relationship === "no-repository-policy"
+                ? `Project WORKFLOW.md is an independent policy (${identity.contentRevision}); the configured repository has no committed WORKFLOW.md at ${identity.repositoryRef}.`
+                : `Project WORKFLOW.md source is ${identity.relationship} (${identity.contentRevision ?? "revision unavailable"}).`,
             details
           )
         );

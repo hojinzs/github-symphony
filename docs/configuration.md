@@ -30,7 +30,8 @@ the effective `workflow.revision` (a short SHA-256-derived identifier) and
 `workflow.loadedAt`; `run-dispatched` structured events record the same
 `workflowRevision`. For standalone projects backed by a local checkout,
 `workflow.source` also records the source path, relationship (`linked`,
-`synchronized-copy`, `stale-copy`, `independent`, or `unavailable`), raw-content
+`synchronized-copy`, `stale-copy`, `independent`, `no-repository-policy`, or
+`unavailable`), normalized-content
 revision, and the configured base ref's committed repository path, commit, and
 content revision. These values contain no workflow contents or environment
 values. See [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md) for

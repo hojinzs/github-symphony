@@ -674,6 +674,78 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("reports an independent project policy when the repository has no policy", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    execFileSync("git", ["init", "-q", "--initial-branch=main", repoDir]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "config",
+      "user.email",
+      "test@example.com",
+    ]);
+    execFileSync("git", ["-C", repoDir, "config", "user.name", "Test User"]);
+    await writeFile(
+      join(repoDir, "README.md"),
+      "# Repository without policy\n"
+    );
+    execFileSync("git", ["-C", repoDir, "add", "README.md"]);
+    execFileSync("git", ["-C", repoDir, "commit", "-q", "-m", "initial"]);
+
+    const projectDir = await mkdtemp(join(tmpdir(), "doctor-project-"));
+    const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      projectWorkflowPath,
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nIndependent prompt\n"
+    );
+    const report = await runDoctorDiagnostics(baseOptions(configDir), [], {
+      ...authDependencies(),
+      inspectManagedProjectSelection: async () => ({
+        kind: "resolved" as const,
+        projectId: "tenant-a",
+        projectConfig: {
+          ...createProjectConfig(workspaceDir, "PVT_test", {
+            owner: "acme",
+            name: "widgets",
+            url: "https://github.com/acme/widgets",
+            cloneUrl: repoDir,
+          }),
+          projectDir,
+          workflowSource: {
+            type: "external" as const,
+            path: projectWorkflowPath,
+          },
+        },
+      }),
+      getProjectDetail: (async () =>
+        ({
+          id: "PVT_test",
+          title: "Acme Platform",
+          url: "https://github.com/orgs/acme/projects/1",
+          statusFields: [],
+          textFields: [],
+          linkedRepositories: [],
+        }) as never) as never,
+      execFileSync: (() => "git version 2.43.0") as never,
+      pathEnv,
+    });
+
+    expect(
+      report.checks.find((check) => check.id === "workflow_source_identity")
+    ).toMatchObject({
+      status: "pass",
+      summary: expect.stringContaining("no committed WORKFLOW.md"),
+      details: {
+        relationship: "no-repository-policy",
+        repositoryCommit: expect.stringMatching(/^[0-9a-f]{40}$/),
+        repositoryRevision: null,
+      },
+    });
+  });
+
   it("reads the registered external project WORKFLOW.md", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

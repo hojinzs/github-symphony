@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { promisify } from "node:util";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   IssueWorkspaceRecord,
@@ -17,6 +17,7 @@ export type WorkflowSourceRelationship =
   | "synchronized-copy"
   | "stale-copy"
   | "independent"
+  | "no-repository-policy"
   | "unavailable";
 
 export type WorkflowSourceIdentity = {
@@ -89,7 +90,14 @@ function resolveConfiguredRepositoryPath(
 }
 
 function contentRevision(content: string): string {
-  return `sha256:${createHash("sha256").update(content).digest("hex").slice(0, 12)}`;
+  return `sha256:${createHash("sha256")
+    .update(normalizePolicyContent(content))
+    .digest("hex")
+    .slice(0, 12)}`;
+}
+
+function normalizePolicyContent(content: string): string {
+  return content.replaceAll("\r\n", "\n");
 }
 
 async function defaultExecGit(cwd: string, args: string[]): Promise<string> {
@@ -107,7 +115,7 @@ export async function inspectWorkflowSourceIdentity(input: {
   dependencies?: WorkflowSourceIdentityDependencies;
 }): Promise<WorkflowSourceIdentity> {
   const execGit = input.dependencies?.execGit ?? defaultExecGit;
-  const repositoryWorkflowPath = `${input.repositoryDirectory}/WORKFLOW.md`;
+  const repositoryWorkflowPath = join(input.repositoryDirectory, "WORKFLOW.md");
   const unavailable = (
     sourceRevision: string | null
   ): WorkflowSourceIdentity => ({
@@ -142,12 +150,33 @@ export async function inspectWorkflowSourceIdentity(input: {
   const sourceRevision = contentRevision(sourceContent);
   const repositoryRef = input.baseRef?.trim() || "HEAD";
   try {
-    const [repositoryContent, repositoryCommit] = await Promise.all([
-      execGit(input.repositoryDirectory, [
-        "show",
-        `${repositoryRef}:WORKFLOW.md`,
-      ]),
-      execGit(input.repositoryDirectory, ["rev-parse", repositoryRef]),
+    const repositoryCommit = (
+      await execGit(input.repositoryDirectory, ["rev-parse", repositoryRef])
+    ).trim();
+    const repositoryPolicyPath = (
+      await execGit(input.repositoryDirectory, [
+        "ls-tree",
+        "--name-only",
+        repositoryRef,
+        "--",
+        "WORKFLOW.md",
+      ])
+    ).trim();
+    if (!repositoryPolicyPath) {
+      return {
+        path: input.workflowPath,
+        relationship: "no-repository-policy",
+        contentRevision: sourceRevision,
+        repositoryPath: repositoryWorkflowPath,
+        repositoryRef,
+        repositoryCommit,
+        repositoryRevision: null,
+        matchedRepositoryCommit: null,
+      };
+    }
+    const repositoryContent = await execGit(input.repositoryDirectory, [
+      "show",
+      `${repositoryRef}:WORKFLOW.md`,
     ]);
     const repositoryRevision = contentRevision(repositoryContent);
     const common = {
@@ -155,21 +184,24 @@ export async function inspectWorkflowSourceIdentity(input: {
       contentRevision: sourceRevision,
       repositoryPath: repositoryWorkflowPath,
       repositoryRef,
-      repositoryCommit: repositoryCommit.trim(),
+      repositoryCommit,
       repositoryRevision,
     };
     if (linked) {
       return {
         ...common,
         relationship: "linked",
-        matchedRepositoryCommit: repositoryCommit.trim(),
+        matchedRepositoryCommit: repositoryCommit,
       };
     }
-    if (sourceContent === repositoryContent) {
+    if (
+      normalizePolicyContent(sourceContent) ===
+      normalizePolicyContent(repositoryContent)
+    ) {
       return {
         ...common,
         relationship: "synchronized-copy",
-        matchedRepositoryCommit: repositoryCommit.trim(),
+        matchedRepositoryCommit: repositoryCommit,
       };
     }
 
@@ -188,11 +220,13 @@ export async function inspectWorkflowSourceIdentity(input: {
     for (const revision of revisions) {
       try {
         if (
-          sourceContent ===
-          (await execGit(input.repositoryDirectory, [
-            "show",
-            `${revision}:WORKFLOW.md`,
-          ]))
+          normalizePolicyContent(sourceContent) ===
+          normalizePolicyContent(
+            await execGit(input.repositoryDirectory, [
+              "show",
+              `${revision}:WORKFLOW.md`,
+            ])
+          )
         ) {
           return {
             ...common,

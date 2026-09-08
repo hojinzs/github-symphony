@@ -22,5 +22,6 @@ without fetching from the network.
   non-secret `sha256:<12 hex characters>` form and differ.
 - The snapshot warning and doctor diagnostic name the condition as a diverged
   copy; doctor includes both revisions.
-- Unit tests separately cover symlink, synchronized-copy, stale-copy, and
-  deliberately independent-policy classification.
+- Unit tests separately cover symlink, synchronized-copy (including normalized
+  line endings), stale-copy, deliberately independent policy, and a repository
+  with no committed policy.

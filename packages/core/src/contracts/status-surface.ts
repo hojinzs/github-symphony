@@ -345,6 +345,7 @@ export type ProjectStatusSnapshot = {
         | "synchronized-copy"
         | "stale-copy"
         | "independent"
+        | "no-repository-policy"
         | "unavailable";
       contentRevision: string | null;
       repositoryPath: string | null;
