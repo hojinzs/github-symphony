@@ -859,7 +859,9 @@ async function validateWorkflow(
     workflowDirectory: dirname(workflowPath),
   });
   if (hookValidation.problems.length > 0) {
-    throw new Error(
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      `hooks.${hookValidation.problems[0].hook}`,
       `Invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
     );
   }
