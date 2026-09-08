@@ -294,7 +294,7 @@ gh-symphony workflow init
 
 ### Customizing Agent Behavior
 
-The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval as absorbed by that approval. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
+The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval on the current PR head as absorbed by that approval. Ready-state review classification remains policy owned by the project folder's `WORKFLOW.md`; it is not part of the Land-triggered skill. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
 
 The generated `/push` skill requests the run-scoped host publication action
 after a commit. The credential remains in the worker host, while the assigned
@@ -798,7 +798,7 @@ gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.
 gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 ```
 
-`gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, and prints a compact runtime/lifecycle summary. Its `runtime.timeouts.*` values are the effective runtime settings: each explicit runtime timeout takes precedence over its legacy `codex.*_timeout_ms` counterpart, omitted runtime fields inherit legacy values, and documented defaults apply when neither is configured. The source printed beside each field reflects that field's precedence result, including mixed-source timeout blocks.
+`gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, validates hook path syntax and any immediately resolvable hook scripts, and prints a compact runtime/lifecycle summary. Repository-relative run hooks are reported as deferred until an issue workspace is available. Its `runtime.timeouts.*` values are the effective runtime settings: each explicit runtime timeout takes precedence over its legacy `codex.*_timeout_ms` counterpart, omitted runtime fields inherit legacy values, and documented defaults apply when neither is configured. The source printed beside each field reflects that field's precedence result, including mixed-source timeout blocks.
 
 `gh-symphony workflow preview --issue owner/repo#123` is the fastest validation step after `workflow init`: it resolves the active managed project (or `--project-id`) and renders the exact worker prompt from the live GitHub Project issue. Linear workflows can preview a single issue with `gh-symphony workflow preview ENG-123`, which routes through the configured Linear tracker adapter and `LINEAR_API_KEY`. Keep `--sample <path-to-json>` for fixture-based debugging, and use `--attempt <n>` to inspect retry prompts before changing policy files.
 

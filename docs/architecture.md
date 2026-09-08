@@ -80,6 +80,9 @@ the tracker adapter:
 ### 2. Configuration — typed parsing and validation
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
+- CLI workflow validation: `packages/cli/src/commands/workflow.ts` reuses the
+  core workspace-hook path diagnostics so local validation and execution
+  preflight apply the same path syntax, resolution, and executable-file rules.
 - Workflow `server.port` configuration and the `project start --port` / `--http`
   status-API options: `packages/core/src/workflow/`,
   `packages/cli/src/commands/start.ts`

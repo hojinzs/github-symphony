@@ -149,7 +149,7 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 ### Customizing Agent Behavior
 
-`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval as absorbed by that approval. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
+`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions. The generated `/land` skill gives merged PRs precedence over failure classification and treats review threads created before a qualifying approval on the current PR head as absorbed by that approval. Ready-state review classification remains policy owned by the project folder's `WORKFLOW.md`; it is not part of the Land-triggered skill. The generated `/gh-symphony` skill includes `references/` files that can be customized or extended without adding CLI flags.
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
@@ -283,7 +283,7 @@ All removed flat `tracker.*` provider settings produce a typed
 `workflow_deprecated_key` error. Use `tracker.provider`; `gh-symphony doctor`
 prints the normalized provider block for migration.
 
-Run `gh-symphony workflow validate` for local schema errors and warnings. Ignored `agent.max_concurrent_agents_by_state` entries warn with their paths and reasons, while valid entries in the same map remain active; `gh-symphony doctor` reports the same warning alongside live drift checks such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`. Strict front-matter failures use stable workflow error codes; `workflow validate --json` also emits the failing `error.path`.
+Run `gh-symphony workflow validate` for local schema errors, hook path syntax errors, immediately resolvable missing or non-executable hook scripts, and warnings. Repository-relative run hooks are reported as deferred until an issue workspace is available. Ignored `agent.max_concurrent_agents_by_state` entries warn with their paths and reasons, while valid entries in the same map remain active; `gh-symphony doctor` reports the same warning alongside live drift checks such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`. Strict front-matter failures use stable workflow error codes; `workflow validate --json` also emits the failing `error.path`.
 
 ### Linear Tracker Projects
 
