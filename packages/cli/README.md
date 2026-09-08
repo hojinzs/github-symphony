@@ -170,14 +170,18 @@ maximum silence interval for a Codex app-server turn. Every app-server output
 resets it; it is not a total turn-duration cap.
 
 `gh-symphony workflow validate` reports the effective values under
-`runtime.timeouts.*`. An explicit `runtime.timeouts` block takes precedence over
-the legacy `codex.*_timeout_ms` fields; documented defaults apply when neither
-location provides a value.
+`runtime.timeouts.*`. Each explicit runtime timeout takes precedence over its
+legacy `codex.*_timeout_ms` counterpart; omitted runtime fields inherit legacy
+values, with documented defaults used when neither location provides a value.
 
 In JSON output, effective timeout values are exposed as
 `summary.runtimeTimeouts.{readTimeoutMs,stallTimeoutMs,turnTimeoutMs}`. These
 replace the former `summary.codex.*TimeoutMs` fields, which could report values
 that the runtime did not use; no compatibility aliases are emitted.
+Per-field origins are exposed as
+`summary.runtimeTimeoutSources.{readTimeoutMs,stallTimeoutMs,turnTimeoutMs}` so
+partial `runtime.timeouts` blocks identify which values came from
+`runtime.timeouts` and which came from `codex/defaults`.
 
 Lifecycle generation enables blocker checks for the first configured active
 state (`Todo` with built-in defaults) while leaving planning states disabled.
