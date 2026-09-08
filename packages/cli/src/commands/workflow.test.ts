@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -120,6 +120,214 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain(`Path: ${workflowPath}`);
     expect(stdout.output()).toContain("continuation_guidance=pass");
     expect(stdout.output()).toContain("active_states=Ready, In progress");
+    expect(stdout.output()).not.toContain("path_checks=");
+  });
+
+  it.each([
+    {
+      name: "invalid path syntax",
+      hook: "bash ./scripts/setup.sh",
+      expected: 'after_create="bash ./scripts/setup.sh" (not a path)',
+    },
+    {
+      name: "missing script",
+      hook: "./scripts/missing.sh",
+      expected: "(missing)",
+    },
+  ])("rejects $name in workflow hooks", async ({ hook, expected }) => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        `hooks:\n  after_create: ${hook}\ncodex:\n`
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("Invalid WORKFLOW.md hook path");
+    expect(stderr.output()).toContain(expected);
+    expect(stderr.output()).toContain(
+      "Create the referenced hook script(s), make them executable, or fix the hook path(s)."
+    );
+  });
+
+  it("prints typed hook path errors from workflow validate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-json-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./scripts/missing.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      error: {
+        code: "workflow_validation_error",
+        path: "hooks.after_create",
+        message: expect.stringContaining("(missing)"),
+      },
+    });
+  });
+
+  it("uses the parent hooks path when multiple hook paths fail", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hooks-json-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./scripts/missing.sh\n  before_run: /missing/before-run.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      error: {
+        code: "workflow_validation_error",
+        path: "hooks",
+        message: expect.stringContaining("after_create="),
+      },
+    });
+    expect(stdout.output()).toContain("before_run=");
+  });
+
+  it("rejects a workflow hook path that is not a file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-dir-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const hookDirectory = join(root, "hook-directory");
+    const stderr = captureWrites(process.stderr);
+    await mkdir(hookDirectory);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./hook-directory\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("after_create=");
+    expect(stderr.output()).toContain("hook-directory (not file)");
+  });
+
+  it("reports checked and deferred workflow hook paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hooks-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const hookPath = join(root, "after-create.sh");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(hookPath, "#!/bin/sh\n", "utf8");
+    await chmod(hookPath, 0o755);
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./after-create.sh\n  before_run: ./scripts/before-run.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("path_checks=1 checked, 1 deferred");
+    expect(stdout.output()).toContain(
+      "Deferred 1 repository-relative workflow hook"
+    );
+  });
+
+  it("rejects a non-executable workflow hook script", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-hook-mode-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const hookPath = join(root, "after-create.sh");
+    const stderr = captureWrites(process.stderr);
+    await writeFile(hookPath, "#!/bin/sh\n", { mode: 0o644 });
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "codex:\n",
+        "hooks:\n  after_create: ./after-create.sh\ncodex:\n"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("after_create=");
+    expect(stderr.output()).toContain("(not executable)");
   });
 
   it.each([

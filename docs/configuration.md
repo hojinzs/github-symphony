@@ -121,6 +121,14 @@ only and does not expose its entries to the coding-agent child.
 strict parser as workflow loading. Failures include a stable error code; the
 `workflow validate --json` error also exposes its field path separately.
 
+Workflow validation also reuses the runtime hook-path diagnostics. It rejects
+shell syntax and reports immediately resolvable missing, non-file, or
+non-executable scripts. Repository-relative run hooks are reported as deferred
+because they resolve from an issue workspace that does not exist during local
+validation. This declaration check runs regardless of whether workflow hook
+execution is trusted; trust controls whether runtime hooks execute, not whether
+an explicitly declared path is valid.
+
 | Rule                      | Required value                                                                                                                     | Error code/path                                                                                     |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | Front matter syntax       | Optional; when present it must be a valid YAML mapping                                                                             | `workflow_parse_error` or `workflow_front_matter_not_a_map` at `front_matter`                       |

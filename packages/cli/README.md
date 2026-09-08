@@ -283,7 +283,7 @@ All removed flat `tracker.*` provider settings produce a typed
 `workflow_deprecated_key` error. Use `tracker.provider`; `gh-symphony doctor`
 prints the normalized provider block for migration.
 
-Run `gh-symphony workflow validate` for local schema errors and warnings. Ignored `agent.max_concurrent_agents_by_state` entries warn with their paths and reasons, while valid entries in the same map remain active; `gh-symphony doctor` reports the same warning alongside live drift checks such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`. Strict front-matter failures use stable workflow error codes; `workflow validate --json` also emits the failing `error.path`.
+Run `gh-symphony workflow validate` for local schema errors, hook path syntax errors, immediately resolvable missing or non-executable hook scripts, and warnings. Repository-relative run hooks are reported as deferred until an issue workspace is available. Ignored `agent.max_concurrent_agents_by_state` entries warn with their paths and reasons, while valid entries in the same map remain active; `gh-symphony doctor` reports the same warning alongside live drift checks such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`. Strict front-matter failures use stable workflow error codes; `workflow validate --json` also emits the failing `error.path`.
 
 ### Linear Tracker Projects
 
