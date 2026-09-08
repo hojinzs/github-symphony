@@ -9,7 +9,12 @@ import { router } from "./router";
 
 function App() {
   return (
-    <Theme appearance="dark" accentColor="blue" grayColor="gray" radius="medium">
+    <Theme
+      appearance="dark"
+      accentColor="blue"
+      grayColor="gray"
+      radius="medium"
+    >
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>

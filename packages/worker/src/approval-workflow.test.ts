@@ -5,7 +5,7 @@ import {
   buildPullRequestBody,
   executeStateGuard,
   hasMergedCompletionSignal,
-  isIssueStillActionable
+  isIssueStillActionable,
 } from "./approval-workflow.js";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "./workflow-lifecycle.js";
 
@@ -14,7 +14,7 @@ describe("buildImplementationBranchName", () => {
     expect(
       buildImplementationBranchName({
         number: 42,
-        title: "Ship the approval-gated PR workflow"
+        title: "Ship the approval-gated PR workflow",
       })
     ).toBe("symphony/issue-42-ship-the-approval-gated-pr-workflow");
   });
@@ -30,7 +30,9 @@ describe("buildPhaseMarker", () => {
 
 describe("buildPullRequestBody", () => {
   it("links the PR merge back to the issue completion path", () => {
-    expect(buildPullRequestBody(99, "Implement the worker lifecycle")).toContain("Fixes #99");
+    expect(
+      buildPullRequestBody(99, "Implement the worker lifecycle")
+    ).toContain("Fixes #99");
   });
 });
 
@@ -41,13 +43,10 @@ describe("state safeguards", () => {
     ).toThrow("Issue is no longer actionable");
 
     expect(
-      isIssueStillActionable(
-        "In Progress",
-        DEFAULT_WORKFLOW_LIFECYCLE
-      )
+      isIssueStillActionable("In Progress", DEFAULT_WORKFLOW_LIFECYCLE)
     ).toBe(true);
-    expect(
-      hasMergedCompletionSignal("Done", DEFAULT_WORKFLOW_LIFECYCLE)
-    ).toBe(true);
+    expect(hasMergedCompletionSignal("Done", DEFAULT_WORKFLOW_LIFECYCLE)).toBe(
+      true
+    );
   });
 });

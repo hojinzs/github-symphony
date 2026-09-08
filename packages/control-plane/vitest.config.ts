@@ -8,7 +8,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@gh-symphony/core": resolve(packageRoot, "../core/src/index.ts"),
-      "@gh-symphony/dashboard": resolve(packageRoot, "../dashboard/src/index.ts"),
+      "@gh-symphony/dashboard": resolve(
+        packageRoot,
+        "../dashboard/src/index.ts"
+      ),
     },
   },
   test: {

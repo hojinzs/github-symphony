@@ -9,9 +9,9 @@ describe("fs-reader", () => {
 
   afterEach(async () => {
     await Promise.all(
-      tempDirs.splice(0).map((path) =>
-        rm(path, { recursive: true, force: true })
-      )
+      tempDirs
+        .splice(0)
+        .map((path) => rm(path, { recursive: true, force: true }))
     );
   });
 

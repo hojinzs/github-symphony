@@ -55,8 +55,7 @@ text_fields:
     name: Linked pull requests
     data_type: LINKED_PULL_REQUESTS
 
-repositories:
-  []
+repositories: []
 
 detected_environment:
   packageManager: pnpm

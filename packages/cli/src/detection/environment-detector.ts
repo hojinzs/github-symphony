@@ -1,13 +1,7 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-type DetectedPackageManager =
-  | "pnpm"
-  | "npm"
-  | "yarn"
-  | "bun"
-  | "uv"
-  | "poetry";
+type DetectedPackageManager = "pnpm" | "npm" | "yarn" | "bun" | "uv" | "poetry";
 
 export type DetectedEnvironment = {
   packageManager: DetectedPackageManager | null;
@@ -239,8 +233,7 @@ async function detectPythonCommands(cwd: string): Promise<DetectedCommands> {
   }
 
   const hasPytestConfig =
-    hasPytestIni ||
-    /\[tool\.pytest(?:\.ini_options)?\]/.test(pyproject ?? "");
+    hasPytestIni || /\[tool\.pytest(?:\.ini_options)?\]/.test(pyproject ?? "");
   if (!hasPytestConfig) {
     return { testCommand: null, buildCommand: null, lintCommand: null };
   }
@@ -272,16 +265,24 @@ async function detectRustCommands(cwd: string): Promise<DetectedCommands> {
   };
 }
 
-async function detectValidationCommands(cwd: string): Promise<DetectedCommands> {
-  const [makeCommands, justCommands, nodeCommands, pythonCommands, goCommands, rustCommands] =
-    await Promise.all([
-      detectMakeCommands(cwd),
-      detectJustCommands(cwd),
-      detectNodeScripts(cwd),
-      detectPythonCommands(cwd),
-      detectGoCommands(cwd),
-      detectRustCommands(cwd),
-    ]);
+async function detectValidationCommands(
+  cwd: string
+): Promise<DetectedCommands> {
+  const [
+    makeCommands,
+    justCommands,
+    nodeCommands,
+    pythonCommands,
+    goCommands,
+    rustCommands,
+  ] = await Promise.all([
+    detectMakeCommands(cwd),
+    detectJustCommands(cwd),
+    detectNodeScripts(cwd),
+    detectPythonCommands(cwd),
+    detectGoCommands(cwd),
+    detectRustCommands(cwd),
+  ]);
 
   const candidates: Record<CommandLabel, CommandCandidate[]> = {
     testCommand: [],

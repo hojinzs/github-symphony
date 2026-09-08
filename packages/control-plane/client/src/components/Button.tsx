@@ -34,8 +34,7 @@ type ButtonAsChildProps = ButtonSharedProps &
 export type ButtonProps = ButtonAsButtonProps | ButtonAsChildProps;
 
 const VARIANT_STYLES: Record<ButtonVariant, string> = {
-  primary:
-    "border-transparent bg-interactive text-white hover:brightness-110",
+  primary: "border-transparent bg-interactive text-white hover:brightness-110",
   ghost:
     "border-border-subtle bg-bg-muted text-text-secondary hover:border-text-secondary/40 hover:text-text-primary",
   destructive:
@@ -95,7 +94,9 @@ export function Button(props: ButtonProps) {
         onKeyDown={(event) => {
           if (
             disabled &&
-            (event.key === "Enter" || event.key === " " || event.key === "Spacebar")
+            (event.key === "Enter" ||
+              event.key === " " ||
+              event.key === "Spacebar")
           ) {
             blockDisabledEvent(event);
             return;

@@ -37,7 +37,9 @@ describe("convergence detection helpers", () => {
   });
 
   it("captures the git workspace fingerprint from file changes", async () => {
-    const repoRoot = await mkdtemp(join(tmpdir(), "runtime-codex-convergence-"));
+    const repoRoot = await mkdtemp(
+      join(tmpdir(), "runtime-codex-convergence-")
+    );
     tempRoots.push(repoRoot);
 
     execSync("git init", {

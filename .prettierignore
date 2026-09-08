@@ -1,0 +1,11 @@
+# Dependencies and generated build/test output
+node_modules/
+dist/
+coverage/
+
+# Runtime state and package-manager output
+.runtime/
+pnpm-lock.yaml
+
+# Prettier's configuration is intentionally maintained by hand
+prettier.config.mjs

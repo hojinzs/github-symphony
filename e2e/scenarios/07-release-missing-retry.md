@@ -13,12 +13,14 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
 ## Steps
 
 1. Inject a single active issue and trigger reconciliation.
+
    ```bash
    cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
    curl -s -X POST http://localhost:4680/api/v1/refresh
    ```
 
 2. Wait until the worker fails once and the orchestrator reports a queued retry.
+
    ```bash
    curl -s http://localhost:4680/api/v1/test-owner%2Ftest-repo%231 | jq '{
      status,
@@ -29,6 +31,7 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
    ```
 
 3. Remove the issue before the queued retry becomes due.
+
    ```bash
    echo "[]" > e2e/fixtures/issues.json
    ```

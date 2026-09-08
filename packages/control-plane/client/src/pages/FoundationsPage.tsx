@@ -13,8 +13,8 @@ export function FoundationsPage() {
             GitHub Symphony Control Plane
           </h1>
           <p className="max-w-2xl text-base leading-7 text-text-secondary">
-            Dark-mode design tokens and shared controls for the upcoming
-            project overview and issue detail surfaces.
+            Dark-mode design tokens and shared controls for the upcoming project
+            overview and issue detail surfaces.
           </p>
         </div>
       </section>
