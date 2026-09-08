@@ -29,13 +29,8 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push("Before merging, verify ALL of the following:");
   lines.push("");
   lines.push("1. **PR is approved**:");
-  lines.push("   ```bash");
   lines.push(
-    "   gh pr view --json reviews --jq '.reviews[] | select(.state == \"APPROVED\")'"
-  );
-  lines.push("   ```");
-  lines.push(
-    "   Save the latest qualifying human approval's `submittedAt`. Read review threads with `comments(first: 1) { nodes { createdAt } }`. An unresolved actionable thread created after the approval fails Land as rework; a thread created at or before that approval is absorbed by the approval and does not block Land."
+    "   Read the pull request through `github_graphql` with `headRefOid reviews(last:30){nodes{state body author{login __typename} submittedAt commit{oid}}}`. A qualifying human approval has `state == APPROVED`, `author.__typename != Bot`, and `commit.oid == headRefOid`; save the latest such review and its `submittedAt`. Read review threads with `comments(first: 1) { nodes { createdAt } }`. An unresolved actionable thread created after the approval fails Land as rework; a thread created at or before that approval is absorbed by the approval and does not block Land."
   );
   lines.push("2. **All CI checks are green**:");
   lines.push("   ```bash");

@@ -9,6 +9,7 @@ packages/worker/.env.local
 secrets
 .runtime
 .codex-agent/
+.codex/skills/
 evidence
 .idea
 packages/control-plane/client/src/routeTree.gen.ts
