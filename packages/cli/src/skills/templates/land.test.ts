@@ -107,10 +107,15 @@ describe("merged-PR lifecycle guards", () => {
 
   it("gates Land rework on actionable threads created after approval", () => {
     const landSkill = generateLandSkill(context);
+    const preflight = landSkill.slice(
+      landSkill.indexOf("## Pre-flight Checks"),
+      landSkill.indexOf("## Flow")
+    );
 
     expect(landSkill).not.toContain("Ready-return Rework Guard");
     expect(landSkill).not.toContain("`Ready` → `Done`");
-    expect(landSkill).toContain("through `github_graphql`");
+    expect(preflight).toContain("through `github_graphql`");
+    expect(landSkill).not.toContain("gh pr view --json reviews");
     expect(landSkill).toContain(
       "headRefOid reviews(last:30){nodes{state body author{login __typename} submittedAt commit{oid}}}"
     );
