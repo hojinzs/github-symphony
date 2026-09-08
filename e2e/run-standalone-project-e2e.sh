@@ -27,11 +27,10 @@ PROJECT_ROOT=/tmp/standalone-projects
 FIXTURE=/tmp/standalone-issues.json
 
 mkdir -p "$HOME"
-mkdir -p "$PROJECT_ROOT/project-alpha/.agent/skills/alpha" "$PROJECT_ROOT/project-beta/.agent/skills/beta"
 write_project() {
   project_dir=$1
   label=$2
-  mkdir -p "$project_dir/hooks"
+  mkdir -p "$project_dir/hooks" "$project_dir/.agent/skills/$label"
   cp /e2e/seed/hooks/after_create.sh "$project_dir/hooks/after_create.sh"
   chmod +x "$project_dir/hooks/after_create.sh"
   cat > "$project_dir/WORKFLOW.md" <<EOF
@@ -71,6 +70,18 @@ EOF
 
 write_project "$PROJECT_ROOT/project-alpha" alpha
 write_project "$PROJECT_ROOT/project-beta" beta
+write_project "$PROJECT_ROOT/project-broken" broken
+rm "$PROJECT_ROOT/project-broken/hooks/after_create.sh"
+
+if (cd "$PROJECT_ROOT/project-broken" && \
+  GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
+  node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project start \
+    > /tmp/project-broken.log 2>&1); then
+  echo "missing hook unexpectedly passed project start" >&2
+  exit 1
+fi
+grep -q "Project configuration fault" /tmp/project-broken.log
+grep -q "$PROJECT_ROOT/project-broken/hooks/after_create.sh" /tmp/project-broken.log
 
 cat > "$FIXTURE" <<EOF
 [

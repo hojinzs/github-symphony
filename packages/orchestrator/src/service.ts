@@ -25,7 +25,10 @@ import {
   extractIssueNumberFromIdentifier,
   extractIssueNumbersFromBranch,
   executeWorkspaceHook,
+  formatWorkflowHookPathProblems,
   resolveHookCommand,
+  resolveWorkflowHookPath,
+  validateWorkflowHookPaths,
   isStateTerminal,
   issueRoutable,
   isMatchingIssueRun,
@@ -1387,6 +1390,29 @@ export class OrchestratorService {
         tenant,
         tenant.repository
       );
+      if (
+        isUsableWorkflowResolution(workflowResolution) &&
+        isWorkflowHookExecutionAllowed(this.resolveProjectEnvironment(tenant))
+      ) {
+        const workflowBaseDirectory =
+          this.workflowHookBaseDirectories.get(
+            this.workflowCacheKey(tenant.repository)
+          ) ??
+          (workflowResolution.workflowPath
+            ? dirname(workflowResolution.workflowPath)
+            : null);
+        if (workflowBaseDirectory) {
+          const hookValidation = await validateWorkflowHookPaths(
+            workflowResolution.workflow.hooks,
+            { workflowDirectory: workflowBaseDirectory }
+          );
+          if (hookValidation.problems.length > 0) {
+            throw new Error(
+              `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`
+            );
+          }
+        }
+      }
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
       const currentActiveRuns = (await this.store.loadAllRuns()).filter(
         (run) =>
@@ -3642,6 +3668,39 @@ export class OrchestratorService {
         };
       }
 
+      const retryWorkflow = await this.loadProjectWorkflow(
+        tenant,
+        run.repository
+      );
+      if (
+        isUsableWorkflowResolution(retryWorkflow) &&
+        isWorkflowHookExecutionAllowed(this.resolveProjectEnvironment(tenant))
+      ) {
+        const workflowDirectory =
+          this.workflowHookBaseDirectories.get(
+            this.workflowCacheKey(run.repository)
+          ) ??
+          (retryWorkflow.workflowPath
+            ? dirname(retryWorkflow.workflowPath)
+            : null);
+        if (workflowDirectory) {
+          const hookValidation = await validateWorkflowHookPaths(
+            retryWorkflow.workflow.hooks,
+            {
+              workflowDirectory,
+              repositoryDirectory: run.workingDirectory,
+            }
+          );
+          if (hookValidation.problems.length > 0) {
+            return {
+              issueRecords,
+              recovered: false,
+              lastError: `Project configuration fault: invalid WORKFLOW.md hook path${hookValidation.problems.length === 1 ? "" : "s"}: ${formatWorkflowHookPathProblems(hookValidation.problems)}.`,
+            };
+          }
+        }
+      }
+
       const retryAction = await this.resolveRetryRestartAction(
         tenant,
         run,
@@ -4920,11 +4979,11 @@ export class OrchestratorService {
             ? dirname(workflowResolution.workflowPath)
             : null;
         const hookCommand =
-          kind === "after_create" &&
-          configuredHookCommand &&
-          !isAbsolute(configuredHookCommand) &&
-          hookBaseDirectory
-            ? resolve(hookBaseDirectory, configuredHookCommand)
+          configuredHookCommand && hookBaseDirectory
+            ? (resolveWorkflowHookPath(configuredHookCommand, kind, {
+                workflowDirectory: hookBaseDirectory,
+                repositoryDirectory,
+              }) ?? configuredHookCommand)
             : configuredHookCommand;
         const trusted = isWorkflowHookExecutionAllowed(hookEnv);
         if (hookCommand) {
@@ -6240,7 +6299,9 @@ function isPopulationGitEnvironmentName(name: string): boolean {
   );
 }
 
-function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
+function isWorkflowHookExecutionAllowed(
+  env: Readonly<Record<string, string | undefined>>
+): boolean {
   const value =
     env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";
