@@ -92,7 +92,9 @@ Hooks are opt-in repository-local extensions, not shell snippets. Each hook
 value must be a path to an executable script; shell syntax and inline commands
 are rejected. Set `SYMPHONY_ALLOW_WORKFLOW_HOOKS=1` (or `true`) in the host
 environment to permit hook execution. The gate and path-only rule intentionally
-diverge from the upstream shell-command hook model.
+diverge from the upstream shell-command hook model. Startup and reconciliation
+enforce hook-path validity only when this trust flag enables execution; `doctor`
+still reports invalid declared paths when hooks are disabled.
 
 Hook children receive portable process variables (`HOME`, `LANG`, `LOGNAME`,
 `PATH`, `PWD`, `SHELL`, `TERM`, `TMPDIR`, `USER`, and `LC_*`) plus Symphony's
@@ -287,6 +289,22 @@ digest of the effective environment so project and host secret values are not
 retained in plaintext cache metadata. An explicit `--config <dir>` is exported
 to `GH_SYMPHONY_CONFIG_DIR` for the process so spawned workers use the same
 directory as the rest of the CLI state.
+
+`gh-symphony workflow init` creates the referenced
+`hooks/after_create.sh` as an executable file. A manually assembled standalone
+folder must copy it, provide its own executable file, or symlink the configured
+path to an executable regular file. Relative `after_create` paths resolve from
+the directory containing `WORKFLOW.md`; relative `before_run`, `after_run`,
+and `before_remove` paths resolve from the populated issue workspace.
+`project start` and default `doctor` validate `after_create` and absolute
+hook paths immediately. They report workspace-relative hooks as deferred
+because no issue workspace exists yet; the orchestrator validates those hooks
+during run reconciliation once their workspace is available. A validation
+failure before dispatch or restart is a project configuration fault and does
+not alter the per-issue failure retry count. On an initial run, executing a
+workspace-relative hook is the first opportunity to discover that its path is
+invalid, so that execution failure can consume one retry; reconciliation
+validates the retained workspace before any subsequent restart.
 
 Changing `workspace.root` emits a `workspace-root-relocated` event and a stderr
 warning naming the previous and new paths before replacing the workspace

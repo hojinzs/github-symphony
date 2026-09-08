@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,7 +13,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildHookExecutionEnv,
   executeWorkspaceHook,
+  formatWorkflowHookPathProblems,
   MAX_HOOK_OUTPUT_BYTES,
+  validateWorkflowHookPaths,
 } from "./hooks.js";
 
 const tempDirs: string[] = [];
@@ -209,5 +212,166 @@ describe("executeWorkspaceHook", () => {
       SYMPHONY_REPOSITORY_PATH: "/repo",
       STAGING_API_HOST: "https://staging.example.com",
     });
+  });
+});
+
+describe("validateWorkflowHookPaths", () => {
+  it("trims hook paths before resolving them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-validation-trim-"));
+    tempDirs.push(root);
+    const hookPath = join(root, "setup.sh");
+    await writeFile(hookPath, "#!/bin/sh\n", { mode: 0o755 });
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: `  ${hookPath}  `,
+        beforeRun: null,
+        afterRun: null,
+        beforeRemove: null,
+      },
+      { workflowDirectory: root }
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.checked).toEqual([
+      expect.objectContaining({ hook: "after_create", path: hookPath }),
+    ]);
+  });
+
+  it("reports absent and non-executable hook scripts with resolved paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-validation-"));
+    tempDirs.push(root);
+    await mkdir(join(root, "hooks"));
+    await writeFile(join(root, "hooks", "before-run.sh"), "#!/bin/sh\n", {
+      mode: 0o644,
+    });
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "hooks/missing.sh",
+        beforeRun: "hooks/before-run.sh",
+        afterRun: "echo ready",
+        beforeRemove: null,
+      },
+      { workflowDirectory: root, repositoryDirectory: root }
+    );
+
+    expect(result).toMatchObject({
+      deferred: 0,
+      checked: [],
+      problems: [
+        {
+          hook: "after_create",
+          path: join(root, "hooks", "missing.sh"),
+          reason: "missing",
+        },
+        {
+          hook: "before_run",
+          path: join(root, "hooks", "before-run.sh"),
+          reason: "not_executable",
+        },
+        {
+          hook: "after_run",
+          command: "echo ready",
+          path: "echo ready",
+          reason: "not_a_path",
+        },
+      ],
+    });
+  });
+
+  it("rejects shell syntax and arguments instead of deferring them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-invalid-command-"));
+    tempDirs.push(root);
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "hooks/setup.sh --verbose",
+        beforeRun: "hooks/setup.sh; echo injected",
+        afterRun: null,
+        beforeRemove: null,
+      },
+      { workflowDirectory: root }
+    );
+
+    expect(result.deferred).toBe(0);
+    expect(result.problems).toEqual([
+      expect.objectContaining({
+        hook: "after_create",
+        reason: "not_a_path",
+      }),
+      expect.objectContaining({
+        hook: "before_run",
+        reason: "not_a_path",
+      }),
+    ]);
+    expect(formatWorkflowHookPathProblems(result.problems)).toContain(
+      'after_create="hooks/setup.sh --verbose" (not a path)'
+    );
+  });
+
+  it("accepts a symlink to an executable regular file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hook-validation-symlink-"));
+    tempDirs.push(root);
+    await mkdir(join(root, "hooks"));
+    const target = join(root, "provisioned-hook.sh");
+    await writeFile(target, "#!/bin/sh\n", { mode: 0o755 });
+    await symlink(target, join(root, "hooks", "after-create.sh"));
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "hooks/after-create.sh",
+        beforeRun: null,
+        afterRun: null,
+        beforeRemove: null,
+      },
+      { workflowDirectory: root }
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.checked).toEqual([
+      expect.objectContaining({
+        hook: "after_create",
+        path: join(root, "hooks", "after-create.sh"),
+      }),
+    ]);
+  });
+
+  it("validates bare script names and uses hook-specific base directories", async () => {
+    const workflowRoot = await mkdtemp(join(tmpdir(), "hook-workflow-root-"));
+    const repositoryRoot = await mkdtemp(
+      join(tmpdir(), "hook-repository-root-")
+    );
+    tempDirs.push(workflowRoot, repositoryRoot);
+    await writeFile(join(repositoryRoot, "before-run.sh"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+
+    const result = await validateWorkflowHookPaths(
+      {
+        afterCreate: "setup.sh",
+        beforeRun: "before-run.sh",
+        afterRun: null,
+        beforeRemove: null,
+      },
+      {
+        workflowDirectory: workflowRoot,
+        repositoryDirectory: repositoryRoot,
+      }
+    );
+
+    expect(result.problems).toEqual([
+      expect.objectContaining({
+        hook: "after_create",
+        path: join(workflowRoot, "setup.sh"),
+        reason: "missing",
+      }),
+    ]);
+    expect(result.checked).toEqual([
+      expect.objectContaining({
+        hook: "before_run",
+        path: join(repositoryRoot, "before-run.sh"),
+      }),
+    ]);
   });
 });

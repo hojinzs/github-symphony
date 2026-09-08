@@ -298,17 +298,21 @@ Rework feedback is initiated by a human moving the issue back to `Ready` — the
 
 A **work cycle** is one continuous active stretch on an issue. It opens when the issue enters an active state from a wait/terminal state, and closes when it returns to a wait/terminal state. Turns are sub-units inside a cycle.
 
-| Transition                                                            | Cycle effect                              |
-| --------------------------------------------------------------------- | ----------------------------------------- |
-| (any wait state) → `Ready` → `In progress`                            | open **cycle N** (fresh pickup or resume) |
-| `In progress` → `In review`                                           | close current cycle (handoff to human)    |
-| `In review` → `Ready` → `In progress` (via Ready-return rework guard) | open **next cycle** (rework)              |
-| `In progress` → `Backlog` (code-blocker)                              | close current cycle (parked)              |
-| `Backlog` → `Ready` (resume after blocker resolved)                   | open **next cycle** (resume)              |
-| `In review` → `Land`                                                  | open a **land cycle**                     |
-| `Ready` → `Done` (merged-PR precedence repair)                        | no new cycle; terminal correction         |
-| `In review` → `Done` (merged PR observed)                             | no new cycle; terminal completion         |
-| `Land` → `Done`                                                       | close the land cycle (terminal)           |
+| Transition                                                            | Cycle effect                                                    |
+| --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| (any wait state) → `Ready` → `In progress`                            | open **cycle N** (fresh pickup or resume)                       |
+| `In progress` → `In review`                                           | close current cycle (handoff to human)                          |
+| `In review` → `Ready` → `In progress` (via Ready-return rework guard) | open **next cycle** (rework)                                    |
+| `In progress` → `Backlog` (code-blocker)                              | close current cycle (parked)                                    |
+| `Backlog` → `Ready` (resume after blocker resolved)                   | open **next cycle** (resume)                                    |
+| `In review` → `Land`                                                  | open a **land cycle**                                           |
+| `Ready` → `Done` (merged-PR precedence repair)                        | no new cycle; terminal correction                               |
+| `In review` → `Done` (merged PR observed)                             | no new cycle; terminal completion                               |
+| `Land` → `Land` (trivial-conflict recovery)                           | continue the current land cycle                                 |
+| `Land` → `In review` (external wait-only failure)                     | close the land cycle (await human/external action)              |
+| `Land` → `Ready` (Land-return rework)                                 | close the land cycle (next rework cycle opens on `In progress`) |
+| `Land` → `Backlog` (external or permission blocker)                   | close the land cycle (parked)                                   |
+| `Land` → `Done`                                                       | close the land cycle (terminal)                                 |
 
 **Rules:**
 
