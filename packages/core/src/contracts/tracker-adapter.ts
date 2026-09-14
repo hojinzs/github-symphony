@@ -179,6 +179,8 @@ export type TrackedIssue = {
 
 export type TrackedIssueList = TrackedIssue[] & {
   rateLimits?: Record<string, unknown> | null;
+  /** Total records omitted by the adapter, including diagnostics not retained. */
+  skippedItemCount?: number;
   skippedItems?: Array<{
     id: string;
     identifier: string;
