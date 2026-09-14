@@ -106,9 +106,11 @@ import {
   isIssueOrchestrationClaimedState,
 } from "./dispatch-eligibility.js";
 import {
-  decideCompletedRunRetry,
   decideFinalizationDisposition,
-  decideRetryRequeue,
+  planCompletedRunRetry,
+  planRetryRequeue,
+  resolveCompletedRunRetry,
+  resolveRetryRequeue,
   type FinalTrackerProgress,
 } from "./retained-decisions.js";
 
@@ -3805,10 +3807,12 @@ export class OrchestratorService {
       maxDeferrals: MAX_FINALIZATION_DEFERRALS,
     });
     if (
-      currentTrackerProgress?.state === "unknown" &&
-      finalizationDisposition.action !== "complete"
+      finalizationDisposition.action === "defer-finalization" ||
+      finalizationDisposition.action === "record-exhausted-deferral"
     ) {
-      const { consecutiveDeferrals, exhausted } = finalizationDisposition;
+      const { consecutiveDeferrals, reason, error } = finalizationDisposition;
+      const exhausted =
+        finalizationDisposition.action === "record-exhausted-deferral";
       const deferredRun: OrchestratorRunRecord = {
         ...runWithTokens,
         finalizationDeferralCount: consecutiveDeferrals,
@@ -3822,14 +3826,14 @@ export class OrchestratorService {
         runId: run.runId,
         issueIdentifier: run.issueIdentifier,
         issueId: run.issueId,
-        reason: currentTrackerProgress.reason,
-        error: currentTrackerProgress.error,
+        reason,
+        error,
         consecutiveDeferrals,
         maxDeferrals: MAX_FINALIZATION_DEFERRALS,
         exhausted,
       });
       this.logVerbose(
-        `[run-finalization-deferred] ${runWithTokens.runId} reason=${currentTrackerProgress.reason} consecutiveDeferrals=${consecutiveDeferrals} maxDeferrals=${MAX_FINALIZATION_DEFERRALS} exhausted=${exhausted}`
+        `[run-finalization-deferred] ${runWithTokens.runId} reason=${reason} consecutiveDeferrals=${consecutiveDeferrals} maxDeferrals=${MAX_FINALIZATION_DEFERRALS} exhausted=${exhausted}`
       );
       if (finalizationDisposition.action === "defer-finalization") {
         return { issueRecords, recovered: false };
@@ -3931,31 +3935,24 @@ export class OrchestratorService {
       tenant,
       run.repository
     );
-    const retryDecisionInput = {
+    const retryPlan = planCompletedRunRetry({
       retryKind,
       recoveryPresent: recovery !== null,
       currentAttempt: runWithTokens.attempt,
       durableFailureCount:
         this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0,
       maxFailureRetries,
+    });
+    const retryDisposition = resolveCompletedRunRetry(retryPlan, {
       now,
+      retryPolicy:
+        retryPlan.action === "retry" && retryPlan.delayClass === "failure"
+          ? await this.loadRetryPolicy(tenant, run.repository)
+          : null,
       defaultFailureBackoffMs:
         this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS,
       continuationDelayMs: CONTINUATION_RETRY_DELAY_MS,
-    };
-    const initialRetryDisposition = decideCompletedRunRetry({
-      ...retryDecisionInput,
-      retryPolicy: null,
     });
-    const retryDisposition =
-      initialRetryDisposition.action === "retry" &&
-      !recovery &&
-      retryKind === "failure"
-        ? decideCompletedRunRetry({
-            ...retryDecisionInput,
-            retryPolicy: await this.loadRetryPolicy(tenant, run.repository),
-          })
-        : initialRetryDisposition;
     const { failureRetryCount } = retryDisposition;
     if (retryDisposition.action === "suppress") {
       const lastError = formatMaxFailureRetrySuppression(
@@ -5549,33 +5546,27 @@ export class OrchestratorService {
         ? queuedDueAt
         : null;
     const advanceAttempt = options.advanceAttempt !== false;
-    const requeueDecisionInput = {
+    const requeuePlan = planRetryRequeue({
       currentAttempt: issueRecord?.retryEntry?.attempt ?? run.attempt,
       durableFailureCount: issueRecord?.failureRetryCount ?? 0,
       maxFailureRetries,
-      now,
       countFailure: options.countFailure !== false,
       advanceAttempt,
       retainedDueAt,
+    });
+    const requeueDisposition = resolveRetryRequeue(requeuePlan, {
+      now,
+      pollIntervalMs:
+        requeuePlan.delayClass === "poll"
+          ? await this.loadProjectPollInterval(tenant)
+          : null,
+      retryPolicy:
+        requeuePlan.delayClass === "failure"
+          ? await this.loadRetryPolicy(tenant, run.repository)
+          : null,
       defaultFailureBackoffMs:
         this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS,
-    };
-    const initialRequeueDisposition = decideRetryRequeue({
-      ...requeueDecisionInput,
-      pollIntervalMs:
-        !advanceAttempt && retainedDueAt === null
-          ? await this.loadProjectPollInterval(tenant)
-          : DEFAULT_POLL_INTERVAL_MS,
-      retryPolicy: null,
     });
-    const requeueDisposition =
-      initialRequeueDisposition.suppressed || !advanceAttempt
-        ? initialRequeueDisposition
-        : decideRetryRequeue({
-            ...requeueDecisionInput,
-            pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-            retryPolicy: await this.loadRetryPolicy(tenant, run.repository),
-          });
     const {
       attempt,
       failureRetryCount,

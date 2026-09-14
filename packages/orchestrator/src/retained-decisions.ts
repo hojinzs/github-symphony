@@ -16,13 +16,16 @@ export type FinalizationDisposition =
   | {
       action: "defer-finalization";
       consecutiveDeferrals: number;
-      exhausted: false;
+      reason: Extract<FinalTrackerProgress, { state: "unknown" }>["reason"];
+      error: string;
     }
   | {
-      action: "enter-failure/continuation-retry";
+      action: "record-exhausted-deferral";
       consecutiveDeferrals: number;
-      exhausted: boolean;
-    };
+      reason: Extract<FinalTrackerProgress, { state: "unknown" }>["reason"];
+      error: string;
+    }
+  | { action: "retry" };
 
 export function decideFinalizationDisposition(input: {
   trackerProgress: FinalTrackerProgress | null;
@@ -34,9 +37,7 @@ export function decideFinalizationDisposition(input: {
   }
   if (input.trackerProgress?.state !== "unknown") {
     return {
-      action: "enter-failure/continuation-retry",
-      consecutiveDeferrals: 0,
-      exhausted: false,
+      action: "retry",
     };
   }
 
@@ -45,26 +46,27 @@ export function decideFinalizationDisposition(input: {
     return {
       action: "defer-finalization",
       consecutiveDeferrals,
-      exhausted: false,
+      reason: input.trackerProgress.reason,
+      error: input.trackerProgress.error,
     };
   }
   return {
-    action: "enter-failure/continuation-retry",
+    action: "record-exhausted-deferral",
     consecutiveDeferrals,
-    exhausted: true,
+    reason: input.trackerProgress.reason,
+    error: input.trackerProgress.error,
   };
 }
 
 type RetryKind = "continuation" | "failure";
 type PersistedRetryKind = RetryKind | "recovery";
 
-export type CompletedRunRetryDisposition =
+export type CompletedRunRetryPlan =
   | {
       action: "suppress";
       attempt: number;
       failureRetryCount: number;
       persistedRetryKind: null;
-      nextRetryAt: null;
       delayClass: "none";
     }
   | {
@@ -72,21 +74,16 @@ export type CompletedRunRetryDisposition =
       attempt: number;
       failureRetryCount: number;
       persistedRetryKind: PersistedRetryKind;
-      nextRetryAt: string;
-      delayClass: "continuation" | "failure-policy" | "failure-fallback";
+      delayClass: "continuation" | "failure";
     };
 
-export function decideCompletedRunRetry(input: {
+export function planCompletedRunRetry(input: {
   retryKind: RetryKind;
   recoveryPresent: boolean;
   currentAttempt: number;
   durableFailureCount: number;
   maxFailureRetries: number;
-  now: Date;
-  retryPolicy: RetryPolicyOptions | null;
-  defaultFailureBackoffMs: number;
-  continuationDelayMs: number;
-}): CompletedRunRetryDisposition {
+}): CompletedRunRetryPlan {
   const failureRetryCount =
     input.durableFailureCount + (input.retryKind === "failure" ? 1 : 0);
   if (
@@ -98,7 +95,6 @@ export function decideCompletedRunRetry(input: {
       attempt: input.currentAttempt,
       failureRetryCount,
       persistedRetryKind: null,
-      nextRetryAt: null,
       delayClass: "none",
     };
   }
@@ -114,9 +110,6 @@ export function decideCompletedRunRetry(input: {
       attempt,
       failureRetryCount,
       persistedRetryKind,
-      nextRetryAt: new Date(
-        input.now.getTime() + input.continuationDelayMs
-      ).toISOString(),
       delayClass: "continuation",
     };
   }
@@ -126,37 +119,58 @@ export function decideCompletedRunRetry(input: {
     attempt,
     failureRetryCount,
     persistedRetryKind,
-    nextRetryAt: (input.retryPolicy
-      ? scheduleRetryAt(input.now, input.currentAttempt + 1, input.retryPolicy)
-      : new Date(input.now.getTime() + input.defaultFailureBackoffMs)
-    ).toISOString(),
-    delayClass: input.retryPolicy ? "failure-policy" : "failure-fallback",
+    delayClass: "failure",
   };
 }
 
-export function decideRetryRequeue(input: {
-  currentAttempt: number;
-  durableFailureCount: number;
-  maxFailureRetries: number;
-  now: Date;
-  countFailure: boolean;
-  advanceAttempt: boolean;
-  retainedDueAt: string | null;
-  pollIntervalMs: number;
-  retryPolicy: RetryPolicyOptions | null;
-  defaultFailureBackoffMs: number;
-}): {
+export function resolveCompletedRunRetry(
+  plan: CompletedRunRetryPlan,
+  input: {
+    now: Date;
+    retryPolicy: RetryPolicyOptions | null;
+    defaultFailureBackoffMs: number;
+    continuationDelayMs: number;
+  }
+) {
+  if (plan.action === "suppress") {
+    return { ...plan, nextRetryAt: null };
+  }
+  if (plan.delayClass === "continuation") {
+    return {
+      ...plan,
+      nextRetryAt: new Date(
+        input.now.getTime() + input.continuationDelayMs
+      ).toISOString(),
+    };
+  }
+  return {
+    ...plan,
+    nextRetryAt: (input.retryPolicy
+      ? scheduleRetryAt(input.now, plan.attempt, input.retryPolicy)
+      : new Date(input.now.getTime() + input.defaultFailureBackoffMs)
+    ).toISOString(),
+    delayClass: input.retryPolicy
+      ? ("failure-policy" as const)
+      : ("failure-fallback" as const),
+  };
+}
+
+export type RetryRequeuePlan = {
   suppressed: boolean;
   attempt: number;
   failureRetryCount: number;
-  nextRetryAt: string | null;
-  delayClass:
-    | "none"
-    | "retained"
-    | "poll"
-    | "failure-policy"
-    | "failure-fallback";
-} {
+  retainedDueAt: string | null;
+  delayClass: "none" | "retained" | "poll" | "failure";
+};
+
+export function planRetryRequeue(input: {
+  currentAttempt: number;
+  durableFailureCount: number;
+  maxFailureRetries: number;
+  countFailure: boolean;
+  advanceAttempt: boolean;
+  retainedDueAt: string | null;
+}): RetryRequeuePlan {
   const attempt = input.currentAttempt + (input.advanceAttempt ? 1 : 0);
   const failureRetryCount =
     input.durableFailureCount + (input.countFailure ? 1 : 0);
@@ -167,7 +181,7 @@ export function decideRetryRequeue(input: {
       suppressed,
       attempt,
       failureRetryCount,
-      nextRetryAt: null,
+      retainedDueAt: null,
       delayClass: "none",
     };
   }
@@ -176,7 +190,7 @@ export function decideRetryRequeue(input: {
       suppressed,
       attempt,
       failureRetryCount,
-      nextRetryAt: input.retainedDueAt,
+      retainedDueAt: input.retainedDueAt,
       delayClass: "retained",
     };
   }
@@ -185,9 +199,7 @@ export function decideRetryRequeue(input: {
       suppressed,
       attempt,
       failureRetryCount,
-      nextRetryAt: new Date(
-        input.now.getTime() + input.pollIntervalMs
-      ).toISOString(),
+      retainedDueAt: null,
       delayClass: "poll",
     };
   }
@@ -195,10 +207,43 @@ export function decideRetryRequeue(input: {
     suppressed,
     attempt,
     failureRetryCount,
+    retainedDueAt: null,
+    delayClass: "failure",
+  };
+}
+
+export function resolveRetryRequeue(
+  plan: RetryRequeuePlan,
+  input: {
+    now: Date;
+    pollIntervalMs: number | null;
+    retryPolicy: RetryPolicyOptions | null;
+    defaultFailureBackoffMs: number;
+  }
+) {
+  if (plan.delayClass === "none") return { ...plan, nextRetryAt: null };
+  if (plan.delayClass === "retained") {
+    return { ...plan, nextRetryAt: plan.retainedDueAt };
+  }
+  if (plan.delayClass === "poll") {
+    if (input.pollIntervalMs === null) {
+      throw new Error("poll interval is required for a poll retry");
+    }
+    return {
+      ...plan,
+      nextRetryAt: new Date(
+        input.now.getTime() + input.pollIntervalMs
+      ).toISOString(),
+    };
+  }
+  return {
+    ...plan,
     nextRetryAt: (input.retryPolicy
-      ? scheduleRetryAt(input.now, attempt, input.retryPolicy)
+      ? scheduleRetryAt(input.now, plan.attempt, input.retryPolicy)
       : new Date(input.now.getTime() + input.defaultFailureBackoffMs)
     ).toISOString(),
-    delayClass: input.retryPolicy ? "failure-policy" : "failure-fallback",
+    delayClass: input.retryPolicy
+      ? ("failure-policy" as const)
+      : ("failure-fallback" as const),
   };
 }
