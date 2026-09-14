@@ -227,6 +227,48 @@ beta_repo=$(find "$PROJECT_ROOT/project-beta/.runtime/workspaces" -path "*/repos
 alpha_branch=$(git -C "$alpha_repo" branch --show-current)
 beta_branch=$(git -C "$beta_repo" branch --show-current)
 test "$alpha_branch" != "$beta_branch"
+
+# Exercise the host-owned publication shape against the repository populated by
+# the installed after_create hook. The host fetches the committed worker branch
+# from the workspace, then must be able to read the newly published blob.
+git -C "$beta_repo" config user.email "e2e@test.local"
+git -C "$beta_repo" config user.name "E2E Test"
+printf "published from hook-created workspace\n" > "$beta_repo/host-publish.txt"
+git -C "$beta_repo" add host-publish.txt
+git -C "$beta_repo" commit -m "test: publish worker branch" >/dev/null
+host_repo=/tmp/standalone-host.git
+git init --bare "$host_repo" >/dev/null
+git -C "$host_repo" fetch --no-tags "$beta_repo" \
+  "refs/heads/$beta_branch:refs/heads/$beta_branch"
+test "$(git -C "$host_repo" show "$beta_branch:host-publish.txt")" = \
+  "published from hook-created workspace"
+
+# Keep the fixture mutation-sensitive: the policy setup above supersedes the
+# original WORKFLOW.md blob. A blob-filtered workspace therefore lacks an
+# object needed to serve its branch, and a host-equivalent fetch must fail with
+# the production lazy-fetch/bad-pack signature instead of silently passing.
+git -C /e2e/repos/test-owner/test-repo config uploadpack.allowFilter true
+unsafe_repo=/tmp/unsafe-promisor-workspace
+git clone --filter=blob:none file:///e2e/repos/test-owner/test-repo \
+  "$unsafe_repo" >/dev/null
+git -C "$unsafe_repo" checkout -B unsafe-publish origin/main >/dev/null
+git -C "$unsafe_repo" config user.email "e2e@test.local"
+git -C "$unsafe_repo" config user.name "E2E Test"
+printf "unsafe publish\n" > "$unsafe_repo/unsafe-publish.txt"
+git -C "$unsafe_repo" add unsafe-publish.txt
+git -C "$unsafe_repo" commit -m "test: expose missing promisor blob" >/dev/null
+unsafe_host=/tmp/unsafe-host.git
+git init --bare "$unsafe_host" >/dev/null
+if git -C "$unsafe_host" fetch --no-tags "$unsafe_repo" \
+  refs/heads/unsafe-publish:refs/heads/unsafe-publish \
+  > /tmp/unsafe-publish.log 2>&1; then
+  echo "promisor workspace unexpectedly served the worker branch" >&2
+  exit 1
+fi
+grep -Eq "lazy fetching disabled|bad pack header" /tmp/unsafe-publish.log
+! git -C "$unsafe_host" cat-file -e \
+  refs/heads/unsafe-publish:unsafe-publish.txt 2>/dev/null
+
 test "$(git -C "$alpha_original_repo" branch --show-current)" = "fix/2-foreign"
 test "$(git -C "$alpha_original_repo" rev-parse HEAD)" = "$alpha_foreign_head"
 test "$(cat "$alpha_original_repo/foreign-issue.txt")" = "foreign issue committed work"
