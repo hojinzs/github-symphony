@@ -106,31 +106,31 @@ export async function measureHistoryInventory(
   fixture.readCounter.count = 0;
   const resourceBefore = process.resourceUsage();
   const startedAt = performance.now();
+  let activeUpdate: Promise<void> = Promise.resolve();
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const inventory = fixture.store.loadAllRuns();
-    const activeUpdate =
-      iteration === 0
-        ? updateActiveRun(
-            fixture,
-            {
-              ...createRunRecord(fixture.activeRunId, "running"),
-              updatedAt: "2026-09-14T00:00:00.001Z",
-            },
-            iteration
-          )
-        : Promise.resolve();
+    if (iteration === 0) {
+      activeUpdate = updateActiveRun(
+        fixture,
+        {
+          ...createRunRecord(fixture.activeRunId, "running"),
+          updatedAt: "2026-09-14T00:00:00.001Z",
+        },
+        iteration
+      );
+    }
     const runs = await inventory;
     if (runs.length !== fixture.expectedRunCount) {
       throw new Error(
         `Expected ${fixture.expectedRunCount} runs, received ${runs.length}.`
       );
     }
-    await activeUpdate;
   }
 
   const elapsedMs = performance.now() - startedAt;
   const resourceAfter = process.resourceUsage();
+  await activeUpdate;
   return {
     elapsedMs,
     fsReadCount: fixture.readCounter.count,
