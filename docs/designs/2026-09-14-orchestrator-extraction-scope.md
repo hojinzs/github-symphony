@@ -1,6 +1,6 @@
 # Orchestrator extraction scope
 
-- **Status:** Approved
+- **Status:** Draft
 - **Date:** 2026-09-14
 - **Symphony Layers:** Configuration, Coordination, Execution, Integration, Observability
 - **Issues:** [#890](https://github.com/hojinzs/github-symphony/issues/890), [#897](https://github.com/hojinzs/github-symphony/issues/897), [#898](https://github.com/hojinzs/github-symphony/issues/898)
@@ -52,7 +52,7 @@ new divergence. The following contracts remain fixed:
 | Workflow loading, reload, and last-known-good selection                                                                                              | Retain                  | `OrchestratorService` plus existing workflow helpers                           | Supplies resolved policy to decisions; no new configuration cache                                                                                   |
 | Candidate polling, claims, concurrency reservations, dispatch, and process lifecycle                                                                 | Retain                  | `OrchestratorService`                                                          | Sole writer of coordination state and sole effect sequencer                                                                                         |
 | Retry queue records, timers, store writes, tracker refresh, cleanup, and worker restart                                                              | Retain                  | `OrchestratorService` and existing store/adapter interfaces                    | Decisions return intent; the façade performs all I/O and mutation                                                                                   |
-| Retry restart disposition after refresh                                                                                                              | Extract                 | Focused pure decision module in `packages/orchestrator`                        | Normalized workflow availability, item presence, terminality, and eligibility in; restart/release/requeue intent out                                |
+| Retry restart disposition after refresh                                                                                                              | Extract                 | Focused pure decision module in `packages/orchestrator`                        | Normalized workflow availability, item presence, terminality, and eligibility in; an explicit restart, release, or requeue intent out               |
 | Retry budget, attempt, suppression, delay class, and due-time choice                                                                                 | Extract                 | Same focused decision module                                                   | Explicit counts, limits, retry kind, policy, and clock in; next retry record intent out                                                             |
 | Retry reservation capacity and deterministic ordering                                                                                                | Extract or consolidate  | Same module, reusing `sortRunsForReconciliation` rather than competing with it | Records, concurrency, and clock in; ordered IDs/capacity decision out                                                                               |
 | Successful-run finalization disposition                                                                                                              | Extract                 | Same focused decision module                                                   | Normalized tracker progress, deferral count/bound, exit facts, publication result, and recovery presence in; complete/defer/failure-path intent out |
@@ -77,7 +77,12 @@ the following two tightly related families:
    outcome, and whether dirty-workspace recovery exists, decide among:
    `complete`, `defer-finalization`, or `enter-failure/continuation-retry`.
    The façade continues fetching tracker state, persisting the incremented
-   deferral, emitting `run-finalization-deferred`, and releasing claims.
+   deferral, emitting `run-finalization-deferred`, and applying the selected
+   intent. Below the deferral bound, `defer-finalization` retains the claim and
+   leaves both the run and issue-orchestration records `running`; it must not
+   make the issue eligible for another dispatch into the live workspace. Claim
+   release belongs only to `complete` and the failure/continuation path,
+   including the fall-through after the deferral bound is exhausted.
 2. **Retry record disposition.** Given retry kind, recovery presence, current
    attempt and durable failure count, maximum failure retries, retry policy,
    current time, and any retained reservation due time, decide suppression,
@@ -96,7 +101,9 @@ stays in place for a separately approved child.
 The façade-level tests remain regression contracts. Focused table tests are
 added for the extracted functions, especially:
 
-- unknown final tracker state below and at the deferral bound;
+- unknown final tracker state below the deferral bound retains the claim and
+  leaves both records `running`; at the bound it falls through to the
+  failure/continuation intent;
 - successful non-actionable completion versus active continuation;
 - continuation, recovery, and failure attempt accounting;
 - failure-budget suppression at the exact bound;

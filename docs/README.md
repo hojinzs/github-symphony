@@ -47,7 +47,7 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 | [2026-08-11-standalone-project-model-design.md](designs/2026-08-11-standalone-project-model-design.md)                       | Policy, Configuration, Coordination, Execution, Observability      | Shipped           |
 | [2026-08-11-agent-bootstrap-plugin-pm-steward-design.md](designs/2026-08-11-agent-bootstrap-plugin-pm-steward-design.md)     | Policy, Configuration, Coordination, Observability                 | Draft             |
 | [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (plan)                                                             | Active            |
-| [2026-09-14-orchestrator-extraction-scope.md](designs/2026-09-14-orchestrator-extraction-scope.md)                           | Configuration, Coordination, Execution, Integration, Observability | Approved          |
+| [2026-09-14-orchestrator-extraction-scope.md](designs/2026-09-14-orchestrator-extraction-scope.md)                           | Configuration, Coordination, Execution, Integration, Observability | Draft             |
 
 ## reports/
 
