@@ -1278,6 +1278,9 @@ Prompt`,
   });
 
   it("rejects a state list atomically for unexpected normalization failures", async () => {
+    // This fixture stands in for any unexpected, non-validation normalization
+    // failure; replace it rather than removing the boundary assertion if label
+    // normalization later becomes null-safe.
     const malformedLabels = linearIssueNode("ENG-2", [], {
       labels: { nodes: [null] } as never,
     });
