@@ -636,20 +636,26 @@ describe("history benchmark fixture", () => {
     }
   );
 
-  it("measures actual reads made by one reconciliation tick", async () => {
-    const fixture = await createHistoryBenchmarkFixture(2, "shared");
+  it.each(["legacy", "shared"] as const)(
+    "measures actual reads made by one %s reconciliation tick",
+    async (layout) => {
+      const fixture = await createHistoryBenchmarkFixture(2, layout);
 
-    try {
-      const measurement = await measureHistoryReconciliationTick(fixture);
+      try {
+        const measurement = await measureHistoryReconciliationTick(fixture);
+        const runs = await fixture.store.loadAllRuns();
 
-      // Baseline #894 intentionally pins today's repeated full inventories.
-      // Adding even one more run-record read inside loadAllRuns turns this red.
-      expect(measurement.iterations).toBe(5);
-      expect(measurement.fsReadCount).toBe(15);
-    } finally {
-      await removeHistoryBenchmarkFixture(fixture);
+        // Baseline #894 intentionally pins today's repeated full inventories.
+        // Adding even one more run-record read inside loadAllRuns turns this red.
+        expect(measurement.iterations).toBe(5);
+        expect(measurement.fsReadCount).toBe(15);
+        expect(runs).toHaveLength(3);
+        expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
+      } finally {
+        await removeHistoryBenchmarkFixture(fixture);
+      }
     }
-  });
+  );
 });
 
 describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {

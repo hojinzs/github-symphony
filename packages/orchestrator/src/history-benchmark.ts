@@ -2,7 +2,10 @@ import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import type { OrchestratorRunRecord } from "@gh-symphony/core";
+import type {
+  OrchestratorRunRecord,
+  OrchestratorStateStore,
+} from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { OrchestratorService } from "./service.js";
 
@@ -174,17 +177,30 @@ export async function measureHistoryReconciliationTick(
       },
     },
   };
-  const service = new OrchestratorService(fixture.store, projectConfig, {
+  const loadAllRuns = fixture.store.loadAllRuns.bind(fixture.store);
+  let iterations = 0;
+  const benchmarkStore = new Proxy(fixture.store, {
+    get(target, property) {
+      if (property === "loadAllRuns") {
+        return async () => {
+          iterations += 1;
+          return loadAllRuns();
+        };
+      }
+      // Keep reconciliation focused on inventory cost and preserve the fixture
+      // layout; the concurrent update remains a real fixture write.
+      if (property === "saveRun") {
+        return async () => {};
+      }
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as OrchestratorStateStore;
+  const service = new OrchestratorService(benchmarkStore, projectConfig, {
     isProcessRunning: () => true,
     killImpl: () => {},
     now: () => new Date("2026-09-14T00:00:00.100Z"),
   });
-  const loadAllRuns = fixture.store.loadAllRuns.bind(fixture.store);
-  let iterations = 0;
-  fixture.store.loadAllRuns = async () => {
-    iterations += 1;
-    return loadAllRuns();
-  };
 
   const activeUpdate = updateActiveRun(
     fixture,
@@ -200,7 +216,6 @@ export async function measureHistoryReconciliationTick(
   const elapsedMs = performance.now() - startedAt;
   const resourceAfter = process.resourceUsage();
   await activeUpdate;
-  fixture.store.loadAllRuns = loadAllRuns;
 
   return {
     elapsedMs,
