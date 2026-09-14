@@ -10,7 +10,7 @@ import { chdir } from "node:process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { OrchestratorFsStore } from "./fs-store.js";
+import { observeRunRecordReads, OrchestratorFsStore } from "./fs-store.js";
 import {
   createHistoryBenchmarkFixture,
   measureHistoryInventory,
@@ -608,6 +608,28 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
 });
 
 describe("history benchmark fixture", () => {
+  it("observes run records read through inventory and per-run lookup paths", async () => {
+    const fixture = await createHistoryBenchmarkFixture(2, "shared");
+    const observedPaths: string[] = [];
+
+    try {
+      await observeRunRecordReads(
+        (path) => observedPaths.push(path),
+        async () => {
+          await fixture.store.loadAllRuns();
+          await fixture.store.loadRun(fixture.activeRunId, fixture.projectId);
+        }
+      );
+
+      expect(observedPaths).toHaveLength(4);
+      expect(observedPaths.every((path) => path.endsWith("/run.json"))).toBe(
+        true
+      );
+    } finally {
+      await removeHistoryBenchmarkFixture(fixture);
+    }
+  });
+
   it.each(["legacy", "shared"] as const)(
     "isolates and inventories the %s layout while an active run is updated",
     async (layout) => {
@@ -645,10 +667,10 @@ describe("history benchmark fixture", () => {
         const measurement = await measureHistoryReconciliationTick(fixture);
         const runs = await fixture.store.loadAllRuns();
 
-        // Baseline #894 intentionally pins today's repeated full inventories.
-        // Adding even one more run-record read inside loadAllRuns turns this red.
+        // Baseline #894 pins five full inventories plus one per-run lookup.
+        // Any added run.json read at either path turns this red.
         expect(measurement.iterations).toBe(5);
-        expect(measurement.fsReadCount).toBe(15);
+        expect(measurement.fsReadCount).toBe(16);
         expect(runs).toHaveLength(3);
         expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
       } finally {

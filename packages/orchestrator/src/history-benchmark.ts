@@ -6,7 +6,7 @@ import type {
   OrchestratorRunRecord,
   OrchestratorStateStore,
 } from "@gh-symphony/core";
-import { OrchestratorFsStore } from "./fs-store.js";
+import { observeRunRecordReads, OrchestratorFsStore } from "./fs-store.js";
 import { OrchestratorService } from "./service.js";
 
 export const HISTORY_BENCHMARK_SIZES = [100, 1_000, 10_000] as const;
@@ -43,11 +43,7 @@ export async function createHistoryBenchmarkFixture(
 ): Promise<HistoryBenchmarkFixture> {
   const runtimeRoot = await mkdtemp(join(tmpdir(), "symphony-history-bench-"));
   const readCounter = { count: 0 };
-  const store = new OrchestratorFsStore(runtimeRoot, {
-    onRunRecordRead: () => {
-      readCounter.count += 1;
-    },
-  });
+  const store = new OrchestratorFsStore(runtimeRoot);
   const activeRunId = "active-run";
 
   try {
@@ -109,7 +105,12 @@ export async function measureHistoryInventory(
   let activeUpdate: Promise<void> = Promise.resolve();
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
-    const inventory = fixture.store.loadAllRuns();
+    const inventory = observeRunRecordReads(
+      () => {
+        fixture.readCounter.count += 1;
+      },
+      () => fixture.store.loadAllRuns()
+    );
     if (iteration === 0) {
       activeUpdate = updateActiveRun(
         fixture,
@@ -212,7 +213,12 @@ export async function measureHistoryReconciliationTick(
   );
   const resourceBefore = process.resourceUsage();
   const startedAt = performance.now();
-  await service.runOnce();
+  await observeRunRecordReads(
+    () => {
+      fixture.readCounter.count += 1;
+    },
+    () => service.runOnce()
+  );
   const elapsedMs = performance.now() - startedAt;
   const resourceAfter = process.resourceUsage();
   await activeUpdate;

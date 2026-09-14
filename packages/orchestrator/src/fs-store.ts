@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chmod, mkdir, open, rm, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
   isFileMissing,
@@ -15,31 +16,43 @@ import {
   parseRecentEvents,
   redactObservabilitySecrets,
   type ProjectStatusSnapshot,
-  readJsonFile,
+  readJsonFile as readCoreJsonFile,
   safeReadDir,
 } from "@gh-symphony/core";
 import { appendFileDurably, writeFileAtomically } from "./durable-file.js";
 
 const PROJECTS_DIR = "projects";
 const SECURE_DIRECTORY_MODE = 0o700;
+const runRecordReadObserver = new AsyncLocalStorage<(path: string) => void>();
+
+async function readJsonFile<T>(path: string): Promise<T | null> {
+  if (basename(path) === "run.json") {
+    runRecordReadObserver.getStore()?.(path);
+  }
+  return readCoreJsonFile<T>(path);
+}
+
+export async function observeRunRecordReads<T>(
+  observer: (path: string) => void,
+  operation: () => Promise<T>
+): Promise<T> {
+  return runRecordReadObserver.run(observer, operation);
+}
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
   private readonly resolvedRuntimeRoot: string;
   private readonly resolvedEventsMirrorRoot: string | null;
-  private readonly onRunRecordRead: ((path: string) => void) | undefined;
 
   constructor(
     readonly runtimeRoot: string,
     options: {
       eventsMirrorRoot?: string;
-      onRunRecordRead?: (path: string) => void;
     } = {}
   ) {
     this.resolvedRuntimeRoot = resolve(runtimeRoot);
     this.resolvedEventsMirrorRoot = options.eventsMirrorRoot
       ? resolve(options.eventsMirrorRoot)
       : null;
-    this.onRunRecordRead = options.onRunRecordRead;
   }
 
   projectDir(projectId?: string): string {
@@ -239,16 +252,9 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
       );
     }
     const runs = await Promise.all(
-      runPaths.map((runPath) => this.readRunRecord(runPath))
+      runPaths.map((runPath) => readJsonFile<OrchestratorRunRecord>(runPath))
     );
     return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
-  }
-
-  private async readRunRecord(
-    path: string
-  ): Promise<OrchestratorRunRecord | null> {
-    this.onRunRecordRead?.(path);
-    return (await readJsonFile<OrchestratorRunRecord>(path)) ?? null;
   }
 
   async saveRun(run: OrchestratorRunRecord): Promise<void> {

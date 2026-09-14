@@ -53,11 +53,13 @@ legacy fixture or overwrite the in-flight active update; its other work,
 including status persistence, remains active. The measurement stops when the
 inventory or tick completes; only then does cleanup await the update.
 
-Read counts come from an observer at the store's actual `run.json` read
-boundary, not from fixture-size arithmetic, and exclude the warm-up pass. The
-current tick makes five inventory calls. As a negative control, doubling that
-boundary read changed the three-record regression fixture from 15 observed
-reads to 30 and made its assertion fail.
+Read counts come from a scoped observer at the store module's JSON file
+boundary, not from fixture-size arithmetic, and exclude the warm-up pass. It
+records every file named `run.json`, including full inventories, per-run lookup,
+and direct JSON reads. The three-record regression fixture observes 16 reads:
+five full inventories and one per-run lookup. Negative controls that add either
+direct JSON reads inside `loadAllRuns()` or per-run `loadRun()` calls in
+reconciliation increase that total and make its assertion fail.
 
 ## Baseline results
 
@@ -109,9 +111,9 @@ tick work belongs after the deterministic inventory reduction proposed here.
 
 ## Compatibility
 
-This benchmark adds an optional read observer to the filesystem store but does
-not change default runtime behavior. It observes the Coordination layer through
-that store boundary and records an Observability baseline.
+This benchmark adds a scoped read-observation seam at the filesystem store's
+JSON file boundary but does not change default runtime behavior. It observes
+the Coordination layer through that store boundary and records an Observability baseline.
 Provider behavior remains in adapters, and persistence, retry, metric, and
 unpublished-work contracts are unchanged. There is no intentional divergence
 from `docs/symphony-spec.md`; the upstream specification was not edited.
