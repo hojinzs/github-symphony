@@ -5565,6 +5565,119 @@ Test hook failures.
     );
   });
 
+  it("continues dispatch when an active-run state refresh fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-active-run-refresh-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-2",
+        identifier: "acme/platform#2",
+        workspaceKey: "acme_platform_2",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-2",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-2",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-2",
+      issueSubjectId: "issue-2",
+      issueIdentifier: "acme/platform#2",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4202,
+      port: 4602,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4107, unref: vi.fn() });
+    const stderr = { write: vi.fn() };
+    const fetchIssueStatesByIds = vi
+      .fn()
+      .mockRejectedValue(new Error("malformed requested issue"));
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          title: "Dispatchable candidate",
+          description: null,
+          state: "Todo",
+          priority: null,
+          branchName: null,
+          url: "https://example.test/acme/platform/issues/1",
+          labels: [],
+          dispatchable: true,
+          assigneeId: null,
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: { adapter: "github-project", issueId: "issue-1" },
+          metadata: {},
+        },
+      ]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      killImpl: vi.fn(),
+      isProcessRunning: vi.fn().mockReturnValue(true),
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+    });
+
+    await service.runOnce();
+
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-2"],
+      expect.any(Object)
+    );
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(await store.loadRun("run-2")).toMatchObject({
+      status: "running",
+      lastError: null,
+    });
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[orchestrator] Active-run state refresh failed for tenant-1; continuing: Error: malformed requested issue"
+      )
+    );
+  });
+
   it("logs a warning and continues startup when terminal issue fetch fails", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

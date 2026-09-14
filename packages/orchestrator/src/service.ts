@@ -1485,14 +1485,24 @@ export class OrchestratorService {
             .map((run) => run.issueId)
         ),
       ];
-      const supplementalIssues =
-        missingActiveIssueIds.length > 0
-          ? await trackerAdapter.fetchIssueStatesByIds(
-              tenant,
-              missingActiveIssueIds,
-              trackerDependencies
-            )
-          : [];
+      let supplementalIssues: TrackedIssue[] = [];
+      const unresolvedActiveIssueIds = new Set<string>();
+      if (missingActiveIssueIds.length > 0) {
+        try {
+          supplementalIssues = await trackerAdapter.fetchIssueStatesByIds(
+            tenant,
+            missingActiveIssueIds,
+            trackerDependencies
+          );
+        } catch (error) {
+          for (const issueId of missingActiveIssueIds) {
+            unresolvedActiveIssueIds.add(issueId);
+          }
+          this.writeStderr(
+            `[orchestrator] Active-run state refresh failed for ${tenant.projectId}; continuing: ${this.formatErrorMessage(error)}`
+          );
+        }
+      }
       const supplementalIssueIdentifiers = new Set<string>();
       for (const issue of supplementalIssues) {
         if (!trackedIssuesByIdentifier.has(issue.identifier)) {
@@ -2014,6 +2024,9 @@ export class OrchestratorService {
           ) ?? persistedRun;
         const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
         if (!issue) {
+          if (unresolvedActiveIssueIds.has(issueRecord.issueId)) {
+            continue;
+          }
           if (!activeRun || activeRun.processId === null) {
             continue;
           }
