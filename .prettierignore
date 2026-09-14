@@ -7,5 +7,5 @@ coverage/
 .runtime/
 pnpm-lock.yaml
 
-# Prettier's configuration is intentionally maintained by hand
-prettier.config.mjs
+# Legacy generated workflow artifacts
+.gh-symphony/
