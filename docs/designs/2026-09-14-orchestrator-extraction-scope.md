@@ -1,9 +1,9 @@
 # Orchestrator extraction scope
 
-**Status:** Approved  
-**Date:** 2026-09-14  
-**Symphony Layers:** Configuration, Coordination, Execution, Integration, Observability  
-**Issues:** [#890](https://github.com/hojinzs/github-symphony/issues/890), [#897](https://github.com/hojinzs/github-symphony/issues/897), [#898](https://github.com/hojinzs/github-symphony/issues/898)
+- **Status:** Approved
+- **Date:** 2026-09-14
+- **Symphony Layers:** Configuration, Coordination, Execution, Integration, Observability
+- **Issues:** [#890](https://github.com/hojinzs/github-symphony/issues/890), [#897](https://github.com/hojinzs/github-symphony/issues/897), [#898](https://github.com/hojinzs/github-symphony/issues/898)
 
 ## Decision
 
