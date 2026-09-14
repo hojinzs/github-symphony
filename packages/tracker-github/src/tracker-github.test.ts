@@ -1884,6 +1884,45 @@ Prompt`,
     expect(issues.map((issue) => issue.state)).toEqual(["Done"]);
   });
 
+  it("preserves skipped-item metadata on explicit state lookups", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const missingState = makeProjectItem({
+      itemId: "item-missing-state",
+      issueId: "issue-missing-state",
+      number: 4,
+      title: "Missing state",
+      assignees: [],
+    });
+    missingState.fieldValues = { nodes: [] };
+
+    const issues = await adapter.listIssuesByStates(
+      makeProjectConfig(),
+      ["Done"],
+      {
+        token: "dependencies-token",
+        fetchImpl: vi.fn(async () =>
+          makeJsonResponse(makeProjectItemsPayload([missingState]))
+        ),
+      }
+    );
+
+    expect(issues).toHaveLength(0);
+    expect(issues.skippedItems).toEqual([
+      {
+        id: "item-missing-state",
+        identifier: "acme/platform#4",
+        reason: "missing Status",
+      },
+    ]);
+    expect(issues.skippedItemCount).toBe(1);
+  });
+
   it("does not call GitHub for empty state or ID lookups", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",

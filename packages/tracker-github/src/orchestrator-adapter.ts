@@ -127,6 +127,8 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       normalizedStates.has(issue.state.trim().toLowerCase())
     ) as TrackedIssueList;
     filtered.rateLimits = (issues as TrackedIssueList).rateLimits;
+    filtered.skippedItemCount = (issues as TrackedIssueList).skippedItemCount;
+    filtered.skippedItems = (issues as TrackedIssueList).skippedItems;
     return filtered;
   },
 

@@ -176,7 +176,7 @@ function formatTrackerSkipSummary(
           : value
       );
     const omitted = uniqueValues.length - visibleValues.length;
-    return `${visibleValues.join(", ")}${omitted > 0 ? `, … (+${omitted} more)` : ""}`;
+    return `${visibleValues.join(", ")}${omitted > 0 ? `, … (+${omitted} more retained)` : ""}`;
   };
 
   return `${summarize(items.map((item) => item.identifier))} (${summarize(items.map((item) => item.reason))})`;

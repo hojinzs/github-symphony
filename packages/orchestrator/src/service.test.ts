@@ -2437,7 +2437,9 @@ Retry hook validation.
     expect(snapshot.summary.skipped).toBe(51);
     const output = stderr.write.mock.calls.flat().join("\n");
     expect(output).toContain("skipped 51 item(s) for tenant-1");
-    expect(output).toContain("ENG-1, ENG-2, ENG-3, ENG-4, ENG-5, … (+2 more)");
+    expect(output).toContain(
+      "ENG-1, ENG-2, ENG-3, ENG-4, ENG-5, … (+2 more retained)"
+    );
     expect(output).not.toContain("ENG-6");
     expect(output).not.toContain("-tail");
   });
@@ -5945,7 +5947,7 @@ Test hook failures.
       })
     );
     expect(writeStderr.mock.calls.flat().join("\n")).toContain(
-      "startup cleanup skipped 51 malformed tracker item(s) for tenant-1: acme/platform#broken-1, acme/platform#broken-2, acme/platform#broken-3, acme/platform#broken-4, acme/platform#broken-5, … (+2 more) (State 1 is required., State 2 is required., State 3 is required., State 4 is required., State 5 is required., … (+2 more))"
+      "startup cleanup skipped 51 malformed tracker item(s) for tenant-1: acme/platform#broken-1, acme/platform#broken-2, acme/platform#broken-3, acme/platform#broken-4, acme/platform#broken-5, … (+2 more retained) (State 1 is required., State 2 is required., State 3 is required., State 4 is required., State 5 is required., … (+2 more retained))"
     );
     expect(writeStderr.mock.calls.flat().join("\n")).not.toContain(
       "acme/platform#broken-6"
