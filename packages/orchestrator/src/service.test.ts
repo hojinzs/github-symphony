@@ -5580,7 +5580,7 @@ Test hook failures.
     await store.saveProjectConfig(projectConfig);
     await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        issueId: "issue-2",
+        issueId: "issue-2-legacy",
         identifier: "acme/platform#2",
         workspaceKey: "acme_platform_2",
         completedOnce: false,
