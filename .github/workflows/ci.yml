@@ -47,7 +47,10 @@ jobs:
       - name: Built worker startup regressions
         run: pnpm test:worker-startup
 
-      - name: Run tests with coverage
+      - name: Run package-aware tests
+        run: pnpm test
+
+      - name: Generate coverage report
         run: npx vitest run --coverage.enabled --coverage.reporter=json-summary --coverage.reporter=json
 
       - name: Compose project helper test
