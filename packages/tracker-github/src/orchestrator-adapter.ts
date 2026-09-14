@@ -449,6 +449,7 @@ function applyPickupLabelDispatchability(
     return { ...issue, dispatchable: false, dispatchReason };
   }) as TrackedIssueList;
   result.rateLimits = issues.rateLimits;
+  result.skippedItemCount = issues.skippedItemCount;
   result.skippedItems = issues.skippedItems;
   return result;
 }

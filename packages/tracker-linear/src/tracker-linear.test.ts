@@ -1240,6 +1240,7 @@ Prompt`,
         reason: "Linear issue state name is required.",
       },
     ]);
+    expect(issues.skippedItemCount).toBe(1);
     expect(issues.rateLimits).toMatchObject({
       source: "linear",
       remaining: 1498,
@@ -1271,6 +1272,7 @@ Prompt`,
 
     expect(issues).toHaveLength(0);
     expect(issues.skippedItems).toHaveLength(50);
+    expect(issues.skippedItemCount).toBe(51);
     expect(issues.skippedItems?.at(-1)).toMatchObject({
       id: "issue-50",
       identifier: "ENG-50",

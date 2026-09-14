@@ -684,6 +684,7 @@ Prompt`,
           reason: "missing Status",
         },
       ]);
+      expect(issues.skippedItemCount).toBe(1);
       expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       warn.mockRestore();
@@ -5590,6 +5591,7 @@ describe("pickup label filtering", () => {
         reason: "missing Status",
       },
     ]);
+    expect(issues.skippedItemCount).toBe(1);
   });
 });
 
