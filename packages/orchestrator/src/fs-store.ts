@@ -25,6 +25,8 @@ const PROJECTS_DIR = "projects";
 const SECURE_DIRECTORY_MODE = 0o700;
 const runRecordReadObserver = new AsyncLocalStorage<(path: string) => void>();
 
+// Every run.json read in this module must route through this wrapper. The
+// history benchmark's file-boundary read accounting depends on that invariant.
 async function readJsonFile<T>(path: string): Promise<T | null> {
   if (basename(path) === "run.json") {
     runRecordReadObserver.getStore()?.(path);

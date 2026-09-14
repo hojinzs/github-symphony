@@ -7,7 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { chdir } from "node:process";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { observeRunRecordReads, OrchestratorFsStore } from "./fs-store.js";
@@ -622,7 +622,7 @@ describe("history benchmark fixture", () => {
       );
 
       expect(observedPaths).toHaveLength(4);
-      expect(observedPaths.every((path) => path.endsWith("/run.json"))).toBe(
+      expect(observedPaths.every((path) => basename(path) === "run.json")).toBe(
         true
       );
     } finally {

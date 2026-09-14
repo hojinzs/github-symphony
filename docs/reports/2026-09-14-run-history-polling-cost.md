@@ -1,5 +1,8 @@
 # Run-history polling cost baseline
 
+- Date: 2026-09-14
+- Status: Baseline recorded; optimization not started
+
 Issue: [#894](https://github.com/hojinzs/github-symphony/issues/894)
 
 ## Decision
@@ -23,10 +26,20 @@ Before optimizing, adopt this target for the 10,000-history fixture:
   protection.
 
 Use a 10,002-read warm-cache tick target as the deterministic optimization
-gate. Do not use these elapsed values as CI thresholds: they are one local
-sample, and production latency needs separate telemetry. After reducing the
-inventory count, rerun the entire matrix before proposing an elapsed-time
-budget because the real tick exposes material non-inventory scaling work.
+regression guard, not as the expected latency win. On the reference machine,
+five legacy inventories account for approximately `5 × 193.94 ms = 970 ms` of
+the 76,838.99 ms tick, or 1.3%; reducing five inventories to one would save
+about 776 ms, or 1.0% of tick time. An independent Linux run measured a larger
+but still secondary share: `5 × 1,174 ms` of 56,352 ms, or 10.4%, with an
+estimated saving of about 8%. The latency opportunity is therefore
+host-dependent and substantially smaller than the deterministic read-count
+reduction.
+
+Do not use these elapsed values as CI thresholds: they are one local sample,
+and production latency needs separate telemetry. The optimization follow-up
+should first profile the per-record non-inventory reconciliation work, which is
+the dominant term in this baseline, then reduce inventory amplification and
+rerun the entire matrix before proposing an elapsed-time budget.
 
 ## Reproduce
 
@@ -49,11 +62,14 @@ Each measured scenario starts one atomic active-run update concurrently with
 the measured operation. `inventory` performs one full inventory pass.
 `polling-tick` invokes the public `OrchestratorService.runOnce()` entry point
 with a successful file-tracker/workflow fixture and observes every
-`loadAllRuns()` call made by that reconciliation. The reconciliation's active
-run refresh is suppressed in this isolated harness so it cannot migrate the
-legacy fixture or overwrite the in-flight active update; its other work,
-including status persistence, remains active. The measurement stops when the
-inventory or tick completes; only then does cleanup await the update.
+`loadAllRuns()` call made by that reconciliation. Every `saveRun` call is
+suppressed in the measured tick so reconciliation cannot migrate the legacy
+fixture or overwrite the in-flight active update. The three-record fixture
+suppresses two calls, a count that scales with active runs rather than history,
+so elapsed tick measurements exclude run-record writes. Other reconciliation
+work, including project-status persistence, remains active. The measurement
+stops when the inventory or tick completes; only then does cleanup await the
+update.
 
 Read counts come from a scoped observer at the store module's JSON file
 boundary, not from fixture-size arithmetic, and exclude the warm-up pass. It
@@ -87,9 +103,13 @@ water mark.
 |  10,000 | shared | polling tick | 50,006 |  86,782.83 |    3,836.01 |      7,511.35 |         3,248 |
 
 Isolated inventory time grows approximately linearly with record reads. The
-real tick grows much faster in this single run, showing that its cost cannot be
-explained by the fivefold inventory amplification alone. Profiling the other
-tick work belongs after the deterministic inventory reduction proposed here.
+real tick is also approximately linear over these history sizes: legacy
+inventory grows 8.59× then 11.01×, while the legacy tick grows 9.89× then
+10.88×. The distinction is a large constant factor, not a different growth
+rate. At 10,000 records, the legacy tick costs about 7.68 ms per historical
+record compared with 0.019 ms per record for one inventory, roughly 400× more.
+This localizes the dominant cost in per-record non-inventory reconciliation
+work rather than the five inventory passes alone.
 
 ## Limitations
 
@@ -103,7 +123,10 @@ tick work belongs after the deterministic inventory reduction proposed here.
   retained memory to an individual scenario.
 - The tick uses the local file tracker and an external workflow, so it includes
   local workflow loading, reconciliation, snapshot construction, and status
-  persistence but not production provider or network latency.
+  persistence but not production provider or network latency. All `saveRun`
+  persistence is stubbed during the measured tick (two calls for this fixture,
+  scaling with active runs rather than history), so elapsed results exclude
+  run-record writes.
 - The concurrent update is awaited only after timing/resource counters stop.
   It still runs in the same process and can contend for event-loop or filesystem
   resources during the measured operation.

@@ -21,7 +21,6 @@ export type HistoryBenchmarkFixture = {
   projectId: string;
   runtimeRoot: string;
   store: OrchestratorFsStore;
-  readCounter: { count: number };
 };
 
 export type HistoryBenchmarkMeasurement = {
@@ -42,7 +41,6 @@ export async function createHistoryBenchmarkFixture(
   layout: HistoryBenchmarkLayout
 ): Promise<HistoryBenchmarkFixture> {
   const runtimeRoot = await mkdtemp(join(tmpdir(), "symphony-history-bench-"));
-  const readCounter = { count: 0 };
   const store = new OrchestratorFsStore(runtimeRoot);
   const activeRunId = "active-run";
 
@@ -76,7 +74,6 @@ export async function createHistoryBenchmarkFixture(
       projectId: PROJECT_ID,
       runtimeRoot,
       store,
-      readCounter,
     };
   } catch (error) {
     await rm(runtimeRoot, { recursive: true, force: true });
@@ -99,7 +96,7 @@ export async function measureHistoryInventory(
   }
 
   await fixture.store.loadAllRuns();
-  fixture.readCounter.count = 0;
+  let reads = 0;
   const resourceBefore = process.resourceUsage();
   const startedAt = performance.now();
   let activeUpdate: Promise<void> = Promise.resolve();
@@ -107,7 +104,7 @@ export async function measureHistoryInventory(
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const inventory = observeRunRecordReads(
       () => {
-        fixture.readCounter.count += 1;
+        reads += 1;
       },
       () => fixture.store.loadAllRuns()
     );
@@ -134,7 +131,7 @@ export async function measureHistoryInventory(
   await activeUpdate;
   return {
     elapsedMs,
-    fsReadCount: fixture.readCounter.count,
+    fsReadCount: reads,
     iterations,
     layout: fixture.layout,
     maxRssDeltaKb: Math.max(0, resourceAfter.maxRSS - resourceBefore.maxRSS),
@@ -157,7 +154,7 @@ export async function measureHistoryReconciliationTick(
     "utf8"
   );
   await fixture.store.loadAllRuns();
-  fixture.readCounter.count = 0;
+  let reads = 0;
 
   const projectConfig = {
     projectId: fixture.projectId,
@@ -188,8 +185,8 @@ export async function measureHistoryReconciliationTick(
           return loadAllRuns();
         };
       }
-      // Keep reconciliation focused on inventory cost and preserve the fixture
-      // layout; the concurrent update remains a real fixture write.
+      // Preserve the fixture layout while measuring reads. All run-record
+      // persistence is suppressed; the concurrent update remains a real write.
       if (property === "saveRun") {
         return async () => {};
       }
@@ -215,17 +212,23 @@ export async function measureHistoryReconciliationTick(
   const startedAt = performance.now();
   await observeRunRecordReads(
     () => {
-      fixture.readCounter.count += 1;
+      reads += 1;
     },
     () => service.runOnce()
   );
   const elapsedMs = performance.now() - startedAt;
   const resourceAfter = process.resourceUsage();
   await activeUpdate;
+  const runs = await fixture.store.loadAllRuns();
+  if (runs.length !== fixture.expectedRunCount) {
+    throw new Error(
+      `Expected ${fixture.expectedRunCount} runs, received ${runs.length}.`
+    );
+  }
 
   return {
     elapsedMs,
-    fsReadCount: fixture.readCounter.count,
+    fsReadCount: reads,
     iterations,
     layout: fixture.layout,
     maxRssDeltaKb: Math.max(0, resourceAfter.maxRSS - resourceBefore.maxRSS),
