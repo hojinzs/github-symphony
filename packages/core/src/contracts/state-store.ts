@@ -8,6 +8,10 @@ import type { IssueOrchestrationRecord } from "./issue-orchestration.js";
 import type { IssueWorkspaceRecord } from "../domain/issue.js";
 import type { OrchestratorEvent } from "../observability/structured-events.js";
 
+export type OrchestratorRunQuery = {
+  projectId: string;
+};
+
 export type OrchestratorStateStore = {
   // P1 single-repo transition: projectId is optional at the contract boundary
   // so later phases can remove the legacy project namespace incrementally.
@@ -30,6 +34,7 @@ export type OrchestratorStateStore = {
     projectId?: string
   ): Promise<OrchestratorRunRecord | null>;
   loadAllRuns(): Promise<OrchestratorRunRecord[]>;
+  loadRuns(query: OrchestratorRunQuery): Promise<OrchestratorRunRecord[]>;
   saveRun(run: OrchestratorRunRecord): Promise<void>;
   appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void>;
   loadRecentRunEvents(
