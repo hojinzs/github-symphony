@@ -2367,6 +2367,13 @@ export class OrchestratorService {
       return;
     }
 
+    const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
+    if (skippedItems.length > 0) {
+      this.writeStderr(
+        `[orchestrator] startup cleanup skipped ${skippedItems.length} malformed tracker item(s) for ${tenant.projectId}: ${[...new Set(skippedItems.map((item) => item.identifier))].join(", ")} (${[...new Set(skippedItems.map((item) => item.reason))].join(", ")})`
+      );
+    }
+
     const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
 
     for (const workspaceRecord of workspaceRecords) {

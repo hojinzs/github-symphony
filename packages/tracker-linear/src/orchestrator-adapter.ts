@@ -806,7 +806,7 @@ export function normalizeLinearIssue(
         id: relation.issue?.id ?? null,
         identifier:
           typeof relation.issue?.identifier === "string"
-            ? sanitizeLinearIdentifier(relation.issue.identifier)
+            ? sanitizeOptionalLinearIdentifier(relation.issue.identifier)
             : null,
         state: relation.issue?.state?.name ?? null,
       })),
@@ -1170,6 +1170,17 @@ function sanitizeLinearIdentifier(identifier: string): string {
     );
   }
   return sanitized;
+}
+
+function sanitizeOptionalLinearIdentifier(identifier: string): string | null {
+  try {
+    return sanitizeLinearIdentifier(identifier);
+  } catch (error) {
+    if (error instanceof LinearRecordValidationError) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function linearSkippedItem(

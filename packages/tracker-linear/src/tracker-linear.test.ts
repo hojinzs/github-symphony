@@ -1277,6 +1277,29 @@ Prompt`,
     });
   });
 
+  it("rejects a state list atomically for unexpected normalization failures", async () => {
+    const malformedLabels = linearIssueNode("ENG-2", [], {
+      labels: { nodes: [null] } as never,
+    });
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [linearIssueNode("ENG-1", []), malformedLabels],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.listIssuesByStates(makeProject(), ["Todo"], {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.toThrow(TypeError);
+  });
+
   it("normalizes Linear rate-limit headers onto listed issues", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponseWithHeaders(
@@ -1716,6 +1739,29 @@ Prompt`,
 
     expect(issue.blockedBy).toEqual([
       { id: "issue-1", identifier: "ENG-1", state: "Todo" },
+    ]);
+  });
+
+  it("falls back when optional blocker identifiers are malformed", () => {
+    const issue = normalizeLinearIssue(makeProject(), "project-slug", {
+      ...linearIssueNode("ENG-4", []),
+      inverseRelations: {
+        nodes: [
+          {
+            type: "blocks",
+            issue: {
+              id: "issue-bad",
+              identifier: "bad id",
+              state: { name: "Todo" },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(issue.identifier).toBe("ENG-4");
+    expect(issue.blockedBy).toEqual([
+      { id: "issue-bad", identifier: null, state: "Todo" },
     ]);
   });
 });

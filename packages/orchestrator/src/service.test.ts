@@ -5679,7 +5679,7 @@ Test hook failures.
     const listIssuesByStates = vi.fn(
       async (_project, states: readonly string[]) => {
         expect(states).toEqual(["Done"]);
-        return [
+        const issues = [
           {
             id: "issue-1",
             identifier: "acme/platform#1",
@@ -5703,6 +5703,16 @@ Test hook failures.
             metadata: {},
           },
         ];
+        Object.defineProperty(issues, "skippedItems", {
+          value: [
+            {
+              id: "malformed-1",
+              identifier: "acme/platform#broken",
+              reason: "State is required.",
+            },
+          ],
+        });
+        return issues;
       }
     );
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
@@ -5715,6 +5725,7 @@ Test hook failures.
       reviveIssue: vi.fn(),
     });
 
+    const writeStderr = vi.fn();
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
@@ -5722,6 +5733,7 @@ Test hook failures.
         unref: vi.fn(),
       }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr: { write: writeStderr } as never,
     });
 
     await service.run({ once: true });
@@ -5734,6 +5746,9 @@ Test hook failures.
       expect.objectContaining({
         fetchImpl: expect.any(Function),
       })
+    );
+    expect(writeStderr.mock.calls.flat().join("\n")).toContain(
+      "startup cleanup skipped 1 malformed tracker item(s) for tenant-1: acme/platform#broken (State is required.)"
     );
   });
 
