@@ -17,9 +17,7 @@ export type TurnProgressEvaluation = {
   reason: string | null;
 };
 
-export function resolveMaxNonProductiveTurns(
-  env: NodeJS.ProcessEnv
-): number {
+export function resolveMaxNonProductiveTurns(env: NodeJS.ProcessEnv): number {
   const rawValue = env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS;
   const parsed = Number(rawValue);
   return Number.isInteger(parsed) && parsed > 0

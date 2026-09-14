@@ -9,8 +9,8 @@ export default tseslint.config(
       "coverage/**",
       "dist/**",
       "node_modules/**",
-      "openspec/**"
-    ]
+      "openspec/**",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -19,17 +19,17 @@ export default tseslint.config(
     languageOptions: {
       globals: {
         ...globals.node,
-        ...globals.browser
-      }
+        ...globals.browser,
+      },
     },
     rules: {
       "@typescript-eslint/no-unused-vars": [
         "error",
         {
-          "argsIgnorePattern": "^_",
-          "varsIgnorePattern": "^_"
-        }
-      ]
-    }
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+        },
+      ],
+    },
   }
 );

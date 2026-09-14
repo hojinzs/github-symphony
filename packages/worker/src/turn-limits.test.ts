@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_SESSION_MAX_TURNS,
-  resolveMaxTurns,
-} from "./turn-limits.js";
+import { DEFAULT_SESSION_MAX_TURNS, resolveMaxTurns } from "./turn-limits.js";
 
 describe("resolveMaxTurns", () => {
   it("falls back to the default when max_turns is missing or invalid", () => {

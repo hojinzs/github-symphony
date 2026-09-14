@@ -153,10 +153,10 @@ export async function excludeRuntimeSkillsFromGit(
   if (!skillsDirectory) {
     return;
   }
-  const relativePath = `${relative(repositoryDirectory, skillsDirectory).replaceAll(
-    "\\",
-    "/"
-  )}/`;
+  const relativePath = `${relative(
+    repositoryDirectory,
+    skillsDirectory
+  ).replaceAll("\\", "/")}/`;
   const { stdout } = await execFileAsync(
     "git",
     ["-C", repositoryDirectory, "rev-parse", "--git-path", "info/exclude"],

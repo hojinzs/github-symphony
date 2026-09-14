@@ -28,8 +28,8 @@ export async function safeReadDir(path: string): Promise<string[]> {
 export function isFileMissing(error: unknown): boolean {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "ENOENT" || error.code === "ENOTDIR")
   );
 }

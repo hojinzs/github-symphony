@@ -72,7 +72,11 @@ export class ClaudeSessionStore {
 
     const path = this.sessionFilePath(options);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(`${path}.tmp`, `${JSON.stringify(session, null, 2)}\n`, "utf8");
+    await writeFile(
+      `${path}.tmp`,
+      `${JSON.stringify(session, null, 2)}\n`,
+      "utf8"
+    );
     await rename(`${path}.tmp`, path);
     return session;
   }
@@ -92,10 +96,14 @@ export function parseClaudeSessionFile(value: unknown): ClaudeSessionFile {
     );
   }
   if (typeof value.sessionId !== "string" || value.sessionId.length === 0) {
-    throw new Error("Claude session file sessionId must be a non-empty string.");
+    throw new Error(
+      "Claude session file sessionId must be a non-empty string."
+    );
   }
   if (typeof value.createdAt !== "string" || value.createdAt.length === 0) {
-    throw new Error("Claude session file createdAt must be a non-empty string.");
+    throw new Error(
+      "Claude session file createdAt must be a non-empty string."
+    );
   }
   if (
     "parentRunId" in value &&
@@ -116,7 +124,8 @@ export function parseClaudeSessionFile(value: unknown): ClaudeSessionFile {
     protocol: CLAUDE_SESSION_PROTOCOL,
     sessionId: value.sessionId,
     createdAt: value.createdAt,
-    parentRunId: typeof value.parentRunId === "string" ? value.parentRunId : undefined,
+    parentRunId:
+      typeof value.parentRunId === "string" ? value.parentRunId : undefined,
     protocolState: isRecord(value.protocolState) ? value.protocolState : {},
   };
 }

@@ -146,7 +146,10 @@ describe("detectEnvironment", () => {
   });
 
   it("detects poetry-managed python repositories with pytest guidance", async () => {
-    await writeFile(join(tempDir, "pyproject.toml"), "[project]\nname = 'poetry-fixture'\n");
+    await writeFile(
+      join(tempDir, "pyproject.toml"),
+      "[project]\nname = 'poetry-fixture'\n"
+    );
     await writeFile(join(tempDir, "poetry.lock"), "package = []\n");
     await writeFile(join(tempDir, "pytest.ini"), "[pytest]\n");
 
@@ -301,7 +304,10 @@ describe("detectEnvironment", () => {
   });
 
   it("detects Cargo workspace monorepos", async () => {
-    await writeFile(join(tempDir, "Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n");
+    await writeFile(
+      join(tempDir, "Cargo.toml"),
+      '[workspace]\nmembers = ["crates/*"]\n'
+    );
 
     const result = await detectEnvironment(tempDir);
 

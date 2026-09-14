@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setNoColor, stripAnsi } from "../ansi.js";
 import { runCli } from "../index.js";
-import {
-  COMMAND_COLUMN_WIDTH,
-  HELP_SECTIONS,
-  renderHelp,
-} from "./help.js";
+import { COMMAND_COLUMN_WIDTH, HELP_SECTIONS, renderHelp } from "./help.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;

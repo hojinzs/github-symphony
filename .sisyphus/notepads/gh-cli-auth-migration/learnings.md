@@ -126,6 +126,7 @@
 ## Task 11: Full Verification Suite
 
 ### Key Findings
+
 1. **Lint**: Fixed one unused eslint-disable directive in ansi.ts
    - The `// eslint-disable-next-line no-control-regex` comment was unnecessary
    - The regex pattern doesn't trigger the rule it was disabling
@@ -146,7 +147,9 @@
    - Verified by testing on HEAD~1 commit
 
 ### Verification Scope
+
 The gh-cli-auth-migration project includes:
+
 - packages/cli (primary)
 - packages/core (dependency)
 - packages/orchestrator (dependency)
@@ -159,7 +162,9 @@ The gh-cli-auth-migration project includes:
 All of these pass lint, test, typecheck, and build.
 
 ### Control-Plane Status
+
 The control-plane app has pre-existing failures unrelated to gh-cli-auth-migration:
+
 - Missing export in orchestrator-status-client
 - Missing module '../../../packages/worker/src/runtime'
 - Type mismatch in workspace-orchestrator
@@ -168,8 +173,8 @@ The control-plane app has pre-existing failures unrelated to gh-cli-auth-migrati
 These are separate concerns and should be addressed in a separate task.
 
 ### Commit
-- ba6e149: fix: remove unused eslint-disable directive in ansi.ts
 
+- ba6e149: fix: remove unused eslint-disable directive in ansi.ts
 
 ## F4 Scope Fidelity Audit (2026-03-13)
 

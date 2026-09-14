@@ -18,10 +18,14 @@ async function createTempDir(): Promise<string> {
 
 describe("ClaudeSessionStore", () => {
   afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, {
-      recursive: true,
-      force: true,
-    })));
+    await Promise.all(
+      tempDirs.splice(0).map((dir) =>
+        rm(dir, {
+          recursive: true,
+          force: true,
+        })
+      )
+    );
   });
 
   it("saves claude-print session files with protocol discriminator", async () => {

@@ -26,7 +26,7 @@ describe("Button", () => {
   it("renders a primary button by default", () => {
     const markup = renderToStaticMarkup(<Button>Refresh</Button>);
 
-    expect(markup).toContain("type=\"button\"");
+    expect(markup).toContain('type="button"');
     expect(markup).toContain("bg-interactive");
     expect(markup).toContain("px-4");
     expect(markup).toContain("Refresh");
@@ -56,7 +56,7 @@ describe("Button", () => {
     );
 
     expect(markup).toContain("<a");
-    expect(markup).toContain("href=\"/issues/demo\"");
+    expect(markup).toContain('href="/issues/demo"');
     expect(markup).not.toContain("<button");
   });
 
@@ -67,10 +67,10 @@ describe("Button", () => {
       </Button>
     );
 
-    expect(markup).toContain("aria-disabled=\"true\"");
-    expect(markup).toContain("data-disabled=\"\"");
+    expect(markup).toContain('aria-disabled="true"');
+    expect(markup).toContain('data-disabled=""');
     expect(markup).not.toMatch(/\sdisabled=/);
-    expect(markup).toContain("tabindex=\"-1\"");
+    expect(markup).toContain('tabindex="-1"');
   });
 });
 
