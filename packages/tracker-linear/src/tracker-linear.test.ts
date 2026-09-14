@@ -1202,6 +1202,81 @@ Prompt`,
     }
   });
 
+  it("isolates malformed records in state lists and preserves diagnostics through pickup labels", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponseWithHeaders(
+        {
+          data: {
+            issues: {
+              nodes: [
+                linearIssueNode("ENG-1", ["agent"]),
+                linearIssueNode("ENG-2", ["agent"], { state: null }),
+                linearIssueNode("ENG-3", ["other"]),
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+        { "x-ratelimit-requests-remaining": "1498" }
+      )
+    );
+
+    const issues = await linearTrackerAdapter.listIssues(
+      makeProject({
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: "Todo",
+          pickupLabels: { include: ["agent"] },
+        },
+      }),
+      { fetchImpl, token: "linear-token" }
+    );
+
+    expect(issues.map((issue) => issue.identifier)).toEqual(["ENG-1"]);
+    expect(issues.skippedItems).toEqual([
+      {
+        id: "issue-eng-2",
+        identifier: "ENG-2",
+        reason: "Linear issue state name is required.",
+      },
+    ]);
+    expect(issues.rateLimits).toMatchObject({
+      source: "linear",
+      remaining: 1498,
+    });
+  });
+
+  it("returns diagnostics for an all-invalid state list with a bounded record count", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: Array.from({ length: 51 }, (_, index) => ({
+              id: `issue-${index + 1}`,
+              identifier: `ENG-${index + 1}`,
+              title: "Invalid state",
+              state: null,
+            })),
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    const issues = await linearTrackerAdapter.listIssuesByStates(
+      makeProject(),
+      ["Todo"],
+      { fetchImpl, token: "linear-token" }
+    );
+
+    expect(issues).toHaveLength(0);
+    expect(issues.skippedItems).toHaveLength(50);
+    expect(issues.skippedItems?.at(-1)).toMatchObject({
+      id: "issue-50",
+      identifier: "ENG-50",
+    });
+  });
+
   it("normalizes Linear rate-limit headers onto listed issues", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponseWithHeaders(

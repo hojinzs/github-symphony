@@ -24,6 +24,16 @@ export const MAX_LINEAR_MAX_PAGES = 1_000;
 export const DEFAULT_LINEAR_PAGE_TIMEOUT_MS = 10_000;
 export const MAX_LINEAR_PAGE_TIMEOUT_MS = 60_000;
 const LINEAR_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
+const MAX_LINEAR_SKIPPED_ITEMS = 50;
+
+type LinearListPurpose = "state-list" | "id-refresh";
+
+class LinearRecordValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LinearRecordValidationError";
+  }
+}
 
 type LinearRateLimitPayload = {
   source: "linear";
@@ -335,6 +345,12 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
         value: issues.rateLimits,
         writable: true,
       });
+      Object.defineProperty(filtered, "skippedItems", {
+        configurable: true,
+        enumerable: false,
+        value: issues.skippedItems,
+        writable: true,
+      });
     }
     return filtered;
   },
@@ -352,9 +368,14 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       return [];
     }
 
-    return listLinearIssues(project, undefined, dependencies, issueIds, {
-      applyPickupLabels: true,
-    });
+    return listLinearIssues(
+      project,
+      undefined,
+      dependencies,
+      issueIds,
+      { applyPickupLabels: true },
+      "id-refresh"
+    );
   },
 
   buildWorkerEnvironment(project, issue) {
@@ -557,7 +578,8 @@ async function listLinearIssues(
   stateNamesInput: unknown,
   dependencies: OrchestratorTrackerDependencies,
   issueIds?: readonly string[],
-  options: { applyPickupLabels?: boolean } = {}
+  options: { applyPickupLabels?: boolean } = {},
+  purpose: LinearListPurpose = "state-list"
 ): Promise<TrackedIssueList> {
   const config = resolveLinearTrackerConfig(project, dependencies);
   const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
@@ -587,13 +609,29 @@ async function listLinearIssues(
     );
   }
 
-  const fetchedIssues = result.nodes.map((node) =>
-    normalizeLinearIssue(project, config.projectSlug, node, {
-      assignedOnly: config.assignedOnly,
-      rateLimits: result.rateLimits,
-      viewerId: result.viewerId,
-    })
-  ) as TrackedIssueList;
+  const fetchedIssues = [] as TrackedIssueList;
+  const skippedItems: NonNullable<TrackedIssueList["skippedItems"]> = [];
+  for (const [index, node] of result.nodes.entries()) {
+    try {
+      fetchedIssues.push(
+        normalizeLinearIssue(project, config.projectSlug, node, {
+          assignedOnly: config.assignedOnly,
+          rateLimits: result.rateLimits,
+          viewerId: result.viewerId,
+        })
+      );
+    } catch (error) {
+      if (
+        purpose === "id-refresh" ||
+        !(error instanceof LinearRecordValidationError)
+      ) {
+        throw error;
+      }
+      if (skippedItems.length < MAX_LINEAR_SKIPPED_ITEMS) {
+        skippedItems.push(linearSkippedItem(node, index, error.message));
+      }
+    }
+  }
   const blockerEligibleIssues = fetchedIssues.map((issue) =>
     applyBlockerDispatchability(issue, config)
   ) as TrackedIssueList;
@@ -607,6 +645,12 @@ async function listLinearIssues(
     configurable: true,
     enumerable: false,
     value: result.rateLimits,
+    writable: true,
+  });
+  Object.defineProperty(issues, "skippedItems", {
+    configurable: true,
+    enumerable: false,
+    value: skippedItems,
     writable: true,
   });
 
@@ -1113,7 +1157,7 @@ function normalizeLinearUserId(value: unknown): string | null {
 
 function requireString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} is required.`);
+    throw new LinearRecordValidationError(`${label} is required.`);
   }
   return value;
 }
@@ -1121,11 +1165,31 @@ function requireString(value: unknown, label: string): string {
 function sanitizeLinearIdentifier(identifier: string): string {
   const sanitized = identifier.trim().toUpperCase();
   if (!LINEAR_IDENTIFIER_PATTERN.test(sanitized)) {
-    throw new Error(
+    throw new LinearRecordValidationError(
       `Linear issue identifier "${identifier}" must match ${LINEAR_IDENTIFIER_PATTERN.source}.`
     );
   }
   return sanitized;
+}
+
+function linearSkippedItem(
+  issue: LinearIssueNode,
+  index: number,
+  reason: string
+): NonNullable<TrackedIssueList["skippedItems"]>[number] {
+  const fallback = `linear-record-${index + 1}`;
+  return {
+    id: boundedDiagnosticValue(issue.id, fallback),
+    identifier: boundedDiagnosticValue(issue.identifier, fallback),
+    reason: reason.slice(0, 256),
+  };
+}
+
+function boundedDiagnosticValue(value: unknown, fallback: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return fallback;
+  }
+  return value.trim().slice(0, 128);
 }
 
 function parseLinearIssueNumber(identifier: string): number {
