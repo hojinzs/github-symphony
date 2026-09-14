@@ -7,10 +7,16 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { chdir } from "node:process";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { OrchestratorFsStore } from "./fs-store.js";
+import { observeRunRecordReads, OrchestratorFsStore } from "./fs-store.js";
+import {
+  createHistoryBenchmarkFixture,
+  measureHistoryInventory,
+  measureHistoryReconciliationTick,
+  removeHistoryBenchmarkFixture,
+} from "./history-benchmark.js";
 
 describe("OrchestratorFsStore.loadRecentRunEvents", () => {
   it("uses a project-scoped runtime layout", async () => {
@@ -599,6 +605,79 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       warnSpy.mockRestore();
     }
   });
+});
+
+describe("history benchmark fixture", () => {
+  it("observes run records read through inventory and per-run lookup paths", async () => {
+    const fixture = await createHistoryBenchmarkFixture(2, "shared");
+    const observedPaths: string[] = [];
+
+    try {
+      await observeRunRecordReads(
+        (path) => observedPaths.push(path),
+        async () => {
+          await fixture.store.loadAllRuns();
+          await fixture.store.loadRun(fixture.activeRunId, fixture.projectId);
+        }
+      );
+
+      expect(observedPaths).toHaveLength(4);
+      expect(observedPaths.every((path) => basename(path) === "run.json")).toBe(
+        true
+      );
+    } finally {
+      await removeHistoryBenchmarkFixture(fixture);
+    }
+  });
+
+  it.each(["legacy", "shared"] as const)(
+    "isolates and inventories the %s layout while an active run is updated",
+    async (layout) => {
+      const fixture = await createHistoryBenchmarkFixture(2, layout);
+
+      try {
+        const measurement = await measureHistoryInventory(fixture, 2);
+        const runs = await fixture.store.loadAllRuns();
+
+        expect(measurement).toMatchObject({
+          fsReadCount: 6,
+          iterations: 2,
+          layout,
+          runCount: 3,
+        });
+        expect(measurement.elapsedMs).toBeGreaterThanOrEqual(0);
+        expect(runs).toHaveLength(3);
+        expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
+      } finally {
+        await removeHistoryBenchmarkFixture(fixture);
+      }
+
+      await expect(stat(fixture.runtimeRoot)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    }
+  );
+
+  it.each(["legacy", "shared"] as const)(
+    "measures actual reads made by one %s reconciliation tick",
+    async (layout) => {
+      const fixture = await createHistoryBenchmarkFixture(2, layout);
+
+      try {
+        const measurement = await measureHistoryReconciliationTick(fixture);
+        const runs = await fixture.store.loadAllRuns();
+
+        // Baseline #894 pins five full inventories plus one per-run lookup.
+        // Any added run.json read at either path turns this red.
+        expect(measurement.iterations).toBe(5);
+        expect(measurement.fsReadCount).toBe(16);
+        expect(runs).toHaveLength(3);
+        expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
+      } finally {
+        await removeHistoryBenchmarkFixture(fixture);
+      }
+    }
+  );
 });
 
 describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {

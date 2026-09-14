@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chmod, mkdir, open, rm, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
   isFileMissing,
@@ -15,13 +16,30 @@ import {
   parseRecentEvents,
   redactObservabilitySecrets,
   type ProjectStatusSnapshot,
-  readJsonFile,
+  readJsonFile as readCoreJsonFile,
   safeReadDir,
 } from "@gh-symphony/core";
 import { appendFileDurably, writeFileAtomically } from "./durable-file.js";
 
 const PROJECTS_DIR = "projects";
 const SECURE_DIRECTORY_MODE = 0o700;
+const runRecordReadObserver = new AsyncLocalStorage<(path: string) => void>();
+
+// Every run.json read in this module must route through this wrapper. The
+// history benchmark's file-boundary read accounting depends on that invariant.
+async function readJsonFile<T>(path: string): Promise<T | null> {
+  if (basename(path) === "run.json") {
+    runRecordReadObserver.getStore()?.(path);
+  }
+  return readCoreJsonFile<T>(path);
+}
+
+export async function observeRunRecordReads<T>(
+  observer: (path: string) => void,
+  operation: () => Promise<T>
+): Promise<T> {
+  return runRecordReadObserver.run(observer, operation);
+}
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
   private readonly resolvedRuntimeRoot: string;
