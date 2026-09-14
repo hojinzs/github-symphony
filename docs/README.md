@@ -39,14 +39,15 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 
 ## designs/
 
-| Document                                                                                                                     | Layers                                                        | Status            |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------- |
-| [2026-05-10-cli-restructure-design.md](designs/2026-05-10-cli-restructure-design.md)                                         | Coordination, Configuration                                   | Shipped           |
-| [2026-05-10-cli-restructure-issues.md](designs/2026-05-10-cli-restructure-issues.md)                                         | Coordination, Configuration                                   | Completed (plan)  |
-| [2026-07-06-github-project-repo-dispatch-filter-design.md](designs/2026-07-06-github-project-repo-dispatch-filter-design.md) | Integration, Coordination, Observability                      | Shipped (PR #435) |
-| [2026-08-11-standalone-project-model-design.md](designs/2026-08-11-standalone-project-model-design.md)                       | Policy, Configuration, Coordination, Execution, Observability | Shipped           |
-| [2026-08-11-agent-bootstrap-plugin-pm-steward-design.md](designs/2026-08-11-agent-bootstrap-plugin-pm-steward-design.md)     | Policy, Configuration, Coordination, Observability            | Draft             |
-| [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (plan)                                                        | Active            |
+| Document                                                                                                                     | Layers                                                             | Status            |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------- |
+| [2026-05-10-cli-restructure-design.md](designs/2026-05-10-cli-restructure-design.md)                                         | Coordination, Configuration                                        | Shipped           |
+| [2026-05-10-cli-restructure-issues.md](designs/2026-05-10-cli-restructure-issues.md)                                         | Coordination, Configuration                                        | Completed (plan)  |
+| [2026-07-06-github-project-repo-dispatch-filter-design.md](designs/2026-07-06-github-project-repo-dispatch-filter-design.md) | Integration, Coordination, Observability                           | Shipped (PR #435) |
+| [2026-08-11-standalone-project-model-design.md](designs/2026-08-11-standalone-project-model-design.md)                       | Policy, Configuration, Coordination, Execution, Observability      | Shipped           |
+| [2026-08-11-agent-bootstrap-plugin-pm-steward-design.md](designs/2026-08-11-agent-bootstrap-plugin-pm-steward-design.md)     | Policy, Configuration, Coordination, Observability                 | Draft             |
+| [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (plan)                                                             | Active            |
+| [2026-09-14-orchestrator-extraction-scope.md](designs/2026-09-14-orchestrator-extraction-scope.md)                           | Configuration, Coordination, Execution, Integration, Observability | Approved          |
 
 ## reports/
 
