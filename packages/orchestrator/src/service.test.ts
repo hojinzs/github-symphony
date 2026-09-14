@@ -10877,6 +10877,7 @@ Prefer focused changes.
     expect(run).toBeTruthy();
     await store.saveRun({
       ...run!,
+      issueState: "Done",
       workerExitCode: 1,
       runPhase: "failed",
       lastError: "git_transport_failed: refusing to push feat/assigned",
@@ -10896,6 +10897,34 @@ Prefer focused changes.
     ).toMatchObject({
       state: "released",
       failureRetryCount: 0,
+    });
+  });
+
+  it("retries a host Git transport failure after a non-terminal review transition", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("In Review");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      issueState: "In Review",
+      workerExitCode: 1,
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: 1,
     });
   });
 
@@ -14414,171 +14443,243 @@ Prefer focused changes.
     expect(updatedRun?.issueState).toBe("In Progress");
   });
 
-  it("records a confirmed Land completion as successful after the exit grace", async () => {
-    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-terminal-reconciliation-")
-    );
-    const repository = await createRepositoryFixture(
-      tempRoot,
-      "acme",
-      "platform"
-    );
-    const store = new OrchestratorFsStore(tempRoot);
-    const projectConfig = createProjectConfig(tempRoot, repository);
-    projectConfig.tracker = {
-      adapter: "linear",
-      bindingId: "symphony-0c79b11b75ea",
-      settings: {
-        projectSlug: "symphony-0c79b11b75ea",
-        activeStates: ["Todo", "In Progress"],
-      },
-    };
-    await store.saveProjectConfig(projectConfig);
-    await store.saveProjectIssueOrchestrations("tenant-1", [
-      {
-        issueId: "issue-1",
-        identifier: "acme/platform#1",
-        workspaceKey: "acme_platform_1",
-        completedOnce: false,
-        failureRetryCount: 0,
-        state: "running",
-        currentRunId: "run-1",
-        retryEntry: null,
-        updatedAt: "2026-03-08T00:00:00.000Z",
-      },
-    ]);
-    await store.saveRun({
-      runId: "run-1",
-      projectId: "tenant-1",
-      projectSlug: "tenant-1",
-      issueId: "issue-1",
-      issueSubjectId: "issue-1",
-      issueIdentifier: "acme/platform#1",
+  it.each([
+    {
+      description:
+        "keeps a confirmed Land workspace while inside the exit grace",
       issueState: "Done",
-      repository,
-      status: "running",
-      attempt: 1,
-      processId: 4205,
-      port: 4601,
-      workingDirectory: join(tempRoot, "active-run"),
-      issueWorkspaceKey: null,
-      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
-      workflowPath: null,
-      retryKind: null,
-      createdAt: "2026-03-08T00:00:00.000Z",
-      updatedAt: "2026-03-08T00:00:00.000Z",
-      startedAt: "2026-03-08T00:00:00.000Z",
-      completedAt: null,
+      trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
+      expectedStatus: "running",
+      processRunning: true,
+    },
+    {
+      description:
+        "records a confirmed Land completion as successful after the exit grace",
+      issueState: "Done",
       trackerProgressConfirmedAt: "2026-03-08T00:04:00.000Z",
-      assignedBranch: "symphony/acme-platform-1",
-      lastError: null,
-      nextRetryAt: null,
-    });
-    const workspaceKey = deriveIssueWorkspaceKey(
-      {
+      expectedStatus: "succeeded",
+      processRunning: true,
+    },
+    {
+      description:
+        "reconciles an unconfirmed run that moved to a terminal state",
+      issueState: "In Progress",
+      trackerProgressConfirmedAt: null,
+      expectedStatus: "suppressed",
+      processRunning: false,
+    },
+  ])(
+    "$description",
+    async ({
+      issueState,
+      trackerProgressConfirmedAt,
+      expectedStatus,
+      processRunning,
+    }) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-terminal-reconciliation-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      projectConfig.tracker = {
+        adapter: "linear",
+        bindingId: "symphony-0c79b11b75ea",
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: ["Todo", "In Progress"],
+        },
+      };
+      await store.saveProjectConfig(projectConfig);
+      await store.saveProjectIssueOrchestrations("tenant-1", [
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "acme_platform_1",
+          completedOnce: false,
+          failureRetryCount: 0,
+          state: "running",
+          currentRunId: "run-1",
+          retryEntry: null,
+          updatedAt: "2026-03-08T00:00:00.000Z",
+        },
+      ]);
+      await store.saveRun({
+        runId: "run-1",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueState,
+        repository,
+        status: "running",
+        attempt: 1,
+        processId: 4205,
+        port: 4601,
+        workingDirectory: join(tempRoot, "active-run"),
+        issueWorkspaceKey: null,
+        workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        completedAt: null,
+        trackerProgressConfirmedAt,
+        assignedBranch: "symphony/acme-platform-1",
+        lastError: null,
+        nextRetryAt: null,
+      });
+      const workspaceKey = deriveIssueWorkspaceKey(
+        {
+          adapter: "linear",
+          issueSubjectId: "issue-1",
+        },
+        "acme/platform#1"
+      );
+      const workspacePath = resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey
+      );
+      const repositoryPath = join(workspacePath, "repository");
+      const sentinelPath = join(workspacePath, "sentinel.txt");
+      await mkdir(repositoryPath, { recursive: true });
+      await writeFile(sentinelPath, "cleanup me", "utf8");
+      await store.saveIssueWorkspace({
+        workspaceKey,
+        projectId: "tenant-1",
         adapter: "linear",
         issueSubjectId: "issue-1",
-      },
-      "acme/platform#1"
-    );
-    const workspacePath = resolveIssueWorkspaceDirectory(
-      store.projectDir(projectConfig.projectId),
-      workspaceKey
-    );
-    const repositoryPath = join(workspacePath, "repository");
-    const sentinelPath = join(workspacePath, "sentinel.txt");
-    await mkdir(repositoryPath, { recursive: true });
-    await writeFile(sentinelPath, "cleanup me", "utf8");
-    await store.saveIssueWorkspace({
-      workspaceKey,
-      projectId: "tenant-1",
-      adapter: "linear",
-      issueSubjectId: "issue-1",
-      issueIdentifier: "acme/platform#1",
-      workspacePath,
-      repositoryPath,
-      status: "active",
-      createdAt: "2026-03-08T00:00:00.000Z",
-      updatedAt: "2026-03-08T00:00:00.000Z",
-      lastError: null,
-    });
+        issueIdentifier: "acme/platform#1",
+        workspacePath,
+        repositoryPath,
+        status: "active",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        lastError: null,
+      });
 
-    const terminalIssue = {
-      id: "issue-1",
-      identifier: "acme/platform#1",
-      number: 1,
-      title: "Test issue",
-      description: null,
-      priority: null,
-      state: "Done",
-      branchName: null,
-      url: "https://github.com/acme/platform/issues/1",
-      labels: [],
-      blockedBy: [],
-      createdAt: "2026-03-08T00:00:00.000Z",
-      updatedAt: "2026-03-08T00:05:00.000Z",
-      repository,
-      tracker: {
-        adapter: "linear" as const,
-        bindingId: "symphony-0c79b11b75ea",
-        itemId: "issue-1",
-      },
-      metadata: {},
-    };
-    const listIssues = vi.fn().mockResolvedValue([]);
-    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([terminalIssue]);
-    const killImpl = vi.fn();
-    const publishAssignedBranch = vi.fn();
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-      listIssues,
-      listIssuesByStates: vi.fn().mockResolvedValue([]),
-      fetchIssueStatesByIds,
-      buildWorkerEnvironment: vi.fn().mockReturnValue({
-        LINEAR_ISSUE_ID: "issue-1",
-      }),
-      reviveIssue: vi.fn(),
-    });
+      const terminalIssue = {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Done",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:05:00.000Z",
+        repository,
+        tracker: {
+          adapter: "linear" as const,
+          bindingId: "symphony-0c79b11b75ea",
+          itemId: "issue-1",
+        },
+        metadata: {},
+      };
+      const listIssues = vi.fn().mockResolvedValue([]);
+      const fetchIssueStatesByIds = vi.fn().mockResolvedValue([terminalIssue]);
+      const killImpl = vi.fn();
+      const publishAssignedBranch = vi.fn().mockResolvedValue({
+        ok: true,
+        result: {
+          branch: "symphony/acme-platform-1",
+          pushed: true,
+          head: "abc123",
+          unpublishedWorktreeChanges: null,
+        },
+      });
+      vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+        listIssues,
+        listIssuesByStates: vi.fn().mockResolvedValue([]),
+        fetchIssueStatesByIds,
+        buildWorkerEnvironment: vi.fn().mockReturnValue({
+          LINEAR_ISSUE_ID: "issue-1",
+        }),
+        reviveIssue: vi.fn(),
+      });
 
-    const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(createEmptyTrackerResponse()) as never,
-      now: () => new Date("2026-03-08T00:05:00.000Z"),
-      killImpl,
-      isProcessRunning: vi.fn().mockReturnValue(true),
-      publishAssignedBranch,
-    });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValue(createEmptyTrackerResponse()) as never,
+        now: () => new Date("2026-03-08T00:05:00.000Z"),
+        killImpl,
+        isProcessRunning: vi.fn().mockReturnValue(processRunning),
+        publishAssignedBranch,
+      });
 
-    const snapshot = await service.runOnce();
-    const updatedRun = await store.loadRun("run-1");
-    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
-    const workspaceRecord = await store.loadIssueWorkspace(
-      "tenant-1",
-      workspaceKey
-    );
+      const snapshot = await service.runOnce();
+      const updatedRun = await store.loadRun("run-1");
+      const issueRecords =
+        await store.loadProjectIssueOrchestrations("tenant-1");
+      const workspaceRecord = await store.loadIssueWorkspace(
+        "tenant-1",
+        workspaceKey
+      );
 
-    expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({ fetchImpl: expect.any(Function) })
-    );
-    expect(listIssues).toHaveBeenCalledTimes(1);
-    expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
-    expect(publishAssignedBranch).not.toHaveBeenCalled();
-    expect(updatedRun?.status).toBe("succeeded");
-    expect(updatedRun?.issueState).toBe("Done");
-    expect(updatedRun?.retryKind).toBeNull();
-    expect(updatedRun?.lastError).toBeNull();
-    expect(issueRecords[0]).toMatchObject({
-      state: "released",
-      failureRetryCount: 0,
-    });
-    await expect(readFile(sentinelPath, "utf8")).resolves.toBe("cleanup me");
-    expect(workspaceRecord?.status).toBe("active");
-    expect(snapshot.activeRuns).toHaveLength(0);
-  });
+      expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
+      expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+        projectConfig,
+        ["issue-1"],
+        expect.objectContaining({ fetchImpl: expect.any(Function) })
+      );
+      expect(listIssues).toHaveBeenCalledTimes(
+        expectedStatus === "suppressed" ? 2 : 1
+      );
+      if (expectedStatus === "running") {
+        expect(killImpl).not.toHaveBeenCalled();
+        expect(publishAssignedBranch).not.toHaveBeenCalled();
+        expect(updatedRun?.status).toBe("running");
+        expect(issueRecords[0]?.state).toBe("running");
+        await expect(readFile(sentinelPath, "utf8")).resolves.toBe(
+          "cleanup me"
+        );
+        expect(workspaceRecord?.status).toBe("active");
+        expect(snapshot.activeRuns).toHaveLength(1);
+      } else if (expectedStatus === "succeeded") {
+        expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
+        expect(publishAssignedBranch).not.toHaveBeenCalled();
+        expect(updatedRun).toMatchObject({
+          status: "succeeded",
+          issueState: "Done",
+          retryKind: null,
+          lastError: null,
+        });
+        expect(issueRecords[0]).toMatchObject({
+          state: "released",
+          failureRetryCount: 0,
+        });
+        await expect(readFile(sentinelPath, "utf8")).resolves.toBe(
+          "cleanup me"
+        );
+        expect(workspaceRecord?.status).toBe("active");
+        expect(snapshot.activeRuns).toHaveLength(0);
+      } else {
+        expect(killImpl).not.toHaveBeenCalled();
+        expect(publishAssignedBranch).toHaveBeenCalledTimes(1);
+        expect(updatedRun).toMatchObject({
+          status: "suppressed",
+          issueState: "Done",
+          runPhase: "canceled_by_reconciliation",
+        });
+        expect(issueRecords[0]?.state).toBe("released");
+        await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+        expect(workspaceRecord?.status).toBe("removed");
+        expect(snapshot.activeRuns).toHaveLength(0);
+      }
+    }
+  );
 
   it("suppresses an active run when its issue is removed from the project snapshot", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";

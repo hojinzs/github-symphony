@@ -3856,7 +3856,8 @@ export class OrchestratorService {
         ? await this.classifyCurrentTrackerProgress(
             tenant,
             runWithTokens,
-            trackerDependencies
+            trackerDependencies,
+            { requireMatchingTerminalState: gitTransportFailed }
           )
         : null;
     const finalizationDisposition = decideFinalizationDisposition({
@@ -4562,7 +4563,8 @@ export class OrchestratorService {
   private async classifyCurrentTrackerProgress(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    trackerDependencies: OrchestratorTrackerDependencies = {}
+    trackerDependencies: OrchestratorTrackerDependencies = {},
+    options: { requireMatchingTerminalState?: boolean } = {}
   ): Promise<FinalTrackerProgress> {
     try {
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
@@ -4595,10 +4597,18 @@ export class OrchestratorService {
           error: `Final tracker state unavailable: canonical tracker item ${run.issueSubjectId} was not returned.`,
         };
       }
+      const matchesConfirmedTerminalState =
+        isStateTerminal(issue.state, resolution.lifecycle) &&
+        matchesWorkflowState(run.issueState, [issue.state]);
       return {
         state:
-          issue.dispatchable &&
-          matchesWorkflowState(issue.state, resolution.lifecycle.activeStates)
+          (issue.dispatchable &&
+            matchesWorkflowState(
+              issue.state,
+              resolution.lifecycle.activeStates
+            )) ||
+          (options.requireMatchingTerminalState &&
+            !matchesConfirmedTerminalState)
             ? "active"
             : "non-actionable",
       };
