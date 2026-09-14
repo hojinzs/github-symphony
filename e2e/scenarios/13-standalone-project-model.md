@@ -13,8 +13,9 @@ local seed repository in a one-shot container. Each folder contains
    project folder — no registration step and no shared active-project state.
 3. Inspect the hook-populated clone, workspace location, branch, MCP/skill injection, `git status`,
    and worker log.
-4. Commit a worker blob in the beta hook-created workspace and fetch its branch
-   into an external bare host repository.
+4. Assert the beta hook-created workspace is a complete, non-promisor clone,
+   commit a worker blob there, and fetch its branch into an external bare host
+   repository.
 5. Repeat the host fetch from a blob-filtered control workspace that lacks the
    superseded policy blob.
 

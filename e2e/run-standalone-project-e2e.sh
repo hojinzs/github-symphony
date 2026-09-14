@@ -56,7 +56,7 @@ codex:
   command: codex
 repository:
   slug: test-owner/test-repo
-  clone_url: /e2e/repos/test-owner/test-repo
+  clone_url: file:///e2e/repos/test-owner/test-repo
 workspace:
   root: .runtime/workspaces
 ---
@@ -84,6 +84,7 @@ printf "STUB_SCENARIO=happy\nSYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n" > "$policy_proje
 printf "\n# newer committed policy\n" >> /e2e/repos/test-owner/test-repo/WORKFLOW.md
 git -C /e2e/repos/test-owner/test-repo add WORKFLOW.md
 git -C /e2e/repos/test-owner/test-repo commit -m "Update committed workflow policy" >/dev/null
+git -C /e2e/repos/test-owner/test-repo config uploadpack.allowFilter true
 printf "[]\n" > "$FIXTURE"
 (cd "$policy_project" && \
   GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
@@ -139,8 +140,8 @@ rm -rf "$CONFIG_DIR/projects/$broken_id"
 
 cat > "$FIXTURE" <<EOF
 [
-  {"id":"standalone-alpha","identifier":"test-owner/test-repo#101","number":101,"title":"alpha","description":null,"priority":null,"state":"Ready","branchName":null,"url":null,"labels":["alpha"],"blockedBy":[],"createdAt":null,"updatedAt":null,"repository":{"owner":"test-owner","name":"test-repo","cloneUrl":"/e2e/repos/test-owner/test-repo"},"tracker":{"adapter":"file","bindingId":"standalone-e2e","itemId":"standalone-alpha"},"metadata":{}},
-  {"id":"standalone-beta","identifier":"test-owner/test-repo#102","number":102,"title":"beta","description":null,"priority":null,"state":"Ready","branchName":null,"url":null,"labels":["beta"],"blockedBy":[],"createdAt":null,"updatedAt":null,"repository":{"owner":"test-owner","name":"test-repo","cloneUrl":"/e2e/repos/test-owner/test-repo"},"tracker":{"adapter":"file","bindingId":"standalone-e2e","itemId":"standalone-beta"},"metadata":{}}
+  {"id":"standalone-alpha","identifier":"test-owner/test-repo#101","number":101,"title":"alpha","description":null,"priority":null,"state":"Ready","branchName":null,"url":null,"labels":["alpha"],"blockedBy":[],"createdAt":null,"updatedAt":null,"repository":{"owner":"test-owner","name":"test-repo","cloneUrl":"file:///e2e/repos/test-owner/test-repo"},"tracker":{"adapter":"file","bindingId":"standalone-e2e","itemId":"standalone-alpha"},"metadata":{}},
+  {"id":"standalone-beta","identifier":"test-owner/test-repo#102","number":102,"title":"beta","description":null,"priority":null,"state":"Ready","branchName":null,"url":null,"labels":["beta"],"blockedBy":[],"createdAt":null,"updatedAt":null,"repository":{"owner":"test-owner","name":"test-repo","cloneUrl":"file:///e2e/repos/test-owner/test-repo"},"tracker":{"adapter":"file","bindingId":"standalone-e2e","itemId":"standalone-beta"},"metadata":{}}
 ]
 EOF
 
@@ -265,12 +266,14 @@ git -C "$host_repo" fetch --no-tags "$beta_repo" \
   "refs/heads/$beta_branch:refs/heads/$beta_branch"
 test "$(git -C "$host_repo" show "$beta_branch:host-publish.txt")" = \
   "published from hook-created workspace"
+test -z "$(git -C "$beta_repo" config --get remote.origin.promisor || true)"
+test -z "$(git -C "$beta_repo" config --get remote.origin.partialclonefilter || true)"
+test -z "$(git -C "$beta_repo" rev-list --objects --missing=print --all | grep "^?" || true)"
 
 # Keep the fixture mutation-sensitive: the policy setup above supersedes the
 # original WORKFLOW.md blob. A blob-filtered workspace therefore lacks an
 # object needed to serve its branch, and a host-equivalent fetch must fail with
 # the production lazy-fetch/bad-pack signature instead of silently passing.
-git -C /e2e/repos/test-owner/test-repo config uploadpack.allowFilter true
 unsafe_repo=/tmp/unsafe-promisor-workspace
 git clone --filter=blob:none file:///e2e/repos/test-owner/test-repo \
   "$unsafe_repo" >/dev/null
