@@ -166,9 +166,10 @@ AI Agent
 
 The unattended Symphony worker environment intentionally does not provide a
 Docker daemon. In that environment, a Docker E2E runner that exits during its
-preflight with status `69` because `docker compose` or the daemon is unreachable
-has encountered a known, accepted prerequisite limitation. Do not report that
-condition as a defect or open a follow-up issue for it.
+preflight with status `69` because `docker` is missing, `docker compose` cannot
+be resolved, or the daemon is unreachable has encountered a known, accepted
+prerequisite limitation. Do not report that condition as a defect or open a
+follow-up issue for it.
 
 Instead, record in the PR verification notes that Docker black-box confirmation
 was not run because the preflight returned status `69`, name the Docker scenario
@@ -179,11 +180,16 @@ operator responsibility. CI separately runs the `container-smoke` job from
 version and one-shot project startup; it does not run the documented Docker E2E
 scenarios.
 
-This exception is narrow: it applies only when an unreachable `docker compose`
-or Docker daemon causes the prerequisite preflight to exit with status `69`. Do
-not pre-emptively skip Docker scenarios when the daemon is reachable. Docker's
-own status `125`, and every failure after the preflight passes (including a
-scenario failure), remain test failures that must be investigated and reported.
+This exception is narrow: it applies only when a missing `docker` executable,
+an unresolvable `docker compose`, or an unreachable Docker daemon causes the
+prerequisite preflight to exit with status `69`. When running a scenario
+document by hand, run a runner script (or
+`assert_docker_runtime_is_available`) first to obtain the preflight status; a
+bare `docker compose` failure with no preflight result is not evidence that the
+prerequisite was available. Do not pre-emptively skip Docker scenarios when the
+daemon is reachable. Docker's own status `125`, and every failure after the
+preflight passes (including a scenario failure), remain test failures that must
+be investigated and reported.
 
 ### Stub Worker Scenarios
 
