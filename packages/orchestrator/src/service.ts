@@ -105,6 +105,14 @@ import {
   isIssueCandidateEligibleWithReason,
   isIssueOrchestrationClaimedState,
 } from "./dispatch-eligibility.js";
+import {
+  decideFinalizationDisposition,
+  planCompletedRunRetry,
+  planRetryRequeue,
+  resolveCompletedRunRetry,
+  resolveRetryRequeue,
+  type FinalTrackerProgress,
+} from "./retained-decisions.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 export const MIN_POLL_INTERVAL_MS = 1_000;
@@ -1485,14 +1493,28 @@ export class OrchestratorService {
             .map((run) => run.issueId)
         ),
       ];
-      const supplementalIssues =
-        missingActiveIssueIds.length > 0
-          ? await trackerAdapter.fetchIssueStatesByIds(
-              tenant,
-              missingActiveIssueIds,
-              trackerDependencies
-            )
-          : [];
+      let supplementalIssues: TrackedIssue[] = [];
+      const unresolvedActiveIssueIds = new Set<string>();
+      const unresolvedActiveIssueIdentifiers = new Set<string>();
+      if (missingActiveIssueIds.length > 0) {
+        try {
+          supplementalIssues = await trackerAdapter.fetchIssueStatesByIds(
+            tenant,
+            missingActiveIssueIds,
+            trackerDependencies
+          );
+        } catch (error) {
+          for (const run of currentActiveRuns) {
+            if (missingActiveIssueIds.includes(run.issueId)) {
+              unresolvedActiveIssueIds.add(run.issueId);
+              unresolvedActiveIssueIdentifiers.add(run.issueIdentifier);
+            }
+          }
+          this.writeStderr(
+            `[orchestrator] Active-run state refresh failed for ${tenant.projectId}; continuing: ${this.formatErrorMessage(error)}`
+          );
+        }
+      }
       const supplementalIssueIdentifiers = new Set<string>();
       for (const issue of supplementalIssues) {
         if (!trackedIssuesByIdentifier.has(issue.identifier)) {
@@ -2014,6 +2036,12 @@ export class OrchestratorService {
           ) ?? persistedRun;
         const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
         if (!issue) {
+          if (
+            unresolvedActiveIssueIds.has(issueRecord.issueId) ||
+            unresolvedActiveIssueIdentifiers.has(issueRecord.identifier)
+          ) {
+            continue;
+          }
           if (!activeRun || activeRun.processId === null) {
             continue;
           }
@@ -2365,6 +2393,13 @@ export class OrchestratorService {
         `[orchestrator] Startup cleanup skipped for project ${tenant.projectId}: ${message}`
       );
       return;
+    }
+
+    const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
+    if (skippedItems.length > 0) {
+      this.writeStderr(
+        `[orchestrator] startup cleanup skipped ${skippedItems.length} malformed tracker item(s) for ${tenant.projectId}: ${[...new Set(skippedItems.map((item) => item.identifier))].join(", ")} (${[...new Set(skippedItems.map((item) => item.reason))].join(", ")})`
+      );
     }
 
     const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
@@ -3793,10 +3828,18 @@ export class OrchestratorService {
             trackerDependencies
           )
         : null;
-    if (currentTrackerProgress?.state === "unknown") {
-      const consecutiveDeferrals =
-        (runWithTokens.finalizationDeferralCount ?? 0) + 1;
-      const exhausted = consecutiveDeferrals >= MAX_FINALIZATION_DEFERRALS;
+    const finalizationDisposition = decideFinalizationDisposition({
+      trackerProgress: currentTrackerProgress,
+      currentDeferralCount: runWithTokens.finalizationDeferralCount ?? 0,
+      maxDeferrals: MAX_FINALIZATION_DEFERRALS,
+    });
+    if (
+      finalizationDisposition.action === "defer-finalization" ||
+      finalizationDisposition.action === "record-exhausted-deferral"
+    ) {
+      const { consecutiveDeferrals, reason, error } = finalizationDisposition;
+      const exhausted =
+        finalizationDisposition.action === "record-exhausted-deferral";
       const deferredRun: OrchestratorRunRecord = {
         ...runWithTokens,
         finalizationDeferralCount: consecutiveDeferrals,
@@ -3810,21 +3853,21 @@ export class OrchestratorService {
         runId: run.runId,
         issueIdentifier: run.issueIdentifier,
         issueId: run.issueId,
-        reason: currentTrackerProgress.reason,
-        error: currentTrackerProgress.error,
+        reason,
+        error,
         consecutiveDeferrals,
         maxDeferrals: MAX_FINALIZATION_DEFERRALS,
         exhausted,
       });
       this.logVerbose(
-        `[run-finalization-deferred] ${runWithTokens.runId} reason=${currentTrackerProgress.reason} consecutiveDeferrals=${consecutiveDeferrals} maxDeferrals=${MAX_FINALIZATION_DEFERRALS} exhausted=${exhausted}`
+        `[run-finalization-deferred] ${runWithTokens.runId} reason=${reason} consecutiveDeferrals=${consecutiveDeferrals} maxDeferrals=${MAX_FINALIZATION_DEFERRALS} exhausted=${exhausted}`
       );
-      if (!exhausted) {
+      if (finalizationDisposition.action === "defer-finalization") {
         return { issueRecords, recovered: false };
       }
     }
 
-    if (currentTrackerProgress?.state === "non-actionable") {
+    if (finalizationDisposition.action === "complete") {
       const completedRun: OrchestratorRunRecord = {
         ...runWithTokens,
         finalizationDeferralCount: 0,
@@ -3915,17 +3958,30 @@ export class OrchestratorService {
       currentTrackerProgress?.state === "unknown"
         ? "failure"
         : await this.classifyRetryKind(tenant, run, trackerDependencies);
-    const persistedRetryKind = recovery ? "recovery" : retryKind;
-
-    const failureRetryCount =
-      retryKind === "failure"
-        ? (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0) + 1
-        : (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0);
     const maxFailureRetries = await this.loadMaxFailureRetries(
       tenant,
       run.repository
     );
-    if (retryKind === "failure" && failureRetryCount >= maxFailureRetries) {
+    const retryPlan = planCompletedRunRetry({
+      retryKind,
+      recoveryPresent: recovery !== null,
+      currentAttempt: runWithTokens.attempt,
+      durableFailureCount:
+        this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0,
+      maxFailureRetries,
+    });
+    const retryDisposition = resolveCompletedRunRetry(retryPlan, {
+      now,
+      retryPolicy:
+        retryPlan.action === "retry" && retryPlan.delayClass === "failure"
+          ? await this.loadRetryPolicy(tenant, run.repository)
+          : null,
+      defaultFailureBackoffMs:
+        this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS,
+      continuationDelayMs: CONTINUATION_RETRY_DELAY_MS,
+    });
+    const { failureRetryCount } = retryDisposition;
+    if (retryDisposition.action === "suppress") {
       const lastError = formatMaxFailureRetrySuppression(
         runWithTokens,
         failureRetryCount,
@@ -3980,23 +4036,7 @@ export class OrchestratorService {
       };
     }
 
-    let nextRetryAt: string;
-    if (recovery || retryKind === "continuation") {
-      nextRetryAt = new Date(
-        now.getTime() + CONTINUATION_RETRY_DELAY_MS
-      ).toISOString();
-    } else {
-      const retryOptions = await this.loadRetryPolicy(tenant, run.repository);
-      // Exponential backoff for failure retries
-      const backoffMs =
-        this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS;
-      nextRetryAt = (
-        retryOptions
-          ? scheduleRetryAt(now, run.attempt + 1, retryOptions)
-          : new Date(now.getTime() + backoffMs)
-      ).toISOString();
-    }
-
+    const { nextRetryAt, persistedRetryKind } = retryDisposition;
     const retryCompletedAt = now.toISOString();
     const retryRecord: OrchestratorRunRecord = {
       ...runWithTokens,
@@ -4004,8 +4044,7 @@ export class OrchestratorService {
       status: "retrying",
       // Continuations begin a fresh post-completion retry sequence. Failure
       // retries retain their existing attempt progression.
-      attempt:
-        persistedRetryKind === "continuation" ? 1 : runWithTokens.attempt + 1,
+      attempt: retryDisposition.attempt,
       processId: null,
       updatedAt: retryCompletedAt,
       startedAt: null,
@@ -4493,17 +4532,7 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
     trackerDependencies: OrchestratorTrackerDependencies = {}
-  ): Promise<
-    | { state: "non-actionable" | "active" }
-    | {
-        state: "unknown";
-        reason:
-          | "workflow-unavailable"
-          | "tracker-item-missing"
-          | "tracker-read-failed";
-        error: string;
-      }
-  > {
+  ): Promise<FinalTrackerProgress> {
     try {
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!isUsableWorkflowResolution(resolution)) {
@@ -5532,18 +5561,10 @@ export class OrchestratorService {
         record.issueId === run.issueId ||
         record.identifier === run.issueIdentifier
     );
-    const attempt =
-      (issueRecord?.retryEntry?.attempt ?? run.attempt) +
-      (options.advanceAttempt === false ? 0 : 1);
-    const failureRetryCount =
-      (issueRecord?.failureRetryCount ?? 0) +
-      (options.countFailure === false ? 0 : 1);
     const maxFailureRetries = await this.loadMaxFailureRetries(
       tenant,
       run.repository
     );
-    const suppressed =
-      options.countFailure !== false && failureRetryCount >= maxFailureRetries;
     const queuedDueAt = issueRecord?.retryEntry?.dueAt;
     const retainedDueAt =
       options.advanceAttempt === false &&
@@ -5551,26 +5572,34 @@ export class OrchestratorService {
       parseTimestampMs(queuedDueAt) !== null
         ? queuedDueAt
         : null;
-    let dueAt: string | null = null;
-    if (!suppressed) {
-      if (retainedDueAt) {
-        dueAt = retainedDueAt;
-      } else if (options.advanceAttempt === false) {
-        dueAt = new Date(
-          now.getTime() + (await this.loadProjectPollInterval(tenant))
-        ).toISOString();
-      } else {
-        const retryPolicy = await this.loadRetryPolicy(tenant, run.repository);
-        dueAt = (
-          retryPolicy
-            ? scheduleRetryAt(now, attempt, retryPolicy)
-            : new Date(
-                now.getTime() +
-                  (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
-              )
-        ).toISOString();
-      }
-    }
+    const advanceAttempt = options.advanceAttempt !== false;
+    const requeuePlan = planRetryRequeue({
+      currentAttempt: issueRecord?.retryEntry?.attempt ?? run.attempt,
+      durableFailureCount: issueRecord?.failureRetryCount ?? 0,
+      maxFailureRetries,
+      countFailure: options.countFailure !== false,
+      advanceAttempt,
+      retainedDueAt,
+    });
+    const requeueDisposition = resolveRetryRequeue(requeuePlan, {
+      now,
+      pollIntervalMs:
+        requeuePlan.delayClass === "poll"
+          ? await this.loadProjectPollInterval(tenant)
+          : null,
+      retryPolicy:
+        requeuePlan.delayClass === "failure"
+          ? await this.loadRetryPolicy(tenant, run.repository)
+          : null,
+      defaultFailureBackoffMs:
+        this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS,
+    });
+    const {
+      attempt,
+      failureRetryCount,
+      suppressed,
+      nextRetryAt: dueAt,
+    } = requeueDisposition;
     const lastError = suppressed
       ? formatMaxFailureRetrySuppression(
           run,
