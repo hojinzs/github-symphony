@@ -22,9 +22,7 @@ describe("parseNonNegativeInteger", () => {
 
 describe("buildContinuationTurnInput", () => {
   it("falls back to the default continuation guidance", () => {
-    expect(buildContinuationTurnInput({})).toBe(
-      DEFAULT_CONTINUATION_GUIDANCE
-    );
+    expect(buildContinuationTurnInput({})).toBe(DEFAULT_CONTINUATION_GUIDANCE);
   });
 
   it("renders continuation template variables for resume-aware prompts", () => {

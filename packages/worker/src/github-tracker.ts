@@ -7,21 +7,26 @@ export {
   normalizeGithubProjectItem,
   type GitHubRepositoryRef,
   type GitHubTrackedIssue,
-  type GitHubTrackerConfig
+  type GitHubTrackerConfig,
 } from "@gh-symphony/tracker-github";
 
 import { isStateActive, type WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type {
   GitHubTrackedIssue,
-  GitHubTrackerConfig
+  GitHubTrackerConfig,
 } from "@gh-symphony/tracker-github";
 
 export function normalizeStateName(state: string): string {
   return state.trim().toLowerCase();
 }
 
-export function isActionableState(state: string, activeStates: string[]): boolean {
-  return activeStates.map(normalizeStateName).includes(normalizeStateName(state));
+export function isActionableState(
+  state: string,
+  activeStates: string[]
+): boolean {
+  return activeStates
+    .map(normalizeStateName)
+    .includes(normalizeStateName(state));
 }
 
 export function isTrackedIssueActionable(
@@ -31,7 +36,10 @@ export function isTrackedIssueActionable(
   }
 ): boolean {
   if (config.lifecycle) {
-    return isStateActive(issue.state, config.lifecycle as WorkflowLifecycleConfig);
+    return isStateActive(
+      issue.state,
+      config.lifecycle as WorkflowLifecycleConfig
+    );
   }
 
   return isActionableState(issue.state, config.activeStates ?? []);

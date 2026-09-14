@@ -2,7 +2,7 @@ export const WORKSPACE_STATUS_LABELS = {
   provisioning: "Provisioning",
   idle: "Idle",
   running: "Running",
-  degraded: "Needs attention"
+  degraded: "Needs attention",
 } as const;
 
 export type WorkspaceStatus = keyof typeof WORKSPACE_STATUS_LABELS;

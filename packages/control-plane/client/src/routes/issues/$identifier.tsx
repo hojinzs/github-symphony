@@ -117,7 +117,10 @@ export function IssueDetailView({
             <div className="grid gap-6 xl:grid-cols-[minmax(0,820px)_minmax(0,1fr)]">
               <div className="space-y-3">
                 <DetailCard title="Run Details">
-                  <DetailRow label="Session ID" value={runDetails?.session_id} />
+                  <DetailRow
+                    label="Session ID"
+                    value={runDetails?.session_id}
+                  />
                   <DetailRow
                     label="Started"
                     value={

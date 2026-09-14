@@ -11,12 +11,12 @@
 
 Address the CI test-path mismatch first, then isolate malformed Linear list records. Measure historical-run read cost before changing storage architecture. Extract orchestrator responsibilities incrementally after the test baseline is consistent.
 
-| Finding | Classification | Impact | Recommended action | Relative change risk |
-| --- | --- | --- | --- | --- |
-| R1: CI and package test execution differ | Confirmed verification gap | Three React test files are excluded; package setup and execution settings are bypassed | Make package-aware execution authoritative in CI, then consolidate coverage | Low for the CI gate; medium for coverage migration |
-| R2: Orchestrator responsibility concentration | Confirmed maintainability concern, not a reproduced runtime defect | State, process, tracker, workspace, and retry changes are difficult to isolate | Extract pure decisions first, then small effect-owning collaborators | Medium; high for a wholesale rewrite |
-| R3: Repeated full run-history reads | Confirmed access pattern; production performance impact unmeasured | Work per tick grows with retained history, including unrelated projects in shared/legacy layouts | Establish a baseline, add project-scoped bounded reads, then optimize measured hot paths | Medium; high for a new persistent index or database |
-| R4: Linear malformed-record blast radius | Reproduced availability limitation | One invalid list record prevents otherwise valid candidates from being returned | Tolerant state-list normalization with diagnostics; strict ID refresh | Low to medium |
+| Finding                                       | Classification                                                     | Impact                                                                                           | Recommended action                                                                       | Relative change risk                                |
+| --------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| R1: CI and package test execution differ      | Confirmed verification gap                                         | Three React test files are excluded; package setup and execution settings are bypassed           | Make package-aware execution authoritative in CI, then consolidate coverage              | Low for the CI gate; medium for coverage migration  |
+| R2: Orchestrator responsibility concentration | Confirmed maintainability concern, not a reproduced runtime defect | State, process, tracker, workspace, and retry changes are difficult to isolate                   | Extract pure decisions first, then small effect-owning collaborators                     | Medium; high for a wholesale rewrite                |
+| R3: Repeated full run-history reads           | Confirmed access pattern; production performance impact unmeasured | Work per tick grows with retained history, including unrelated projects in shared/legacy layouts | Establish a baseline, add project-scoped bounded reads, then optimize measured hot paths | Medium; high for a new persistent index or database |
+| R4: Linear malformed-record blast radius      | Reproduced availability limitation                                 | One invalid list record prevents otherwise valid candidates from being returned                  | Tolerant state-list normalization with diagnostics; strict ID refresh                    | Low to medium                                       |
 
 These priorities reflect certainty and breadth of impact, not measured incident frequency. If Linear is unused, R4 can follow the storage baseline. If a deployment already has measured polling delays, advance R3 ahead of structural extraction.
 
@@ -28,13 +28,13 @@ These priorities reflect certainty and breadth of impact, not measured incident 
 
 Actual discovery on the reviewed revision:
 
-| Control-plane test file | Root discovery | Package discovery |
-| --- | --- | --- |
-| `src/server.test.ts` | Included | Included |
-| `client/src/lib/api.test.ts` | Included | Included |
-| `client/src/issueDetail.test.tsx` | Excluded | Included |
-| `client/src/components/components.test.tsx` | Excluded | Included |
-| `client/src/routes/-index.test.tsx` | Excluded | Included |
+| Control-plane test file                     | Root discovery | Package discovery |
+| ------------------------------------------- | -------------- | ----------------- |
+| `src/server.test.ts`                        | Included       | Included          |
+| `client/src/lib/api.test.ts`                | Included       | Included          |
+| `client/src/issueDetail.test.tsx`           | Excluded       | Included          |
+| `client/src/components/components.test.tsx` | Excluded       | Included          |
+| `client/src/routes/-index.test.tsx`         | Excluded       | Included          |
 
 The excluded files contain 17 tests for rendering, status badges, retry errors, stale-data warnings, links, and component behavior. A regression confined to these assertions can escape the CI unit-test gate even though package tests would catch it. Compilation and linting do not execute these assertions; these tests are primarily static-render tests, not full browser interaction coverage.
 
@@ -42,11 +42,11 @@ The mismatch extends beyond filename patterns. [The orchestrator configuration](
 
 ### Alternatives
 
-| Option | Benefit | Cost or limitation |
-| --- | --- | --- |
-| Expand the root include to `.test.{ts,tsx}` | Small diff; closes the immediately visible omission | Does not preserve package setup, aliases, defines, or serialization; incomplete as the final fix |
-| Use package scripts as the authoritative CI gate | Aligns with `pnpm test`, preserves existing package configuration, straightforward rollback | A transitional separate coverage run duplicates work; coverage collection still needs consolidation |
-| Introduce one root Vitest project configuration referencing package configs | One coordinated discovery and coverage entry point | Must validate project roots, relative setup paths, aliases, package-specific scheduling, and packages without a local config; larger migration |
+| Option                                                                      | Benefit                                                                                     | Cost or limitation                                                                                                                             |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Expand the root include to `.test.{ts,tsx}`                                 | Small diff; closes the immediately visible omission                                         | Does not preserve package setup, aliases, defines, or serialization; incomplete as the final fix                                               |
+| Use package scripts as the authoritative CI gate                            | Aligns with `pnpm test`, preserves existing package configuration, straightforward rollback | A transitional separate coverage run duplicates work; coverage collection still needs consolidation                                            |
+| Introduce one root Vitest project configuration referencing package configs | One coordinated discovery and coverage entry point                                          | Must validate project roots, relative setup paths, aliases, package-specific scheduling, and packages without a local config; larger migration |
 
 ### Recommended direction
 
@@ -76,11 +76,11 @@ The practical concern is the number of invariants a maintainer must understand f
 
 ### Alternatives
 
-| Option | Benefit | Cost or limitation |
-| --- | --- | --- |
-| Keep one service and reorganize methods/comments | Minimal behavioral risk | Improves navigation but leaves shared mutable state and coupling intact |
-| Incrementally extract decisions, then cohesive effects | Smaller review scope, focused tests, no data migration | Requires careful interfaces and several changes; some façade complexity remains |
-| Replace with a new workflow engine, actor model, or distributed services | Potentially clearer ownership at larger scale | Changes execution ordering, persistence, deployment, and failure modes simultaneously; benefits are not established by this review |
+| Option                                                                   | Benefit                                                | Cost or limitation                                                                                                                 |
+| ------------------------------------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Keep one service and reorganize methods/comments                         | Minimal behavioral risk                                | Improves navigation but leaves shared mutable state and coupling intact                                                            |
+| Incrementally extract decisions, then cohesive effects                   | Smaller review scope, focused tests, no data migration | Requires careful interfaces and several changes; some façade complexity remains                                                    |
+| Replace with a new workflow engine, actor model, or distributed services | Potentially clearer ownership at larger scale          | Changes execution ordering, persistence, deployment, and failure modes simultaneously; benefits are not established by this review |
 
 ### Recommended direction
 
@@ -108,12 +108,12 @@ One isolated diagnostic confirmed that an inventory containing an old success, a
 
 ### Alternatives
 
-| Option | Benefit | Cost or limitation |
-| --- | --- | --- |
-| Reuse one snapshot throughout a tick | Reduces repeated scans with little storage change | Can hide asynchronous worker or tracker writes; an immutable snapshot reused blindly may make concurrency or completion decisions stale |
-| Add project-scoped reads and bounded I/O, then reduce redundant reads at explicit boundaries | Limits unrelated work and read fan-out; preserves JSON storage and rollback | Still scales with that project's history; requires legacy-layout compatibility and careful refresh points |
-| Maintain an active/latest-run index and incremental historical aggregates | Can make steady-state cost depend mainly on active runs | Introduces index consistency, crash recovery, rebuild, and multi-writer questions; metrics must remain exact |
-| Move state to SQLite | Indexed queries and transactional updates | Migration, packaging, backup, lock-contention, and rollback work; does not by itself fix inefficient query patterns |
+| Option                                                                                       | Benefit                                                                     | Cost or limitation                                                                                                                      |
+| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Reuse one snapshot throughout a tick                                                         | Reduces repeated scans with little storage change                           | Can hide asynchronous worker or tracker writes; an immutable snapshot reused blindly may make concurrency or completion decisions stale |
+| Add project-scoped reads and bounded I/O, then reduce redundant reads at explicit boundaries | Limits unrelated work and read fan-out; preserves JSON storage and rollback | Still scales with that project's history; requires legacy-layout compatibility and careful refresh points                               |
+| Maintain an active/latest-run index and incremental historical aggregates                    | Can make steady-state cost depend mainly on active runs                     | Introduces index consistency, crash recovery, rebuild, and multi-writer questions; metrics must remain exact                            |
+| Move state to SQLite                                                                         | Indexed queries and transactional updates                                   | Migration, packaging, backup, lock-contention, and rollback work; does not by itself fix inefficient query patterns                     |
 
 ### Recommended direction
 
@@ -143,11 +143,11 @@ Important correction to severity: upstream §11.1 says a state-list call **MAY**
 
 ### Alternatives
 
-| Option | Benefit | Cost or limitation |
-| --- | --- | --- |
-| Keep strict lists and improve diagnostics | Smallest change, clearly exposes data problems | One bad candidate continues blocking valid candidates |
-| Tolerate known record-validation failures in state lists, keep ID refresh strict | Valid work continues; preserves the meaning of refresh omission | Needs bounded diagnostics and metadata preservation; skipped data requires operator visibility |
-| Catch all failures and return whatever was collected | Appears resilient | Can hide programming, auth, or paging failures and misrepresent an incomplete response as complete; reject this option |
+| Option                                                                           | Benefit                                                         | Cost or limitation                                                                                                     |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Keep strict lists and improve diagnostics                                        | Smallest change, clearly exposes data problems                  | One bad candidate continues blocking valid candidates                                                                  |
+| Tolerate known record-validation failures in state lists, keep ID refresh strict | Valid work continues; preserves the meaning of refresh omission | Needs bounded diagnostics and metadata preservation; skipped data requires operator visibility                         |
+| Catch all failures and return whatever was collected                             | Appears resilient                                               | Can hide programming, auth, or paging failures and misrepresent an incomplete response as complete; reject this option |
 
 ### Recommended direction
 
@@ -174,17 +174,17 @@ No precise calendar estimate is warranted without agreeing on the coverage strat
 
 ## Test cases and verification
 
-| TC | Verification | Result or implementation acceptance |
-| --- | --- | --- |
-| TC-01 | Compare root and control-plane package discovery | Executed: root finds 2 files; package finds 5, including the 3 TSX files |
-| TC-02 | Mixed valid/malformed Linear state list | Executed diagnostic: current implementation rejects the entire list |
-| TC-03 | Malformed requested-ID refresh | Executed diagnostic: rejects rather than implying omission |
-| TC-04 | Historical and cross-project run inventory | Executed diagnostic: all 3 fixture records are returned |
-| TC-05 | Complete repository unit suite | Fresh verification result recorded below |
-| TC-06 | CI-equivalent failing TSX sentinel, setup isolation, coverage merge | Required when implementing R1; not executed as a repository mutation here |
-| TC-07 | Retry reservation, bounded recovery, shutdown, hook order, unpublished work | Preserve façade regressions for R2; run relevant Docker scenarios after execution changes |
-| TC-08 | History growth, update freshness, legacy layout, cumulative metrics | Required when implementing R3; no performance claim from this report |
-| TC-09 | Mixed/all-invalid lists, strict refresh, page failure, label metadata | Required when implementing R4; use mocked Linear responses and the existing live-provider acceptance procedure when needed |
+| TC    | Verification                                                                | Result or implementation acceptance                                                                                        |
+| ----- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| TC-01 | Compare root and control-plane package discovery                            | Executed: root finds 2 files; package finds 5, including the 3 TSX files                                                   |
+| TC-02 | Mixed valid/malformed Linear state list                                     | Executed diagnostic: current implementation rejects the entire list                                                        |
+| TC-03 | Malformed requested-ID refresh                                              | Executed diagnostic: rejects rather than implying omission                                                                 |
+| TC-04 | Historical and cross-project run inventory                                  | Executed diagnostic: all 3 fixture records are returned                                                                    |
+| TC-05 | Complete repository unit suite                                              | Fresh verification result recorded below                                                                                   |
+| TC-06 | CI-equivalent failing TSX sentinel, setup isolation, coverage merge         | Required when implementing R1; not executed as a repository mutation here                                                  |
+| TC-07 | Retry reservation, bounded recovery, shutdown, hook order, unpublished work | Preserve façade regressions for R2; run relevant Docker scenarios after execution changes                                  |
+| TC-08 | History growth, update freshness, legacy layout, cumulative metrics         | Required when implementing R3; no performance claim from this report                                                       |
+| TC-09 | Mixed/all-invalid lists, strict refresh, page failure, label metadata       | Required when implementing R4; use mocked Linear responses and the existing live-provider acceptance procedure when needed |
 
 The three diagnostic cases were written in an external temporary directory and executed against current source: 3 passed. They describe existing behavior, not implemented fixes. No production credentials or network calls were used by these probes.
 

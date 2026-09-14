@@ -139,9 +139,7 @@ export async function executePlanningPhase(
       fieldName: input.lifecycle.stateFieldName,
       state: input.transitionTo,
     });
-    operations.push(
-      `transitioned item to ${input.transitionTo}`
-    );
+    operations.push(`transitioned item to ${input.transitionTo}`);
   }
 
   return {
@@ -217,9 +215,7 @@ export async function executeImplementationPhase(
       fieldName: input.lifecycle.stateFieldName,
       state: input.transitionTo,
     });
-    operations.push(
-      `transitioned item to ${input.transitionTo}`
-    );
+    operations.push(`transitioned item to ${input.transitionTo}`);
   }
 
   return {
@@ -300,10 +296,7 @@ export function buildImplementationBranchName(
   return `symphony/issue-${issue.number}-${slug || "change"}`;
 }
 
-export function buildPhaseMarker(
-  label: string,
-  issueId: string
-): string {
+export function buildPhaseMarker(label: string, issueId: string): string {
   return `<!-- github-symphony:${label} issue=${issueId} -->`;
 }
 

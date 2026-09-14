@@ -17,12 +17,14 @@ Create a `PROJECT_MANAGE.md` file in the repository root that stores project man
 Before doing anything else, run these checks **in order**:
 
 1. **gh CLI authentication**: Run `gh auth status`. If not authenticated, stop and tell the user:
+
    ```
    GitHub CLI is not authenticated. Please run:
    $ gh auth login
    ```
 
 2. **Project scope permission**: Attempt `gh project list --owner <owner> --limit 1`. If it fails with a 403 or permission error, stop and tell the user:
+
    ```
    The GitHub CLI token lacks the "project" scope. Please run:
    $ gh auth refresh -s project
@@ -88,6 +90,7 @@ Have a brief interactive discussion to establish:
 Write the file with YAML frontmatter containing all machine-readable IDs, followed by human-readable convention rules in markdown.
 
 **Frontmatter** must include:
+
 ```yaml
 ---
 project_url: <full URL>
@@ -114,6 +117,7 @@ status_options:
 ```
 
 **Body** must include the agreed-upon conventions in clear markdown sections:
+
 - Issue Template
 - Splitting Rules
 - Priority Definitions

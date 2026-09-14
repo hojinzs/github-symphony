@@ -3,17 +3,19 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { readEnvFile } from "../workspace/env-file.js";
 
-export type McpServerDefinition = {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-  [key: string]: unknown;
-} | {
-  type: "sse" | "http";
-  url: string;
-  headers?: Record<string, string>;
-  [key: string]: unknown;
-};
+export type McpServerDefinition =
+  | {
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+      [key: string]: unknown;
+    }
+  | {
+      type: "sse" | "http";
+      url: string;
+      headers?: Record<string, string>;
+      [key: string]: unknown;
+    };
 
 export type McpCompositionOptions = {
   repositoryDir: string;

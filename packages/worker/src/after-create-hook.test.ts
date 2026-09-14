@@ -149,9 +149,7 @@ describe("prepareAfterCreateHook", () => {
   });
 
   it("reclones when the target repository changes", async () => {
-    const root = mkdtempSync(
-      join(tmpdir(), "github-symphony-hook-reclone-")
-    );
+    const root = mkdtempSync(join(tmpdir(), "github-symphony-hook-reclone-"));
     const firstRepository = join(root, "first");
     const secondRepository = join(root, "second");
     const hooksRoot = join(root, "hooks");
@@ -190,7 +188,13 @@ describe("prepareAfterCreateHook", () => {
       cwd: secondRepository,
     });
     await execFileAsync("git", ["-C", secondRepository, "add", "SECOND.md"]);
-    await execFileAsync("git", ["-C", secondRepository, "commit", "-m", "init"]);
+    await execFileAsync("git", [
+      "-C",
+      secondRepository,
+      "commit",
+      "-m",
+      "init",
+    ]);
 
     const firstHook = await prepareAfterCreateHook(hooksRoot, {
       workspaceId: "workspace-1",
@@ -227,9 +231,7 @@ describe("prepareAfterCreateHook", () => {
   });
 
   it("recognizes git worktree checkouts on rerun", async () => {
-    const root = mkdtempSync(
-      join(tmpdir(), "github-symphony-hook-worktree-")
-    );
+    const root = mkdtempSync(join(tmpdir(), "github-symphony-hook-worktree-"));
     const sourceRepository = join(root, "source");
     const hooksRoot = join(root, "hooks");
     const workspaceRoot = join(root, "workspaces");

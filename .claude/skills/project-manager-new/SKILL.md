@@ -17,12 +17,14 @@ Create one or more GitHub issues that follow the repository's project management
 Run these checks **in order** before proceeding:
 
 1. **gh CLI authentication**: Run `gh auth status`. If not authenticated, stop and instruct:
+
    ```
    GitHub CLI is not authenticated. Please run:
    $ gh auth login
    ```
 
 2. **Project scope permission**: Attempt a lightweight project API call using the project info from `PROJECT_MANAGE.md` frontmatter. If permission error, stop and instruct:
+
    ```
    The GitHub CLI token lacks the "project" scope. Please run:
    $ gh auth refresh -s project
@@ -38,12 +40,14 @@ Run these checks **in order** before proceeding:
 ### Step 1: Parse Configuration
 
 Read `PROJECT_MANAGE.md` and extract:
+
 - **Frontmatter**: project_node_id, owner, field_ids, priority_options, size_options, status_options, backlog_status, backlog_status_id
 - **Body**: Issue template format, splitting rules, priority/size definitions
 
 ### Step 2: Understand the Request
 
 The user provides a natural-language description of the work as `$ARGUMENTS`. Analyze it to understand:
+
 - What needs to change
 - Which packages/files are affected
 - The motivation (bug fix, feature, refactoring, spec compliance, etc.)
@@ -51,6 +55,7 @@ The user provides a natural-language description of the work as `$ARGUMENTS`. An
 ### Step 3: Explore the Codebase
 
 Based on the description, explore the codebase to:
+
 - Identify affected files and their current state
 - Understand package boundaries and dependency relationships
 - Assess the scope of changes needed
@@ -59,11 +64,13 @@ Based on the description, explore the codebase to:
 ### Step 4: Draft the Issue(s)
 
 Using the issue template from PROJECT_MANAGE.md, draft the issue body with:
+
 - All required template sections filled in
 - Concrete file paths and change descriptions (not vague)
 - Verification steps that can actually be run
 
 Assign **Priority**, **Size**, and **Estimate** based on:
+
 - The definitions in PROJECT_MANAGE.md
 - The actual codebase analysis from Step 3
 
@@ -87,6 +94,7 @@ Proceed? [create all / modify / cancel]
 ```
 
 Splitting guidelines:
+
 - Each sub-issue should be independently deliverable (single PR)
 - Respect package boundaries when possible
 - Maintain clear blocking relationships between split issues
@@ -97,6 +105,7 @@ Splitting guidelines:
 Fetch **all open (non-Done) issues** from the project board — not just Backlog items. An issue currently In Progress (e.g., a large refactoring) can block the new issue, or the new issue might block existing in-flight work.
 
 Analyze whether the new issue(s):
+
 - **Are blocked by** any existing open issue (e.g., depends on a type change, refactoring, or spec migration that's already planned or in progress)
 - **Block** any existing open issue (e.g., the new issue introduces something an existing issue depends on)
 
@@ -130,12 +139,20 @@ Upon user approval:
 4. **Connect blocking relationships**: For split issues and existing backlog relationships, use GraphQL `addBlockedBy` mutation:
    ```graphql
    mutation {
-     addBlockedBy(input: {
-       issueId: "<blocked issue node ID>",
-       blockingIssueId: "<blocking issue node ID>"
-     }) {
-       issue { number title }
-       blockingIssue { number title }
+     addBlockedBy(
+       input: {
+         issueId: "<blocked issue node ID>"
+         blockingIssueId: "<blocking issue node ID>"
+       }
+     ) {
+       issue {
+         number
+         title
+       }
+       blockingIssue {
+         number
+         title
+       }
      }
    }
    ```

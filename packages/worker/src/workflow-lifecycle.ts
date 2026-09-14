@@ -4,5 +4,5 @@ export {
   isStateTerminal,
   matchesWorkflowState,
   normalizeWorkflowState,
-  type WorkflowLifecycleConfig
+  type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";

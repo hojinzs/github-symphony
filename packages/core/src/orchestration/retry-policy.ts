@@ -1,7 +1,7 @@
 import {
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_MAX_DELAY_MS,
-  type RetryPolicyOptions
+  type RetryPolicyOptions,
 } from "../workflow/config.js";
 
 export function calculateRetryDelay(

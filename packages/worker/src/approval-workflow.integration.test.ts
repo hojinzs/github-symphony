@@ -5,7 +5,7 @@ import {
   type ApprovalWorkflowClient,
   type ApprovalWorkflowComment,
   type ApprovalWorkflowIssue,
-  type ApprovalWorkflowPullRequest
+  type ApprovalWorkflowPullRequest,
 } from "./approval-workflow.js";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "./workflow-lifecycle.js";
 
@@ -13,7 +13,7 @@ describe("approval workflow integration", () => {
   it("hands planning off for human review without duplicating comments on retry", async () => {
     const client = createMemoryApprovalClient();
     const issue = createIssue({
-      state: "Todo"
+      state: "Todo",
     });
 
     const firstResult = await executePlanningPhase(
@@ -23,8 +23,11 @@ describe("approval workflow integration", () => {
         transitionTo: "Plan Review",
         report: {
           summary: "Investigate the issue and stage the implementation.",
-          steps: ["Inspect the worker workflow", "Document the implementation plan"]
-        }
+          steps: [
+            "Inspect the worker workflow",
+            "Document the implementation plan",
+          ],
+        },
       },
       client
     );
@@ -35,8 +38,11 @@ describe("approval workflow integration", () => {
         transitionTo: "Plan Review",
         report: {
           summary: "Investigate the issue and stage the implementation.",
-          steps: ["Inspect the worker workflow", "Document the implementation plan"]
-        }
+          steps: [
+            "Inspect the worker workflow",
+            "Document the implementation plan",
+          ],
+        },
       },
       client
     );
@@ -50,7 +56,7 @@ describe("approval workflow integration", () => {
   it("resumes after approval, upserts a pull request, and transitions to awaiting merge", async () => {
     const client = createMemoryApprovalClient();
     const issue = createIssue({
-      state: "In Progress"
+      state: "In Progress",
     });
 
     const firstResult = await executeImplementationPhase(
@@ -60,8 +66,8 @@ describe("approval workflow integration", () => {
         transitionTo: "In Review",
         report: {
           summary: "Implemented the approval-aware worker loop.",
-          validation: ["pnpm test --filter @gh-symphony/worker"]
-        }
+          validation: ["pnpm test --filter @gh-symphony/worker"],
+        },
       },
       client
     );
@@ -72,8 +78,8 @@ describe("approval workflow integration", () => {
         transitionTo: "In Review",
         report: {
           summary: "Implemented the approval-aware worker loop.",
-          validation: ["pnpm test --filter @gh-symphony/worker"]
-        }
+          validation: ["pnpm test --filter @gh-symphony/worker"],
+        },
       },
       client
     );
@@ -86,7 +92,9 @@ describe("approval workflow integration", () => {
   });
 });
 
-function createIssue(overrides: Partial<ApprovalWorkflowIssue>): ApprovalWorkflowIssue {
+function createIssue(
+  overrides: Partial<ApprovalWorkflowIssue>
+): ApprovalWorkflowIssue {
   return {
     id: "issue-1",
     number: 42,
@@ -99,9 +107,9 @@ function createIssue(overrides: Partial<ApprovalWorkflowIssue>): ApprovalWorkflo
     repository: {
       owner: "acme",
       name: "platform",
-      defaultBranch: "main"
+      defaultBranch: "main",
     },
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -124,7 +132,7 @@ function createMemoryApprovalClient(): ApprovalWorkflowClient & {
     async createIssueComment(_issueId, body) {
       const comment = {
         id: `comment-${comments.length + 1}`,
-        body
+        body,
       };
       comments.push(comment);
       return comment;
@@ -133,7 +141,7 @@ function createMemoryApprovalClient(): ApprovalWorkflowClient & {
       const index = comments.findIndex((comment) => comment.id === commentId);
       comments[index] = {
         ...comments[index],
-        body
+        body,
       };
       return comments[index]!;
     },
@@ -141,7 +149,11 @@ function createMemoryApprovalClient(): ApprovalWorkflowClient & {
       projectStateUpdates.push(input.state);
     },
     async findPullRequestByBranch(input) {
-      return pullRequests.find((pullRequest) => pullRequest.headBranch === input.branchName) ?? null;
+      return (
+        pullRequests.find(
+          (pullRequest) => pullRequest.headBranch === input.branchName
+        ) ?? null
+      );
     },
     async createPullRequest(input) {
       const pullRequest = {
@@ -150,19 +162,21 @@ function createMemoryApprovalClient(): ApprovalWorkflowClient & {
         url: `https://github.com/${input.owner}/${input.repository}/pull/${pullRequests.length + 1}`,
         headBranch: input.headBranch,
         title: input.title,
-        body: input.body
+        body: input.body,
       };
       pullRequests.push(pullRequest);
       return pullRequest;
     },
     async updatePullRequest(input) {
-      const index = pullRequests.findIndex((pullRequest) => pullRequest.id === input.pullRequestId);
+      const index = pullRequests.findIndex(
+        (pullRequest) => pullRequest.id === input.pullRequestId
+      );
       pullRequests[index] = {
         ...pullRequests[index],
         title: input.title,
-        body: input.body
+        body: input.body,
       };
       return pullRequests[index]!;
-    }
+    },
   };
 }

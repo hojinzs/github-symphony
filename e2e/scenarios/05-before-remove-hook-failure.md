@@ -11,16 +11,17 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ## Steps
 
 1. Seed a failing `before_remove` hook into the E2E repository.
+
    ```bash
    docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -lc '
      cd /e2e/work/test-repo &&
      mkdir -p hooks &&
      cat > hooks/before_remove.sh <<'"'"'EOF'"'"'
-#!/usr/bin/env bash
-set -eu
-printf "cleanup hook failed" >&2
-exit 1
-EOF
+   #!/usr/bin/env bash
+   set -eu
+   printf "cleanup hook failed" >&2
+   exit 1
+   EOF
      chmod +x hooks/before_remove.sh &&
      awk '
        !inserted && /^polling:$/ {
@@ -37,12 +38,14 @@ EOF
    ```
 
 2. Inject an active issue and trigger reconciliation.
+
    ```bash
    cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
    curl -X POST http://localhost:4680/api/v1/refresh
    ```
 
 3. Wait until the issue workspace is created.
+
    ```bash
    docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -lc '
       for i in $(seq 1 20); do
@@ -54,6 +57,7 @@ EOF
    ```
 
 4. Mark the same issue as terminal and trigger reconciliation again.
+
    ```bash
    cat > e2e/fixtures/issues.json <<'EOF'
    [{
@@ -93,12 +97,12 @@ EOF
         record=$(find /e2e/work/test-repo/.runtime/orchestrator -name workspace.json | head -n 1)
        [ -n "$record" ] || { sleep 1; continue; }
        python3 - "$record" <<'"'"'PY'"'"'
-import json, sys
-with open(sys.argv[1]) as fh:
+   import json, sys
+   with open(sys.argv[1]) as fh:
     data = json.load(fh)
-print(data["status"])
-sys.exit(0 if data["status"] == "removed" else 1)
-PY
+   print(data["status"])
+   sys.exit(0 if data["status"] == "removed" else 1)
+   PY
        [ $? -eq 0 ] && exit 0
        sleep 1
      done

@@ -17,10 +17,7 @@ export async function executeRateLimitedCodexDynamicToolCall(options: {
   }
 }
 
-function failure(
-  code: string,
-  message: string
-): CodexDynamicToolCallResponse {
+function failure(code: string, message: string): CodexDynamicToolCallResponse {
   return {
     success: false,
     contentItems: [

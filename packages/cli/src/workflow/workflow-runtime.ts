@@ -17,7 +17,9 @@ export const DEFAULT_CLAUDE_PRINT_ARGS = [
   "bypassPermissions",
 ] as const;
 
-export function normalizeInitRuntime(runtime: string): InitRuntimeKind | string {
+export function normalizeInitRuntime(
+  runtime: string
+): InitRuntimeKind | string {
   if (runtime === "codex") {
     return "codex-app-server";
   }

@@ -1,5 +1,5 @@
 export {
   calculateRetryDelay,
   scheduleRetryAt,
-  type RetryPolicyOptions
+  type RetryPolicyOptions,
 } from "@gh-symphony/core";
