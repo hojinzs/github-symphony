@@ -111,7 +111,11 @@ the tracker adapter:
 
 ### 3. Coordination — the orchestrator
 
-- Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
+- Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`.
+  The effect-owning façade delegates bounded finalization and retry-record
+  calculations to the pure, explicitly typed decisions in
+  `packages/orchestrator/src/retained-decisions.ts`; queue ownership,
+  persistence, events, metrics, and provider access remain in the façade.
 - Worker spawn isolation: each worker process uses its persisted run directory
   as cwd while `WORKING_DIRECTORY` continues to identify the issue repository.
 - Run records pair the spawning orchestrator's owner token with its project-lock
