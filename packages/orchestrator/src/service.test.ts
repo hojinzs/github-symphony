@@ -10900,6 +10900,34 @@ Prefer focused changes.
     });
   });
 
+  it("preserves a host Git transport failure when the terminal tracker state does not match the run", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Done");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      workerExitCode: 0,
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      workerExitCode: 0,
+      runPhase: "succeeded",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: 1,
+    });
+  });
+
   it("retries a host Git transport failure after a non-terminal review transition", async () => {
     const { store, service } =
       await createSuccessfulFinalizationFixture("In Review");
@@ -10926,6 +10954,32 @@ Prefer focused changes.
       state: "retry_queued",
       failureRetryCount: 1,
     });
+  });
+
+  it("retries a host Git transport failure immediately when tracker progress is unavailable", async () => {
+    const { store, service } = await createSuccessfulFinalizationFixture(
+      new Error("tracker offline")
+    );
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      workerExitCode: 1,
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      finalizationDeferralCount: 0,
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "retry_queued", failureRetryCount: 1 });
   });
 
   it("retains an unpublished transport failure after max retry suppression", async () => {
@@ -10958,6 +11012,11 @@ Prefer focused changes.
   });
 
   it.each([
+    [
+      "transport failure",
+      "git_transport_failed: refusing to push feat/assigned",
+      null,
+    ],
     [
       "dirty worktree after committed transport",
       null,
@@ -14459,6 +14518,14 @@ Prefer focused changes.
       trackerProgressConfirmedAt: "2026-03-08T00:04:00.000Z",
       expectedStatus: "succeeded",
       processRunning: true,
+    },
+    {
+      description:
+        "reconciles a confirmed run whose recorded state does not match the terminal tracker state",
+      issueState: "In Progress",
+      trackerProgressConfirmedAt: "2026-03-08T00:04:00.000Z",
+      expectedStatus: "suppressed",
+      processRunning: false,
     },
     {
       description:

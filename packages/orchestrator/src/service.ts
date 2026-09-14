@@ -1559,6 +1559,9 @@ export class OrchestratorService {
           ...workspaceIssuesMissingFromPoll,
         ].map((issue) => [issue.identifier, issue])
       );
+      const confirmedTrackerStatesByRunId = new Map(
+        currentActiveRuns.map((run) => [run.runId, run.issueState])
+      );
       const syncedActiveRuns: OrchestratorRunRecord[] = [];
       for (const run of currentActiveRuns) {
         const currentIssue = trackedIssuesByIdentifier.get(run.issueIdentifier);
@@ -2148,7 +2151,11 @@ export class OrchestratorService {
           terminalState &&
           activeRun.trackerProgressConfirmedAt !== null &&
           activeRun.trackerProgressConfirmedAt !== undefined &&
-          matchesWorkflowState(activeRun.issueState, [issue.state]);
+          matchesWorkflowState(
+            confirmedTrackerStatesByRunId.get(activeRun.runId) ??
+              activeRun.issueState,
+            [issue.state]
+          );
         if (completedByConfirmedTrackerProgress) {
           if (
             (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
@@ -3850,7 +3857,7 @@ export class OrchestratorService {
 
     const gitTransportFailed = isGitTransportFailure(runWithTokens);
     await this.recordGitTransportWorkspaceState(tenant, runWithTokens, now);
-    const currentTrackerProgress =
+    const classifiedTrackerProgress =
       (runWithTokens.runPhase === "succeeded" || gitTransportFailed) &&
       runWithTokens.trackerProgressConfirmedAt
         ? await this.classifyCurrentTrackerProgress(
@@ -3860,6 +3867,10 @@ export class OrchestratorService {
             { requireMatchingTerminalState: gitTransportFailed }
           )
         : null;
+    const currentTrackerProgress =
+      gitTransportFailed && classifiedTrackerProgress?.state === "unknown"
+        ? null
+        : classifiedTrackerProgress;
     const finalizationDisposition = decideFinalizationDisposition({
       trackerProgress: currentTrackerProgress,
       currentDeferralCount: runWithTokens.finalizationDeferralCount ?? 0,
