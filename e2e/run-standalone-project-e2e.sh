@@ -108,7 +108,7 @@ GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
 doctor_status=$?
 set -e
 if [ "$doctor_status" -ne 1 ]; then
-  echo "stale-policy doctor unexpectedly exited with status $doctor_status (expected 1 from unrelated environment checks)" >&2
+  echo "stale-policy doctor unexpectedly exited with status $doctor_status (expected 1 from gh_installation, gh_authentication, gh_scopes, and workspace_root checks)" >&2
   cat /tmp/stale-policy-doctor.json >&2
   exit 1
 fi
@@ -256,7 +256,11 @@ test "$(cat "$alpha_original_repo/foreign-issue.txt")" = "foreign issue committe
 test -z "$(git -C "$alpha_original_repo" status --porcelain)"
 alpha_logs=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/runs/*/worker.log" -type f -print)
 test -n "$alpha_logs"
-! grep -q "Issue identity preflight failed" $alpha_logs
+if grep -q "Issue identity preflight failed" $alpha_logs; then
+  echo "alpha worker hit the issue identity preflight failure" >&2
+  cat $alpha_logs >&2
+  exit 1
+fi
 for pid in $run_pids; do kill "$pid" 2>/dev/null || true; done
 echo "standalone-project Docker E2E passed"
 '
