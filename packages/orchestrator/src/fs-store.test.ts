@@ -613,21 +613,37 @@ describe("history benchmark fixture", () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
     const records = [
-      { runId: "scoped", projectId: "project-1" },
+      { runId: "scoped", projectId: "project-1", issueTitle: "scoped copy" },
       { runId: "other", projectId: "project-2" },
       { runId: "legacy", projectId: "project-1" },
+      { runId: "legacy-other", projectId: "project-2" },
+      { runId: "scoped", projectId: "project-1", issueTitle: "legacy copy" },
     ] as OrchestratorRunRecord[];
 
     await Promise.all([
       writeRunRecord(store.runDir("scoped", "project-1"), records[0]),
       writeRunRecord(store.runDir("other", "project-2"), records[1]),
       writeRunRecord(store.runDir("legacy"), records[2]),
+      writeRunRecord(store.runDir("legacy-other"), records[3]),
+      writeRunRecord(store.runDir("scoped"), records[4]),
     ]);
 
-    await expect(store.loadRuns({ projectId: "project-1" })).resolves.toEqual([
-      records[0],
-      records[2],
+    const observedPaths: string[] = [];
+    const runs = await observeRunRecordReads(
+      (path) => observedPaths.push(path),
+      () => store.loadRuns({ projectId: "project-1" })
+    );
+
+    expect(runs).toEqual([records[0], records[2]]);
+    expect(observedPaths).toEqual([
+      join(store.runDir("scoped", "project-1"), "run.json"),
+      join(store.runDir("legacy"), "run.json"),
+      join(store.runDir("legacy-other"), "run.json"),
+      join(store.runDir("scoped"), "run.json"),
     ]);
+    expect(
+      observedPaths.some((path) => path.startsWith(store.runsDir("project-2")))
+    ).toBe(false);
   });
 
   it("bounds concurrent run record reads", async () => {
@@ -652,6 +668,34 @@ describe("history benchmark fixture", () => {
         activeReads -= 1;
       },
       () => store.loadRuns({ projectId: "project-1" })
+    );
+
+    expect(runs).toHaveLength(12);
+    expect(maxActiveReads).toBe(8);
+  });
+
+  it("bounds concurrent legacy-compatible global run record reads", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        writeRunRecord(store.runDir(`run-${index}`, "project-1"), {
+          runId: `run-${index}`,
+          projectId: "project-1",
+        } as OrchestratorRunRecord)
+      )
+    );
+    let activeReads = 0;
+    let maxActiveReads = 0;
+
+    const runs = await observeRunRecordReads(
+      async () => {
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        activeReads -= 1;
+      },
+      () => store.loadAllRuns()
     );
 
     expect(runs).toHaveLength(12);
