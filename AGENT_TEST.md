@@ -16,10 +16,23 @@ Two modes are supported: local execution (without Docker) and a Docker-isolated 
 ## Required Verification (after every code change)
 
 ```bash
-pnpm lint && pnpm test && pnpm typecheck && pnpm build
+pnpm lint && pnpm build && pnpm test && pnpm typecheck
 ```
 
 All four must pass before the work is considered complete.
+
+`pnpm test` is the authoritative unit-test gate locally and in pull-request CI.
+It runs each workspace package's test script, so package-specific Vitest
+configuration, setup files, and test discovery apply. In particular, the
+control-plane package discovers its three `*.test.tsx` files through its own
+configuration.
+
+CI also runs a root Vitest coverage command after this gate. That command is
+retained to publish the existing coverage report, but its narrower root-level
+discovery is not a substitute for `pnpm test`. A coverage-command failure still
+fails the CI job; because it runs without package-specific setup or
+serialization, treat such a failure as a root-configuration issue rather than
+a package-test regression.
 
 ## Local E2E Tests (without Docker)
 
@@ -161,6 +174,35 @@ AI Agent
 - **Event mirroring (optional)**: with the `docker-compose.e2e.events.yml` override, `events.ndjson` is also replicated to the host's `./evidence/`
 - **Golden path**: the standalone runner creates two project folders, starts each with `gh-symphony project start --project-dir <path>`, and waits for both file-tracker dispatches to complete.
 - **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is a test-only environment variable used by `tracker.provider.path` in the Docker/local `kind: file` workflows; it remains a compatibility fallback for older fixture workflows.
+
+### Unattended Symphony workers
+
+The unattended Symphony worker environment intentionally does not provide a
+Docker daemon. In that environment, a Docker E2E runner that exits during its
+preflight with status `69` because `docker` is missing, `docker compose` cannot
+be resolved, or the daemon is unreachable has encountered a known, accepted
+prerequisite limitation. Do not report that condition as a defect or open a
+follow-up issue for it.
+
+Instead, record in the PR verification notes that Docker black-box confirmation
+was not run because the preflight returned status `69`, name the Docker scenario
+that would have confirmed the change, and complete the available unit, lint,
+typecheck, and build validation. Docker black-box confirmation remains an
+operator responsibility. CI separately runs the `container-smoke` job from
+`.github/workflows/ci.yml`, which builds the container image and smoke-tests its
+version and one-shot project startup; it does not run the documented Docker E2E
+scenarios.
+
+This exception is narrow: it applies only when a missing `docker` executable,
+an unresolvable `docker compose`, or an unreachable Docker daemon causes the
+prerequisite preflight to exit with status `69`. When running a scenario
+document by hand, run a runner script (or
+`assert_docker_runtime_is_available`) first to obtain the preflight status; a
+bare `docker compose` failure with no preflight result is not evidence that the
+prerequisite was available. Do not pre-emptively skip Docker scenarios when the
+daemon is reachable. Docker's own status `125`, and every failure after the
+preflight passes (including a scenario failure), remain test failures that must
+be investigated and reported.
 
 ### Stub Worker Scenarios
 
