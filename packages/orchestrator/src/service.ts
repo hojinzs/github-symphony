@@ -3820,7 +3820,6 @@ export class OrchestratorService {
     await this.recordGitTransportWorkspaceState(tenant, runWithTokens, now);
     const currentTrackerProgress =
       runWithTokens.runPhase === "succeeded" &&
-      !gitTransportFailed &&
       runWithTokens.trackerProgressConfirmedAt
         ? await this.classifyCurrentTrackerProgress(
             tenant,

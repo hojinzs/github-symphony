@@ -10870,7 +10870,7 @@ Prefer focused changes.
     ).toMatchObject({ state: "released", currentRunId: null });
   });
 
-  it("preserves a host Git transport failure when the tracker is non-actionable", async () => {
+  it("does not let a post-Land host Git transport failure override confirmed completion", async () => {
     const { store, service } =
       await createSuccessfulFinalizationFixture("Done");
     const run = await store.loadRun("run-1");
@@ -10884,17 +10884,17 @@ Prefer focused changes.
     await service.runOnce();
 
     expect(await store.loadRun("run-1")).toMatchObject({
-      status: "retrying",
-      retryKind: "failure",
+      status: "succeeded",
+      retryKind: null,
       workerExitCode: 0,
       runPhase: "succeeded",
-      lastError: "git_transport_failed: refusing to push feat/assigned",
+      lastError: null,
     });
     expect(
       (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
     ).toMatchObject({
-      state: "retry_queued",
-      failureRetryCount: 1,
+      state: "released",
+      failureRetryCount: 0,
     });
   });
 

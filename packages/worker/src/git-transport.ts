@@ -401,12 +401,11 @@ async function runGit(
 }
 
 function createGitError(args: string[], error: unknown): Error {
-  const rawDetail =
+  const stderr =
     error && typeof error === "object" && "stderr" in error
       ? String(error.stderr).trim()
-      : error instanceof Error
-        ? error.message
-        : String(error);
+      : "";
+  const rawDetail = stderr || formatGitInvocationError(error);
   const sensitiveUrls = args.flatMap((arg) => {
     try {
       const url = new URL(arg);
@@ -427,6 +426,17 @@ function createGitError(args: string[], error: unknown): Error {
     return redacted;
   }, rawDetail);
   return new Error(`git ${displayArgs.join(" ")} failed: ${detail}`);
+}
+
+function formatGitInvocationError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  if (error && typeof error === "object" && "code" in error) {
+    return `process error ${String(error.code)}`;
+  }
+  const detail = String(error).trim();
+  return detail || "unknown process error";
 }
 
 function redactUrlCredentials(value: string): string {
