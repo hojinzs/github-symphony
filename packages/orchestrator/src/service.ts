@@ -1485,14 +1485,28 @@ export class OrchestratorService {
             .map((run) => run.issueId)
         ),
       ];
-      const supplementalIssues =
-        missingActiveIssueIds.length > 0
-          ? await trackerAdapter.fetchIssueStatesByIds(
-              tenant,
-              missingActiveIssueIds,
-              trackerDependencies
-            )
-          : [];
+      let supplementalIssues: TrackedIssue[] = [];
+      const unresolvedActiveIssueIds = new Set<string>();
+      const unresolvedActiveIssueIdentifiers = new Set<string>();
+      if (missingActiveIssueIds.length > 0) {
+        try {
+          supplementalIssues = await trackerAdapter.fetchIssueStatesByIds(
+            tenant,
+            missingActiveIssueIds,
+            trackerDependencies
+          );
+        } catch (error) {
+          for (const run of currentActiveRuns) {
+            if (missingActiveIssueIds.includes(run.issueId)) {
+              unresolvedActiveIssueIds.add(run.issueId);
+              unresolvedActiveIssueIdentifiers.add(run.issueIdentifier);
+            }
+          }
+          this.writeStderr(
+            `[orchestrator] Active-run state refresh failed for ${tenant.projectId}; continuing: ${this.formatErrorMessage(error)}`
+          );
+        }
+      }
       const supplementalIssueIdentifiers = new Set<string>();
       for (const issue of supplementalIssues) {
         if (!trackedIssuesByIdentifier.has(issue.identifier)) {
@@ -2014,6 +2028,12 @@ export class OrchestratorService {
           ) ?? persistedRun;
         const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
         if (!issue) {
+          if (
+            unresolvedActiveIssueIds.has(issueRecord.issueId) ||
+            unresolvedActiveIssueIdentifiers.has(issueRecord.identifier)
+          ) {
+            continue;
+          }
           if (!activeRun || activeRun.processId === null) {
             continue;
           }
@@ -2365,6 +2385,13 @@ export class OrchestratorService {
         `[orchestrator] Startup cleanup skipped for project ${tenant.projectId}: ${message}`
       );
       return;
+    }
+
+    const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
+    if (skippedItems.length > 0) {
+      this.writeStderr(
+        `[orchestrator] startup cleanup skipped ${skippedItems.length} malformed tracker item(s) for ${tenant.projectId}: ${[...new Set(skippedItems.map((item) => item.identifier))].join(", ")} (${[...new Set(skippedItems.map((item) => item.reason))].join(", ")})`
+      );
     }
 
     const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
