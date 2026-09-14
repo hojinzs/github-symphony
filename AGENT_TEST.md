@@ -21,18 +21,20 @@ pnpm lint && pnpm build && pnpm test && pnpm typecheck
 
 All four must pass before the work is considered complete.
 
-`pnpm test` is the authoritative unit-test gate locally and in pull-request CI.
-It runs each workspace package's test script, so package-specific Vitest
-configuration, setup files, and test discovery apply. In particular, the
-control-plane package discovers its three `*.test.tsx` files through its own
-configuration.
+`pnpm test` is the authoritative unit-test gate locally. It runs each workspace
+package's test script, so package-specific Vitest configuration, setup files,
+and test discovery apply.
 
-CI also runs a root Vitest coverage command after this gate. That command is
-retained to publish the existing coverage report, but its narrower root-level
-discovery is not a substitute for `pnpm test`. A coverage-command failure still
-fails the CI job; because it runs without package-specific setup or
-serialization, treat such a failure as a root-configuration issue rather than
-a package-test regression.
+Pull-request CI uses `pnpm test:coverage` as its single test execution. The
+command first compares normalized aggregate discovery with every package's
+Vitest discovery and runs a two-file lock probe that proves the orchestrator
+project remains file-serialized. It then runs those package projects once with
+coverage. Vitest therefore preserves package roots, aliases, setup files,
+defines, and required file serialization while merging shared-source
+attribution into one `coverage/` report. The command also verifies that covered
+control-plane frontend source is present in `coverage/coverage-final.json`. CI
+uploads the complete directory as the `coverage-report` artifact even if a
+later step fails.
 
 ## Local E2E Tests (without Docker)
 
@@ -256,7 +258,7 @@ Control worker behavior with the `STUB_SCENARIO` environment variable:
 | Post-hook project environment snapshot | `packages/orchestrator/src/service.test.ts` verifies a `before_run` hook can refresh the managed project `.env`, the same-run worker and credential resolver observe the late value, hook inputs retain their existing merge behavior, and the run record stores only an environment digest. | `./e2e/run-standalone-project-e2e.sh` exercises the packaged hook-to-worker lifecycle; the credential mutation and digest secrecy assertions remain deterministic unit coverage. |
 | Removed flat tracker keys | `packages/core/src/workflow-loader.test.ts` verifies every removed flat key fails with `workflow_deprecated_key`; `packages/cli/src/commands/doctor.test.ts` verifies doctor retains a copyable provider migration block. | [TC-22](e2e/scenarios/22-flat-tracker-keys-rejected.md) runs the packaged CLI inside the Docker image against a flat-key workflow and confirms the typed migration failure, while the provider-form `happy` seed remains healthy. |
 
-| §17 conformance coverage | Tracker empty-input and malformed-refresh cases are deterministic adapter tests; workspace-file and no-running reconciliation cases are deterministic orchestrator tests. The authoritative row-to-test map is in `docs/architecture.md` under “§17 conformance test matrix”; Linear malformed polling-item omission and stderr isolation are documented gaps, while `start.test.ts` host/port/bind coverage belongs to §13.7. | `./e2e/run-standalone-project-e2e.sh` remains the Docker lifecycle confirmation for the file-tracker and workspace path. Run `docker compose -f docker-compose.e2e.yml exec -T symphony-e2e node /app/e2e/host-dynamic-tool-e2e.mjs` for the dynamic-tool boundary. The malformed-provider and regular-file cases remain unit-isolated because the Docker fixture intentionally uses valid file-tracker data and a fresh workspace. |
+| §17 conformance coverage | Tracker empty-input and malformed-refresh cases are deterministic adapter tests; workspace-file, no-running, and failed supplemental active-run refresh reconciliation cases are deterministic orchestrator tests. The authoritative row-to-test map is in `docs/architecture.md` under “§17 conformance test matrix”; `start.test.ts` host/port/bind coverage belongs to §13.7. | `./e2e/run-standalone-project-e2e.sh` remains the Docker lifecycle confirmation for the file-tracker and workspace path. Run `docker compose -f docker-compose.e2e.yml exec -T symphony-e2e node /app/e2e/host-dynamic-tool-e2e.mjs` for the dynamic-tool boundary. The malformed-provider and regular-file cases remain unit-isolated because the Docker fixture intentionally uses valid file-tracker data and a fresh workspace. |
 
 `docker-compose.e2e.yml` uses `environment.STUB_SCENARIO: ${STUB_SCENARIO:-happy}`, so the scenario can be selected via a shell environment variable.
 
