@@ -174,6 +174,14 @@ function formatTrackerSkipSummary(
   return `${summarize(items.map((item) => item.identifier))} (${summarize(items.map((item) => item.reason))})`;
 }
 
+function formatTrackerSkipDetails(
+  items: NonNullable<TrackedIssueList["skippedItems"]>
+): string {
+  return items.length > 0
+    ? formatTrackerSkipSummary(items)
+    : "no diagnostics retained";
+}
+
 function formatFatalHookError(result: HookResult): string {
   if (result.kind === "after_create" && result.outcome === "skipped") {
     return result.error
@@ -1457,9 +1465,9 @@ export class OrchestratorService {
       const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
       skipped =
         (issues as TrackedIssueList).skippedItemCount ?? skippedItems.length;
-      if (skippedItems.length > 0) {
+      if (skipped > 0) {
         this.writeStderr(
-          `[orchestrator] skipped ${skipped} item(s) for ${tenant.projectId}: ${formatTrackerSkipSummary(skippedItems)}`
+          `[orchestrator] skipped ${skipped} item(s) for ${tenant.projectId}: ${formatTrackerSkipDetails(skippedItems)}`
         );
       }
       const canonicalIssues = resolveCanonicalIssues(trackerAdapter, issues);
@@ -2410,11 +2418,11 @@ export class OrchestratorService {
     }
 
     const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
-    if (skippedItems.length > 0) {
-      const skippedItemCount =
-        (issues as TrackedIssueList).skippedItemCount ?? skippedItems.length;
+    const skippedItemCount =
+      (issues as TrackedIssueList).skippedItemCount ?? skippedItems.length;
+    if (skippedItemCount > 0) {
       this.writeStderr(
-        `[orchestrator] startup cleanup skipped ${skippedItemCount} malformed tracker item(s) for ${tenant.projectId}: ${formatTrackerSkipSummary(skippedItems)}`
+        `[orchestrator] startup cleanup skipped ${skippedItemCount} malformed tracker item(s) for ${tenant.projectId}: ${formatTrackerSkipDetails(skippedItems)}`
       );
     }
 
