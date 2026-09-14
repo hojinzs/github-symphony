@@ -90,23 +90,40 @@ printf "[]\n" > "$FIXTURE"
   node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project start --once)
 node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" --json project status \
   --project-dir "$policy_project" > /tmp/stale-policy-status.json
-jq -e "
+if ! jq -e "
   .workflow.source.relationship == \"stale-copy\" and
   (.workflow.source.contentRevision | test(\"^sha256:[0-9a-f]{12}$\")) and
   (.workflow.source.repositoryRevision | test(\"^sha256:[0-9a-f]{12}$\")) and
   .workflow.source.contentRevision != .workflow.source.repositoryRevision and
   (.warnings | any(contains(\"diverged copy\")))
-" /tmp/stale-policy-status.json >/dev/null
-node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" --json doctor \
-  --project-dir "$policy_project" > /tmp/stale-policy-doctor.json
-jq -e "
+" /tmp/stale-policy-status.json >/dev/null; then
+  echo "stale-policy status did not report the expected diverged workflow copy" >&2
+  cat /tmp/stale-policy-status.json >&2
+  exit 1
+fi
+set +e
+GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
+  node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" --json doctor \
+    --project-dir "$policy_project" > /tmp/stale-policy-doctor.json
+doctor_status=$?
+set -e
+if [ "$doctor_status" -ne 1 ]; then
+  echo "stale-policy doctor unexpectedly exited with status $doctor_status (expected 1 from gh_installation, gh_authentication, gh_scopes, and workspace_root checks)" >&2
+  cat /tmp/stale-policy-doctor.json >&2
+  exit 1
+fi
+if ! jq -e "
   .checks | any(
     .id == \"workflow_source_identity\" and
     .status == \"warn\" and
     .details.relationship == \"stale-copy\" and
     .details.contentRevision != .details.repositoryRevision
   )
-" /tmp/stale-policy-doctor.json >/dev/null
+" /tmp/stale-policy-doctor.json >/dev/null; then
+  echo "stale-policy doctor did not report the expected workflow identity warning" >&2
+  cat /tmp/stale-policy-doctor.json >&2
+  exit 1
+fi
 
 if (cd "$PROJECT_ROOT/project-broken" && \
   GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
@@ -117,6 +134,8 @@ if (cd "$PROJECT_ROOT/project-broken" && \
 fi
 grep -q "Project configuration fault" /tmp/project-broken.log
 grep -q "$PROJECT_ROOT/project-broken/hooks/after_create.sh" /tmp/project-broken.log
+broken_id=$(node -e "const {createHash}=require(\"crypto\");const d=\"$PROJECT_ROOT/project-broken\";console.log(\"project-broken-\"+createHash(\"sha256\").update(d).digest(\"hex\").slice(0,8))")
+rm -rf "$CONFIG_DIR/projects/$broken_id"
 
 cat > "$FIXTURE" <<EOF
 [
@@ -163,8 +182,12 @@ for _ in $(seq 1 40); do
   fi
   sleep 1
 done
-test -f "$CONFIG_DIR/projects/$alpha_id/project.json"
-test -f "$CONFIG_DIR/projects/$beta_id/project.json"
+if ! test -f "$CONFIG_DIR/projects/$alpha_id/project.json" ||
+   ! test -f "$CONFIG_DIR/projects/$beta_id/project.json"; then
+  echo "standalone projects did not both register within 40 seconds" >&2
+  cat /tmp/project-alpha.log /tmp/project-beta.log >&2 || true
+  exit 1
+fi
 
 # A second runtime root must not start another orchestrator for the same
 # canonical project folder while the first owner is live.
@@ -275,7 +298,11 @@ test "$(cat "$alpha_original_repo/foreign-issue.txt")" = "foreign issue committe
 test -z "$(git -C "$alpha_original_repo" status --porcelain)"
 alpha_logs=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/runs/*/worker.log" -type f -print)
 test -n "$alpha_logs"
-! grep -q "Issue identity preflight failed" $alpha_logs
+if grep -q "Issue identity preflight failed" $alpha_logs; then
+  echo "alpha worker hit the issue identity preflight failure" >&2
+  cat $alpha_logs >&2
+  exit 1
+fi
 for pid in $run_pids; do kill "$pid" 2>/dev/null || true; done
 echo "standalone-project Docker E2E passed"
 '

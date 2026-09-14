@@ -16,10 +16,23 @@ Two modes are supported: local execution (without Docker) and a Docker-isolated 
 ## Required Verification (after every code change)
 
 ```bash
-pnpm lint && pnpm test && pnpm typecheck && pnpm build
+pnpm lint && pnpm build && pnpm test && pnpm typecheck
 ```
 
 All four must pass before the work is considered complete.
+
+`pnpm test` is the authoritative unit-test gate locally and in pull-request CI.
+It runs each workspace package's test script, so package-specific Vitest
+configuration, setup files, and test discovery apply. In particular, the
+control-plane package discovers its three `*.test.tsx` files through its own
+configuration.
+
+CI also runs a root Vitest coverage command after this gate. That command is
+retained to publish the existing coverage report, but its narrower root-level
+discovery is not a substitute for `pnpm test`. A coverage-command failure still
+fails the CI job; because it runs without package-specific setup or
+serialization, treat such a failure as a root-configuration issue rather than
+a package-test regression.
 
 ## Local E2E Tests (without Docker)
 

@@ -26,7 +26,7 @@ npx vitest run packages/core/src/workflow/workflow-loader.test.ts
 
 ```
 
-Before shipping: `pnpm lint && pnpm test && pnpm typecheck && pnpm build`
+Before shipping: `pnpm lint && pnpm build && pnpm test && pnpm typecheck`
 
 **After completing work, always write test cases and run the tests to verify.** Integration behavior that unit tests cannot cover is verified with black-box tests in the Docker E2E environment. See [AGENT_TEST.md](AGENT_TEST.md) for the concrete procedure.
 

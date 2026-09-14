@@ -20,7 +20,7 @@ RUN npx tsc e2e/stub-worker.ts \
 FROM node:24-bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git curl && \
+    apt-get install -y --no-install-recommends git curl jq && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
