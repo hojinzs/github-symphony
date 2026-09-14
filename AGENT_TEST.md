@@ -21,18 +21,20 @@ pnpm lint && pnpm build && pnpm test && pnpm typecheck
 
 All four must pass before the work is considered complete.
 
-`pnpm test` is the authoritative unit-test gate locally and in pull-request CI.
-It runs each workspace package's test script, so package-specific Vitest
-configuration, setup files, and test discovery apply. In particular, the
-control-plane package discovers its three `*.test.tsx` files through its own
-configuration.
+`pnpm test` is the authoritative unit-test gate locally. It runs each workspace
+package's test script, so package-specific Vitest configuration, setup files,
+and test discovery apply.
 
-CI also runs a root Vitest coverage command after this gate. That command is
-retained to publish the existing coverage report, but its narrower root-level
-discovery is not a substitute for `pnpm test`. A coverage-command failure still
-fails the CI job; because it runs without package-specific setup or
-serialization, treat such a failure as a root-configuration issue rather than
-a package-test regression.
+Pull-request CI uses `pnpm test:coverage` as its single test execution. The
+command first compares normalized aggregate discovery with every package's
+Vitest discovery and runs a two-file lock probe that proves the orchestrator
+project remains file-serialized. It then runs those package projects once with
+coverage. Vitest therefore preserves package roots, aliases, setup files,
+defines, and required file serialization while merging shared-source
+attribution into one `coverage/` report. The command also verifies that covered
+control-plane frontend source is present in `coverage/coverage-final.json`. CI
+uploads the complete directory as the `coverage-report` artifact even if a
+later step fails.
 
 ## Local E2E Tests (without Docker)
 
