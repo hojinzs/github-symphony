@@ -3,11 +3,10 @@ import {
   HISTORY_BENCHMARK_LAYOUTS,
   HISTORY_BENCHMARK_SIZES,
   measureHistoryInventory,
+  measureHistoryReconciliationTick,
   removeHistoryBenchmarkFixture,
   type HistoryBenchmarkMeasurement,
 } from "./history-benchmark.js";
-
-const POLLING_TICK_INVENTORY_PASSES = 5;
 
 type BenchmarkResult = HistoryBenchmarkMeasurement & {
   historicalRunCount: number;
@@ -29,10 +28,7 @@ for (const historicalRunCount of HISTORY_BENCHMARK_SIZES) {
         scenario: "inventory",
       });
       results.push({
-        ...(await measureHistoryInventory(
-          fixture,
-          POLLING_TICK_INVENTORY_PASSES
-        )),
+        ...(await measureHistoryReconciliationTick(fixture)),
         historicalRunCount,
         scenario: "polling-tick",
       });
@@ -49,7 +45,6 @@ process.stdout.write(
       node: process.version,
       platform: `${process.platform}-${process.arch}`,
       note: "Warm-cache isolated filesystem measurements; not production latency.",
-      pollingTickInventoryPasses: POLLING_TICK_INVENTORY_PASSES,
       results,
     },
     null,

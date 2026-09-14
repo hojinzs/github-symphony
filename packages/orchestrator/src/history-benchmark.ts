@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { OrchestratorRunRecord } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
+import { OrchestratorService } from "./service.js";
 
 export const HISTORY_BENCHMARK_SIZES = [100, 1_000, 10_000] as const;
 export const HISTORY_BENCHMARK_LAYOUTS = ["legacy", "shared"] as const;
@@ -17,6 +18,7 @@ export type HistoryBenchmarkFixture = {
   projectId: string;
   runtimeRoot: string;
   store: OrchestratorFsStore;
+  readCounter: { count: number };
 };
 
 export type HistoryBenchmarkMeasurement = {
@@ -37,7 +39,12 @@ export async function createHistoryBenchmarkFixture(
   layout: HistoryBenchmarkLayout
 ): Promise<HistoryBenchmarkFixture> {
   const runtimeRoot = await mkdtemp(join(tmpdir(), "symphony-history-bench-"));
-  const store = new OrchestratorFsStore(runtimeRoot);
+  const readCounter = { count: 0 };
+  const store = new OrchestratorFsStore(runtimeRoot, {
+    onRunRecordRead: () => {
+      readCounter.count += 1;
+    },
+  });
   const activeRunId = "active-run";
 
   try {
@@ -70,6 +77,7 @@ export async function createHistoryBenchmarkFixture(
       projectId: PROJECT_ID,
       runtimeRoot,
       store,
+      readCounter,
     };
   } catch (error) {
     await rm(runtimeRoot, { recursive: true, force: true });
@@ -92,6 +100,7 @@ export async function measureHistoryInventory(
   }
 
   await fixture.store.loadAllRuns();
+  fixture.readCounter.count = 0;
   const resourceBefore = process.resourceUsage();
   const startedAt = performance.now();
 
@@ -108,21 +117,94 @@ export async function measureHistoryInventory(
             iteration
           )
         : Promise.resolve();
-    const runs = await Promise.all([inventory, activeUpdate]).then(
-      ([loadedRuns]) => loadedRuns
-    );
+    const runs = await inventory;
     if (runs.length !== fixture.expectedRunCount) {
       throw new Error(
         `Expected ${fixture.expectedRunCount} runs, received ${runs.length}.`
       );
     }
+    await activeUpdate;
   }
 
   const elapsedMs = performance.now() - startedAt;
   const resourceAfter = process.resourceUsage();
   return {
     elapsedMs,
-    fsReadCount: fixture.expectedRunCount * iterations,
+    fsReadCount: fixture.readCounter.count,
+    iterations,
+    layout: fixture.layout,
+    maxRssDeltaKb: Math.max(0, resourceAfter.maxRSS - resourceBefore.maxRSS),
+    runCount: fixture.expectedRunCount,
+    userCpuMs: (resourceAfter.userCPUTime - resourceBefore.userCPUTime) / 1_000,
+    systemCpuMs:
+      (resourceAfter.systemCPUTime - resourceBefore.systemCPUTime) / 1_000,
+  };
+}
+
+export async function measureHistoryReconciliationTick(
+  fixture: HistoryBenchmarkFixture
+): Promise<HistoryBenchmarkMeasurement> {
+  const issuesPath = join(fixture.runtimeRoot, "benchmark-issues.json");
+  const workflowPath = join(fixture.runtimeRoot, "WORKFLOW.md");
+  await writeFile(issuesPath, "[]\n", "utf8");
+  await writeFile(
+    workflowPath,
+    "---\ntracker:\n  kind: file\n---\nBenchmark reconciliation.\n",
+    "utf8"
+  );
+  await fixture.store.loadAllRuns();
+  fixture.readCounter.count = 0;
+
+  const projectConfig = {
+    projectId: fixture.projectId,
+    slug: fixture.projectId,
+    workspaceDir: join(fixture.runtimeRoot, "workspaces"),
+    repository: {
+      owner: "benchmark",
+      name: "repo",
+      cloneUrl: join(fixture.runtimeRoot, "repository"),
+    },
+    workflowSource: { type: "external" as const, path: workflowPath },
+    tracker: {
+      adapter: "file" as const,
+      bindingId: "history-benchmark",
+      settings: {
+        issuesPath,
+        repository: "benchmark/repo",
+      },
+    },
+  };
+  const service = new OrchestratorService(fixture.store, projectConfig, {
+    isProcessRunning: () => true,
+    killImpl: () => {},
+    now: () => new Date("2026-09-14T00:00:00.100Z"),
+  });
+  const loadAllRuns = fixture.store.loadAllRuns.bind(fixture.store);
+  let iterations = 0;
+  fixture.store.loadAllRuns = async () => {
+    iterations += 1;
+    return loadAllRuns();
+  };
+
+  const activeUpdate = updateActiveRun(
+    fixture,
+    {
+      ...createRunRecord(fixture.activeRunId, "running"),
+      updatedAt: "2026-09-14T00:00:00.002Z",
+    },
+    0
+  );
+  const resourceBefore = process.resourceUsage();
+  const startedAt = performance.now();
+  await service.runOnce();
+  const elapsedMs = performance.now() - startedAt;
+  const resourceAfter = process.resourceUsage();
+  await activeUpdate;
+  fixture.store.loadAllRuns = loadAllRuns;
+
+  return {
+    elapsedMs,
+    fsReadCount: fixture.readCounter.count,
     iterations,
     layout: fixture.layout,
     maxRssDeltaKb: Math.max(0, resourceAfter.maxRSS - resourceBefore.maxRSS),
@@ -169,7 +251,7 @@ function createRunRecord(
     },
     status,
     attempt: 1,
-    processId: null,
+    processId: status === "running" ? process.pid : null,
     port: null,
     workingDirectory: `/tmp/workspace-${runId}/repository`,
     issueWorkspaceKey: `workspace-${runId}`,

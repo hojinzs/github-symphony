@@ -26,17 +26,20 @@ const SECURE_DIRECTORY_MODE = 0o700;
 export class OrchestratorFsStore implements OrchestratorStateStore {
   private readonly resolvedRuntimeRoot: string;
   private readonly resolvedEventsMirrorRoot: string | null;
+  private readonly onRunRecordRead: ((path: string) => void) | undefined;
 
   constructor(
     readonly runtimeRoot: string,
     options: {
       eventsMirrorRoot?: string;
+      onRunRecordRead?: (path: string) => void;
     } = {}
   ) {
     this.resolvedRuntimeRoot = resolve(runtimeRoot);
     this.resolvedEventsMirrorRoot = options.eventsMirrorRoot
       ? resolve(options.eventsMirrorRoot)
       : null;
+    this.onRunRecordRead = options.onRunRecordRead;
   }
 
   projectDir(projectId?: string): string {
@@ -236,9 +239,16 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
       );
     }
     const runs = await Promise.all(
-      runPaths.map((runPath) => readJsonFile<OrchestratorRunRecord>(runPath))
+      runPaths.map((runPath) => this.readRunRecord(runPath))
     );
     return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
+  }
+
+  private async readRunRecord(
+    path: string
+  ): Promise<OrchestratorRunRecord | null> {
+    this.onRunRecordRead?.(path);
+    return (await readJsonFile<OrchestratorRunRecord>(path)) ?? null;
   }
 
   async saveRun(run: OrchestratorRunRecord): Promise<void> {

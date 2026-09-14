@@ -14,6 +14,7 @@ import { OrchestratorFsStore } from "./fs-store.js";
 import {
   createHistoryBenchmarkFixture,
   measureHistoryInventory,
+  measureHistoryReconciliationTick,
   removeHistoryBenchmarkFixture,
 } from "./history-benchmark.js";
 
@@ -634,6 +635,21 @@ describe("history benchmark fixture", () => {
       });
     }
   );
+
+  it("measures actual reads made by one reconciliation tick", async () => {
+    const fixture = await createHistoryBenchmarkFixture(2, "shared");
+
+    try {
+      const measurement = await measureHistoryReconciliationTick(fixture);
+
+      // Baseline #894 intentionally pins today's repeated full inventories.
+      // Adding even one more run-record read inside loadAllRuns turns this red.
+      expect(measurement.iterations).toBe(5);
+      expect(measurement.fsReadCount).toBe(15);
+    } finally {
+      await removeHistoryBenchmarkFixture(fixture);
+    }
+  });
 });
 
 describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
