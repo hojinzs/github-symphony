@@ -5,22 +5,24 @@ Issue: [#894](https://github.com/hojinzs/github-symphony/issues/894)
 ## Decision
 
 At 10,000 historical runs, one real project reconciliation performs five full
-run inventories. It read 50,005 `run.json` files and took 80.12–83.59 seconds
+run inventories. It read 50,006 `run.json` files and took 76.84–86.78 seconds
 after warm-up on the reference machine. A single isolated inventory read the
-same 10,001 files in 303–551 ms. The full-tick result also includes the current
+same 10,001 files in 194–393 ms. The full-tick result also includes one per-run
+lookup and the current
 non-inventory reconciliation work, most notably producing and persisting the
 project snapshot; it therefore replaces the earlier synthetic five-inventory
 estimate rather than being directly comparable with it.
 
 Before optimizing, adopt this target for the 10,000-history fixture:
 
-- no more than one full run inventory per project reconciliation tick (at most
-  10,001 `run.json` reads for this fixture), and
+- no more than one full run inventory plus the observed per-run lookup per
+  project reconciliation tick (at most 10,002 `run.json` reads for this
+  fixture), and
 - no regression in active-run visibility while an update is in flight, legacy
   recovery, project isolation, retry state, metrics, or unpublished-work
   protection.
 
-Use a 10,001-read warm-cache tick target as the deterministic optimization
+Use a 10,002-read warm-cache tick target as the deterministic optimization
 gate. Do not use these elapsed values as CI thresholds: they are one local
 sample, and production latency needs separate telemetry. After reducing the
 inventory count, rerun the entire matrix before proposing an elapsed-time
@@ -71,18 +73,18 @@ water mark.
 
 | History | Layout | Scenario     |  Reads | Elapsed ms | User CPU ms | System CPU ms | Max RSS Δ KiB |
 | ------: | :----- | :----------- | -----: | ---------: | ----------: | ------------: | ------------: |
-|     100 | legacy | inventory    |    101 |       2.62 |        2.19 |          6.22 |           704 |
-|     100 | legacy | polling tick |    505 |   1,165.58 |       80.37 |        121.09 |         5,856 |
-|     100 | shared | inventory    |    101 |      14.52 |        3.41 |          7.06 |           112 |
-|     100 | shared | polling tick |    505 |     940.96 |       55.12 |         81.24 |           720 |
-|   1,000 | legacy | inventory    |  1,001 |      24.14 |       16.35 |         61.36 |         9,488 |
-|   1,000 | legacy | polling tick |  5,005 |   6,885.14 |      345.21 |        605.32 |        25,616 |
-|   1,000 | shared | inventory    |  1,001 |      21.05 |       15.83 |         31.61 |         1,184 |
-|   1,000 | shared | polling tick |  5,005 |   9,431.57 |      356.76 |        579.13 |         7,568 |
-|  10,000 | legacy | inventory    | 10,001 |     302.90 |      232.69 |        835.00 |        31,808 |
-|  10,000 | legacy | polling tick | 50,005 |  80,115.62 |    3,660.09 |      7,468.79 |       212,208 |
-|  10,000 | shared | inventory    | 10,001 |     550.59 |      230.69 |        996.08 |             0 |
-|  10,000 | shared | polling tick | 50,005 |  83,590.34 |    3,771.94 |      7,603.96 |             0 |
+|     100 | legacy | inventory    |    101 |       2.05 |        1.69 |          4.93 |         1,136 |
+|     100 | legacy | polling tick |    506 |     713.54 |       52.12 |         59.46 |         5,264 |
+|     100 | shared | inventory    |    101 |       4.67 |        4.11 |          8.30 |           224 |
+|     100 | shared | polling tick |    506 |     755.78 |       48.17 |         65.72 |           560 |
+|   1,000 | legacy | inventory    |  1,001 |      17.61 |       14.38 |         42.81 |        15,440 |
+|   1,000 | legacy | polling tick |  5,006 |   7,059.73 |      363.54 |        576.83 |        41,664 |
+|   1,000 | shared | inventory    |  1,001 |      16.99 |       15.49 |         32.71 |             0 |
+|   1,000 | shared | polling tick |  5,006 |   7,673.18 |      311.09 |        540.67 |        55,728 |
+|  10,000 | legacy | inventory    | 10,001 |     193.94 |      217.17 |        444.89 |        72,480 |
+|  10,000 | legacy | polling tick | 50,006 |  76,838.99 |    3,290.04 |      5,728.87 |       169,872 |
+|  10,000 | shared | inventory    | 10,001 |     392.88 |      227.53 |        523.39 |           240 |
+|  10,000 | shared | polling tick | 50,006 |  86,782.83 |    3,836.01 |      7,511.35 |         3,248 |
 
 Isolated inventory time grows approximately linearly with record reads. The
 real tick grows much faster in this single run, showing that its cost cannot be
