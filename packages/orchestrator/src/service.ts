@@ -2140,16 +2140,48 @@ export class OrchestratorService {
           await this.recordOwnershipSkip(activeRun, "signal");
           continue;
         }
+        const terminalState =
+          issue.isArchived !== true &&
+          issueLifecycle !== null &&
+          isStateTerminal(issue.state, issueLifecycle);
+        const completedByConfirmedTrackerProgress =
+          terminalState &&
+          activeRun.trackerProgressConfirmedAt !== null &&
+          activeRun.trackerProgressConfirmedAt !== undefined &&
+          matchesWorkflowState(activeRun.issueState, [issue.state]);
+        if (completedByConfirmedTrackerProgress) {
+          if (
+            (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
+          ) {
+            continue;
+          }
+          const completedRun: OrchestratorRunRecord = {
+            ...activeRun,
+            status: "succeeded",
+            completedAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+            nextRetryAt: null,
+            retryKind: null,
+            lastError: null,
+          };
+          await this.store.saveRun(completedRun);
+          this.logVerbose(
+            `[run-completed] ${completedRun.runId} status=${completedRun.status}`
+          );
+          issueRecords = await this.releaseRunIssueOrchestration(
+            issueRecords,
+            activeRun,
+            now,
+            { resetFailureRetryBudget: true }
+          );
+          continue;
+        }
         const publication = await this.publishAssignedBranchForRun(activeRun);
         if (
           (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
         ) {
           continue;
         }
-        const terminalState =
-          issue.isArchived !== true &&
-          issueLifecycle !== null &&
-          isStateTerminal(issue.state, issueLifecycle);
         const recovery = terminalState
           ? null
           : await this.classifyIncompleteTurnDirtyWorkspace(
@@ -3819,7 +3851,7 @@ export class OrchestratorService {
     const gitTransportFailed = isGitTransportFailure(runWithTokens);
     await this.recordGitTransportWorkspaceState(tenant, runWithTokens, now);
     const currentTrackerProgress =
-      runWithTokens.runPhase === "succeeded" &&
+      (runWithTokens.runPhase === "succeeded" || gitTransportFailed) &&
       runWithTokens.trackerProgressConfirmedAt
         ? await this.classifyCurrentTrackerProgress(
             tenant,
@@ -6092,6 +6124,21 @@ export class OrchestratorService {
     workflowResolution?: ProjectWorkflowResolution
   ): Promise<void> {
     if (issue.isArchived === true) {
+      return;
+    }
+
+    const liveIssueRun = (await this.store.loadAllRuns()).find(
+      (run) =>
+        run.projectId === tenant.projectId &&
+        run.issueId === issue.id &&
+        run.processId !== null &&
+        run.processId !== undefined &&
+        this.isProcessRunning(run.processId)
+    );
+    if (liveIssueRun) {
+      this.logVerbose(
+        `[workspace-cleanup-deferred] ${issue.identifier} reason=worker-process-running`
+      );
       return;
     }
 

@@ -10877,7 +10877,8 @@ Prefer focused changes.
     expect(run).toBeTruthy();
     await store.saveRun({
       ...run!,
-      workerExitCode: 0,
+      workerExitCode: 1,
+      runPhase: "failed",
       lastError: "git_transport_failed: refusing to push feat/assigned",
     });
 
@@ -10886,8 +10887,8 @@ Prefer focused changes.
     expect(await store.loadRun("run-1")).toMatchObject({
       status: "succeeded",
       retryKind: null,
-      workerExitCode: 0,
-      runPhase: "succeeded",
+      workerExitCode: 1,
+      runPhase: "failed",
       lastError: null,
     });
     expect(
@@ -10928,11 +10929,6 @@ Prefer focused changes.
   });
 
   it.each([
-    [
-      "transport failure",
-      "git_transport_failed: refusing to push feat/assigned",
-      null,
-    ],
     [
       "dirty worktree after committed transport",
       null,
@@ -14418,7 +14414,7 @@ Prefer focused changes.
     expect(updatedRun?.issueState).toBe("In Progress");
   });
 
-  it("reconciles running issues that moved to a terminal state outside the candidate snapshot", async () => {
+  it("records a confirmed Land completion as successful after the exit grace", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-terminal-reconciliation-")
@@ -14459,7 +14455,7 @@ Prefer focused changes.
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
-      issueState: "In Progress",
+      issueState: "Done",
       repository,
       status: "running",
       attempt: 1,
@@ -14474,6 +14470,8 @@ Prefer focused changes.
       updatedAt: "2026-03-08T00:00:00.000Z",
       startedAt: "2026-03-08T00:00:00.000Z",
       completedAt: null,
+      trackerProgressConfirmedAt: "2026-03-08T00:04:00.000Z",
+      assignedBranch: "symphony/acme-platform-1",
       lastError: null,
       nextRetryAt: null,
     });
@@ -14531,6 +14529,7 @@ Prefer focused changes.
     const listIssues = vi.fn().mockResolvedValue([]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([terminalIssue]);
     const killImpl = vi.fn();
+    const publishAssignedBranch = vi.fn();
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
@@ -14548,6 +14547,7 @@ Prefer focused changes.
       now: () => new Date("2026-03-08T00:05:00.000Z"),
       killImpl,
       isProcessRunning: vi.fn().mockReturnValue(true),
+      publishAssignedBranch,
     });
 
     const snapshot = await service.runOnce();
@@ -14566,14 +14566,17 @@ Prefer focused changes.
     );
     expect(listIssues).toHaveBeenCalledTimes(1);
     expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
-    expect(updatedRun?.status).toBe("suppressed");
+    expect(publishAssignedBranch).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("succeeded");
     expect(updatedRun?.issueState).toBe("Done");
-    expect(updatedRun?.lastError).toBe(
-      "Run suppressed because the tracker issue moved to a terminal state."
-    );
-    expect(issueRecords[0]?.state).toBe("released");
-    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
-    expect(workspaceRecord?.status).toBe("removed");
+    expect(updatedRun?.retryKind).toBeNull();
+    expect(updatedRun?.lastError).toBeNull();
+    expect(issueRecords[0]).toMatchObject({
+      state: "released",
+      failureRetryCount: 0,
+    });
+    await expect(readFile(sentinelPath, "utf8")).resolves.toBe("cleanup me");
+    expect(workspaceRecord?.status).toBe("active");
     expect(snapshot.activeRuns).toHaveLength(0);
   });
 
