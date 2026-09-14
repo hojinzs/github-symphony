@@ -13,8 +13,11 @@ export default defineConfig({
     ...(isRepositoryRun
       ? {
           // Load every package as a Vitest project so aggregate coverage uses
-          // the same roots, aliases, setup, defines, and scheduling as tests.
+          // the same roots, aliases, setup, and defines as tests. Vitest treats
+          // fileParallelism as a root scheduling option in projects mode, so
+          // preserve the orchestrator package's serialization requirement here.
           projects: ["packages/*"],
+          fileParallelism: false,
           coverage: {
             reportsDirectory: "coverage",
           },

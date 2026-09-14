@@ -27,12 +27,14 @@ and test discovery apply.
 
 Pull-request CI uses `pnpm test:coverage` as its single test execution. The
 command first compares normalized aggregate discovery with every package's
-Vitest discovery, then runs those package projects once with coverage. Vitest
-therefore preserves package roots, aliases, setup files, defines, and file
-serialization while merging shared-source attribution into one `coverage/`
-report. The command also verifies that covered control-plane frontend source is
-present in `coverage/coverage-final.json`. CI uploads the complete directory as
-the `coverage-report` artifact even if a later step fails.
+Vitest discovery and runs a two-file lock probe that proves the orchestrator
+project remains file-serialized. It then runs those package projects once with
+coverage. Vitest therefore preserves package roots, aliases, setup files,
+defines, and required file serialization while merging shared-source
+attribution into one `coverage/` report. The command also verifies that covered
+control-plane frontend source is present in `coverage/coverage-final.json`. CI
+uploads the complete directory as the `coverage-report` artifact even if a
+later step fails.
 
 ## Local E2E Tests (without Docker)
 
