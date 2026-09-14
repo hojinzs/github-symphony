@@ -17,6 +17,7 @@
     "dev:worker": "pnpm --filter @gh-symphony/worker dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
+    "test:coverage": "node scripts/verify-coverage-discovery.mjs && vitest run --coverage.enabled --coverage.reporter=json-summary --coverage.reporter=json && node scripts/verify-coverage-report.mjs",
     "test:watch": "vitest",
     "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
     "format": "prettier --check .",

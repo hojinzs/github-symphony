@@ -1,8 +1,9 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 const packageRoot = dirname(fileURLToPath(import.meta.url));
+const isSerializationProbe = process.env.VITEST_SERIALIZATION_PROBE === "1";
 
 export default defineConfig({
   resolve: {
@@ -40,6 +41,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    ...(isSerializationProbe
+      ? { include: ["test-fixtures/file-serialization-*.test.ts"] }
+      : { exclude: [...configDefaults.exclude, "test-fixtures/**"] }),
     // Git-heavy integration files create and mutate many repositories and
     // process-level Git resources. Keep files serial while preserving the
     // explicit concurrency exercised inside individual cache/lock tests.
