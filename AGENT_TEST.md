@@ -21,6 +21,17 @@ pnpm lint && pnpm test && pnpm typecheck && pnpm build
 
 All four must pass before the work is considered complete.
 
+`pnpm test` is the authoritative unit-test gate locally and in pull-request CI.
+It runs each workspace package's test script, so package-specific Vitest
+configuration, setup files, and test discovery apply. In particular, the
+control-plane package discovers its three `*.test.tsx` files through its own
+configuration.
+
+CI also runs a root Vitest coverage command after this gate. That command is
+retained to publish the existing coverage report, but its narrower root-level
+discovery is not a substitute for `pnpm test` and does not determine whether
+the package-aware test gate passes.
+
 ## Local E2E Tests (without Docker)
 
 How to run E2E tests directly on the local machine without Docker. All state is stored under `.runtime/`.
