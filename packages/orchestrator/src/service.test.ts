@@ -1795,7 +1795,9 @@ Retry hook validation.
       owner: "acme",
       name: "platform",
       cloneUrl: "https://github.com/acme/platform.git",
+      path: tempRoot,
     };
+    await writeWorkflowFixture(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
     await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
@@ -1847,10 +1849,12 @@ Retry hook validation.
       rateLimits: { source: "github", remaining: 3999, cycleCost: 1 },
       error: "expected_state_mismatch",
     });
+    const listIssues = vi.fn().mockResolvedValue([]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([]);
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-      listIssues: vi.fn(),
+      listIssues,
       listIssuesByStates: vi.fn(),
-      fetchIssueStatesByIds: vi.fn(),
+      fetchIssueStatesByIds,
       buildWorkerEnvironment: vi.fn(),
       reviveIssue: vi.fn(),
       requestState,
@@ -1896,6 +1900,35 @@ Retry hook validation.
     expect(persistedRun?.trackerProgressConfirmedAt).toBeNull();
     expect(loadWorkflowSpy).toHaveBeenCalledOnce();
     loadWorkflowSpy.mockClear();
+    requestState.mockResolvedValueOnce({
+      ok: true,
+      outcome: "confirmed",
+      state: "Done",
+      expectedState: "Ready",
+      targetState: "Done",
+      reason: "landed",
+      rateLimits: null,
+      error: null,
+    });
+    await expect(
+      service.requestTrackerState({
+        runId: "run-1",
+        request: {
+          type: "transition-request",
+          expectedState: "Ready",
+          targetState: "Done",
+          reason: "landed",
+        },
+      })
+    ).resolves.toMatchObject({ ok: true, outcome: "confirmed" });
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      issueState: "Done",
+      trackerProgressConfirmedAt: "2026-07-30T13:01:00.000Z",
+      trackerProgressConfirmedState: "Done",
+    });
+
     requestState.mockResolvedValueOnce({
       ok: true,
       outcome: "confirmed",
@@ -1962,6 +1995,12 @@ Retry hook validation.
       expect.objectContaining({
         event: "tracker.state",
         runId: "run-1",
+        outcome: "confirmed",
+        confirmedState: "Done",
+      }),
+      expect.objectContaining({
+        event: "tracker.state",
+        runId: "run-1",
         outcome: "failed",
         error: "workflow_unavailable_for_routability_check",
         routable: null,
@@ -1974,6 +2013,22 @@ Retry hook validation.
         rateLimits: expect.objectContaining({ remaining: 0 }),
       }),
     ]);
+
+    listIssues.mockResolvedValueOnce([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        state: "In review",
+        dispatchable: true,
+      },
+    ]);
+    await service.runOnce();
+    expect(listIssues).toHaveBeenCalled();
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      trackerProgressConfirmedState: "Done",
+    });
   });
 
   it("publishes only the immutable assigned branch repeatedly through the host transport", async () => {
@@ -11189,15 +11244,17 @@ Prefer focused changes.
       },
     ],
   ])(
-    "retains an unpublished %s and workspace when a terminal issue reaches its retry due time",
+    "retains an unpublished %s and workspace when a non-active issue reaches its retry due time",
     async (_description, lastError, unpublishedWorktree) => {
-      const trackerState = "Done";
+      const trackerState = "In Review";
       const { store, service, advanceToRetryDue, spawnImpl } =
         await createSuccessfulFinalizationFixture(trackerState);
       const run = await store.loadRun("run-1");
       expect(run).toBeTruthy();
       await store.saveRun({
         ...run!,
+        issueState: trackerState,
+        trackerProgressConfirmedState: trackerState,
         workerExitCode: 1,
         runPhase: "failed",
         lastError,
@@ -14669,6 +14726,7 @@ Prefer focused changes.
       trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
       expectedStatus: "running",
       processRunning: true,
+      trackerStates: ["Done"],
     },
     {
       description:
@@ -14677,6 +14735,7 @@ Prefer focused changes.
       trackerProgressConfirmedAt: "2026-03-08T00:04:00.000Z",
       expectedStatus: "succeeded",
       processRunning: true,
+      trackerStates: ["Done"],
     },
     {
       description:
@@ -14685,6 +14744,16 @@ Prefer focused changes.
       trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
       expectedStatus: "suppressed",
       processRunning: false,
+      trackerStates: ["Done"],
+    },
+    {
+      description:
+        "preserves confirmed review state when a later poll moves the tracker to Done",
+      issueState: "In Review",
+      trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
+      expectedStatus: "suppressed",
+      processRunning: true,
+      trackerStates: ["In Review", "Done"],
     },
     {
       description:
@@ -14693,6 +14762,7 @@ Prefer focused changes.
       trackerProgressConfirmedAt: null,
       expectedStatus: "suppressed",
       processRunning: false,
+      trackerStates: ["Done"],
     },
   ])(
     "$description",
@@ -14701,6 +14771,7 @@ Prefer focused changes.
       trackerProgressConfirmedAt,
       expectedStatus,
       processRunning,
+      trackerStates,
     }) => {
       process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
       const tempRoot = await mkdtemp(
@@ -14755,7 +14826,7 @@ Prefer focused changes.
         retryKind: null,
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:00.000Z",
-        startedAt: "2026-03-08T00:00:00.000Z",
+        startedAt: "2026-03-08T00:04:30.000Z",
         completedAt: null,
         trackerProgressConfirmedAt,
         trackerProgressConfirmedState: trackerProgressConfirmedAt
@@ -14794,14 +14865,14 @@ Prefer focused changes.
         lastError: null,
       });
 
-      const terminalIssue = {
+      const trackedIssue = (state: string) => ({
         id: "issue-1",
         identifier: "acme/platform#1",
         number: 1,
         title: "Test issue",
         description: null,
         priority: null,
-        state: "Done",
+        state,
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
@@ -14815,9 +14886,17 @@ Prefer focused changes.
           itemId: "issue-1",
         },
         metadata: {},
-      };
+      });
       const listIssues = vi.fn().mockResolvedValue([]);
-      const fetchIssueStatesByIds = vi.fn().mockResolvedValue([terminalIssue]);
+      const fetchIssueStatesByIds = vi.fn();
+      for (const trackerState of trackerStates) {
+        fetchIssueStatesByIds.mockResolvedValueOnce([
+          trackedIssue(trackerState),
+        ]);
+      }
+      fetchIssueStatesByIds.mockResolvedValue([
+        trackedIssue(trackerStates.at(-1)!),
+      ]);
       const killImpl = vi.fn();
       const publishAssignedBranch = vi.fn().mockResolvedValue({
         ok: true,
@@ -14850,8 +14929,8 @@ Prefer focused changes.
       });
 
       let snapshot = await service.runOnce();
-      if (issueState === "In Review") {
-        currentTime = new Date("2026-03-08T00:06:00.000Z");
+      if (trackerStates.length > 1) {
+        currentTime = new Date("2026-03-08T00:05:15.000Z");
         snapshot = await service.runOnce();
       }
       const updatedRun = await store.loadRun("run-1");
@@ -14862,9 +14941,7 @@ Prefer focused changes.
         workspaceKey
       );
 
-      expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(
-        issueState === "In Review" ? 2 : 1
-      );
+      expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(trackerStates.length);
       expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
         projectConfig,
         ["issue-1"],
@@ -14902,7 +14979,11 @@ Prefer focused changes.
         expect(workspaceRecord?.status).toBe("removed");
         expect(snapshot.activeRuns).toHaveLength(0);
       } else {
-        expect(killImpl).not.toHaveBeenCalled();
+        if (processRunning) {
+          expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
+        } else {
+          expect(killImpl).not.toHaveBeenCalled();
+        }
         expect(publishAssignedBranch).toHaveBeenCalledTimes(1);
         expect(updatedRun).toMatchObject({
           status: "suppressed",
