@@ -176,6 +176,7 @@ export async function measureHistoryReconciliationTick(
     },
   };
   const loadAllRuns = fixture.store.loadAllRuns.bind(fixture.store);
+  const loadRuns = fixture.store.loadRuns.bind(fixture.store);
   let iterations = 0;
   const benchmarkStore = new Proxy(fixture.store, {
     get(target, property) {
@@ -183,6 +184,12 @@ export async function measureHistoryReconciliationTick(
         return async () => {
           iterations += 1;
           return loadAllRuns();
+        };
+      }
+      if (property === "loadRuns") {
+        return async (query: { projectId: string }) => {
+          iterations += 1;
+          return loadRuns(query);
         };
       }
       // Preserve the fixture layout while measuring reads. All run-record

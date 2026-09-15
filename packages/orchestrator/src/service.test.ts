@@ -597,9 +597,20 @@ describe("OrchestratorService", () => {
       }),
       status: "running" as const,
     };
+    const refreshedActiveRun = {
+      ...activeRun,
+      updatedAt: "2026-03-08T00:00:01.000Z",
+      tokenUsage: {
+        inputTokens: 30,
+        outputTokens: 20,
+        totalTokens: 50,
+      },
+    };
     const store = {
       loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([]),
       loadAllRuns: vi.fn().mockResolvedValue([activeRun]),
+      loadRuns: vi.fn().mockResolvedValue([activeRun]),
+      loadRun: vi.fn().mockResolvedValue(refreshedActiveRun),
       saveProjectIssueOrchestrations: vi.fn().mockResolvedValue(undefined),
       loadIssueWorkspaces: vi.fn().mockResolvedValue([]),
       saveProjectStatus: vi.fn().mockResolvedValue(undefined),
@@ -629,6 +640,19 @@ describe("OrchestratorService", () => {
     ).reconcileProject(projectConfig);
 
     expect(reconcileRun).toHaveBeenCalledWith(projectConfig, activeRun, [], {});
+    expect(store.loadRuns).toHaveBeenCalledOnce();
+    expect(store.loadAllRuns).not.toHaveBeenCalled();
+    expect(snapshot.activeRuns[0]).toMatchObject({
+      runId: activeRun.runId,
+      tokenUsage: {
+        inputTokens: 30,
+        outputTokens: 20,
+        totalTokens: 50,
+        cumulativeInputTokens: 30,
+        cumulativeOutputTokens: 20,
+        cumulativeTotalTokens: 50,
+      },
+    });
     expect(snapshot.lastError).toContain("Unsupported tracker adapter");
     expect(snapshot.summary.recovered).toBe(1);
   });
@@ -643,6 +667,8 @@ describe("OrchestratorService", () => {
     const store = {
       loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([]),
       loadAllRuns: vi.fn().mockResolvedValue([]),
+      loadRuns: vi.fn().mockResolvedValue([]),
+      loadRun: vi.fn().mockResolvedValue(null),
       saveProjectIssueOrchestrations: vi.fn().mockResolvedValue(undefined),
       loadIssueWorkspaces: vi.fn().mockResolvedValue([]),
       saveProjectStatus: vi.fn().mockResolvedValue(undefined),
@@ -669,6 +695,8 @@ describe("OrchestratorService", () => {
     ).reconcileProject(projectConfig);
 
     expect(reconcileRun).not.toHaveBeenCalled();
+    expect(store.loadRuns).toHaveBeenCalledOnce();
+    expect(store.loadAllRuns).not.toHaveBeenCalled();
     expect(snapshot.summary.recovered).toBe(0);
     expect(snapshot.lastError).toContain("Unsupported tracker adapter");
   });

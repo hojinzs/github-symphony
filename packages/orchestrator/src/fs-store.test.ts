@@ -761,10 +761,10 @@ describe("history benchmark fixture", () => {
         const measurement = await measureHistoryReconciliationTick(fixture);
         const runs = await fixture.store.loadAllRuns();
 
-        // Baseline #894 pins five full inventories plus one per-run lookup.
-        // Any added run.json read at either path turns this red.
-        expect(measurement.iterations).toBe(5);
-        expect(measurement.fsReadCount).toBe(16);
+        // #896 reduces the #894 baseline to one scoped inventory. Known
+        // current runs are re-read at explicit freshness boundaries.
+        expect(measurement.iterations).toBe(1);
+        expect(measurement.fsReadCount).toBe(7);
         expect(runs).toHaveLength(3);
         expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
       } finally {
