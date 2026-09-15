@@ -34,6 +34,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "benchmark:history": "tsx src/history-benchmark-cli.ts",
     "dev": "node --watch src/index.ts",
     "lint": "eslint src --ext .ts",
     "start": "node dist/index.js",
@@ -48,5 +49,8 @@
     "@gh-symphony/tracker-file": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",
     "@gh-symphony/tracker-linear": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
   }
 }

@@ -351,6 +351,12 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
         value: issues.skippedItems,
         writable: true,
       });
+      Object.defineProperty(filtered, "skippedItemCount", {
+        configurable: true,
+        enumerable: false,
+        value: issues.skippedItemCount,
+        writable: true,
+      });
     }
     return filtered;
   },
@@ -611,6 +617,7 @@ async function listLinearIssues(
 
   const fetchedIssues = [] as TrackedIssueList;
   const skippedItems: NonNullable<TrackedIssueList["skippedItems"]> = [];
+  let skippedItemCount = 0;
   for (const [index, node] of result.nodes.entries()) {
     try {
       fetchedIssues.push(
@@ -627,6 +634,7 @@ async function listLinearIssues(
       ) {
         throw error;
       }
+      skippedItemCount += 1;
       if (skippedItems.length < MAX_LINEAR_SKIPPED_ITEMS) {
         skippedItems.push(linearSkippedItem(node, index, error.message));
       }
@@ -651,6 +659,12 @@ async function listLinearIssues(
     configurable: true,
     enumerable: false,
     value: skippedItems,
+    writable: true,
+  });
+  Object.defineProperty(issues, "skippedItemCount", {
+    configurable: true,
+    enumerable: false,
+    value: skippedItemCount,
     writable: true,
   });
 

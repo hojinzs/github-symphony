@@ -7,10 +7,17 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { chdir } from "node:process";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { OrchestratorFsStore } from "./fs-store.js";
+import type { OrchestratorRunRecord } from "@gh-symphony/core";
+import { observeRunRecordReads, OrchestratorFsStore } from "./fs-store.js";
+import {
+  createHistoryBenchmarkFixture,
+  measureHistoryInventory,
+  measureHistoryReconciliationTick,
+  removeHistoryBenchmarkFixture,
+} from "./history-benchmark.js";
 
 describe("OrchestratorFsStore.loadRecentRunEvents", () => {
   it("uses a project-scoped runtime layout", async () => {
@@ -600,6 +607,184 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     }
   });
 });
+
+describe("history benchmark fixture", () => {
+  it("loads only the requested project's scoped and legacy run records", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const records = [
+      { runId: "scoped", projectId: "project-1", issueTitle: "scoped copy" },
+      { runId: "other", projectId: "project-2" },
+      { runId: "legacy", projectId: "project-1" },
+      { runId: "legacy-other", projectId: "project-2" },
+      { runId: "scoped", projectId: "project-1", issueTitle: "legacy copy" },
+    ] as OrchestratorRunRecord[];
+
+    await Promise.all([
+      writeRunRecord(store.runDir("scoped", "project-1"), records[0]),
+      writeRunRecord(store.runDir("other", "project-2"), records[1]),
+      writeRunRecord(store.runDir("legacy"), records[2]),
+      writeRunRecord(store.runDir("legacy-other"), records[3]),
+      writeRunRecord(store.runDir("scoped"), records[4]),
+    ]);
+
+    const observedPaths: string[] = [];
+    const runs = await observeRunRecordReads(
+      (path) => observedPaths.push(path),
+      () => store.loadRuns({ projectId: "project-1" })
+    );
+
+    expect(runs).toEqual([records[0], records[2]]);
+    expect(observedPaths).toEqual([
+      join(store.runDir("scoped", "project-1"), "run.json"),
+      join(store.runDir("legacy"), "run.json"),
+      join(store.runDir("legacy-other"), "run.json"),
+      join(store.runDir("scoped"), "run.json"),
+    ]);
+    expect(
+      observedPaths.some((path) => path.startsWith(store.runsDir("project-2")))
+    ).toBe(false);
+  });
+
+  it("bounds concurrent run record reads", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        writeRunRecord(store.runDir(`run-${index}`, "project-1"), {
+          runId: `run-${index}`,
+          projectId: "project-1",
+        } as OrchestratorRunRecord)
+      )
+    );
+    let activeReads = 0;
+    let maxActiveReads = 0;
+
+    const runs = await observeRunRecordReads(
+      async () => {
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        activeReads -= 1;
+      },
+      () => store.loadRuns({ projectId: "project-1" })
+    );
+
+    expect(runs).toHaveLength(12);
+    expect(maxActiveReads).toBe(8);
+  });
+
+  it("bounds concurrent legacy-compatible global run record reads", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        writeRunRecord(store.runDir(`run-${index}`, "project-1"), {
+          runId: `run-${index}`,
+          projectId: "project-1",
+        } as OrchestratorRunRecord)
+      )
+    );
+    let activeReads = 0;
+    let maxActiveReads = 0;
+
+    const runs = await observeRunRecordReads(
+      async () => {
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        activeReads -= 1;
+      },
+      () => store.loadAllRuns()
+    );
+
+    expect(runs).toHaveLength(12);
+    expect(maxActiveReads).toBe(8);
+  });
+
+  it("observes run records read through inventory and per-run lookup paths", async () => {
+    const fixture = await createHistoryBenchmarkFixture(2, "shared");
+    const observedPaths: string[] = [];
+
+    try {
+      await observeRunRecordReads(
+        (path) => observedPaths.push(path),
+        async () => {
+          await fixture.store.loadAllRuns();
+          await fixture.store.loadRun(fixture.activeRunId, fixture.projectId);
+        }
+      );
+
+      expect(observedPaths).toHaveLength(4);
+      expect(observedPaths.every((path) => basename(path) === "run.json")).toBe(
+        true
+      );
+    } finally {
+      await removeHistoryBenchmarkFixture(fixture);
+    }
+  });
+
+  it.each(["legacy", "shared"] as const)(
+    "isolates and inventories the %s layout while an active run is updated",
+    async (layout) => {
+      const fixture = await createHistoryBenchmarkFixture(2, layout);
+
+      try {
+        const measurement = await measureHistoryInventory(fixture, 2);
+        const runs = await fixture.store.loadAllRuns();
+
+        expect(measurement).toMatchObject({
+          fsReadCount: 6,
+          iterations: 2,
+          layout,
+          runCount: 3,
+        });
+        expect(measurement.elapsedMs).toBeGreaterThanOrEqual(0);
+        expect(runs).toHaveLength(3);
+        expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
+      } finally {
+        await removeHistoryBenchmarkFixture(fixture);
+      }
+
+      await expect(stat(fixture.runtimeRoot)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    }
+  );
+
+  it.each(["legacy", "shared"] as const)(
+    "measures actual reads made by one %s reconciliation tick",
+    async (layout) => {
+      const fixture = await createHistoryBenchmarkFixture(2, layout);
+
+      try {
+        const measurement = await measureHistoryReconciliationTick(fixture);
+        const runs = await fixture.store.loadAllRuns();
+
+        // Baseline #894 pins five full inventories plus one per-run lookup.
+        // Any added run.json read at either path turns this red.
+        expect(measurement.iterations).toBe(5);
+        expect(measurement.fsReadCount).toBe(16);
+        expect(runs).toHaveLength(3);
+        expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
+      } finally {
+        await removeHistoryBenchmarkFixture(fixture);
+      }
+    }
+  );
+});
+
+async function writeRunRecord(
+  runDirectory: string,
+  record: OrchestratorRunRecord
+): Promise<void> {
+  await mkdir(runDirectory, { recursive: true });
+  await writeFile(
+    join(runDirectory, "run.json"),
+    JSON.stringify(record),
+    "utf8"
+  );
+}
 
 describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
   it("defaults retry metadata for legacy persisted issue records", async () => {

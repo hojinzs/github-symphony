@@ -2395,6 +2395,93 @@ Retry hook validation.
     );
   });
 
+  it("reports the exact candidate skip total with bounded diagnostics", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-bounded-skipped-items-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const skippedItems = Array.from({ length: 7 }, (_, index) => ({
+      id: `malformed-${index + 1}`,
+      identifier: `ENG-${index + 1}`,
+      reason:
+        index === 0
+          ? `invalid-${"value".repeat(40)}-tail`
+          : `invalid value ${index + 1}`,
+    }));
+    const issues = Object.assign([], {
+      skippedItemCount: 51,
+      skippedItems,
+    }) as TrackedIssueList;
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue(issues),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+    });
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      stderr: stderr as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.summary.skipped).toBe(51);
+    const output = stderr.write.mock.calls.flat().join("\n");
+    expect(output).toContain("skipped 51 item(s) for tenant-1");
+    expect(output).toContain(
+      "ENG-1, ENG-2, ENG-3, ENG-4, ENG-5, … (+2 more retained)"
+    );
+    expect(output).not.toContain("ENG-6");
+    expect(output).not.toContain("-tail");
+  });
+
+  it("reports candidate skips when no diagnostics were retained", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-count-only-skipped-items-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const issues = Object.assign([], {
+      skippedItemCount: 3,
+    }) as TrackedIssueList;
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue(issues),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+    });
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      stderr: stderr as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.summary.skipped).toBe(3);
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[orchestrator] skipped 3 item(s) for tenant-1: no diagnostics retained"
+      )
+    );
+  });
+
   it("dispatches actionable issues and prevents duplicate issue leases", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-test-"));
@@ -5817,14 +5904,13 @@ Test hook failures.
           },
         ];
         Object.defineProperty(issues, "skippedItems", {
-          value: [
-            {
-              id: "malformed-1",
-              identifier: "acme/platform#broken",
-              reason: "State is required.",
-            },
-          ],
+          value: Array.from({ length: 7 }, (_, index) => ({
+            id: `malformed-${index + 1}`,
+            identifier: `acme/platform#broken-${index + 1}`,
+            reason: `State ${index + 1} is required.`,
+          })),
         });
+        Object.defineProperty(issues, "skippedItemCount", { value: 51 });
         return issues;
       }
     );
@@ -5861,7 +5947,70 @@ Test hook failures.
       })
     );
     expect(writeStderr.mock.calls.flat().join("\n")).toContain(
-      "startup cleanup skipped 1 malformed tracker item(s) for tenant-1: acme/platform#broken (State is required.)"
+      "startup cleanup skipped 51 malformed tracker item(s) for tenant-1: acme/platform#broken-1, acme/platform#broken-2, acme/platform#broken-3, acme/platform#broken-4, acme/platform#broken-5, … (+2 more retained) (State 1 is required., State 2 is required., State 3 is required., State 4 is required., State 5 is required., … (+2 more retained))"
+    );
+    expect(writeStderr.mock.calls.flat().join("\n")).not.toContain(
+      "acme/platform#broken-6"
+    );
+  });
+
+  it("reports startup cleanup skips when no diagnostics were retained", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-count-only-skips-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    await mkdir(repositoryPath, { recursive: true });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const issues = Object.assign([], {
+      skippedItemCount: 3,
+    }) as TrackedIssueList;
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([]),
+      listIssuesByStates: vi.fn().mockResolvedValue(issues),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+    });
+
+    const writeStderr = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      stderr: { write: writeStderr } as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    expect(writeStderr).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[orchestrator] startup cleanup skipped 3 malformed tracker item(s) for tenant-1: no diagnostics retained"
+      )
     );
   });
 

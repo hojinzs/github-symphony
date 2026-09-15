@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { chmod, mkdir, open, rm, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
   isFileMissing,
@@ -9,19 +10,40 @@ import {
   type IssueStatusEvent,
   type OrchestratorEvent,
   type OrchestratorRunRecord,
+  type OrchestratorRunQuery,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
   normalizeOrchestratorProjectConfig,
   parseRecentEvents,
   redactObservabilitySecrets,
   type ProjectStatusSnapshot,
-  readJsonFile,
+  readJsonFile as readCoreJsonFile,
   safeReadDir,
 } from "@gh-symphony/core";
 import { appendFileDurably, writeFileAtomically } from "./durable-file.js";
 
 const PROJECTS_DIR = "projects";
 const SECURE_DIRECTORY_MODE = 0o700;
+const RUN_RECORD_LOAD_CONCURRENCY = 8;
+const runRecordReadObserver = new AsyncLocalStorage<
+  (path: string) => void | Promise<void>
+>();
+
+// Every run.json read in this module must route through this wrapper. The
+// history benchmark's file-boundary read accounting depends on that invariant.
+async function readJsonFile<T>(path: string): Promise<T | null> {
+  if (basename(path) === "run.json") {
+    await runRecordReadObserver.getStore()?.(path);
+  }
+  return readCoreJsonFile<T>(path);
+}
+
+export async function observeRunRecordReads<T>(
+  observer: (path: string) => void | Promise<void>,
+  operation: () => Promise<T>
+): Promise<T> {
+  return runRecordReadObserver.run(observer, operation);
+}
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
   private readonly resolvedRuntimeRoot: string;
@@ -235,10 +257,37 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
         )
       );
     }
-    const runs = await Promise.all(
-      runPaths.map((runPath) => readJsonFile<OrchestratorRunRecord>(runPath))
+    const runs = await mapWithConcurrency(
+      runPaths,
+      RUN_RECORD_LOAD_CONCURRENCY,
+      (runPath) => readJsonFile<OrchestratorRunRecord>(runPath)
     );
     return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
+  }
+
+  async loadRuns(
+    query: OrchestratorRunQuery
+  ): Promise<OrchestratorRunRecord[]> {
+    const projectRunIds = await safeReadDir(this.runsDir(query.projectId));
+    const legacyRunIds = await safeReadDir(this.runsDir());
+    const runPaths = [
+      ...projectRunIds.map((runId) =>
+        join(this.runDir(runId, query.projectId), "run.json")
+      ),
+      ...legacyRunIds.map((runId) => join(this.runDir(runId), "run.json")),
+    ];
+    const runs = await mapWithConcurrency(
+      runPaths,
+      RUN_RECORD_LOAD_CONCURRENCY,
+      (runPath) => readJsonFile<OrchestratorRunRecord>(runPath)
+    );
+    const projectRuns = new Map<string, OrchestratorRunRecord>();
+    for (const run of runs) {
+      if (run?.projectId === query.projectId && !projectRuns.has(run.runId)) {
+        projectRuns.set(run.runId, run);
+      }
+    }
+    return [...projectRuns.values()];
   }
 
   async saveRun(run: OrchestratorRunRecord): Promise<void> {
@@ -551,4 +600,25 @@ async function pathExists(path: string): Promise<boolean> {
 
     throw error;
   }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]);
+    }
+  };
+
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }

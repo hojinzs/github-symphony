@@ -129,6 +129,8 @@ const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
 const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
 const MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT = 50;
+const MAX_TRACKER_SKIP_SUMMARY_VALUES = 5;
+const MAX_TRACKER_SKIP_SUMMARY_VALUE_LENGTH = 120;
 const INHERITED_ENV_ALLOWLIST = new Set([
   "CI",
   "HOME",
@@ -159,6 +161,33 @@ function resolveTrackerSecretEnvironmentNames(
 
 function isSuccessfulHookResult(result: HookResult): boolean {
   return result.outcome === "success" || result.outcome === "skipped";
+}
+
+function formatTrackerSkipSummary(
+  items: NonNullable<TrackedIssueList["skippedItems"]>
+): string {
+  const summarize = (values: string[]): string => {
+    const uniqueValues = [...new Set(values)];
+    const visibleValues = uniqueValues
+      .slice(0, MAX_TRACKER_SKIP_SUMMARY_VALUES)
+      .map((value) =>
+        value.length > MAX_TRACKER_SKIP_SUMMARY_VALUE_LENGTH
+          ? `${value.slice(0, MAX_TRACKER_SKIP_SUMMARY_VALUE_LENGTH - 1)}…`
+          : value
+      );
+    const omitted = uniqueValues.length - visibleValues.length;
+    return `${visibleValues.join(", ")}${omitted > 0 ? `, … (+${omitted} more retained)` : ""}`;
+  };
+
+  return `${summarize(items.map((item) => item.identifier))} (${summarize(items.map((item) => item.reason))})`;
+}
+
+function formatTrackerSkipDetails(
+  items: NonNullable<TrackedIssueList["skippedItems"]>
+): string {
+  return items.length > 0
+    ? formatTrackerSkipSummary(items)
+    : "no diagnostics retained";
 }
 
 function formatFatalHookError(result: HookResult): string {
@@ -1442,10 +1471,11 @@ export class OrchestratorService {
         candidateTrackerDependencies
       );
       const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
-      skipped = skippedItems.length;
-      if (skippedItems.length > 0) {
+      skipped =
+        (issues as TrackedIssueList).skippedItemCount ?? skippedItems.length;
+      if (skipped > 0) {
         this.writeStderr(
-          `[orchestrator] skipped ${skippedItems.length} item(s) for ${tenant.projectId}: ${[...new Set(skippedItems.map((item) => item.identifier))].join(", ")} (${[...new Set(skippedItems.map((item) => item.reason))].join(", ")})`
+          `[orchestrator] skipped ${skipped} item(s) for ${tenant.projectId}: ${formatTrackerSkipDetails(skippedItems)}`
         );
       }
       const canonicalIssues = resolveCanonicalIssues(trackerAdapter, issues);
@@ -2435,9 +2465,11 @@ export class OrchestratorService {
     }
 
     const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
-    if (skippedItems.length > 0) {
+    const skippedItemCount =
+      (issues as TrackedIssueList).skippedItemCount ?? skippedItems.length;
+    if (skippedItemCount > 0) {
       this.writeStderr(
-        `[orchestrator] startup cleanup skipped ${skippedItems.length} malformed tracker item(s) for ${tenant.projectId}: ${[...new Set(skippedItems.map((item) => item.identifier))].join(", ")} (${[...new Set(skippedItems.map((item) => item.reason))].join(", ")})`
+        `[orchestrator] startup cleanup skipped ${skippedItemCount} malformed tracker item(s) for ${tenant.projectId}: ${formatTrackerSkipDetails(skippedItems)}`
       );
     }
 
