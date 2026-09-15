@@ -10,6 +10,7 @@ import { chdir } from "node:process";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import type { OrchestratorRunRecord } from "@gh-symphony/core";
 import { observeRunRecordReads, OrchestratorFsStore } from "./fs-store.js";
 import {
   createHistoryBenchmarkFixture,
@@ -608,6 +609,99 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
 });
 
 describe("history benchmark fixture", () => {
+  it("loads only the requested project's scoped and legacy run records", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const records = [
+      { runId: "scoped", projectId: "project-1", issueTitle: "scoped copy" },
+      { runId: "other", projectId: "project-2" },
+      { runId: "legacy", projectId: "project-1" },
+      { runId: "legacy-other", projectId: "project-2" },
+      { runId: "scoped", projectId: "project-1", issueTitle: "legacy copy" },
+    ] as OrchestratorRunRecord[];
+
+    await Promise.all([
+      writeRunRecord(store.runDir("scoped", "project-1"), records[0]),
+      writeRunRecord(store.runDir("other", "project-2"), records[1]),
+      writeRunRecord(store.runDir("legacy"), records[2]),
+      writeRunRecord(store.runDir("legacy-other"), records[3]),
+      writeRunRecord(store.runDir("scoped"), records[4]),
+    ]);
+
+    const observedPaths: string[] = [];
+    const runs = await observeRunRecordReads(
+      (path) => observedPaths.push(path),
+      () => store.loadRuns({ projectId: "project-1" })
+    );
+
+    expect(runs).toEqual([records[0], records[2]]);
+    expect(observedPaths).toEqual([
+      join(store.runDir("scoped", "project-1"), "run.json"),
+      join(store.runDir("legacy"), "run.json"),
+      join(store.runDir("legacy-other"), "run.json"),
+      join(store.runDir("scoped"), "run.json"),
+    ]);
+    expect(
+      observedPaths.some((path) => path.startsWith(store.runsDir("project-2")))
+    ).toBe(false);
+  });
+
+  it("bounds concurrent run record reads", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        writeRunRecord(store.runDir(`run-${index}`, "project-1"), {
+          runId: `run-${index}`,
+          projectId: "project-1",
+        } as OrchestratorRunRecord)
+      )
+    );
+    let activeReads = 0;
+    let maxActiveReads = 0;
+
+    const runs = await observeRunRecordReads(
+      async () => {
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        activeReads -= 1;
+      },
+      () => store.loadRuns({ projectId: "project-1" })
+    );
+
+    expect(runs).toHaveLength(12);
+    expect(maxActiveReads).toBe(8);
+  });
+
+  it("bounds concurrent legacy-compatible global run record reads", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        writeRunRecord(store.runDir(`run-${index}`, "project-1"), {
+          runId: `run-${index}`,
+          projectId: "project-1",
+        } as OrchestratorRunRecord)
+      )
+    );
+    let activeReads = 0;
+    let maxActiveReads = 0;
+
+    const runs = await observeRunRecordReads(
+      async () => {
+        activeReads += 1;
+        maxActiveReads = Math.max(maxActiveReads, activeReads);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        activeReads -= 1;
+      },
+      () => store.loadAllRuns()
+    );
+
+    expect(runs).toHaveLength(12);
+    expect(maxActiveReads).toBe(8);
+  });
+
   it("observes run records read through inventory and per-run lookup paths", async () => {
     const fixture = await createHistoryBenchmarkFixture(2, "shared");
     const observedPaths: string[] = [];
@@ -679,6 +773,18 @@ describe("history benchmark fixture", () => {
     }
   );
 });
+
+async function writeRunRecord(
+  runDirectory: string,
+  record: OrchestratorRunRecord
+): Promise<void> {
+  await mkdir(runDirectory, { recursive: true });
+  await writeFile(
+    join(runDirectory, "run.json"),
+    JSON.stringify(record),
+    "utf8"
+  );
+}
 
 describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
   it("defaults retry metadata for legacy persisted issue records", async () => {
