@@ -127,6 +127,8 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       normalizedStates.has(issue.state.trim().toLowerCase())
     ) as TrackedIssueList;
     filtered.rateLimits = (issues as TrackedIssueList).rateLimits;
+    filtered.skippedItemCount = (issues as TrackedIssueList).skippedItemCount;
+    filtered.skippedItems = (issues as TrackedIssueList).skippedItems;
     return filtered;
   },
 
@@ -449,6 +451,7 @@ function applyPickupLabelDispatchability(
     return { ...issue, dispatchable: false, dispatchReason };
   }) as TrackedIssueList;
   result.rateLimits = issues.rateLimits;
+  result.skippedItemCount = issues.skippedItemCount;
   result.skippedItems = issues.skippedItems;
   return result;
 }

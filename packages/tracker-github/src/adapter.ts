@@ -654,6 +654,7 @@ export async function fetchProjectIssues(
     cycleConfig.rateLimitCollector
   );
   (issues as TrackedIssueList).rateLimits = latestRateLimits;
+  (issues as TrackedIssueList).skippedItemCount = skippedItems.length;
   (issues as TrackedIssueList).skippedItems = skippedItems;
 
   return issues as GitHubTrackedIssue[] & TrackedIssueList;
