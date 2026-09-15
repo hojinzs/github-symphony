@@ -292,8 +292,11 @@ if git -C "$unsafe_host" fetch --no-tags "$unsafe_repo" \
   exit 1
 fi
 grep -Eq "lazy fetching disabled|bad pack header" /tmp/unsafe-publish.log
-! git -C "$unsafe_host" cat-file -e \
-  refs/heads/unsafe-publish:unsafe-publish.txt 2>/dev/null
+if git -C "$unsafe_host" cat-file -e \
+  refs/heads/unsafe-publish:unsafe-publish.txt 2>/dev/null; then
+  echo "unsafe host unexpectedly contains the unpublished worker blob" >&2
+  exit 1
+fi
 
 test "$(git -C "$alpha_original_repo" branch --show-current)" = "fix/2-foreign"
 test "$(git -C "$alpha_original_repo" rev-parse HEAD)" = "$alpha_foreign_head"
