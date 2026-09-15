@@ -304,7 +304,6 @@ test "$(cat "$alpha_original_repo/foreign-issue.txt")" = "foreign issue committe
 test -z "$(git -C "$alpha_original_repo" status --porcelain)"
 alpha_logs=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/runs/*/worker.log" -type f -print)
 test -n "$alpha_logs"
-printf "Issue identity preflight failed\n" >> "$(printf "%s\n" $alpha_logs | head -1)"
 if grep -q "Issue identity preflight failed" $alpha_logs; then
   echo "alpha worker hit the issue identity preflight failure" >&2
   cat $alpha_logs >&2
