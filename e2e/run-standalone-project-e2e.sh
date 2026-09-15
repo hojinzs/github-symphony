@@ -310,6 +310,5 @@ if grep -q "Issue identity preflight failed" $alpha_logs; then
   exit 1
 fi
 for pid in $run_pids; do kill "$pid" 2>/dev/null || true; done
-exit 0
 echo "standalone-project Docker E2E passed"
 '
