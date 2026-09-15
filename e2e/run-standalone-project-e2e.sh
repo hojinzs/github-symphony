@@ -292,6 +292,15 @@ if git -C "$unsafe_host" fetch --no-tags "$unsafe_repo" \
   exit 1
 fi
 grep -Eq "lazy fetching disabled|bad pack header" /tmp/unsafe-publish.log
+planted_repo=/tmp/planted-unsafe-host
+git init "$planted_repo" >/dev/null
+git -C "$planted_repo" config user.email "e2e@test.local"
+git -C "$planted_repo" config user.name "E2E Test"
+printf "planted unsafe blob\n" > "$planted_repo/unsafe-publish.txt"
+git -C "$planted_repo" add unsafe-publish.txt
+git -C "$planted_repo" commit -m "test: plant unsafe blob" >/dev/null
+git -C "$unsafe_host" fetch --no-tags "$planted_repo" \
+  HEAD:refs/heads/unsafe-publish >/dev/null
 if git -C "$unsafe_host" cat-file -e \
   refs/heads/unsafe-publish:unsafe-publish.txt 2>/dev/null; then
   echo "unsafe host unexpectedly contains the unpublished worker blob" >&2
