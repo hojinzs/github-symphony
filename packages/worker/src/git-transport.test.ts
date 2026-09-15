@@ -273,6 +273,26 @@ describe("synchronizeAssignedBranch", { timeout: 15_000 }, () => {
     ).rejects.toThrow("not a git repository");
   });
 
+  it("reports the spawn error when the workspace was removed after Land", async () => {
+    const root = await mkdtemp(join(tmpdir(), "worker-git-transport-landed-"));
+    tempRoots.push(root);
+    const removedWorkspace = join(root, "removed-workspace");
+
+    const result = await trySynchronizeAssignedBranch({
+      cwd: removedWorkspace,
+      assignedBranch: "symphony/acme-platform-975",
+      remoteUrl: join(root, "remote.git"),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/failed: .*ENOENT/),
+    });
+    if (!result.ok) {
+      expect(result.error).not.toMatch(/failed:\s*$/);
+    }
+  });
+
   it("returns a distinct transport failure without throwing after the agent succeeded", async () => {
     const { workspace } = await createGitFixture();
     const competing = join(workspace, "..", "competing");
