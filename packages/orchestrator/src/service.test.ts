@@ -598,9 +598,20 @@ describe("OrchestratorService", () => {
       }),
       status: "running" as const,
     };
+    const refreshedActiveRun = {
+      ...activeRun,
+      updatedAt: "2026-03-08T00:00:01.000Z",
+      tokenUsage: {
+        inputTokens: 30,
+        outputTokens: 20,
+        totalTokens: 50,
+      },
+    };
     const store = {
       loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([]),
       loadAllRuns: vi.fn().mockResolvedValue([activeRun]),
+      loadRuns: vi.fn().mockResolvedValue([activeRun]),
+      loadRun: vi.fn().mockResolvedValue(refreshedActiveRun),
       saveProjectIssueOrchestrations: vi.fn().mockResolvedValue(undefined),
       loadIssueWorkspaces: vi.fn().mockResolvedValue([]),
       saveProjectStatus: vi.fn().mockResolvedValue(undefined),
@@ -630,6 +641,19 @@ describe("OrchestratorService", () => {
     ).reconcileProject(projectConfig);
 
     expect(reconcileRun).toHaveBeenCalledWith(projectConfig, activeRun, [], {});
+    expect(store.loadRuns).toHaveBeenCalledOnce();
+    expect(store.loadAllRuns).not.toHaveBeenCalled();
+    expect(snapshot.activeRuns[0]).toMatchObject({
+      runId: activeRun.runId,
+      tokenUsage: {
+        inputTokens: 30,
+        outputTokens: 20,
+        totalTokens: 50,
+        cumulativeInputTokens: 30,
+        cumulativeOutputTokens: 20,
+        cumulativeTotalTokens: 50,
+      },
+    });
     expect(snapshot.lastError).toContain("Unsupported tracker adapter");
     expect(snapshot.summary.recovered).toBe(1);
   });
@@ -644,6 +668,8 @@ describe("OrchestratorService", () => {
     const store = {
       loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([]),
       loadAllRuns: vi.fn().mockResolvedValue([]),
+      loadRuns: vi.fn().mockResolvedValue([]),
+      loadRun: vi.fn().mockResolvedValue(null),
       saveProjectIssueOrchestrations: vi.fn().mockResolvedValue(undefined),
       loadIssueWorkspaces: vi.fn().mockResolvedValue([]),
       saveProjectStatus: vi.fn().mockResolvedValue(undefined),
@@ -670,6 +696,8 @@ describe("OrchestratorService", () => {
     ).reconcileProject(projectConfig);
 
     expect(reconcileRun).not.toHaveBeenCalled();
+    expect(store.loadRuns).toHaveBeenCalledOnce();
+    expect(store.loadAllRuns).not.toHaveBeenCalled();
     expect(snapshot.summary.recovered).toBe(0);
     expect(snapshot.lastError).toContain("Unsupported tracker adapter");
   });
@@ -14727,6 +14755,9 @@ Prefer focused changes.
       expectedStatus: "running",
       processRunning: true,
       trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
     },
     {
       description:
@@ -14736,6 +14767,9 @@ Prefer focused changes.
       expectedStatus: "succeeded",
       processRunning: true,
       trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
     },
     {
       description:
@@ -14745,6 +14779,9 @@ Prefer focused changes.
       expectedStatus: "suppressed",
       processRunning: false,
       trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
     },
     {
       description:
@@ -14754,6 +14791,9 @@ Prefer focused changes.
       expectedStatus: "suppressed",
       processRunning: true,
       trackerStates: ["In Review", "Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
     },
     {
       description:
@@ -14763,6 +14803,51 @@ Prefer focused changes.
       expectedStatus: "suppressed",
       processRunning: false,
       trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
+    },
+    {
+      description:
+        "retains terminal issue workspace after failed publication is recorded during reconciliation",
+      issueState: "In Progress",
+      trackerProgressConfirmedAt: null,
+      expectedStatus: "suppressed",
+      processRunning: true,
+      trackerStates: ["Done"],
+      publication: {
+        ok: false as const,
+        error: "git push to assigned branch failed: remote rejected",
+      },
+      retainWorkspace: true,
+      expectedLastError:
+        "git_transport_failed: git push to assigned branch failed: remote rejected",
+    },
+    {
+      description:
+        "retains terminal issue workspace after dirty worktree is recorded during reconciliation",
+      issueState: "In Progress",
+      trackerProgressConfirmedAt: null,
+      expectedStatus: "suppressed",
+      processRunning: true,
+      trackerStates: ["Done"],
+      publication: {
+        ok: true as const,
+        result: {
+          branch: "symphony/acme-platform-1",
+          pushed: true,
+          head: "abc123",
+          unpublishedWorktreeChanges: {
+            tracked: [" M src/a.ts"],
+            untracked: [],
+            trackedOmitted: 0,
+            untrackedOmitted: 0,
+          },
+        },
+      },
+      retainWorkspace: true,
+      expectedLastError:
+        "Run suppressed because the tracker issue moved to a terminal state.",
     },
   ])(
     "$description",
@@ -14772,6 +14857,9 @@ Prefer focused changes.
       expectedStatus,
       processRunning,
       trackerStates,
+      publication,
+      retainWorkspace,
+      expectedLastError,
     }) => {
       process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
       const tempRoot = await mkdtemp(
@@ -14783,6 +14871,7 @@ Prefer focused changes.
         "platform"
       );
       const store = new OrchestratorFsStore(tempRoot);
+      const loadAllRunsSpy = vi.spyOn(store, "loadAllRuns");
       const projectConfig = createProjectConfig(tempRoot, repository);
       projectConfig.tracker = {
         adapter: "linear",
@@ -14898,15 +14987,17 @@ Prefer focused changes.
         trackedIssue(trackerStates.at(-1)!),
       ]);
       const killImpl = vi.fn();
-      const publishAssignedBranch = vi.fn().mockResolvedValue({
-        ok: true,
-        result: {
-          branch: "symphony/acme-platform-1",
-          pushed: true,
-          head: "abc123",
-          unpublishedWorktreeChanges: null,
-        },
-      });
+      const publishAssignedBranch = vi.fn().mockResolvedValue(
+        publication ?? {
+          ok: true,
+          result: {
+            branch: "symphony/acme-platform-1",
+            pushed: true,
+            head: "abc123",
+            unpublishedWorktreeChanges: null,
+          },
+        }
+      );
       vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
         listIssues,
         listIssuesByStates: vi.fn().mockResolvedValue([]),
@@ -14941,6 +15032,7 @@ Prefer focused changes.
         workspaceKey
       );
 
+      expect(loadAllRunsSpy).not.toHaveBeenCalled();
       expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(trackerStates.length);
       expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
         projectConfig,
@@ -14948,7 +15040,7 @@ Prefer focused changes.
         expect.objectContaining({ fetchImpl: expect.any(Function) })
       );
       expect(listIssues).toHaveBeenCalledTimes(
-        expectedStatus === "suppressed" ? 2 : 1
+        expectedStatus === "suppressed" && !retainWorkspace ? 2 : 1
       );
       if (expectedStatus === "running") {
         expect(killImpl).not.toHaveBeenCalled();
@@ -14990,9 +15082,19 @@ Prefer focused changes.
           issueState: "Done",
           runPhase: "canceled_by_reconciliation",
         });
+        if (expectedLastError) {
+          expect(updatedRun?.lastError).toBe(expectedLastError);
+        }
         expect(issueRecords[0]?.state).toBe("released");
-        await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
-        expect(workspaceRecord?.status).toBe("removed");
+        if (retainWorkspace) {
+          await expect(readFile(sentinelPath, "utf8")).resolves.toBe(
+            "cleanup me"
+          );
+          expect(workspaceRecord?.status).toBe("active");
+        } else {
+          await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+          expect(workspaceRecord?.status).toBe("removed");
+        }
         expect(snapshot.activeRuns).toHaveLength(0);
       }
     }

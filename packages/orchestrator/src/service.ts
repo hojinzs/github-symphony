@@ -1295,12 +1295,10 @@ export class OrchestratorService {
 
       const workerPids = [...this.activeWorkerPids];
       const runsByPid = new Map(
-        (await this.store.loadAllRuns())
+        (await this.store.loadRuns({ projectId: this.projectConfig.projectId }))
           .filter(
             (run) =>
-              run.projectId === this.projectConfig.projectId &&
-              run.processId !== null &&
-              workerPids.includes(run.processId)
+              run.processId !== null && workerPids.includes(run.processId)
           )
           .map((run) => [run.processId!, run])
       );
@@ -1373,9 +1371,7 @@ export class OrchestratorService {
     let issueRecords = await this.store.loadProjectIssueOrchestrations(
       tenant.projectId
     );
-    const allRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.projectId === tenant.projectId
-    );
+    const allRuns = await this.store.loadRuns({ projectId: tenant.projectId });
     const activeRuns = allRuns.filter((run) =>
       isActiveRunRecordStatus(run.status)
     );
@@ -1420,13 +1416,13 @@ export class OrchestratorService {
         recovered += 1;
       }
     }
-    const reconciledRuns = (await this.store.loadAllRuns()).filter(
-      (run) =>
-        run.projectId === tenant.projectId &&
-        isActiveRunRecordStatus(run.status)
+    let projectRunsAfterReconcile = await this.refreshCurrentRunSnapshot(
+      tenant.projectId,
+      allRuns,
+      issueRecords
     );
-    const projectRunsAfterReconcile = (await this.store.loadAllRuns()).filter(
-      (run) => run.projectId === tenant.projectId
+    const reconciledRuns = projectRunsAfterReconcile.filter((run) =>
+      isActiveRunRecordStatus(run.status)
     );
     rateLimits = resolveProjectRateLimits(reconciledRuns, []);
 
@@ -1460,10 +1456,13 @@ export class OrchestratorService {
         }
       }
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
-      const currentActiveRuns = (await this.store.loadAllRuns()).filter(
-        (run) =>
-          run.projectId === tenant.projectId &&
-          isActiveRunRecordStatus(run.status)
+      projectRunsAfterReconcile = await this.refreshCurrentRunSnapshot(
+        tenant.projectId,
+        projectRunsAfterReconcile,
+        issueRecords
+      );
+      const currentActiveRuns = projectRunsAfterReconcile.filter((run) =>
+        isActiveRunRecordStatus(run.status)
       );
       const candidateTrackerDependencies =
         await this.resolveCandidateTrackerDependencies(
@@ -2286,9 +2285,24 @@ export class OrchestratorService {
         terminalIssuesByIdentifier.set(issue.identifier, issue);
       }
 
+      // Suppression above can persist publication failures or dirty-worktree
+      // evidence. Refresh current runs once more so terminal cleanup observes
+      // those writes without rescanning immutable history.
+      projectRunsAfterReconcile = await this.refreshCurrentRunSnapshot(
+        tenant.projectId,
+        projectRunsAfterReconcile,
+        issueRecords
+      );
+
       for (const issue of terminalIssuesByIdentifier.values()) {
         try {
-          await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
+          await this.cleanupTerminalIssueWorkspace(
+            tenant,
+            issue,
+            now,
+            undefined,
+            projectRunsAfterReconcile
+          );
         } catch (error) {
           const message =
             error instanceof Error
@@ -2342,8 +2356,10 @@ export class OrchestratorService {
       issueRecords
     );
 
-    const allTenantRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.projectId === tenant.projectId
+    const allTenantRuns = await this.refreshCurrentRunSnapshot(
+      tenant.projectId,
+      projectRunsAfterReconcile,
+      issueRecords
     );
     const issueWorkspaces = await this.store.loadIssueWorkspaces(
       tenant.projectId
@@ -2423,6 +2439,45 @@ export class OrchestratorService {
     return warnings;
   }
 
+  /**
+   * Refresh only runs that can affect current scheduling or status decisions.
+   * Historical records remain stable for the tick, preserving cumulative
+   * metrics and recovery evidence without repeating a full inventory scan.
+   * A scoped lookup can miss a legacy unscoped record, so a null result
+   * deliberately retains the tick-start inventory value until a later write
+   * migrates that run into project-scoped storage.
+   */
+  private async refreshCurrentRunSnapshot(
+    projectId: string,
+    snapshot: readonly OrchestratorRunRecord[],
+    issueRecords: readonly IssueOrchestrationRecord[]
+  ): Promise<OrchestratorRunRecord[]> {
+    const currentRunIds = new Set(
+      snapshot
+        .filter((run) => isActiveRunRecordStatus(run.status))
+        .map((run) => run.runId)
+    );
+    for (const issueRecord of issueRecords) {
+      if (issueRecord.currentRunId) {
+        currentRunIds.add(issueRecord.currentRunId);
+      }
+    }
+    if (currentRunIds.size === 0) {
+      return [...snapshot];
+    }
+
+    const refreshedRuns = await Promise.all(
+      [...currentRunIds].map((runId) => this.store.loadRun(runId, projectId))
+    );
+    const runsById = new Map(snapshot.map((run) => [run.runId, run]));
+    for (const run of refreshedRuns) {
+      if (run && run.projectId === projectId) {
+        runsById.set(run.runId, run);
+      }
+    }
+    return [...runsById.values()];
+  }
+
   private async performStartupCleanup(
     trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<void> {
@@ -2434,13 +2489,13 @@ export class OrchestratorService {
     if (workspaceRecords.length === 0) {
       return;
     }
+    const projectRuns = await this.store.loadRuns({
+      projectId: tenant.projectId,
+    });
     const activeRunsByWorkspace = new Map(
-      (await this.store.loadAllRuns())
+      projectRuns
         .filter(
-          (run) =>
-            run.projectId === tenant.projectId &&
-            isActiveRunRecordStatus(run.status) &&
-            run.issueWorkspaceKey
+          (run) => isActiveRunRecordStatus(run.status) && run.issueWorkspaceKey
         )
         .map((run) => [run.issueWorkspaceKey!, run])
     );
@@ -2513,7 +2568,8 @@ export class OrchestratorService {
           tenant,
           issue,
           now,
-          resolution
+          resolution,
+          projectRuns
         );
       } catch (error) {
         const message =
@@ -2703,8 +2759,9 @@ export class OrchestratorService {
     issueId: string,
     issueIdentifier: string
   ): Promise<OrchestratorRunRecord | null> {
-    const matchingRuns = (await this.store.loadAllRuns())
-      .filter((run) => run.projectId === this.projectConfig.projectId)
+    const matchingRuns = (
+      await this.store.loadRuns({ projectId: this.projectConfig.projectId })
+    )
       .filter(
         (run) =>
           run.issueId === issueId || run.issueIdentifier === issueIdentifier
@@ -6180,19 +6237,36 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     issue: TrackedIssue,
     now: Date,
-    workflowResolution?: ProjectWorkflowResolution
+    workflowResolution?: ProjectWorkflowResolution,
+    projectRuns?: readonly OrchestratorRunRecord[]
   ): Promise<void> {
     if (issue.isArchived === true) {
       return;
     }
 
-    const liveIssueRun = (await this.store.loadAllRuns()).find(
+    const scopedRuns =
+      projectRuns ??
+      (await this.store.loadRuns({ projectId: tenant.projectId }));
+    const liveIssueCandidates = scopedRuns.filter(
       (run) =>
         run.projectId === tenant.projectId &&
         run.issueId === issue.id &&
         run.processId !== null &&
-        run.processId !== undefined &&
-        this.isRunProcessRunning(run)
+        run.processId !== undefined
+    );
+    const refreshedCandidates = await Promise.all(
+      liveIssueCandidates.map(async (candidate) => {
+        const refreshed = await this.store.loadRun(
+          candidate.runId,
+          tenant.projectId
+        );
+        return refreshed?.projectId === tenant.projectId
+          ? refreshed
+          : candidate;
+      })
+    );
+    const liveIssueRun = refreshedCandidates.find((run) =>
+      this.isRunProcessRunning(run)
     );
     if (liveIssueRun) {
       this.logVerbose(
@@ -6203,7 +6277,8 @@ export class OrchestratorService {
 
     const unpublishedGitWork = await this.unpublishedGitWorkReason(
       tenant.projectId,
-      issue.id
+      issue.id,
+      projectRuns
     );
     if (unpublishedGitWork) {
       this.logVerbose(
@@ -6296,7 +6371,8 @@ export class OrchestratorService {
 
   private async unpublishedGitWorkReason(
     projectId: string,
-    issueId: string
+    issueId: string,
+    projectRuns?: readonly OrchestratorRunRecord[]
   ): Promise<"git_transport_failed" | "git_unpublished_worktree" | null> {
     const workspace = (await this.store.loadIssueWorkspaces(projectId)).find(
       (record) => record.issueSubjectId === issueId
@@ -6308,8 +6384,8 @@ export class OrchestratorService {
       return workspaceReason;
     }
     const latestRun = buildLatestRunMapByIssueId(
-      (await this.store.loadAllRuns()).filter(
-        (run) => run.projectId === projectId && run.issueId === issueId
+      (projectRuns ?? (await this.store.loadRuns({ projectId }))).filter(
+        (run) => run.issueId === issueId
       )
     ).get(issueId);
     return latestRun ? unpublishedGitWorkReason(latestRun) : null;
