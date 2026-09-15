@@ -127,3 +127,33 @@ jobs:
             -e GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/var/lib/gh-symphony/issues.json \
             gh-symphony:test \
             gh-symphony project start --project-dir /var/lib/gh-symphony/repo --once
+
+  standalone-docker-e2e:
+    name: Standalone Docker E2E
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run standalone project Docker E2E
+        run: |
+          runner_log="${RUNNER_TEMP}/standalone-docker-e2e.log"
+          set +e
+          ./e2e/run-standalone-project-e2e.sh 2>&1 | tee "$runner_log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status" -eq 69 ]; then
+            echo "::error::Docker E2E preflight exited 69; CI requires a reachable Docker runtime"
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+
+          if ! grep -qx "standalone-project Docker E2E passed" "$runner_log"; then
+            echo "::error::Docker E2E exited successfully without its final confirmation"
+            exit 1
+          fi

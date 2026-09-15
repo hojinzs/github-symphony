@@ -212,7 +212,8 @@ export function shouldAwaitTrackerProgressExit(
   now: Date
 ): boolean {
   if (
-    !matchesWorkflowState(run.issueState, [issueState]) ||
+    !run.trackerProgressConfirmedState ||
+    !matchesWorkflowState(run.trackerProgressConfirmedState, [issueState]) ||
     !run.trackerProgressConfirmedAt
   ) {
     return false;
@@ -900,6 +901,9 @@ export class OrchestratorService {
             trackerProgressConfirmedAt: recordConfirmedTrackerProgress
               ? nowIso
               : (latestRun.trackerProgressConfirmedAt ?? null),
+            trackerProgressConfirmedState: recordConfirmedTrackerProgress
+              ? (result.state ?? null)
+              : (latestRun.trackerProgressConfirmedState ?? null),
           };
           await this.persistTrackerStateDiagnostics(
             diagnosticRun,
@@ -2169,16 +2173,54 @@ export class OrchestratorService {
           await this.recordOwnershipSkip(activeRun, "signal");
           continue;
         }
+        const terminalState =
+          issue.isArchived !== true &&
+          issueLifecycle !== null &&
+          isStateTerminal(issue.state, issueLifecycle);
+        const completedByConfirmedTrackerProgress =
+          terminalState &&
+          activeRun.trackerProgressConfirmedAt !== null &&
+          activeRun.trackerProgressConfirmedAt !== undefined &&
+          activeRun.trackerProgressConfirmedState !== null &&
+          activeRun.trackerProgressConfirmedState !== undefined &&
+          matchesWorkflowState(activeRun.trackerProgressConfirmedState, [
+            issue.state,
+          ]);
+        if (completedByConfirmedTrackerProgress) {
+          if (
+            (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
+          ) {
+            continue;
+          }
+          const completedRun: OrchestratorRunRecord = {
+            ...activeRun,
+            status: "succeeded",
+            runPhase: "succeeded",
+            processId: null,
+            completedAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+            nextRetryAt: null,
+            retryKind: null,
+            lastError: null,
+          };
+          await this.store.saveRun(completedRun);
+          this.logVerbose(
+            `[run-completed] ${completedRun.runId} status=${completedRun.status}`
+          );
+          issueRecords = await this.releaseRunIssueOrchestration(
+            issueRecords,
+            activeRun,
+            now,
+            { resetFailureRetryBudget: true }
+          );
+          continue;
+        }
         const publication = await this.publishAssignedBranchForRun(activeRun);
         if (
           (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
         ) {
           continue;
         }
-        const terminalState =
-          issue.isArchived !== true &&
-          issueLifecycle !== null &&
-          isStateTerminal(issue.state, issueLifecycle);
         const recovery = terminalState
           ? null
           : await this.classifyIncompleteTurnDirtyWorkspace(
@@ -2401,6 +2443,9 @@ export class OrchestratorService {
    * Refresh only runs that can affect current scheduling or status decisions.
    * Historical records remain stable for the tick, preserving cumulative
    * metrics and recovery evidence without repeating a full inventory scan.
+   * A scoped lookup can miss a legacy unscoped record, so a null result
+   * deliberately retains the tick-start inventory value until a later write
+   * migrates that run into project-scoped storage.
    */
   private async refreshCurrentRunSnapshot(
     projectId: string,
@@ -2426,7 +2471,7 @@ export class OrchestratorService {
     );
     const runsById = new Map(snapshot.map((run) => [run.runId, run]));
     for (const run of refreshedRuns) {
-      if (run) {
+      if (run && run.projectId === projectId) {
         runsById.set(run.runId, run);
       }
     }
@@ -3904,16 +3949,20 @@ export class OrchestratorService {
 
     const gitTransportFailed = isGitTransportFailure(runWithTokens);
     await this.recordGitTransportWorkspaceState(tenant, runWithTokens, now);
-    const currentTrackerProgress =
-      runWithTokens.runPhase === "succeeded" &&
-      !gitTransportFailed &&
+    const classifiedTrackerProgress =
+      (runWithTokens.runPhase === "succeeded" || gitTransportFailed) &&
       runWithTokens.trackerProgressConfirmedAt
         ? await this.classifyCurrentTrackerProgress(
             tenant,
             runWithTokens,
-            trackerDependencies
+            trackerDependencies,
+            { requireMatchingTerminalState: gitTransportFailed }
           )
         : null;
+    const currentTrackerProgress =
+      gitTransportFailed && classifiedTrackerProgress?.state === "unknown"
+        ? null
+        : classifiedTrackerProgress;
     const finalizationDisposition = decideFinalizationDisposition({
       trackerProgress: currentTrackerProgress,
       currentDeferralCount: runWithTokens.finalizationDeferralCount ?? 0,
@@ -3958,6 +4007,7 @@ export class OrchestratorService {
         ...runWithTokens,
         finalizationDeferralCount: 0,
         status: "succeeded",
+        runPhase: "succeeded",
         processId: null,
         completedAt: now.toISOString(),
         updatedAt: now.toISOString(),
@@ -4617,7 +4667,8 @@ export class OrchestratorService {
   private async classifyCurrentTrackerProgress(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    trackerDependencies: OrchestratorTrackerDependencies = {}
+    trackerDependencies: OrchestratorTrackerDependencies = {},
+    options: { requireMatchingTerminalState?: boolean } = {}
   ): Promise<FinalTrackerProgress> {
     try {
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
@@ -4650,10 +4701,20 @@ export class OrchestratorService {
           error: `Final tracker state unavailable: canonical tracker item ${run.issueSubjectId} was not returned.`,
         };
       }
+      const matchesConfirmedTerminalState =
+        isStateTerminal(issue.state, resolution.lifecycle) &&
+        run.trackerProgressConfirmedState !== null &&
+        run.trackerProgressConfirmedState !== undefined &&
+        matchesWorkflowState(run.trackerProgressConfirmedState, [issue.state]);
       return {
         state:
-          issue.dispatchable &&
-          matchesWorkflowState(issue.state, resolution.lifecycle.activeStates)
+          (issue.dispatchable &&
+            matchesWorkflowState(
+              issue.state,
+              resolution.lifecycle.activeStates
+            )) ||
+          (options.requireMatchingTerminalState &&
+            !matchesConfirmedTerminalState)
             ? "active"
             : "non-actionable",
       };
@@ -6180,6 +6241,37 @@ export class OrchestratorService {
     projectRuns?: readonly OrchestratorRunRecord[]
   ): Promise<void> {
     if (issue.isArchived === true) {
+      return;
+    }
+
+    const scopedRuns =
+      projectRuns ??
+      (await this.store.loadRuns({ projectId: tenant.projectId }));
+    const liveIssueCandidates = scopedRuns.filter(
+      (run) =>
+        run.projectId === tenant.projectId &&
+        run.issueId === issue.id &&
+        run.processId !== null &&
+        run.processId !== undefined
+    );
+    const refreshedCandidates = await Promise.all(
+      liveIssueCandidates.map(async (candidate) => {
+        const refreshed = await this.store.loadRun(
+          candidate.runId,
+          tenant.projectId
+        );
+        return refreshed?.projectId === tenant.projectId
+          ? refreshed
+          : candidate;
+      })
+    );
+    const liveIssueRun = refreshedCandidates.find((run) =>
+      this.isRunProcessRunning(run)
+    );
+    if (liveIssueRun) {
+      this.logVerbose(
+        `[workspace-cleanup-deferred] ${issue.identifier} reason=worker-process-running`
+      );
       return;
     }
 

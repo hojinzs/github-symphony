@@ -468,6 +468,7 @@ describe("OrchestratorService", () => {
     const run = {
       issueState: "Done",
       trackerProgressConfirmedAt: "2026-08-21T00:00:00.000Z",
+      trackerProgressConfirmedState: "Done",
     } as OrchestratorRunRecord;
 
     expect(
@@ -1822,7 +1823,9 @@ Retry hook validation.
       owner: "acme",
       name: "platform",
       cloneUrl: "https://github.com/acme/platform.git",
+      path: tempRoot,
     };
+    await writeWorkflowFixture(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
     await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
@@ -1874,10 +1877,12 @@ Retry hook validation.
       rateLimits: { source: "github", remaining: 3999, cycleCost: 1 },
       error: "expected_state_mismatch",
     });
+    const listIssues = vi.fn().mockResolvedValue([]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([]);
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-      listIssues: vi.fn(),
+      listIssues,
       listIssuesByStates: vi.fn(),
-      fetchIssueStatesByIds: vi.fn(),
+      fetchIssueStatesByIds,
       buildWorkerEnvironment: vi.fn(),
       reviveIssue: vi.fn(),
       requestState,
@@ -1923,6 +1928,35 @@ Retry hook validation.
     expect(persistedRun?.trackerProgressConfirmedAt).toBeNull();
     expect(loadWorkflowSpy).toHaveBeenCalledOnce();
     loadWorkflowSpy.mockClear();
+    requestState.mockResolvedValueOnce({
+      ok: true,
+      outcome: "confirmed",
+      state: "Done",
+      expectedState: "Ready",
+      targetState: "Done",
+      reason: "landed",
+      rateLimits: null,
+      error: null,
+    });
+    await expect(
+      service.requestTrackerState({
+        runId: "run-1",
+        request: {
+          type: "transition-request",
+          expectedState: "Ready",
+          targetState: "Done",
+          reason: "landed",
+        },
+      })
+    ).resolves.toMatchObject({ ok: true, outcome: "confirmed" });
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      issueState: "Done",
+      trackerProgressConfirmedAt: "2026-07-30T13:01:00.000Z",
+      trackerProgressConfirmedState: "Done",
+    });
+
     requestState.mockResolvedValueOnce({
       ok: true,
       outcome: "confirmed",
@@ -1989,6 +2023,12 @@ Retry hook validation.
       expect.objectContaining({
         event: "tracker.state",
         runId: "run-1",
+        outcome: "confirmed",
+        confirmedState: "Done",
+      }),
+      expect.objectContaining({
+        event: "tracker.state",
+        runId: "run-1",
         outcome: "failed",
         error: "workflow_unavailable_for_routability_check",
         routable: null,
@@ -2001,6 +2041,22 @@ Retry hook validation.
         rateLimits: expect.objectContaining({ remaining: 0 }),
       }),
     ]);
+
+    listIssues.mockResolvedValueOnce([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        state: "In review",
+        dispatchable: true,
+      },
+    ]);
+    await service.runOnce();
+    expect(listIssues).toHaveBeenCalled();
+    await expect(
+      store.loadRun("run-1", projectConfig.projectId)
+    ).resolves.toMatchObject({
+      trackerProgressConfirmedState: "Done",
+    });
   });
 
   it("publishes only the immutable assigned branch repeatedly through the host transport", async () => {
@@ -10835,6 +10891,7 @@ Prefer focused changes.
       startedAt: "2026-03-08T00:00:00.000Z",
       completedAt: null,
       trackerProgressConfirmedAt: "2026-03-07T23:59:59.000Z",
+      trackerProgressConfirmedState: "Todo",
       runPhase: "succeeded",
       lastEventAt: "2026-03-07T23:59:58.000Z",
       lastEventAtSource: "event-channel",
@@ -10888,6 +10945,7 @@ Prefer focused changes.
     return {
       store,
       service,
+      projectConfig,
       fetchIssueStatesByIds,
       resolveWorkerCredentials,
       spawnImpl,
@@ -11047,14 +11105,81 @@ Prefer focused changes.
     ).toMatchObject({ state: "released", currentRunId: null });
   });
 
-  it("preserves a host Git transport failure when the tracker is non-actionable", async () => {
+  it("does not let a post-Land host Git transport failure override confirmed completion", async () => {
     const { store, service } =
       await createSuccessfulFinalizationFixture("Done");
     const run = await store.loadRun("run-1");
     expect(run).toBeTruthy();
     await store.saveRun({
       ...run!,
-      workerExitCode: 0,
+      issueState: "Done",
+      trackerProgressConfirmedState: "Done",
+      workerExitCode: 1,
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "succeeded",
+      retryKind: null,
+      workerExitCode: 1,
+      runPhase: "succeeded",
+      lastError: null,
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "released",
+      failureRetryCount: 0,
+    });
+  });
+
+  it("preserves a host Git transport failure across two terminal tracker polls when the confirmed state does not match", async () => {
+    const { store, service, projectConfig } =
+      await createSuccessfulFinalizationFixture("Done");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    const classifyCurrentTrackerProgress = (
+      service as unknown as {
+        classifyCurrentTrackerProgress(
+          tenant: OrchestratorProjectConfig,
+          run: OrchestratorRunRecord,
+          dependencies: object,
+          options: { requireMatchingTerminalState: boolean }
+        ): Promise<{ state: string }>;
+      }
+    ).classifyCurrentTrackerProgress.bind(service);
+
+    const firstPoll = await classifyCurrentTrackerProgress(
+      projectConfig,
+      run!,
+      {},
+      { requireMatchingTerminalState: true }
+    );
+    const secondPoll = await classifyCurrentTrackerProgress(
+      projectConfig,
+      { ...run!, issueState: "Done" },
+      {},
+      { requireMatchingTerminalState: true }
+    );
+
+    expect(firstPoll.state).toBe("active");
+    expect(secondPoll.state).toBe("active");
+  });
+
+  it("retries a host Git transport failure after a non-terminal review transition", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("In Review");
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      issueState: "In Review",
+      trackerProgressConfirmedState: "In Review",
+      workerExitCode: 1,
+      runPhase: "failed",
       lastError: "git_transport_failed: refusing to push feat/assigned",
     });
 
@@ -11063,8 +11188,6 @@ Prefer focused changes.
     expect(await store.loadRun("run-1")).toMatchObject({
       status: "retrying",
       retryKind: "failure",
-      workerExitCode: 0,
-      runPhase: "succeeded",
       lastError: "git_transport_failed: refusing to push feat/assigned",
     });
     expect(
@@ -11073,6 +11196,32 @@ Prefer focused changes.
       state: "retry_queued",
       failureRetryCount: 1,
     });
+  });
+
+  it("retries a host Git transport failure immediately when tracker progress is unavailable", async () => {
+    const { store, service } = await createSuccessfulFinalizationFixture(
+      new Error("tracker offline")
+    );
+    const run = await store.loadRun("run-1");
+    expect(run).toBeTruthy();
+    await store.saveRun({
+      ...run!,
+      workerExitCode: 1,
+      runPhase: "failed",
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      finalizationDeferralCount: 0,
+      lastError: "git_transport_failed: refusing to push feat/assigned",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "retry_queued", failureRetryCount: 1 });
   });
 
   it("retains an unpublished transport failure after max retry suppression", async () => {
@@ -11123,15 +11272,17 @@ Prefer focused changes.
       },
     ],
   ])(
-    "retains an unpublished %s and workspace when a terminal issue reaches its retry due time",
+    "retains an unpublished %s and workspace when a non-active issue reaches its retry due time",
     async (_description, lastError, unpublishedWorktree) => {
-      const trackerState = "Done";
+      const trackerState = "In Review";
       const { store, service, advanceToRetryDue, spawnImpl } =
         await createSuccessfulFinalizationFixture(trackerState);
       const run = await store.loadRun("run-1");
       expect(run).toBeTruthy();
       await store.saveRun({
         ...run!,
+        issueState: trackerState,
+        trackerProgressConfirmedState: trackerState,
         workerExitCode: 1,
         runPhase: "failed",
         lastError,
@@ -14597,16 +14748,89 @@ Prefer focused changes.
 
   it.each([
     {
-      name: "failed publication",
+      description:
+        "keeps a confirmed Land workspace while inside the exit grace",
+      issueState: "Done",
+      trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
+      expectedStatus: "running",
+      processRunning: true,
+      trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
+    },
+    {
+      description:
+        "records a confirmed Land completion as successful after the exit grace",
+      issueState: "Done",
+      trackerProgressConfirmedAt: "2026-03-08T00:04:00.000Z",
+      expectedStatus: "succeeded",
+      processRunning: true,
+      trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
+    },
+    {
+      description:
+        "reconciles a confirmed run whose recorded state does not match the terminal tracker state",
+      issueState: "In Review",
+      trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
+      expectedStatus: "suppressed",
+      processRunning: false,
+      trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
+    },
+    {
+      description:
+        "preserves confirmed review state when a later poll moves the tracker to Done",
+      issueState: "In Review",
+      trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
+      expectedStatus: "suppressed",
+      processRunning: true,
+      trackerStates: ["In Review", "Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
+    },
+    {
+      description:
+        "reconciles an unconfirmed run that moved to a terminal state",
+      issueState: "In Progress",
+      trackerProgressConfirmedAt: null,
+      expectedStatus: "suppressed",
+      processRunning: false,
+      trackerStates: ["Done"],
+      publication: null,
+      retainWorkspace: false,
+      expectedLastError: null,
+    },
+    {
+      description:
+        "retains terminal issue workspace after failed publication is recorded during reconciliation",
+      issueState: "In Progress",
+      trackerProgressConfirmedAt: null,
+      expectedStatus: "suppressed",
+      processRunning: true,
+      trackerStates: ["Done"],
       publication: {
         ok: false as const,
         error: "git push to assigned branch failed: remote rejected",
       },
+      retainWorkspace: true,
       expectedLastError:
         "git_transport_failed: git push to assigned branch failed: remote rejected",
     },
     {
-      name: "dirty worktree",
+      description:
+        "retains terminal issue workspace after dirty worktree is recorded during reconciliation",
+      issueState: "In Progress",
+      trackerProgressConfirmedAt: null,
+      expectedStatus: "suppressed",
+      processRunning: true,
+      trackerStates: ["Done"],
       publication: {
         ok: true as const,
         result: {
@@ -14621,12 +14845,22 @@ Prefer focused changes.
           },
         },
       },
+      retainWorkspace: true,
       expectedLastError:
         "Run suppressed because the tracker issue moved to a terminal state.",
     },
   ])(
-    "retains terminal issue workspace after $name is recorded during reconciliation",
-    async ({ publication, expectedLastError }) => {
+    "$description",
+    async ({
+      issueState,
+      trackerProgressConfirmedAt,
+      expectedStatus,
+      processRunning,
+      trackerStates,
+      publication,
+      retainWorkspace,
+      expectedLastError,
+    }) => {
       process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
       const tempRoot = await mkdtemp(
         join(tmpdir(), "orchestrator-terminal-reconciliation-")
@@ -14637,6 +14871,7 @@ Prefer focused changes.
         "platform"
       );
       const store = new OrchestratorFsStore(tempRoot);
+      const loadAllRunsSpy = vi.spyOn(store, "loadAllRuns");
       const projectConfig = createProjectConfig(tempRoot, repository);
       projectConfig.tracker = {
         adapter: "linear",
@@ -14667,22 +14902,26 @@ Prefer focused changes.
         issueId: "issue-1",
         issueSubjectId: "issue-1",
         issueIdentifier: "acme/platform#1",
-        issueState: "In Progress",
+        issueState,
         repository,
         status: "running",
         attempt: 1,
         processId: 4205,
         port: 4601,
         workingDirectory: join(tempRoot, "active-run"),
-        assignedBranch: "symphony/acme-platform-1",
         issueWorkspaceKey: null,
         workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
         workflowPath: null,
         retryKind: null,
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:00.000Z",
-        startedAt: "2026-03-08T00:00:00.000Z",
+        startedAt: "2026-03-08T00:04:30.000Z",
         completedAt: null,
+        trackerProgressConfirmedAt,
+        trackerProgressConfirmedState: trackerProgressConfirmedAt
+          ? issueState
+          : null,
+        assignedBranch: "symphony/acme-platform-1",
         lastError: null,
         nextRetryAt: null,
       });
@@ -14715,14 +14954,14 @@ Prefer focused changes.
         lastError: null,
       });
 
-      const terminalIssue = {
+      const trackedIssue = (state: string) => ({
         id: "issue-1",
         identifier: "acme/platform#1",
         number: 1,
         title: "Test issue",
         description: null,
         priority: null,
-        state: "Done",
+        state,
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
@@ -14736,10 +14975,29 @@ Prefer focused changes.
           itemId: "issue-1",
         },
         metadata: {},
-      };
+      });
       const listIssues = vi.fn().mockResolvedValue([]);
-      const fetchIssueStatesByIds = vi.fn().mockResolvedValue([terminalIssue]);
+      const fetchIssueStatesByIds = vi.fn();
+      for (const trackerState of trackerStates) {
+        fetchIssueStatesByIds.mockResolvedValueOnce([
+          trackedIssue(trackerState),
+        ]);
+      }
+      fetchIssueStatesByIds.mockResolvedValue([
+        trackedIssue(trackerStates.at(-1)!),
+      ]);
       const killImpl = vi.fn();
+      const publishAssignedBranch = vi.fn().mockResolvedValue(
+        publication ?? {
+          ok: true,
+          result: {
+            branch: "symphony/acme-platform-1",
+            pushed: true,
+            head: "abc123",
+            unpublishedWorktreeChanges: null,
+          },
+        }
+      );
       vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
         listIssues,
         listIssuesByStates: vi.fn().mockResolvedValue([]),
@@ -14750,17 +15008,22 @@ Prefer focused changes.
         reviveIssue: vi.fn(),
       });
 
+      let currentTime = new Date("2026-03-08T00:05:00.000Z");
       const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: vi
           .fn()
           .mockResolvedValue(createEmptyTrackerResponse()) as never,
-        now: () => new Date("2026-03-08T00:05:00.000Z"),
+        now: () => currentTime,
         killImpl,
-        isProcessRunning: vi.fn().mockReturnValue(true),
-        publishAssignedBranch: vi.fn().mockResolvedValue(publication),
+        isProcessRunning: vi.fn().mockReturnValue(processRunning),
+        publishAssignedBranch,
       });
 
-      const snapshot = await service.runOnce();
+      let snapshot = await service.runOnce();
+      if (trackerStates.length > 1) {
+        currentTime = new Date("2026-03-08T00:05:15.000Z");
+        snapshot = await service.runOnce();
+      }
       const updatedRun = await store.loadRun("run-1");
       const issueRecords =
         await store.loadProjectIssueOrchestrations("tenant-1");
@@ -14769,21 +15032,71 @@ Prefer focused changes.
         workspaceKey
       );
 
-      expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
+      expect(loadAllRunsSpy).not.toHaveBeenCalled();
+      expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(trackerStates.length);
       expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
         projectConfig,
         ["issue-1"],
         expect.objectContaining({ fetchImpl: expect.any(Function) })
       );
-      expect(listIssues).toHaveBeenCalledTimes(1);
-      expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
-      expect(updatedRun?.status).toBe("suppressed");
-      expect(updatedRun?.issueState).toBe("Done");
-      expect(updatedRun?.lastError).toBe(expectedLastError);
-      expect(issueRecords[0]?.state).toBe("released");
-      await expect(readFile(sentinelPath, "utf8")).resolves.toBe("cleanup me");
-      expect(workspaceRecord?.status).toBe("active");
-      expect(snapshot.activeRuns).toHaveLength(0);
+      expect(listIssues).toHaveBeenCalledTimes(
+        expectedStatus === "suppressed" && !retainWorkspace ? 2 : 1
+      );
+      if (expectedStatus === "running") {
+        expect(killImpl).not.toHaveBeenCalled();
+        expect(publishAssignedBranch).not.toHaveBeenCalled();
+        expect(updatedRun?.status).toBe("running");
+        expect(issueRecords[0]?.state).toBe("running");
+        await expect(readFile(sentinelPath, "utf8")).resolves.toBe(
+          "cleanup me"
+        );
+        expect(workspaceRecord?.status).toBe("active");
+        expect(snapshot.activeRuns).toHaveLength(1);
+      } else if (expectedStatus === "succeeded") {
+        expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
+        expect(publishAssignedBranch).not.toHaveBeenCalled();
+        expect(updatedRun).toMatchObject({
+          status: "succeeded",
+          issueState: "Done",
+          runPhase: "succeeded",
+          processId: null,
+          retryKind: null,
+          lastError: null,
+        });
+        expect(issueRecords[0]).toMatchObject({
+          state: "released",
+          failureRetryCount: 0,
+        });
+        await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+        expect(workspaceRecord?.status).toBe("removed");
+        expect(snapshot.activeRuns).toHaveLength(0);
+      } else {
+        if (processRunning) {
+          expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
+        } else {
+          expect(killImpl).not.toHaveBeenCalled();
+        }
+        expect(publishAssignedBranch).toHaveBeenCalledTimes(1);
+        expect(updatedRun).toMatchObject({
+          status: "suppressed",
+          issueState: "Done",
+          runPhase: "canceled_by_reconciliation",
+        });
+        if (expectedLastError) {
+          expect(updatedRun?.lastError).toBe(expectedLastError);
+        }
+        expect(issueRecords[0]?.state).toBe("released");
+        if (retainWorkspace) {
+          await expect(readFile(sentinelPath, "utf8")).resolves.toBe(
+            "cleanup me"
+          );
+          expect(workspaceRecord?.status).toBe("active");
+        } else {
+          await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+          expect(workspaceRecord?.status).toBe("removed");
+        }
+        expect(snapshot.activeRuns).toHaveLength(0);
+      }
     }
   );
 

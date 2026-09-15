@@ -274,6 +274,8 @@ export type OrchestratorRunRecord = {
   rateLimits?: Record<string, unknown> | null;
   /** Confirmed API lifecycle progress awaiting the worker's clean exit. */
   trackerProgressConfirmedAt?: string | null;
+  /** Lifecycle state confirmed by the run's tracker transition request. */
+  trackerProgressConfirmedState?: string | null;
   /** Consecutive unknown canonical reads while finalizing a successful run. */
   finalizationDeferralCount?: number;
   /** Recoverable dirty workspace left by an incomplete runtime session. */
