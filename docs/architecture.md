@@ -162,10 +162,13 @@ the tracker adapter:
 - `OrchestratorService` owns run-query freshness during reconciliation. Each
   project tick takes one project-scoped historical inventory for cumulative
   token metrics, retry/convergence recovery, and unpublished-work evidence.
-  After asynchronous reconciliation and dispatch boundaries it reloads only
+  After asynchronous reconciliation, dispatch, and post-suppression cleanup
+  boundaries it reloads only
   known active/current run IDs and merges those records into the tick snapshot,
   so worker events remain visible without repeating history scans. Terminal
-  cleanup consumes that scoped evidence snapshot; startup cleanup similarly
+  cleanup consumes that scoped evidence snapshot. The post-suppression refresh
+  ensures publication failures and dirty-worktree evidence persisted during the
+  same tick are visible before terminal workspace removal; startup cleanup similarly
   takes one project inventory. This deliberately avoids treating one immutable
   snapshot as fresh across asynchronous worker updates.
 - Issue workspace records and directory lifecycle remain in orchestrator state. On first creation the orchestrator creates `<workspace.root>/<issue-key>/repository`, then runs the configured `after_create` hook before any Git-dependent setup. The project hook owns cloning, synchronization, and branch checkout; the generated default script implements a full clone plus assigned-branch checkout so the workspace can serve every reachable object to the host publication transport. The trusted population hook receives the host Git credential-helper environment for private clones, and the orchestrator verifies its resulting branch equals `SYMPHONY_ASSIGNED_BRANCH` before dispatch. Workflow regeneration migrates only the exact legacy generated no-op hook and preserves customized scripts. A failed fresh hook may remove the partially prepared workspace, while a reused workspace is never destructively repopulated. Terminal cleanup runs `before_remove` and removes the workspace directory without VCS-specific cache or worktree bookkeeping. This responsibility boundary follows upstream Symphony §§9.2–9.4. The repository-local hook runner still uses the `repository` subdirectory as its working directory instead of the workspace root described by §9.4; hook scripts should use the injected absolute workspace and repository paths rather than relying on cwd.

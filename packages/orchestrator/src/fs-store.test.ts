@@ -762,9 +762,9 @@ describe("history benchmark fixture", () => {
         const runs = await fixture.store.loadAllRuns();
 
         // #896 reduces the #894 baseline to one scoped inventory. Known
-        // current runs are re-read at explicit freshness boundaries.
+        // current runs are re-read at four explicit freshness boundaries.
         expect(measurement.iterations).toBe(1);
-        expect(measurement.fsReadCount).toBe(7);
+        expect(measurement.fsReadCount).toBe(8);
         expect(runs).toHaveLength(3);
         expect(runs.filter((run) => run.status === "running")).toHaveLength(1);
       } finally {

@@ -45,34 +45,34 @@ rerun the entire matrix before proposing an elapsed-time budget.
 
 On 2026-09-15, issue #896 replaced the five global inventories with one
 project-scoped historical inventory and bounded current-run reads at explicit
-freshness boundaries. The same command and reference machine measured 10,005
-`run.json` reads for both 10,000-history polling ticks: 40,001 fewer reads, or
-a 79.99% reduction from the 50,006-read baseline. The result is three reads
+freshness boundaries. The same command and reference machine measured 10,006
+`run.json` reads for both 10,000-history polling ticks: 40,000 fewer reads, or
+a 79.99% reduction from the 50,006-read baseline. The result is four reads
 above the original 10,002-read planning target because the implementation
-retains separate post-reconciliation, pre-candidate, and final-snapshot
-observations of the active run instead of treating one immutable snapshot as
-fresh across asynchronous worker updates.
+retains separate post-reconciliation, pre-candidate, post-suppression cleanup,
+and final-snapshot observations of the active run instead of treating one
+immutable snapshot as fresh across asynchronous worker updates.
 
 Elapsed results remain descriptive rather than a CI threshold. The legacy
-10,000-history tick improved from 76,838.99 ms to 71,597.28 ms (6.8%), while
-the shared-layout tick improved from 86,782.83 ms to 84,057.41 ms (3.1%). This
+10,000-history tick improved from 76,838.99 ms to 74,029.29 ms (3.7%), while
+the shared-layout tick improved from 86,782.83 ms to 75,320.60 ms (13.2%). This
 confirms the baseline conclusion that repeated inventories were measurable but
 not the dominant per-record cost.
 
 | History | Layout | Scenario     |  Reads | Elapsed ms | User CPU ms | System CPU ms | Max RSS Δ KiB |
 | ------: | :----- | :----------- | -----: | ---------: | ----------: | ------------: | ------------: |
-|     100 | legacy | inventory    |    101 |       2.02 |        1.92 |          3.43 |           752 |
-|     100 | legacy | polling tick |    105 |     730.75 |       41.63 |         38.96 |         5,680 |
-|     100 | shared | inventory    |    101 |       3.44 |        4.12 |          3.38 |           848 |
-|     100 | shared | polling tick |    105 |     682.69 |       30.17 |         36.92 |           448 |
-|   1,000 | legacy | inventory    |  1,001 |      18.18 |       22.41 |         33.25 |         5,904 |
-|   1,000 | legacy | polling tick |  1,005 |   5,981.21 |      243.75 |        349.83 |        18,592 |
-|   1,000 | shared | inventory    |  1,001 |      18.30 |       28.01 |         31.10 |         3,376 |
-|   1,000 | shared | polling tick |  1,005 |   7,388.08 |      228.58 |        362.70 |        32,800 |
-|  10,000 | legacy | inventory    | 10,001 |     153.61 |      167.94 |        359.63 |         8,128 |
-|  10,000 | legacy | polling tick | 10,005 |  71,597.28 |    2,561.00 |      4,119.44 |        35,744 |
-|  10,000 | shared | inventory    | 10,001 |     167.32 |      162.88 |        446.66 |            96 |
-|  10,000 | shared | polling tick | 10,005 |  84,057.41 |    2,842.85 |      4,398.28 |         4,144 |
+|     100 | legacy | inventory    |    101 |       1.93 |        1.85 |          3.47 |           720 |
+|     100 | legacy | polling tick |    106 |     826.75 |       52.04 |         50.32 |         5,824 |
+|     100 | shared | inventory    |    101 |       3.32 |        3.96 |          3.28 |           864 |
+|     100 | shared | polling tick |    106 |     724.86 |       34.94 |         41.60 |           432 |
+|   1,000 | legacy | inventory    |  1,001 |      17.51 |       20.33 |         34.49 |         5,952 |
+|   1,000 | legacy | polling tick |  1,006 |   7,224.21 |      291.25 |        392.86 |         7,616 |
+|   1,000 | shared | inventory    |  1,001 |      14.94 |       14.90 |         29.15 |         1,920 |
+|   1,000 | shared | polling tick |  1,006 |   6,589.26 |      227.58 |        364.91 |           528 |
+|  10,000 | legacy | inventory    | 10,001 |     157.63 |      148.31 |        380.91 |        14,432 |
+|  10,000 | legacy | polling tick | 10,006 |  74,029.29 |    2,371.79 |      3,785.72 |        11,232 |
+|  10,000 | shared | inventory    | 10,001 |     159.67 |      173.83 |        369.17 |         5,088 |
+|  10,000 | shared | polling tick | 10,006 |  75,320.60 |    2,349.11 |      3,817.16 |         8,608 |
 
 ## Reproduce
 

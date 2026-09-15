@@ -2243,6 +2243,15 @@ export class OrchestratorService {
         terminalIssuesByIdentifier.set(issue.identifier, issue);
       }
 
+      // Suppression above can persist publication failures or dirty-worktree
+      // evidence. Refresh current runs once more so terminal cleanup observes
+      // those writes without rescanning immutable history.
+      projectRunsAfterReconcile = await this.refreshCurrentRunSnapshot(
+        tenant.projectId,
+        projectRunsAfterReconcile,
+        issueRecords
+      );
+
       for (const issue of terminalIssuesByIdentifier.values()) {
         try {
           await this.cleanupTerminalIssueWorkspace(
