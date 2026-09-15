@@ -212,7 +212,8 @@ export function shouldAwaitTrackerProgressExit(
   now: Date
 ): boolean {
   if (
-    !matchesWorkflowState(run.issueState, [issueState]) ||
+    !run.trackerProgressConfirmedState ||
+    !matchesWorkflowState(run.trackerProgressConfirmedState, [issueState]) ||
     !run.trackerProgressConfirmedAt
   ) {
     return false;
@@ -900,6 +901,9 @@ export class OrchestratorService {
             trackerProgressConfirmedAt: recordConfirmedTrackerProgress
               ? nowIso
               : (latestRun.trackerProgressConfirmedAt ?? null),
+            trackerProgressConfirmedState: recordConfirmedTrackerProgress
+              ? (result.state ?? null)
+              : (latestRun.trackerProgressConfirmedState ?? null),
           };
           await this.persistTrackerStateDiagnostics(
             diagnosticRun,
@@ -1589,9 +1593,6 @@ export class OrchestratorService {
           ...workspaceIssuesMissingFromPoll,
         ].map((issue) => [issue.identifier, issue])
       );
-      const confirmedTrackerStatesByRunId = new Map(
-        currentActiveRuns.map((run) => [run.runId, run.issueState])
-      );
       const syncedActiveRuns: OrchestratorRunRecord[] = [];
       for (const run of currentActiveRuns) {
         const currentIssue = trackedIssuesByIdentifier.get(run.issueIdentifier);
@@ -2181,11 +2182,11 @@ export class OrchestratorService {
           terminalState &&
           activeRun.trackerProgressConfirmedAt !== null &&
           activeRun.trackerProgressConfirmedAt !== undefined &&
-          matchesWorkflowState(
-            confirmedTrackerStatesByRunId.get(activeRun.runId) ??
-              activeRun.issueState,
-            [issue.state]
-          );
+          activeRun.trackerProgressConfirmedState !== null &&
+          activeRun.trackerProgressConfirmedState !== undefined &&
+          matchesWorkflowState(activeRun.trackerProgressConfirmedState, [
+            issue.state,
+          ]);
         if (completedByConfirmedTrackerProgress) {
           if (
             (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
@@ -2195,6 +2196,8 @@ export class OrchestratorService {
           const completedRun: OrchestratorRunRecord = {
             ...activeRun,
             status: "succeeded",
+            runPhase: "succeeded",
+            processId: null,
             completedAt: now.toISOString(),
             updatedAt: now.toISOString(),
             nextRetryAt: null,
@@ -3947,6 +3950,7 @@ export class OrchestratorService {
         ...runWithTokens,
         finalizationDeferralCount: 0,
         status: "succeeded",
+        runPhase: "succeeded",
         processId: null,
         completedAt: now.toISOString(),
         updatedAt: now.toISOString(),
@@ -4642,7 +4646,9 @@ export class OrchestratorService {
       }
       const matchesConfirmedTerminalState =
         isStateTerminal(issue.state, resolution.lifecycle) &&
-        matchesWorkflowState(run.issueState, [issue.state]);
+        run.trackerProgressConfirmedState !== null &&
+        run.trackerProgressConfirmedState !== undefined &&
+        matchesWorkflowState(run.trackerProgressConfirmedState, [issue.state]);
       return {
         state:
           (issue.dispatchable &&
@@ -6186,7 +6192,7 @@ export class OrchestratorService {
         run.issueId === issue.id &&
         run.processId !== null &&
         run.processId !== undefined &&
-        this.isProcessRunning(run.processId)
+        this.isRunProcessRunning(run)
     );
     if (liveIssueRun) {
       this.logVerbose(

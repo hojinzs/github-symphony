@@ -403,7 +403,9 @@ async function runGit(
 function createGitError(args: string[], error: unknown): Error {
   const stderr =
     error && typeof error === "object" && "stderr" in error
-      ? String(error.stderr).trim()
+      ? error.stderr == null
+        ? ""
+        : String(error.stderr).trim()
       : "";
   const rawDetail = stderr || formatGitInvocationError(error);
   const sensitiveUrls = args.flatMap((arg) => {

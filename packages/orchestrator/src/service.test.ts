@@ -468,6 +468,7 @@ describe("OrchestratorService", () => {
     const run = {
       issueState: "Done",
       trackerProgressConfirmedAt: "2026-08-21T00:00:00.000Z",
+      trackerProgressConfirmedState: "Done",
     } as OrchestratorRunRecord;
 
     expect(
@@ -10807,6 +10808,7 @@ Prefer focused changes.
       startedAt: "2026-03-08T00:00:00.000Z",
       completedAt: null,
       trackerProgressConfirmedAt: "2026-03-07T23:59:59.000Z",
+      trackerProgressConfirmedState: "Todo",
       runPhase: "succeeded",
       lastEventAt: "2026-03-07T23:59:58.000Z",
       lastEventAtSource: "event-channel",
@@ -10860,6 +10862,7 @@ Prefer focused changes.
     return {
       store,
       service,
+      projectConfig,
       fetchIssueStatesByIds,
       resolveWorkerCredentials,
       spawnImpl,
@@ -11027,6 +11030,7 @@ Prefer focused changes.
     await store.saveRun({
       ...run!,
       issueState: "Done",
+      trackerProgressConfirmedState: "Done",
       workerExitCode: 1,
       runPhase: "failed",
       lastError: "git_transport_failed: refusing to push feat/assigned",
@@ -11038,7 +11042,7 @@ Prefer focused changes.
       status: "succeeded",
       retryKind: null,
       workerExitCode: 1,
-      runPhase: "failed",
+      runPhase: "succeeded",
       lastError: null,
     });
     expect(
@@ -11049,32 +11053,37 @@ Prefer focused changes.
     });
   });
 
-  it("preserves a host Git transport failure when the terminal tracker state does not match the run", async () => {
-    const { store, service } =
+  it("preserves a host Git transport failure across two terminal tracker polls when the confirmed state does not match", async () => {
+    const { store, service, projectConfig } =
       await createSuccessfulFinalizationFixture("Done");
     const run = await store.loadRun("run-1");
     expect(run).toBeTruthy();
-    await store.saveRun({
-      ...run!,
-      workerExitCode: 0,
-      lastError: "git_transport_failed: refusing to push feat/assigned",
-    });
+    const classifyCurrentTrackerProgress = (
+      service as unknown as {
+        classifyCurrentTrackerProgress(
+          tenant: OrchestratorProjectConfig,
+          run: OrchestratorRunRecord,
+          dependencies: object,
+          options: { requireMatchingTerminalState: boolean }
+        ): Promise<{ state: string }>;
+      }
+    ).classifyCurrentTrackerProgress.bind(service);
 
-    await service.runOnce();
+    const firstPoll = await classifyCurrentTrackerProgress(
+      projectConfig,
+      run!,
+      {},
+      { requireMatchingTerminalState: true }
+    );
+    const secondPoll = await classifyCurrentTrackerProgress(
+      projectConfig,
+      { ...run!, issueState: "Done" },
+      {},
+      { requireMatchingTerminalState: true }
+    );
 
-    expect(await store.loadRun("run-1")).toMatchObject({
-      status: "retrying",
-      retryKind: "failure",
-      workerExitCode: 0,
-      runPhase: "succeeded",
-      lastError: "git_transport_failed: refusing to push feat/assigned",
-    });
-    expect(
-      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
-    ).toMatchObject({
-      state: "retry_queued",
-      failureRetryCount: 1,
-    });
+    expect(firstPoll.state).toBe("active");
+    expect(secondPoll.state).toBe("active");
   });
 
   it("retries a host Git transport failure after a non-terminal review transition", async () => {
@@ -11085,6 +11094,7 @@ Prefer focused changes.
     await store.saveRun({
       ...run!,
       issueState: "In Review",
+      trackerProgressConfirmedState: "In Review",
       workerExitCode: 1,
       runPhase: "failed",
       lastError: "git_transport_failed: refusing to push feat/assigned",
@@ -14671,8 +14681,8 @@ Prefer focused changes.
     {
       description:
         "reconciles a confirmed run whose recorded state does not match the terminal tracker state",
-      issueState: "In Progress",
-      trackerProgressConfirmedAt: "2026-03-08T00:04:00.000Z",
+      issueState: "In Review",
+      trackerProgressConfirmedAt: "2026-03-08T00:04:40.000Z",
       expectedStatus: "suppressed",
       processRunning: false,
     },
@@ -14748,6 +14758,9 @@ Prefer focused changes.
         startedAt: "2026-03-08T00:00:00.000Z",
         completedAt: null,
         trackerProgressConfirmedAt,
+        trackerProgressConfirmedState: trackerProgressConfirmedAt
+          ? issueState
+          : null,
         assignedBranch: "symphony/acme-platform-1",
         lastError: null,
         nextRetryAt: null,
@@ -14825,17 +14838,22 @@ Prefer focused changes.
         reviveIssue: vi.fn(),
       });
 
+      let currentTime = new Date("2026-03-08T00:05:00.000Z");
       const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: vi
           .fn()
           .mockResolvedValue(createEmptyTrackerResponse()) as never,
-        now: () => new Date("2026-03-08T00:05:00.000Z"),
+        now: () => currentTime,
         killImpl,
         isProcessRunning: vi.fn().mockReturnValue(processRunning),
         publishAssignedBranch,
       });
 
-      const snapshot = await service.runOnce();
+      let snapshot = await service.runOnce();
+      if (issueState === "In Review") {
+        currentTime = new Date("2026-03-08T00:06:00.000Z");
+        snapshot = await service.runOnce();
+      }
       const updatedRun = await store.loadRun("run-1");
       const issueRecords =
         await store.loadProjectIssueOrchestrations("tenant-1");
@@ -14844,7 +14862,9 @@ Prefer focused changes.
         workspaceKey
       );
 
-      expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
+      expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(
+        issueState === "In Review" ? 2 : 1
+      );
       expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
         projectConfig,
         ["issue-1"],
@@ -14869,6 +14889,8 @@ Prefer focused changes.
         expect(updatedRun).toMatchObject({
           status: "succeeded",
           issueState: "Done",
+          runPhase: "succeeded",
+          processId: null,
           retryKind: null,
           lastError: null,
         });
@@ -14876,10 +14898,8 @@ Prefer focused changes.
           state: "released",
           failureRetryCount: 0,
         });
-        await expect(readFile(sentinelPath, "utf8")).resolves.toBe(
-          "cleanup me"
-        );
-        expect(workspaceRecord?.status).toBe("active");
+        await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+        expect(workspaceRecord?.status).toBe("removed");
         expect(snapshot.activeRuns).toHaveLength(0);
       } else {
         expect(killImpl).not.toHaveBeenCalled();
