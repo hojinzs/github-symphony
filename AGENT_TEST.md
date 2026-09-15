@@ -197,7 +197,9 @@ the `Standalone Docker E2E` job from `.github/workflows/ci.yml`, which invokes
 fails the job: preflight status `69` is reported as a Docker runtime defect and
 is not treated as the unattended-worker exception. The independent
 `container-smoke` job continues to build the container image and smoke-test its
-version and one-shot project startup.
+version and one-shot project startup. The jobs do not share that image because
+the standalone runner's Compose build adds the E2E fixtures and stub worker that
+the production-oriented `container-smoke` image intentionally excludes.
 
 This exception is narrow: it applies only when a missing `docker` executable,
 an unresolvable `docker compose`, or an unreachable Docker daemon causes the

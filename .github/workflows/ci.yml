@@ -139,13 +139,21 @@ jobs:
 
       - name: Run standalone project Docker E2E
         run: |
+          runner_log="${RUNNER_TEMP}/standalone-docker-e2e.log"
           set +e
-          ./e2e/run-standalone-project-e2e.sh
-          status=$?
+          ./e2e/run-standalone-project-e2e.sh 2>&1 | tee "$runner_log"
+          status=${PIPESTATUS[0]}
           set -e
 
           if [ "$status" -eq 69 ]; then
             echo "::error::Docker E2E preflight exited 69; CI requires a reachable Docker runtime"
           fi
 
-          exit "$status"
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+
+          if ! grep -qx "standalone-project Docker E2E passed" "$runner_log"; then
+            echo "::error::Docker E2E exited successfully without its final confirmation"
+            exit 1
+          fi
