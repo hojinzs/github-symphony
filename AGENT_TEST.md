@@ -170,7 +170,7 @@ AI Agent
 
 - **File Tracker** (`@gh-symphony/tracker-file`): reads issues from a JSON file without the GitHub API. The standalone runner writes a complete fixture before project startup. The adapter still retries one transient JSON syntax failure and surfaces persistent malformed JSON.
 - **Stub Worker** (`e2e/stub-worker.ts`): simulates worker behavior without the Codex AI
-- **Isolation**: project state and issue worktrees are container-local and are destroyed when the container stops. The local `.runtime/` is unaffected
+- **Isolation**: project state and hook-populated issue workspaces are container-local and are destroyed when the container stops. The local `.runtime/` is unaffected
 - **Compose isolation**: runner scripts derive `COMPOSE_PROJECT_NAME`, `SYMPHONY_E2E_IMAGE`, and `SYMPHONY_E2E_PORT` from the absolute worktree path. Set `SYMPHONY_E2E_PROJECT`, `SYMPHONY_E2E_IMAGE`, or `SYMPHONY_E2E_PORT` to override a derived value. Containers, networks, volumes, images, and runner host ports are isolated across worktrees; manual Compose keeps host port `4680` by default.
 - **Docker preflight**: all Docker E2E runner scripts verify that `docker compose` resolves in the current `HOME`/`DOCKER_CONFIG` environment and that the daemon is reachable before installing cleanup traps or creating a project. An unavailable prerequisite exits with status `69`, distinct from Docker's status `125` and from scenario failures.
 - **Event mirroring (optional)**: with the `docker-compose.e2e.events.yml` override, `events.ndjson` is also replicated to the host's `./evidence/`
@@ -290,8 +290,8 @@ Run the folder-addressed project lifecycle test directly:
 
 It builds the packaged CLI image, creates two independent project folders,
 starts both through `project start`, dispatches file-tracker issues, and checks
-their runtime state, shared bare repository cache, worktrees, skills, and clean
-shutdown. The runner owns Compose cleanup and returns non-zero on failure.
+their runtime state, hook-populated full clones, assigned branches, skills,
+foreign-checkout recovery, host publication, and clean shutdown. The runner owns Compose cleanup and returns non-zero on failure.
 
 Run the packaged deprecated-key validation separately:
 
@@ -398,29 +398,28 @@ idle → [inject issue + refresh]
 
 ### Predefined Scenario Documents
 
-| File                                                    | Scenario                                                                                                                  |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `e2e/scenarios/01-happy-path.md`                        | Issue dispatch → worker completion → lifecycle observation                                                                |
-| `e2e/scenarios/02-multi-issue.md`                       | Verify concurrency limit                                                                                                  |
-| `e2e/scenarios/03-stall-detection.md`                   | stall → SIGTERM → retry                                                                                                   |
-| `e2e/scenarios/04-fail-retry.md`                        | Failure → retry scheduling                                                                                                |
-| `e2e/scenarios/05-before-remove-hook-failure.md`        | Verify a `before_remove` hook failure does not block workspace cleanup                                                    |
-| `e2e/scenarios/06-retry-title-preservation.md`          | Issue title preservation during retry/recovery                                                                            |
-| `e2e/scenarios/07-release-missing-retry.md`             | Release a missing retry queue instead of restarting                                                                       |
-| `e2e/scenarios/09-linear-sandbox.md`                    | Verify Linear sandbox lifecycle, confirmed per-turn state reads, dirty-workspace recovery, and reconciliation edge cases  |
-| `e2e/scenarios/10-http-auth-hardening.md`               | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                            |
-| `e2e/scenarios/10-orchestrator-tracker-state.md`        | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                |
-| `e2e/scenarios/12-transition-comment-race.md`           | Verify transition intent changes tracker state without orchestrator-authored comment metadata                             |
-| `e2e/scenarios/13-api-progress-convergence.md`          | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                          |
-| `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
-| `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                            |
-| `e2e/scenarios/15-terminal-candidate-reconciliation.md` | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                |
-| `e2e/scenarios/15-cache-maintenance.md`                 | Verify cache inventory, dry-run eviction, and active-worktree preservation                                                |
-| `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                |
-| `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                      |
-| `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication              |
-| `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry  |
-| `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                    |
+| File                                                    | Scenario                                                                                                                   |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `e2e/scenarios/01-happy-path.md`                        | Issue dispatch → worker completion → lifecycle observation                                                                 |
+| `e2e/scenarios/02-multi-issue.md`                       | Verify concurrency limit                                                                                                   |
+| `e2e/scenarios/03-stall-detection.md`                   | stall → SIGTERM → retry                                                                                                    |
+| `e2e/scenarios/04-fail-retry.md`                        | Failure → retry scheduling                                                                                                 |
+| `e2e/scenarios/05-before-remove-hook-failure.md`        | Verify a `before_remove` hook failure does not block workspace cleanup                                                     |
+| `e2e/scenarios/06-retry-title-preservation.md`          | Issue title preservation during retry/recovery                                                                             |
+| `e2e/scenarios/07-release-missing-retry.md`             | Release a missing retry queue instead of restarting                                                                        |
+| `e2e/scenarios/09-linear-sandbox.md`                    | Verify Linear sandbox lifecycle, confirmed per-turn state reads, dirty-workspace recovery, and reconciliation edge cases   |
+| `e2e/scenarios/10-http-auth-hardening.md`               | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                             |
+| `e2e/scenarios/10-orchestrator-tracker-state.md`        | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                 |
+| `e2e/scenarios/12-transition-comment-race.md`           | Verify transition intent changes tracker state without orchestrator-authored comment metadata                              |
+| `e2e/scenarios/13-api-progress-convergence.md`          | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                           |
+| `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, workspace, and branch isolation) — `pnpm e2e:standalone-project` |
+| `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                             |
+| `e2e/scenarios/15-terminal-candidate-reconciliation.md` | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                 |
+| `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                 |
+| `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                       |
+| `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication               |
+| `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry   |
+| `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                     |
 
 ## TC Writing Guide
 

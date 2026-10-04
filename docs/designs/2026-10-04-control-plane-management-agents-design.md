@@ -162,7 +162,9 @@ receive lifecycle commands.
 ## Local lifecycle adapter
 
 Reuse the existing `project start --project-dir <path> --daemon`, status readers,
-and `project stop --project-dir <path>` semantics behind a typed adapter. Invoke
+and graceful shutdown semantics behind a typed adapter. Remote stop requires the
+expected-process entry point specified below; the existing folder-only
+`project stop --project-dir <path>` is insufficient. Invoke
 the configured executable with an argument array, never interpolated shell text.
 Commands address registered project IDs; the Control Plane cannot supply an
 arbitrary path, executable, environment override, or shell command.
@@ -189,6 +191,25 @@ seconds, report an unresolved outcome and current observations. Do not
 automatically escalate to `SIGKILL`. Stop can interrupt active coding work under
 existing shutdown semantics; it is not a promise to drain all issues to completion.
 
+Before a stop effect, the agent durably journals the canonical project folder,
+runtime/configuration identity, PID and verified OS process identity of its
+target. The local adapter must add an expected-target stop entry point, proposed
+as `project stop --project-dir <path> --expected-pid <pid>
+--expected-process-identity <identity>`. These options are a required future CLI
+extension, not shipped flags. Both expected-target options must be supplied
+together; the management agent never uses the folder-only fallback or `--force`.
+
+This entry point compares the current project lock/daemon ownership, canonical
+folder and OS process identity with the journaled target immediately before
+signaling. It must not select a newly discovered daemon as a substitute. If A
+has exited and local CLI startup has installed B, return `superseded_target`
+without signaling B or deleting B's PID/lock records. If no orchestrator remains,
+verified exit and released locks permit success; missing identity evidence yields
+`process_unverified` without signaling. Recovery uses the same persisted target,
+never a fresh folder-based stop. Platform signal-delivery race handling must be
+verified in the local-adapter implementation; an agent-side queue alone does
+not fence independent local CLI starts.
+
 The adapter must exclude management credentials from subprocess environments
 while retaining the existing project/runtime credential resolution behavior.
 PID files alone are insufficient evidence: use existing process identity and
@@ -204,26 +225,50 @@ Reusing the same key with a different operation or target is a conflict.
 ```text
 accepted -> executing -> succeeded | failed
 accepted -> expired
-accepted | executing -> unknown -> succeeded | failed
+executing -> unknown -> succeeded | failed
 ```
 
 The Control Plane rejects new commands for offline, unmanaged, invalid-version,
 or already-busy targets. There is at most one outstanding lifecycle command per
 project; a conflicting click does not form a hidden queue. Accepted commands
-expire if execution has not begun within 30 seconds. The Control Plane deadline
+expire if they have not been durably claimed within 30 seconds. The Control Plane deadline
 is authoritative: after durably journaling receipt, the agent must claim the
-command through the API before doing effects. Claiming after expiry fails.
+command through the API before doing effects. The first claim atomically records
+ownership and `claimedAt` and moves `accepted` to `executing`; it races expiry in
+one store transaction. An unclaimed command cannot become `unknown`, including
+on disconnect or service restart. Its first claim after expiry fails.
 
 On receipt the agent durably records the command ID, target, and operation before
 claiming execution. Duplicate delivery returns the existing journal state.
+The claim API is idempotent for the command ID and enrolled-agent identity.
+If a committed claim response is lost, the same agent's current owning session
+can repeat it after the original 30-second claim deadline. Return the existing
+state, ownership and original `claimedAt`; do not create another claim or reset
+any deadline. Reject a stale session or different owner. A terminal, expired or
+unknown command returns its existing state without authorizing new effects.
+An `executing` response only confirms the original execution permission.
+
+The agent durably records an effect-started marker before invoking the local
+operation and serializes journal access per command. Claim replay or duplicate
+delivery cannot invoke that operation again after the marker exists. If the
+marker is absent and the original claim is still `executing`, a replayed response
+allows the original operation to begin once. If the marker exists but completion
+is missing, inspect evidence rather than replaying effects; a crash between the
+marker and the actual operation is intentionally an unresolved recovery case.
 Persisted execution ownership can be transferred to a reconnected session only
-for the same enrolled agent and the same command ID. Old sessions cannot claim
+for the same enrolled agent and the same command ID, using the durable journal
+to reconcile the original operation, not to issue a second execution permission.
+Transfer fences the previous session and preserves the original claim time and
+effect-started marker. Old sessions cannot claim
 new commands or publish observations.
 
 Once claimed, disconnection does not revoke execution. Commands may finish
 locally while the Control Plane is unreachable. The agent stores the result
 before publishing it and resends it until acknowledged. A command with a missing
-execution/result report becomes `unknown`, never falsely `failed` or `succeeded`.
+execution/result report after a durable claim becomes `unknown`, never falsely
+`failed` or `succeeded`. The 60-second execution observation timeout starts at
+the original `claimedAt`; claim replay does not extend it or turn an unknown
+command back into an executable one.
 The UI prevents a replacement lifecycle command until recovery resolves the
 previous record. This also applies after a 60-second execution observation timeout.
 
@@ -388,25 +433,27 @@ and must not revive removed repository-cache or orchestrator cloning behavior.
 These behavioral TCs are implementation acceptance requirements. They have not
 been executed against a management plane, which does not yet exist.
 
-| TC    | Scenario                                                              | Expected result                                                                   |
-| ----- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| CP-01 | Two environments report the same folder/local project ID              | Separate aggregate projects and correctly scoped operations                       |
-| CP-02 | Register canonical folder and symlink alias                           | One project; a retargeted alias cannot redirect commands                          |
-| CP-03 | Register unstarted or invalid workflow folder                         | Visible inventory; invalid start rejected, verified stop remains possible         |
-| CP-04 | Concurrent local CLI and remote start, duplicate command delivery     | Existing lock retained; no second orchestrator; one command result                |
-| CP-05 | Agent or Control Plane disconnects during active work                 | Orchestrator continues; UI retains explicitly stale observations                  |
-| CP-06 | Offline submission, expired acceptance, lost claim response           | No offline backlog; no effects without a valid claim; same command reconciled     |
-| CP-07 | Command executes but result upload is lost; restart either side       | Durable result reconciled; no false failure or replacement command                |
-| CP-08 | Stop returns before exit, PID reused, replacement process appears     | Completion waits for verified exit; replacement process is not signaled           |
-| CP-09 | Restart after effects with insufficient recovery evidence             | Unknown outcome shown; explicit audited closure needed for another command        |
-| CP-10 | Clock skew, out-of-order observations, second agent session           | Receipt-based freshness, older observations ignored, live second session rejected |
-| CP-11 | Reuse enrollment token, wrong environment credential, revocation      | Authentication rejected; local orchestrators remain running                       |
-| CP-12 | Missing logs, traversal, rotation, large log, offline detail request  | Containment and size enforced; explicit reset/unavailable, no false empty success |
-| CP-13 | Start needs interactive confirmation or remediation                   | Non-interactive failure with diagnostic; no policy rewrite                        |
-| CP-14 | Project removed from allowlist or folder moved                        | Remote control revoked; process unaffected; no silent identity migration          |
-| CP-15 | Agent launches CLI, submits inventory and status                      | Management credentials absent from child environment and uploaded metadata        |
-| CP-16 | Private browser mutation from a foreign origin                        | Mutation rejected; valid local-owner operation is audited                         |
-| CP-17 | Incompatible protocol or unresolved cross-environment tracker overlap | Commands disabled for incompatible agent; overlap limitation visible              |
+| TC    | Scenario                                                                                              | Expected result                                                                                                                |
+| ----- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| CP-01 | Two environments report the same folder/local project ID                                              | Separate aggregate projects and correctly scoped operations                                                                    |
+| CP-02 | Register canonical folder and symlink alias                                                           | One project; a retargeted alias cannot redirect commands                                                                       |
+| CP-03 | Register unstarted or invalid workflow folder                                                         | Visible inventory; invalid start rejected, verified stop remains possible                                                      |
+| CP-04 | Concurrent local CLI and remote start, duplicate command delivery                                     | Existing lock retained; no second orchestrator; one command result                                                             |
+| CP-05 | Agent or Control Plane disconnects during active work                                                 | Orchestrator continues; UI retains explicitly stale observations                                                               |
+| CP-06 | Offline submission, unclaimed disconnect/expiry, claim-versus-expiry race                             | No offline backlog; unclaimed commands expire, never become unknown; atomic first claim permits effects only once              |
+| CP-07 | Command executes but result upload is lost; restart either side                                       | Durable result reconciled; no false failure or replacement command                                                             |
+| CP-08 | Stop returns before exit; target A exits and local CLI installs B before stop/recovery; PID reused    | Expected-target entry rejects B without a signal or deleting B's records; completion requires verified exit and released locks |
+| CP-09 | Restart after effects with insufficient recovery evidence                                             | Unknown outcome shown; explicit audited closure needed for another command                                                     |
+| CP-10 | Clock skew, out-of-order observations, second agent session                                           | Receipt-based freshness, older observations ignored, live second session rejected                                              |
+| CP-11 | Reuse enrollment token, wrong environment credential, revocation                                      | Authentication rejected; local orchestrators remain running                                                                    |
+| CP-12 | Missing logs, traversal, rotation, large log, offline detail request                                  | Containment and size enforced; explicit reset/unavailable, no false empty success                                              |
+| CP-13 | Start needs interactive confirmation or remediation                                                   | Non-interactive failure with diagnostic; no policy rewrite                                                                     |
+| CP-14 | Project removed from allowlist or folder moved                                                        | Remote control revoked; process unaffected; no silent identity migration                                                       |
+| CP-15 | Agent launches CLI, submits inventory and status                                                      | Management credentials absent from child environment and uploaded metadata                                                     |
+| CP-16 | Private browser mutation from a foreign origin                                                        | Mutation rejected; valid local-owner operation is audited                                                                      |
+| CP-17 | Incompatible protocol or unresolved cross-environment tracker overlap                                 | Commands disabled for incompatible agent; overlap limitation visible                                                           |
+| CP-18 | Claim commits but response is lost; same owner retries after claim deadline                           | Original state/ownership/claimedAt returned; absent effect marker permits the original execution once; deadlines are not reset |
+| CP-19 | Claim replay by stale session or another owner; replay after effect marker, terminal or unknown state | Stale/foreign ownership rejected; no second local invocation; terminal/unknown replay gives no effect permission               |
 
 During implementation, cover journal recovery, session fencing, identity,
 timeouts, and log containment with deterministic unit tests. Verify the two-agent
@@ -502,26 +549,26 @@ protection and resolve the `local-owner` actor; agent routes require the
 environment-scoped credential and session where applicable. Request bodies are
 JSON; log bytes are UTF-8 text in a JSON result with an opaque cursor.
 
-| Method and route                             | Contract                                                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `POST /api/v1/environments`                  | Create named environment and return a one-use enrollment token once                                    |
-| `GET /api/v1/environments`                   | Environment connection, version, inventory and last contact                                            |
-| `POST /api/v1/environments/:id/enrollment`   | Regenerate a token for pending enrollment or explicit agent replacement                                |
-| `POST /api/v1/environments/:id/revoke`       | Revoke credential, expire unclaimed commands and mark management disconnected; do not stop projects    |
-| `POST /api/v1/agents/enroll`                 | Atomically exchange token for credential and environment ID                                            |
-| `POST /api/v1/agents/sessions`               | Negotiate version and exclusive session; reject a live second session                                  |
-| `POST /api/v1/agents/observations`           | Validate sequence and persist current inventory/status projection                                      |
-| `GET /api/v1/agents/poll`                    | Up to 25-second poll for session-owned commands/read requests                                          |
-| `POST /api/v1/agents/commands/:id/claim`     | Claim before expiry; record execution ownership before local effects                                   |
-| `POST /api/v1/agents/results`                | Idempotently acknowledge terminal command result or bounded read result                                |
-| `GET /api/v1/projects`                       | Paged aggregate projects; filter by environment, process state and connection                          |
-| `GET /api/v1/projects/:id`                   | Process/health/freshness, last snapshot, active/retrying runs and diagnostics                          |
-| `POST /api/v1/projects/:id/commands`         | Accept `start` or `stop` with `Idempotency-Key`; return durable command ID with HTTP 202               |
-| `GET /api/v1/commands/:id`                   | Durable command state, timestamps, evidence summary and diagnostic                                     |
-| `POST /api/v1/commands/:id/close-unresolved` | Explicit operator acknowledgment plus reason; audit unresolved closure without rewriting it as success |
-| `GET /api/v1/projects/:id/commands`          | Paged command history including explicitly closed unknown outcomes                                     |
-| `POST /api/v1/projects/:id/reads`            | Accept bounded `runs`, `run-detail` or `log-chunk` request while online                                |
-| `GET /api/v1/reads/:id`                      | Pending/completed/expired/unavailable read result                                                      |
+| Method and route                             | Contract                                                                                                                                                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /api/v1/environments`                  | Create named environment and return a one-use enrollment token once                                                                                                      |
+| `GET /api/v1/environments`                   | Environment connection, version, inventory and last contact                                                                                                              |
+| `POST /api/v1/environments/:id/enrollment`   | Regenerate a token for pending enrollment or explicit agent replacement                                                                                                  |
+| `POST /api/v1/environments/:id/revoke`       | Revoke credential, expire unclaimed commands and mark management disconnected; do not stop projects                                                                      |
+| `POST /api/v1/agents/enroll`                 | Atomically exchange token for credential and environment ID                                                                                                              |
+| `POST /api/v1/agents/sessions`               | Negotiate version and exclusive session; reject a live second session                                                                                                    |
+| `POST /api/v1/agents/observations`           | Validate sequence and persist current inventory/status projection                                                                                                        |
+| `GET /api/v1/agents/poll`                    | Up to 25-second poll for session-owned commands/read requests                                                                                                            |
+| `POST /api/v1/agents/commands/:id/claim`     | Atomically claim accepted command before expiry; same-owner replay returns original state/ownership after deadline without resetting it or authorizing duplicate effects |
+| `POST /api/v1/agents/results`                | Idempotently acknowledge terminal command result or bounded read result                                                                                                  |
+| `GET /api/v1/projects`                       | Paged aggregate projects; filter by environment, process state and connection                                                                                            |
+| `GET /api/v1/projects/:id`                   | Process/health/freshness, last snapshot, active/retrying runs and diagnostics                                                                                            |
+| `POST /api/v1/projects/:id/commands`         | Accept `start` or `stop` with `Idempotency-Key`; return durable command ID with HTTP 202                                                                                 |
+| `GET /api/v1/commands/:id`                   | Durable command state, timestamps, evidence summary and diagnostic                                                                                                       |
+| `POST /api/v1/commands/:id/close-unresolved` | Explicit operator acknowledgment plus reason; audit unresolved closure without rewriting it as success                                                                   |
+| `GET /api/v1/projects/:id/commands`          | Paged command history including explicitly closed unknown outcomes                                                                                                       |
+| `POST /api/v1/projects/:id/reads`            | Accept bounded `runs`, `run-detail` or `log-chunk` request while online                                                                                                  |
+| `GET /api/v1/reads/:id`                      | Pending/completed/expired/unavailable read result                                                                                                                        |
 
 Agent replacement requires revocation first; enrollment regeneration never
 silently evicts a live agent. Expired enrollment tokens can be replaced without
@@ -532,7 +579,7 @@ API errors use `{ error: { code, message, requestId } }`. Stable codes include
 `agent_offline`, `project_unmanaged`, `project_invalid`, `unsupported_protocol`,
 `command_conflict`, `idempotency_conflict`, `command_expired`,
 `unresolved_command`, `process_unverified`, `log_unavailable`, and
-`cursor_reset`. Authentication failures return 401; conflicting lifecycle/session
+`cursor_reset`, `superseded_target`, and `claim_owner_conflict`. Authentication failures return 401; conflicting lifecycle/session
 state returns 409; invalid input returns 400; revoked/unmanaged action scope
 returns 403; missing entities return 404. Read expiry is represented as a read
 result state, not silent empty content.
@@ -649,7 +696,7 @@ Walkthrough acceptance scenarios:
 4. Disconnect a host containing a running project. Its last-known state is
    retained but fresh running totals exclude it, and mutations have a visible
    disabled reason.
-5. Lose the result of an accepted command. Find the unknown outcome, inspect
+5. Lose the result of a durably claimed command. Find the unknown outcome, inspect
    evidence, and acknowledge unresolved closure; no automatic Retry is offered.
 6. Follow a log stream through rotation and disconnect. Content remains visible
    as historical and unavailable states cannot be mistaken for empty logs.
@@ -712,6 +759,21 @@ approval remain pending. This evidence does not approve the spec or close #984.
 - After restoring lockfile-pinned dependencies and building workspace packages,
   `pnpm build` and `pnpm test` passed: 138 test files and 2,037 tests across 14
   package test summaries.
-- The future CP-01 through CP-17 management-plane tests remain unexecuted; these
+- The future CP-01 through CP-19 management-plane tests remain unexecuted; these
   results validate the document and existing repository, not an implemented fleet
   management feature. No runtime behavior or shipped package structure changed.
+
+### Review correction verification (2026-10-04)
+
+- Review corrections specify journaled-target stop, atomic claim/expiry states,
+  and idempotent lost-claim-response recovery with a durable effect marker.
+  CP-06 and CP-08 were expanded; CP-18 and CP-19 add future recovery scenarios.
+- Six document checks passed: metadata/artifact links, relative links,
+  index/upstream preservation, screen traceability/limits, command-state
+  contracts, and expected-target stop/merged-index preservation.
+- After merging current main and resolving the documentation index conflict,
+  `pnpm test` passed again: 138 test files, 2,037 tests, 14 package summaries.
+  Targeted Markdown formatting and Git whitespace checks passed.
+- These remain specification checks and existing repository tests. The future
+  process-control and transport behavior has not been implemented or tested;
+  human design approval remains pending.
