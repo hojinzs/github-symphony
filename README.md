@@ -1062,3 +1062,7 @@ immediately rather than pausing for interactive confirmation.
 ## License
 
 This project is released under the [MIT License](LICENSE).
+
+Optional `observability.otlp` workflow policy is parsed without activating export.
+Exporter support and runtime integration are pending; see the
+[OTLP configuration contract](docs/configuration.md#otlp-workflow-policy-exporter-support-pending).

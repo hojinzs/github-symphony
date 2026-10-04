@@ -86,6 +86,7 @@ the tracker adapter:
 - Workflow `server.port` configuration and the `project start --port` / `--http`
   status-API options: `packages/core/src/workflow/`,
   `packages/cli/src/commands/start.ts`
+- SDK-free owner-side OTLP resolution: `packages/core/src/workflow/otlp-resolver.ts`; explicit effective-environment input, precedence and transport validation, with secret-free diagnostics. No shared-loader invocation or exporter activation.
 - Structural OTLP policy and reference provenance: `packages/core/src/workflow/otlp.ts`; shared parsing never reads exporter environment values or activates export.
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
 - MCP declarations are resolved at the host boundary. Codex advertises adapter tools through dynamic-tool schemas without `config.mcp_servers`; Claude's worker starts a loopback HTTP MCP service and generates an `mcp.json` containing only its URL and ephemeral session capability. Repository/project subprocess entries are not exposed to either coding-agent child.
