@@ -620,9 +620,12 @@ instructions instead of implying that folder provisioning is supported.
 
 The Figma deliverable consists of editable desktop views at 1440px, preserving
 the existing product's Inter UI typography, monospaced operational text and dark
-surface palette. Component instances and auto-layout are required; whole-screen
+surface treatment. Initial samples use the copied Tailwind gray palette; exact
+alignment with the existing runtime palette belongs to the detailed design pass.
+Component instances and auto-layout are required; whole-screen
 raster images do not satisfy the deliverable. Each view has a named scenario and
-prototype links to the relevant next view. Sample data is illustrative and must
+prototype links to the relevant next view in the later interaction pass. The
+initial deliverable below is a static screen set. Sample data is illustrative and must
 never contain a real enrollment token or credential.
 
 | Screen                         | Scenario                                                         | Required evidence                                                                                         |
@@ -661,6 +664,45 @@ prototype-link inspection, rendered-screen inspection/model walkthrough, and
 human review. Only the first two can be performed autonomously in this session.
 The Figma artifact and scenario results are attached to #984 and PR #982 before
 human review; absent evidence is reported as pending rather than passed.
+
+### Initial Figma samples (2026-10-04)
+
+The proposed product name **OhMySymphony** is used for design exploration only;
+repository and package names are unchanged. The artifact is stored in the
+[OhMySymphony folder in Dani Works](https://www.figma.com/files/team/987232692286731920/folder/665174118).
+
+- [Editable screen review board](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=3-52).
+- [Copied Official Tailwind CSS Styles library](https://www.figma.com/design/Bg9Hb0nSo97A4eNHqeApwk).
+  This is a complete duplicate of the library in the Daniworks folder, moved
+  into OhMySymphony: eight pages, 302 paint styles and 105 text styles. The
+  duplicate is not newly published as a team library. The sample file copies the
+  relevant palette/type definitions locally and adds scoped token aliases.
+- Five local reusable components (metric, status, navigation item, field,
+  project row), plus button instances from the existing team shadcn library.
+  These are sample foundations, not a completed product design system.
+
+| Screen | Figma sample                                                                                                                                                                      | Static evidence                                                                                                                                     | Remaining interaction/design validation                                                                         |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| U01    | [Fleet](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-593)                                                                                                        | Six projects across three environments; separate connection/process/work labels and age; historical offline state excluded from fresh-running count | Row actions, explicit stale filter/count, search and pagination behavior                                        |
+| U02    | [Enrollment](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-683)                                                                                                   | Masked sample token with one-use/expiry copy; hidden terminal entry; host-side project registration; awaiting-agent state                           | Installation details, issuance/expiry/error transitions and one-time token visibility                           |
+| U03    | [Environment](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-728)                                                                                                  | Inventory, invalid workflow, contact age, local registration/removal guidance and revocation impact                                                 | Unmanaged row and explicit revocation confirmation                                                              |
+| U04    | [Running detail](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-795), [verified stopped result](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-944) | Connection/process/work cards, active/retry/history, separate command result and verified-exit copy                                                 | Start/stop pending, rejected and expired states; adjacent disabled-action reasons; full diagnostics and history |
+| U05    | [Stop confirmation](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-844)                                                                                            | Project/environment identity, active-run count, interruption warning and Cancel/Stop                                                                | Click-through cancel/confirm, focus behavior and asynchronous progress                                          |
+| U06    | [Unknown result](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-873)                                                                                               | Claimed-command timeline, no Retry action, local inspection, resolution note and acknowledgment                                                     | Required-field validation, separate closure confirmation and closed-unresolved audit state                      |
+| U07    | [Logs](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-908)                                                                                                         | Named run/streams, retained chunk with timestamps, disconnected follow and rotation messaging                                                       | Loading, missing-file/expired-read states, actual stream selection/follow/reset                                 |
+
+Structural inspection found 423 editable descendants in the review board:
+79 frames, 265 text nodes and 79 component instances; no image-filled nodes and
+no font-family mismatches (Inter / JetBrains Mono). The nine review panels are
+1440 × 1120: seven primary screen types, a stopped-result example and a review
+checklist. Render inspection identified clipped multiline text and excessive
+fleet spacing; these were repaired, and all panels' content bounds fit afterward.
+
+This is a static model review of synthetic states. No prototype links, live
+command behavior, keyboard accessibility, or operator usability test has passed.
+The board records six walkthrough prompts and the next detailed design tasks.
+The full eight walkthrough acceptance scenarios above, human review and design
+approval remain pending. This evidence does not approve the spec or close #984.
 
 ## Documentation verification (2026-10-04)
 
