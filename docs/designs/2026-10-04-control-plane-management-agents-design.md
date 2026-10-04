@@ -4,6 +4,7 @@
 - **Status:** Draft
 - **Symphony Layers:** Configuration, Coordination, Integration, Observability; Execution at the host process lifecycle boundary
 - **Scope:** Proposed architecture; this document does not describe shipped commands or APIs
+- **Tracking:** [Epic #983](https://github.com/hojinzs/github-symphony/issues/983), [specification and usability child #984](https://github.com/hojinzs/github-symphony/issues/984), [delivery PR #982](https://github.com/hojinzs/github-symphony/pull/982)
 - **Related documents:** [Standalone project boundary](../adr/2026-08-13_standalone-project-instance-boundary.md), [standalone project model](2026-08-11-standalone-project-model-design.md), [orchestrator extraction scope](2026-09-14-orchestrator-extraction-scope.md), [current control-plane package](../../packages/control-plane/README.md)
 
 ## Intent and agreed scope
@@ -422,11 +423,244 @@ to describe this proposal as current behavior.
 
 ## Review decisions
 
-The scope constraints are agreed. HTTPS long polling, SQLite, timing defaults,
-bounded on-demand logs, explicit unresolved-command closure, and package
-separation are proposed decisions for review. Approval of this design is required
-before producing the implementation plan; implementation starts only after that
-plan is reviewed.
+The scope constraints are agreed. This revision selects HTTPS long polling,
+SQLite, the timing defaults above, bounded on-demand logs, explicit unresolved
+command closure, and separate management packages as the version-1 design.
+These choices are specification decisions, not claims of shipped behavior.
+Written-spec and operator-flow review remain required before the Status changes
+to Approved and implementation issues are promoted. Figma walkthrough evidence
+must distinguish agent inspection from actual human usability validation.
+
+## Version-1 implementation contracts
+
+### Package and CLI boundaries
+
+| Proposed package                   | Responsibility                                                                                 | Proposed executable         |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------- |
+| `@gh-symphony/management-protocol` | Versioned transport types, validation, errors and limits; no tracker or scheduler dependencies | None                        |
+| `@gh-symphony/management-agent`    | Local allowlist, CLI adapter, journal, authenticated outbound client                           | `gh-symphony-agent`         |
+| `@gh-symphony/fleet-control-plane` | Aggregate API, SQLite records, agent sessions, browser assets                                  | `gh-symphony-control-plane` |
+
+The current `@gh-symphony/control-plane` per-project server retains its API and
+CLI behavior. Reusable frontend components can be shared through a focused
+follow-up boundary; neither fleet service nor agent becomes an orchestrator
+dependency. All proposed executables target the repository's supported Node.js
+runtime and run as the local project owner.
+
+Proposed first-release agent commands:
+
+```text
+gh-symphony-agent enroll --server https://symphony.lan
+gh-symphony-agent project add /srv/symphony/projects/backend
+gh-symphony-agent project list
+gh-symphony-agent project remove <local-project-id>
+gh-symphony-agent run
+```
+
+Enrollment accepts the one-use token through an interactive hidden prompt or
+`--token-stdin`, never a command-line token argument. A local config selects the
+CLI executable, project config directory, private CA and agent data directory;
+the server cannot change these host settings. `project add` only registers an
+existing folder and does not create repositories or projects. `project remove`
+revokes management but does not stop work. Agent configuration and journal are
+under `~/.gh-symphony-agent/` by default, separate from orchestrator state.
+Native service installation and machine boot auto-start are deferred; `run` is
+the first-release foreground daemon entry point, independently of the detached
+orchestrators it manages.
+
+The proposed aggregate executable accepts an explicit private bind address, TLS
+termination configuration and data directory, defaulting its backend to
+`127.0.0.1:4690` and `~/.gh-symphony-control-plane/`. It must not silently select
+another port on address conflict. The deployment defines one configured HTTPS
+origin used by the browser and agents. Per-project `:4680` behavior is unaffected.
+
+### Identity and wire representation
+
+Environment, session, global project, request, and command IDs are opaque UUIDs.
+The global project record maps its UUID to `(environmentId, localProjectId)`
+uniquely; browser routes use the UUID and never expose a composite path key as a
+filesystem request. Alias runtime IDs are retained separately by the agent's
+local adapter. Run IDs remain locally defined and qualified by global project ID.
+
+All timestamps are UTC RFC3339 strings. Agent observation sequence is a
+non-negative safe integer increasing within one session. Messages have
+`protocolVersion: 1`, session ID and message/request ID. Never trust agent clocks
+for credential expiry, execution claims or connection freshness.
+
+An inventory upload is a complete allowlisted inventory revision. A project
+observation has `projectId`, local ID, validation result, process observation,
+`observedAt`, and optional redacted snapshot. A partial snapshot failure does not
+delete the project. The agent reports the error and last successful snapshot
+time; the UI retains that snapshot as stale. Runs uploaded as summaries preserve
+their local timestamps and statuses. Neither missing snapshot nor an empty list
+is proof of a stopped process.
+
+### API surface
+
+All routes below are proposed. Browser mutation routes require same-origin CSRF
+protection and resolve the `local-owner` actor; agent routes require the
+environment-scoped credential and session where applicable. Request bodies are
+JSON; log bytes are UTF-8 text in a JSON result with an opaque cursor.
+
+| Method and route                             | Contract                                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `POST /api/v1/environments`                  | Create named environment and return a one-use enrollment token once                                    |
+| `GET /api/v1/environments`                   | Environment connection, version, inventory and last contact                                            |
+| `POST /api/v1/environments/:id/enrollment`   | Regenerate a token for pending enrollment or explicit agent replacement                                |
+| `POST /api/v1/environments/:id/revoke`       | Revoke credential, expire unclaimed commands and mark management disconnected; do not stop projects    |
+| `POST /api/v1/agents/enroll`                 | Atomically exchange token for credential and environment ID                                            |
+| `POST /api/v1/agents/sessions`               | Negotiate version and exclusive session; reject a live second session                                  |
+| `POST /api/v1/agents/observations`           | Validate sequence and persist current inventory/status projection                                      |
+| `GET /api/v1/agents/poll`                    | Up to 25-second poll for session-owned commands/read requests                                          |
+| `POST /api/v1/agents/commands/:id/claim`     | Claim before expiry; record execution ownership before local effects                                   |
+| `POST /api/v1/agents/results`                | Idempotently acknowledge terminal command result or bounded read result                                |
+| `GET /api/v1/projects`                       | Paged aggregate projects; filter by environment, process state and connection                          |
+| `GET /api/v1/projects/:id`                   | Process/health/freshness, last snapshot, active/retrying runs and diagnostics                          |
+| `POST /api/v1/projects/:id/commands`         | Accept `start` or `stop` with `Idempotency-Key`; return durable command ID with HTTP 202               |
+| `GET /api/v1/commands/:id`                   | Durable command state, timestamps, evidence summary and diagnostic                                     |
+| `POST /api/v1/commands/:id/close-unresolved` | Explicit operator acknowledgment plus reason; audit unresolved closure without rewriting it as success |
+| `GET /api/v1/projects/:id/commands`          | Paged command history including explicitly closed unknown outcomes                                     |
+| `POST /api/v1/projects/:id/reads`            | Accept bounded `runs`, `run-detail` or `log-chunk` request while online                                |
+| `GET /api/v1/reads/:id`                      | Pending/completed/expired/unavailable read result                                                      |
+
+Agent replacement requires revocation first; enrollment regeneration never
+silently evicts a live agent. Expired enrollment tokens can be replaced without
+changing environment ID. The UI presents replacement as a separate explicit
+action and explains that old agent access ends while orchestrators continue.
+
+API errors use `{ error: { code, message, requestId } }`. Stable codes include
+`agent_offline`, `project_unmanaged`, `project_invalid`, `unsupported_protocol`,
+`command_conflict`, `idempotency_conflict`, `command_expired`,
+`unresolved_command`, `process_unverified`, `log_unavailable`, and
+`cursor_reset`. Authentication failures return 401; conflicting lifecycle/session
+state returns 409; invalid input returns 400; revoked/unmanaged action scope
+returns 403; missing entities return 404. Read expiry is represented as a read
+result state, not silent empty content.
+
+Idempotency keys are unique within browser actor scope. Retain command journal
+deduplication records until the Control Plane acknowledges the result, then at
+least 30 days. The Control Plane retains terminal command/audit records for 90
+days by default and prunes only terminal or explicitly closed unknown records.
+An unresolved record must never be pruned to unlock a project. A closed unknown
+record keeps its `unknown` outcome plus `closedAt`, actor and reason; a new
+operation gets a new command ID and fresh process checks.
+
+### Capacity and observation limits
+
+| Limit                     | Version-1 contract                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Managed project inventory | Up to 100 folders per agent; larger inventories are rejected explicitly                                                              |
+| Observation upload body   | 4 MiB; agent splits project snapshots across requests under one inventory revision                                                   |
+| Lifecycle execution       | One active command per project, at most 4 concurrently per agent; excess capacity is rejected with `agent_busy`, not queued silently |
+| Pending reads             | At most 4 per agent and 1 per project; additional reads return a busy diagnostic                                                     |
+| Read lifetime             | 30 seconds; results held in Control Plane memory for 60 seconds after completion                                                     |
+| Run summaries             | At most 100 cached summaries per project, newest first                                                                               |
+| Log chunk                 | 256 KiB; requests do not include arbitrary paths                                                                                     |
+| UI paging                 | Default 25 and maximum 100 rows                                                                                                      |
+
+The Control Plane marks an agent offline after restart until a new authenticated
+observation arrives. Nonterminal read requests are unavailable after service
+restart and may be requested again; lifecycle command identity remains durable.
+Known inventory revisions are committed only after all inventory pages arrive;
+a partial revision cannot remove unseen projects. Per-project status updates can
+still advance during a partial inventory upload.
+
+## Operator experience contracts
+
+The main navigation is Projects, Environments, and Commands. The private-network
+and single-owner mode is visible in settings/context; no unavailable login,
+project creation, Docker or failover controls are presented.
+
+Projects is the default landing view. It separates environment connection from
+project process and work state. The header's running count means freshly
+confirmed running projects only; offline/stale projects have their own count and
+are excluded from that current total. Rows show both observation time and
+last-known process state when freshness is lost. State is communicated by text
+and timestamps as well as color. All primary actions are keyboard focusable.
+
+Environment enrollment is a four-step flow: name environment, copy the proposed
+install/enroll instructions and one-use token, configure existing folders on the
+host, and inspect the discovered inventory. Token is shown only at issuance with
+its expiry; closing the screen does not make it recoverable. Reconnection and
+pending enrollment are distinct states. The UI never accepts an arbitrary remote
+folder path as a lifecycle target.
+
+Project detail shows Connection, Process, Health, and Last observed independently.
+It includes active/retrying work, recent runs, diagnostics and command history.
+`Start` and `Stop` are per-project; no fleet-wide bulk mutation is included.
+Disabled actions have an adjacent reason, not only a hover tooltip. A missing
+workflow can block Start while verified Stop remains available.
+
+Stop has a confirmation naming the project and environment and the observed
+number of active runs, with the explicit warning that active coding work may be
+interrupted. It offers Cancel and Stop project; no force-kill escalation. Accepted
+commands display progress rather than optimistically flipping process state.
+Command result and process observation remain separately timestamped.
+
+Unknown command recovery shows the last verified evidence, reconnect guidance,
+and the fact that the command may have executed. There is no Retry button. The
+operator can close the outcome as unresolved with a required reason and a second
+confirmation; this releases only the management command slot, not a scheduler
+claim or host process lock. Afterward a fresh command still requires online state
+and verified process checks.
+
+Log viewing selects a known run and stream, displays chunk/follow state, and
+announces rotation/truncation explicitly. Disconnection pauses follow and keeps
+already fetched content visibly historical. A missing file or expired read is
+an unavailable diagnostic, never an empty success. Run/history/log views do not
+control issue retry, cancellation, tracker transitions or budgets.
+
+Removing an environment from active management uses Revoke agent access rather
+than Delete project. Its confirmation states that execution continues locally.
+Local project allowlist removal becomes Unmanaged in the UI and revokes new
+actions while preserving observed history. The UI gives host-side registration
+instructions instead of implying that folder provisioning is supported.
+
+### Screen inventory and walkthrough criteria
+
+The Figma deliverable consists of editable desktop views at 1440px, preserving
+the existing product's Inter UI typography, monospaced operational text and dark
+surface palette. Component instances and auto-layout are required; whole-screen
+raster images do not satisfy the deliverable. Each view has a named scenario and
+prototype links to the relevant next view. Sample data is illustrative and must
+never contain a real enrollment token or credential.
+
+| Screen                         | Scenario                                                         | Required evidence                                                                                         |
+| ------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| U01 — Fleet projects           | Locate running, stopped and offline projects across environments | Separate connection/process labels, observation age, per-project actions and stale count                  |
+| U02 — Add environment          | Name and enroll a new installed agent                            | One-use token expiry, safe enroll instructions, local folder registration and awaiting-agent state        |
+| U03 — Environment inventory    | Verify discovered folders or investigate invalid registration    | Online/last contact, inventory validation, unmanaged guidance and explicit revoke action                  |
+| U04 — Project detail           | Inspect work and submit a lifecycle command                      | Independent connection/process/health, active/retry/recent work, command result and action reasons        |
+| U05 — Stop confirmation        | Understand disruption before stopping one project                | Project/environment identity, active-run count, interruption copy and Cancel/Stop actions                 |
+| U06 — Unknown command recovery | Resolve an ambiguous command outcome without blind replay        | Last evidence, no Retry, reconnection guidance, required-reason closure and explicit acknowledgment       |
+| U07 — Run logs                 | Read and follow one known stream                                 | Run/stream selection, historical timestamps, bounded follow state and offline/unavailable/reset messaging |
+
+Walkthrough acceptance scenarios:
+
+1. Enroll a machine, register two already prepared folders locally, and find both
+   in the aggregate inventory without a UI project-creation flow.
+2. Start a stopped project, observe its command progress, then verify running
+   process state separately. Repeated submission does not suggest two starts.
+3. Stop a project with active work, cancel the confirmation once, then confirm.
+   The screen does not announce completion on signal delivery alone.
+4. Disconnect a host containing a running project. Its last-known state is
+   retained but fresh running totals exclude it, and mutations have a visible
+   disabled reason.
+5. Lose the result of an accepted command. Find the unknown outcome, inspect
+   evidence, and acknowledge unresolved closure; no automatic Retry is offered.
+6. Follow a log stream through rotation and disconnect. Content remains visible
+   as historical and unavailable states cannot be mistaken for empty logs.
+7. Remove a local allowlist entry or revoke agent access. The operator can tell
+   that management ends while local execution continues.
+8. Navigate all primary actions using keyboard focus and distinguish states
+   without relying on color alone. These are implementation accessibility
+   requirements; a static screenshot alone cannot prove keyboard behavior.
+
+Validation proceeds in three separately reported stages: editable-layer and
+prototype-link inspection, rendered-screen inspection/model walkthrough, and
+human review. Only the first two can be performed autonomously in this session.
+The Figma artifact and scenario results are attached to #984 and PR #982 before
+human review; absent evidence is reported as pending rather than passed.
 
 ## Documentation verification (2026-10-04)
 
