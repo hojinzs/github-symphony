@@ -2,6 +2,7 @@ import {
   isWorkflowExecutionPhase,
   isSessionExitClassification,
   type SessionExitClassification,
+  type TokenMeasurementProvenance,
   type WorkflowExecutionPhase,
 } from "./status-surface.js";
 import type { UnpublishedWorktree } from "../domain/issue.js";
@@ -34,20 +35,21 @@ export type OrchestratorChannelTurnStartedEvent = {
   sessionId: string | null;
 };
 
-export type OrchestratorChannelTurnCompletedEvent = {
-  type: "turn_completed";
-  issueId: string;
-  startedAt: string;
-  completedAt: string;
-  durationMs: number;
-  threadId: string | null;
-  turnId: string | null;
-  turnCount: number;
-  sessionId: string | null;
-  tokenUsage: OrchestratorChannelTokenUsage;
-};
+export type OrchestratorChannelTurnCompletedEvent =
+  TokenMeasurementProvenance & {
+    type: "turn_completed";
+    issueId: string;
+    startedAt: string;
+    completedAt: string;
+    durationMs: number;
+    threadId: string | null;
+    turnId: string | null;
+    turnCount: number;
+    sessionId: string | null;
+    tokenUsage: OrchestratorChannelTokenUsage;
+  };
 
-export type OrchestratorChannelTurnFailedEvent = {
+export type OrchestratorChannelTurnFailedEvent = TokenMeasurementProvenance & {
   type: "turn_failed";
   issueId: string;
   startedAt: string;
@@ -61,7 +63,7 @@ export type OrchestratorChannelTurnFailedEvent = {
   error: string | null;
 };
 
-export type OrchestratorChannelCodexUpdateEvent = {
+export type OrchestratorChannelCodexUpdateEvent = TokenMeasurementProvenance & {
   type: "codex_update";
   issueId: string;
   lastEventAt: string;
@@ -75,7 +77,7 @@ export type OrchestratorChannelCodexUpdateEvent = {
   event?: string;
 };
 
-export type OrchestratorChannelHeartbeatEvent = {
+export type OrchestratorChannelHeartbeatEvent = TokenMeasurementProvenance & {
   type: "heartbeat";
   issueId: string;
   lastEventAt: string | null;
@@ -164,6 +166,17 @@ export function isOrchestratorChannelEvent(
   value: unknown
 ): value is OrchestratorChannelEvent {
   if (!isRecord(value)) {
+    return false;
+  }
+
+  if (
+    (value.runtimeKind !== undefined &&
+      value.runtimeKind !== "codex-app-server" &&
+      value.runtimeKind !== "claude-print" &&
+      value.runtimeKind !== "custom") ||
+    (value.tokenUsageMeasured !== undefined &&
+      typeof value.tokenUsageMeasured !== "boolean")
+  ) {
     return false;
   }
 
