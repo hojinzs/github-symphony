@@ -5,3 +5,5 @@ export * from "./event-formatter.js";
 export * from "./redaction.js";
 export * from "./status-assembler.js";
 export * from "./error-format.js";
+
+export * from "./event-export.js";
