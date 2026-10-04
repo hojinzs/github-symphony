@@ -1,6 +1,6 @@
 # Orchestrator extraction scope
 
-- **Status:** Draft
+- **Status:** Shipped — scope approved in [#965](https://github.com/hojinzs/github-symphony/pull/965), retained decisions shipped in [#973](https://github.com/hojinzs/github-symphony/pull/973); [final review](../reports/2026-10-04-epic-890-final-review.md)
 - **Date:** 2026-09-14
 - **Symphony Layers:** Configuration, Coordination, Execution, Integration, Observability
 - **Issues:** [#890](https://github.com/hojinzs/github-symphony/issues/890), [#897](https://github.com/hojinzs/github-symphony/issues/897), [#898](https://github.com/hojinzs/github-symphony/issues/898)

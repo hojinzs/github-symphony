@@ -60,8 +60,8 @@ stages without turning partial configuration into a production exporter.
 | A   | Parse workflow OTLP policy without activating export              | Configuration                | P1 / M          | 6     | Spec approval     |
 | B   | Define SDK-free event normalization and severity                  | Observability                | P2 / M          | 4     | Spec approval     |
 | C   | Define authoritative metric projections and support flags         | Observability                | P1 / M          | 6     | Spec approval     |
-| C2  | Carry measured token provenance from worker updates               | Execution, Observability     | P1 / M          | 4     | C                 |
-| D   | Protect exporter credentials at orchestrator child boundaries     | Execution, Configuration     | P1 / M          | 4     | A                 |
+| C2  | Carry measured token provenance from worker updates               | Execution, Observability     | P1 / M          | 6     | A, C              |
+| D   | Protect exporter credentials at orchestrator child boundaries     | Execution, Configuration     | P1 / M          | 4     | A, C2             |
 | E   | Offer durable events and committed snapshots without backpressure | Observability, Coordination  | P1 / M          | 5     | B, C              |
 | F   | Export structured Logs with bounded OTLP transport                | Observability                | P2 / M          | 10    | A, D, E           |
 | G   | Export snapshot Metrics with correct temporality                  | Observability                | P1 / M          | 8     | C, C2, F          |
@@ -70,13 +70,16 @@ stages without turning partial configuration into a production exporter.
 | J   | Verify OTLP receipt and faults with Collector blackbox            | Observability, Execution     | P1 / M          | 5     | I                 |
 | K   | Publish the approved extension ADR and release usage              | Configuration, Observability | P2 / M          | 3     | J                 |
 
-Total estimate: 65 pure implementation hours, not elapsed delivery time. F adds a
+Total estimate: 67 pure implementation hours, not elapsed delivery time. F adds a
 private Logs pipeline behind an internal capability gate; YAML enablement may
-validate earlier, but must not start a production partial exporter until G/H
-complete the approved Logs+Metrics/lifecycle contract. A–E are independently
+validate earlier, but production export stays gated until G/H complete the
+runtime contract and I passes the packaged audits. A–E are independently
 useful deployable preparation; F/G use test injection to prove real wire
-behavior while the production capability remains off. H activates the complete
-pipeline. Reject enabled configuration with a visible unsupported-capability
+behavior while the production capability remains off. H wires the complete
+pipeline but retains the internal activation gate. Production enablement becomes
+eligible only after I passes all packaged dependency/worker-entry and performance
+gates; normal YAML enablement can then start the complete pipeline. Reject
+enabled configuration with a visible unsupported-capability
 message in intermediate builds, never silently claim success. Do not rely on a
 user-facing feature flag as a substitute for missing failure/security behavior.
 
@@ -91,7 +94,9 @@ flowchart LR
   A --> F
   D --> F
   E --> F
+  A --> C2
   C --> C2
+  C2 --> D
   C2 --> G
   C --> G
   F --> G
@@ -113,9 +118,12 @@ also runs repository-mandated `pnpm lint`, `pnpm build`, `pnpm test`,
 **Background:** No typed workflow contract exists for OTLP. Ambient endpoint
 values must not accidentally enable external export.
 
-**Proposed Changes:** Add the owned block, strict YAML types, existing whole-value
-reference resolution, field precedence and disabled behavior. Expose a resolved
-SDK-free configuration with safe diagnostics metadata and auth-name provenance.
+**Proposed Changes:** Add structural OTLP parsing that preserves unresolved
+references and validates types/reference syntax without accessing their values.
+Add a separate SDK-free owner-side resolver with precedence/disabled behavior,
+safe diagnostics metadata and auth-name provenance; it is never called by the
+shared worker parse path. D integrates orchestrator-only resolution before
+child construction, and C2 proves worker startup without exporter variables.
 This slice does not install SDKs or activate an exporter.
 
 **Affected Files:**
@@ -127,7 +135,9 @@ This slice does not install SDKs or activate an exporter.
 
 **Acceptance Criteria:** OT-02/03 configuration tables pass; loader env-digest
 behavior and old workflow parsing remain compatible; disabled missing secrets
-are harmless; no protocol fallback hides invalid enabled configuration.
+are harmless; no protocol fallback hides invalid owner-resolved configuration.
+Shared structural parsing accepts enabled OTLP with all OTLP refs absent; only
+owner-side resolution requires enabled transport values.
 
 ### B — Define SDK-free event normalization and severity
 
@@ -179,7 +189,9 @@ was actually measured. Current workflow runtime cannot classify historical runs.
 **Proposed Changes:** Emit additive channel provenance from the worker after a
 valid absolute token update, with runtime kind and a measured flag. Never mark
 initial zero counters as measured. Preserve session delta accounting and generic
-usage-map rejection; current Claude remains unsupported. E persists these
+usage-map rejection; current Claude remains unsupported. Add the worker startup regression required
+by A: enabled OTLP, unresolved endpoint/header references, stripped launcherEnv,
+and a stub agent that actually starts. E persists these
 optional values and recovery retains them using the types from C.
 
 **Affected Files:**
@@ -191,17 +203,21 @@ optional values and recovery retains them using the types from C.
 
 **Acceptance Criteria:** OT-08 distinguishes valid measured zero from initialized
 zero, keeps absolute-update deltas intact, and leaves Claude result usage
-uninterpreted. Legacy consumers tolerate additive channel fields. Deployment is
-safe before E understands those fields.
+uninterpreted. OT-09 proves shared structural parsing lets the worker start
+without resolving exporter secrets; no secret inheritance is restored. Legacy
+consumers tolerate additive channel fields. Deployment is safe before E
+understands those fields.
 
 ### D — Protect exporter credentials at orchestrator child boundaries
 
 **Background:** Project `.env` currently merges into worker execution environment;
 auth reference names are not necessarily named OTEL.
 
-**Proposed Changes:** Exclude resolved exporter-owned credential names at existing
-final worker/hook construction points, handle shared-name conflicts explicitly,
-and preserve agent/tracker credential safety contracts. No new credential broker.
+**Proposed Changes:** Invoke owner-side OTLP resolution before dispatch, never
+in the worker parser. Exclude exporter-owned credential reference names at existing
+final worker/hook construction points. Check shared-name conflicts in both
+enabled and disabled configurations using name-only checks; preserve
+agent/tracker credential safety contracts. No new credential broker.
 
 **Affected Files:**
 
@@ -212,7 +228,9 @@ and preserve agent/tracker credential safety contracts. No new credential broker
 
 **Acceptance Criteria:** OT-09 verifies arbitrary ref names, `.env` and process
 sources with captured worker/hook/custom/Claude/Codex environments; existing
-required auth is unaffected; disabled parsing never resolves auth unnecessarily.
+required auth is unaffected; disabled shared-name references (including
+ANTHROPIC_API_KEY) fail visibly without resolving a value. Enabled OTLP workers
+start after final stripping, with their own required credentials intact.
 
 ### E — Offer durable events and committed snapshots without backpressure
 
@@ -282,8 +300,8 @@ no new history scan in collection callback.
 **Background:** Transport settings must not quietly switch on reload or block
 shutdown; operators need applied versus pending settings.
 
-**Proposed Changes:** Activate the complete pipeline only after safe child
-construction; wire immutable startup settings, pending reload descriptors,
+**Proposed Changes:** Wire the complete pipeline after safe child construction,
+but keep production activation disabled until I's packaged audits pass; wire immutable startup settings, pending reload descriptors,
 safe additive status diagnostics and shared bounded shutdown. Keep exporter
 health out of coordination lastError.
 
@@ -298,6 +316,10 @@ health out of coordination lastError.
 disable honesty, invalid reload, revert, <=5s flush and secret-free diagnostics.
 Status addition uses existing extension mechanism; if a new cross-package
 contract is necessary, split it as a prerequisite rather than broadening H.
+An independently deployed H still rejects production enablement with an explicit
+unsupported-capability message; tests may use injected providers. H exposes an
+internal startup capability input defaulting to off, without a user-facing flag.
+I's audited CLI startup sets that capability only in the complete delivery.
 
 ### I — Ship CLI diagnostics and verify packaged SDK boundaries
 
@@ -307,19 +329,25 @@ CLI; lazy runtime loading does not prove a correct production install.
 **Proposed Changes:** Add doctor validation/bounded enabled probe, status applied
 versus pending view, adopt shared severity, audit SDK dependencies/lazy chunks
 and worker-entry reachability in packed installs. Measure the design's baseline
-startup/RSS/offer thresholds and report packed size separately.
+startup/RSS/offer thresholds and report packed size separately. Only after those
+checks pass does this release permit normal production YAML enablement; retain
+rejecting behavior if any packaged gate fails. Wire the internal production
+capability at the CLI startup composition point, using H's existing input;
+this slice does not change another package's runtime interface.
 
 **Affected Files:**
 
-| File                                                                    | Change                                      | Scope                |
-| ----------------------------------------------------------------------- | ------------------------------------------- | -------------------- |
-| `packages/cli/src/commands/doctor.ts`, `status.ts`, `logs.ts` and tests | Safe diagnostics and compatible severity    | Observability        |
-| `packages/cli/tsup.config.ts`, `package.json` if audit requires changes | Publish reachable dependency/chunk boundary | Packaging            |
-| `packages/cli/README.md`, `README.md`                                   | Shipped operational usage                   | Living documentation |
+| File                                                                    | Change                                                              | Scope                |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------- |
+| `packages/cli/src/commands/doctor.ts`, `status.ts`, `logs.ts` and tests | Safe diagnostics and compatible severity                            | Observability        |
+| `packages/cli/tsup.config.ts`, `package.json` if audit requires changes | Publish reachable dependency/chunk boundary                         | Packaging            |
+| `packages/cli/src/commands/start.ts` and packaged startup tests         | Enable the audited complete pipeline through H's startup capability | Configuration        |
+| `packages/cli/README.md`, `README.md`                                   | Shipped operational usage                                           | Living documentation |
 
 **Acceptance Criteria:** OT-03/10/13 pass in clean packed installs; disabled doctor
 performs no connection, worker-entry initializes no SDK, diagnostics do not
-print credentials. New fields are additive and old logs filters stay identical.
+print credentials. Production activation is blocked through H and enabled only
+in the audited I delivery. New fields are additive and old logs filters stay identical.
 
 ### J — Verify OTLP receipt and faults with Collector blackbox
 

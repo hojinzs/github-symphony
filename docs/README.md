@@ -47,7 +47,7 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 | [2026-08-11-standalone-project-model-design.md](designs/2026-08-11-standalone-project-model-design.md)                       | Policy, Configuration, Coordination, Execution, Observability              | Shipped                         |
 | [2026-08-11-agent-bootstrap-plugin-pm-steward-design.md](designs/2026-08-11-agent-bootstrap-plugin-pm-steward-design.md)     | Policy, Configuration, Coordination, Observability                         | Draft                           |
 | [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (plan)                                                                     | Active                          |
-| [2026-09-14-orchestrator-extraction-scope.md](designs/2026-09-14-orchestrator-extraction-scope.md)                           | Configuration, Coordination, Execution, Integration, Observability         | Draft                           |
+| [2026-09-14-orchestrator-extraction-scope.md](designs/2026-09-14-orchestrator-extraction-scope.md)                           | Configuration, Coordination, Execution, Integration, Observability         | Shipped (PR #973)               |
 | [2026-10-04-otlp-export-design.md](designs/2026-10-04-otlp-export-design.md)                                                 | Configuration, Observability, Coordination, Execution, Integration, Policy | Draft                           |
 | [2026-10-04-otlp-export-dogfood-plan.md](designs/2026-10-04-otlp-export-dogfood-plan.md)                                     | Configuration, Observability, Coordination, Execution, Integration, Policy | Draft (plan; no issues created) |
 
@@ -55,12 +55,17 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 
 | Document                                                                                                             | Status                                                                                                                                                      |
 | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [2026-09-05-maintainability-and-reliability-review.md](reports/2026-09-05-maintainability-and-reliability-review.md) | Review complete — proposed fixes and trade-offs for CI, orchestration, storage, and Linear normalization                                                    |
+| [2026-09-05-maintainability-and-reliability-review.md](reports/2026-09-05-maintainability-and-reliability-review.md) | Resolved — [Epic #890](https://github.com/hojinzs/github-symphony/issues/890); [final review](reports/2026-10-04-epic-890-final-review.md)                  |
 | [2026-05-04-single-repo-orchestrator-feasibility.md](reports/2026-05-04-single-repo-orchestrator-feasibility.md)     | Concluded — promoted to an ADR                                                                                                                              |
 | [2026-06-25-spec-gap-analysis.md](reports/2026-06-25-spec-gap-analysis.md)                                           | Retired — living-map upkeep stopped, final snapshot                                                                                                         |
 | [2026-07-06-risk-audit-report.md](reports/2026-07-06-risk-audit-report.md)                                           | Awaiting review (issues not filed)                                                                                                                          |
 | [2026-07-19-github-api-rate-limit-audit.md](reports/2026-07-19-github-api-rate-limit-audit.md)                       | Partially implemented (R1.5 shipped)                                                                                                                        |
 | [2026-08-28-upstream-spec-drift-research.md](reports/2026-08-28-upstream-spec-drift-research.md)                     | Complete (Epic #651 scope) — see its documented carve-outs; C1–C13/D1–D8 follow-up shipped in [#675](https://github.com/hojinzs/github-symphony/issues/675) |
+
+Final reliability review evidence:
+
+- [2026-09-14-run-history-polling-cost.md](reports/2026-09-14-run-history-polling-cost.md) — baseline and shipped #896 optimization measurements
+- [2026-10-04-epic-890-final-review.md](reports/2026-10-04-epic-890-final-review.md) — completion evidence, approved scope changes, and fresh validation
 
 ## adr/
 

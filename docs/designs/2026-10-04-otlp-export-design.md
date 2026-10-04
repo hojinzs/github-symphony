@@ -4,7 +4,7 @@
 - **Date:** 2026-10-04
 - **Symphony Layers:** Configuration, Observability (primary); Coordination, Execution, Integration (boundary effects); Policy (dogfood planning only)
 - **Tracking Epic:** [#794](https://github.com/hojinzs/github-symphony/issues/794)
-- **Baseline:** `main` at `dcfcaffc00925082bd7d98e3b2a7e00438ec4b4c`
+- **Baseline:** Initial code audit at `dcfcaffc00925082bd7d98e3b2a7e00438ec4b4c`; review refresh against `main` at `750119aa` (documentation closeout only)
 - **Approval:** User constraints below are fixed. Release and technical choices are recommendations awaiting review, not accepted decisions.
 - **Delivery plan:** [Independent dogfood slices](2026-10-04-otlp-export-dogfood-plan.md)
 
@@ -32,7 +32,7 @@ is an OPEN documentation proposal for a management plane, not an OTLP dependency
 | Lazy import removes size/startup cost         | CLI tsup bundles workspace packages (`noExternal`), splits ESM chunks, and has multiple entries                                                           | Measure runtime loading and installed/packed size separately                                                              |
 | Snapshot hook can export                      | `notifyTick` awaits `onTick`; `saveProjectStatus` is in the reconciliation path                                                                           | Only enqueue/copy bounded state here; exporter network I/O cannot be awaited                                              |
 | Child OTEL values are uniformly excluded      | Host inheritance is allowlisted, but `buildProjectExecutionEnv` merges the project `.env` wholesale                                                       | Explicitly exclude exporter auth provenance at worker construction; test project `.env` too                               |
-| Extraction planned                            | Latest extraction design is still labelled Draft; `retained-decisions.ts` is actually imported by the façade                                              | Keep pure decisions effect-free; use existing service/store owners                                                        |
+| Extraction planned                            | Initial audit found the extraction design labelled Draft; main closeout now marks it Shipped (PR #973); `retained-decisions.ts` is imported by the façade | Keep pure decisions effect-free; use existing service/store owners                                                        |
 | Epic can be picked up                         | `WORKFLOW.md` already excludes `epic`                                                                                                                     | Preserve parent exclusion; no workflow edit is needed now                                                                 |
 
 Paths in this table are under `packages/`. Relevant current contracts are
@@ -123,7 +123,27 @@ entries. Auth literals in YAML are rejected. Header maps replace lower-precedenc
 maps in full, never merge different credentials. `{}` explicitly suppresses env
 headers. Reject attempts to set Host, Content-Length or Content-Type.
 
-Environment references reuse `resolveEnvironmentValue`: `env:NAME`, `$NAME`,
+### Structural parsing versus owner-side resolution
+
+Shared `parseWorkflowMarkdown` validates the OTLP block's field types and
+reference syntax, collecting referenced names without looking up
+any OTLP environment values. The worker calls this same parser with its stripped
+`launcherEnv` to build its prompt and select a runtime; parsing must succeed
+with enabled OTLP and no exporter secrets or endpoint-reference values present.
+Do not require a worker opt-in mode, import SDK modules, or put resolved exporter
+credentials into `ParsedWorkflow` or its shared cache.
+
+A separate SDK-free `resolveOtlpConfiguration(raw, effectiveEnv)` helper reuses
+existing environment-value resolution, but only the orchestrator startup/reload
+owner and host CLI doctor call it. Orchestrator resolution validates required
+transport values before dispatch and keeps the result in owner-local memory.
+Normal workflow revision/cache logic uses the unresolved structural policy;
+owner-side resolution participates in last-known-good and pending-config
+handling. Other existing workflow fields retain their current parser behavior.
+Worker structural success must not suppress orchestrator-side validation errors.
+
+Environment references in that owner-side resolver reuse
+`resolveEnvironmentValue`: `env:NAME`, `$NAME`,
 and `${NAME}` as entire scalar values. Missing/empty references are field-specific
 validation errors. Do not introduce interpolation such as `Bearer ${TOKEN}`;
 store the entire `Bearer ...` value in the referenced variable. `$VAR` matches
@@ -247,11 +267,14 @@ allow generic project env merging to leak a newly referenced auth name. Hook
 children also must not receive these exporter-owned secrets. No new OTEL
 inheritance allowlist or agent opt-in is added. Existing coding-agent environment
 construction must remain isolated; test Codex, Claude and custom children.
-If one env name is shared with required agent/tracker auth, reject enabled OTLP
+If one stripped env name is shared with required agent/tracker auth, reject the
 configuration with an actionable request to use a distinct exporter credential
-name; do not silently break the agent. When disabled, selecting auth reference
-names for stripping needs no secret resolution; reserved exporter credential
-names remain excluded. Non-secret historical project env policy is otherwise
+name, whether OTLP is enabled or disabled. Run this name-only conflict check
+whenever stripping applies, before constructing children; it never resolves or
+prints secret values. For example, disabled OTLP referencing ANTHROPIC_API_KEY
+must be rejected rather than silently stripping bare Claude's required auth.
+When disabled, collecting auth reference names for stripping and conflict checks
+needs no secret resolution; reserved exporter credential names remain excluded. Non-secret historical project env policy is otherwise
 unchanged.
 
 ## Logs contract
@@ -274,7 +297,12 @@ do not fetch the tracker or invent an ID. Malformed timestamps drop only that
 export record and count mapping failure, without altering local append. Payload
 limit is 16 KiB after redaction; truncate exported payload at UTF-8 boundaries,
 set `symphony.payload.truncated=true`, preserve context scalars; local bytes stay
-unchanged. No more than 64 attributes and 1 KiB per scalar string.
+unchanged. No more than 64 attributes. The JSON-string attribute
+`symphony.event.payload` is explicitly exempt from the ordinary 1 KiB scalar
+string limit and uses the 16 KiB UTF-8 payload limit; every other scalar string
+is limited to 1 KiB. Configure SDK attribute limits and mapper truncation to
+preserve this distinction. Tests cover payloads above 1 KiB but below 16 KiB,
+and truncation above 16 KiB, without changing local file bytes.
 
 Severity preserves CLI `getLevel`: ERROR/17 for `run-failed`, `turn_failed`,
 `worker-error`, `hook-failed`; WARN/13 for `run-suppressed`, `run-retried`,
@@ -449,7 +477,7 @@ actual published CLI dependencies/chunks must be audited because workspace
 packages are bundled and private package dependency ownership alone is not a
 shipping guarantee.
 
-Before enabling the exporter slice, compare baseline and SDK branch: dependency
+Before allowing production enablement (after slice I's packaged audit), compare baseline and SDK branch: dependency
 count/lockfile size, clean production install bytes, CLI npm-pack tarball bytes,
 all ESM chunk bytes (including worker-entry), loaded modules for disabled start,
 30 fresh-process startup samples (median/p95), idle RSS, and tick-duration p95
@@ -482,23 +510,23 @@ wording. This Draft does not label any technical choice Accepted.
 
 ## Acceptance test contract (future implementation)
 
-| TC    | Test and required evidence                                                                                                                                                     | Level                                                 |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| OT-01 | Decode real protobuf Logs/Metrics, correct signal paths, timestamps, severity, resources, auth header, units/attributes                                                        | In-process receiver; Collector confirms compatibility |
-| OT-02 | YAML > signal env > general env and process > `.env`; signal URLs exact; general base suffixes; header-map replacement; missing refs/type/protocol errors                      | Unit tables + receiver                                |
-| OT-03 | No block, omitted enable, explicit false and SDK_DISABLED veto never activate on ambient OTEL values; no SDK module evaluation, sockets/timers; doctor disabled                | Unit/CLI packaged process                             |
-| OT-04 | Refused endpoint, stalled request, auth error, partial success, Retry-After, permanent errors and recovery warning reset; dispatcher still completes with unchanged scheduling | Fake clock/receiver + Collector outage blackbox       |
-| OT-05 | Queue byte/count saturation and concurrent drains stay bounded; newest drops exactly once; metric snapshots coalesce                                                           | Unit stress tests                                     |
-| OT-06 | Repeated snapshot/collection/retry contributes no duplicate outcomes/tokens/runtime; restart UUID and reset; recovery lifecycle totals match authoritative fixtures            | Existing accounting fixtures + receiver               |
-| OT-07 | Primary append failure offers nothing; mirror failure still offers once; original redacted NDJSON bytes, integrity verification and mirror output unchanged                    | fs-store regression fixtures                          |
-| OT-08 | Codex absolute updates/session deltas remain correct; valid measured zero distinguished from absent; Claude raw `usage` does not create token series; supported=0              | Worker/runtime/core fixtures                          |
-| OT-09 | Project `.env`, process and arbitrary header-ref names absent from worker/hook/Codex/Claude/custom child env; no SDK child graph evaluation; existing credentials intact       | Environment contract tests + stub child               |
-| OT-10 | Valid reload leaves applied exporter unchanged and displays pending; disable warning honest; revert clears; invalid reload uses last-known-good                                | Service/CLI/status/API fixtures                       |
-| OT-11 | Graceful shutdown waits <=5s total including both providers; timeout aborts/drops; forced death does not trigger historical replay                                             | Packaged subprocess + receiver                        |
-| OT-12 | Exporter diagnostics never re-export recursively, never set coordination lastError; secret echoes absent from all output                                                       | Fault injection/unit                                  |
-| OT-13 | Packaged CLI resolves lazy dependencies/chunks in clean install; disabled startup/RSS and offer latency gates measured                                                         | Packaging benchmark                                   |
-| OT-14 | Real Collector produces attributable received Log/Metric evidence, endpoint outage leaves file-tracker work complete                                                           | Docker blackbox                                       |
-| OT-15 | Dependency-ready bot-assigned child dispatched, PR/test/merge evidence and parent exclusion confirmed, independently of OTLP receipt                                           | Supervised dogfood after approval                     |
+| TC    | Test and required evidence                                                                                                                                                                                                                                    | Level                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| OT-01 | Decode real protobuf Logs/Metrics, correct signal paths, timestamps, severity, resources, auth header, units/attributes                                                                                                                                       | In-process receiver; Collector confirms compatibility |
+| OT-02 | YAML > signal env > general env and process > `.env`; signal URLs exact; general base suffixes; header-map replacement; missing refs/type/protocol errors                                                                                                     | Unit tables + receiver                                |
+| OT-03 | No block, omitted enable, explicit false and SDK_DISABLED veto never activate on ambient OTEL values; no SDK module evaluation, sockets/timers; doctor disabled                                                                                               | Unit/CLI packaged process                             |
+| OT-04 | Refused endpoint, stalled request, auth error, partial success, Retry-After, permanent errors and recovery warning reset; dispatcher still completes with unchanged scheduling                                                                                | Fake clock/receiver + Collector outage blackbox       |
+| OT-05 | Queue byte/count saturation and concurrent drains stay bounded; newest drops exactly once; metric snapshots coalesce                                                                                                                                          | Unit stress tests                                     |
+| OT-06 | Repeated snapshot/collection/retry contributes no duplicate outcomes/tokens/runtime; restart UUID and reset; recovery lifecycle totals match authoritative fixtures                                                                                           | Existing accounting fixtures + receiver               |
+| OT-07 | Primary append failure offers nothing; mirror failure still offers once; original redacted NDJSON bytes, integrity verification and mirror output unchanged                                                                                                   | fs-store regression fixtures                          |
+| OT-08 | Codex absolute updates/session deltas remain correct; valid measured zero distinguished from absent; Claude raw `usage` does not create token series; supported=0                                                                                             | Worker/runtime/core fixtures                          |
+| OT-09 | Enabled OTLP worker starts with stripped credentials and unresolved endpoint refs; project `.env`/process/arbitrary header-ref names absent from children; enabled and disabled shared-name conflicts rejected without value resolution; existing auth intact | Environment contract tests + stub child               |
+| OT-10 | Valid reload leaves applied exporter unchanged and displays pending; disable warning honest; revert clears; invalid reload uses last-known-good                                                                                                               | Service/CLI/status/API fixtures                       |
+| OT-11 | Graceful shutdown waits <=5s total including both providers; timeout aborts/drops; forced death does not trigger historical replay                                                                                                                            | Packaged subprocess + receiver                        |
+| OT-12 | Exporter diagnostics never re-export recursively, never set coordination lastError; secret echoes absent from all output                                                                                                                                      | Fault injection/unit                                  |
+| OT-13 | Packaged CLI resolves lazy dependencies/chunks in clean install; disabled startup/RSS and offer latency gates measured                                                                                                                                        | Packaging benchmark                                   |
+| OT-14 | Real Collector produces attributable received Log/Metric evidence, endpoint outage leaves file-tracker work complete                                                                                                                                          | Docker blackbox                                       |
+| OT-15 | Dependency-ready bot-assigned child dispatched, PR/test/merge evidence and parent exclusion confirmed, independently of OTLP receipt                                                                                                                          | Supervised dogfood after approval                     |
 
 In-process receiver tests inspect wire protobuf, deterministic timing and
 failure injection without Docker. They cannot prove Collector interoperability,
