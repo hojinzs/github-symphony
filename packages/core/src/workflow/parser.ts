@@ -22,6 +22,7 @@ import {
   type WorkflowRuntimeKind,
   resolveWorkflowRuntimeCommand,
 } from "./config.js";
+import { parseOtlpPolicy } from "./otlp.js";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -358,6 +359,7 @@ function parseWorkflowConfig(
         ) ?? DEFAULT_POLL_INTERVAL_MS,
     },
     repository: readOptionalExtensionObject(frontMatter, "repository"),
+    observability: { otlp: parseOtlpPolicy(frontMatter.observability) },
     server: {
       port: readOptionalPort(server, "port", "server.port"),
     },

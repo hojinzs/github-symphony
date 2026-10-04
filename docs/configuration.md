@@ -767,3 +767,24 @@ values from leaking into new runs.
 | `SYMPHONY_CUMULATIVE_OUTPUT_TOKENS`   | `0` on fresh worker start     | Worker/runtime | Internal          | Cumulative output tokens.                                 |
 | `SYMPHONY_CUMULATIVE_TOTAL_TOKENS`    | `0` on fresh worker start     | Worker/runtime | Internal          | Cumulative total tokens.                                  |
 | `SYMPHONY_LAST_TURN_SUMMARY`          | cleared on fresh worker start | Worker/runtime | Internal          | Last turn summary used for continuation/recovery context. |
+
+### OTLP workflow policy (exporter support pending)
+
+The optional `observability.otlp` mapping is parsed structurally by the shared
+workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
+enable export. This contract slice does not install an SDK or activate an
+exporter. Owner-side transport resolution and runtime integration are separate.
+
+Supported fields are `enabled` (boolean), `endpoint` (non-empty string),
+`protocol` (`http/protobuf`), `headers`, `resource_attributes`, and signal
+mappings `logs`/`metrics` with endpoint/protocol/headers. Headers accept a map
+of names to secret references or a whole header-list reference; empty maps are
+preserved. Resource attributes accept string, boolean and finite numeric values.
+Unknown fields in the observability block are rejected.
+
+Whole-value references use `env:NAME`, `$NAME`, or `${NAME}`; interpolation is
+unsupported. Parsing preserves references and records referenced names, including
+header auth provenance, without reading their values. Enabled policies therefore
+parse in workers without exporter variables. Resolved credentials never enter
+the shared parsed workflow cache. This is an additive repository Configuration
+Layer extension to the upstream Symphony specification.
