@@ -28,7 +28,7 @@ const event: OrchestratorEvent = {
   event: "run-failed",
   projectId: "project-1",
   issueIdentifier: "acme/repo#1",
-  error: "token=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+  lastError: "token=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
   attempt: 1,
 };
 
@@ -93,9 +93,9 @@ describe("OT-07 durable publication", () => {
     expect(Object.isFrozen(value)).toBe(true);
     expect(Object.isFrozen(context)).toBe(true);
     expect(() => {
-      value.error = "changed";
+      value.lastError = "changed";
     }).toThrow();
-    expect(event.error).toContain("ghp_");
+    expect(event.lastError).toContain("ghp_");
   });
 
   it("offers once after a failed mirror and contains a throwing callback", async () => {
@@ -122,6 +122,31 @@ describe("OT-07 durable publication", () => {
     ).toContain('"integrity":');
     expect(warn).toHaveBeenCalledOnce();
     expect(warningsAtOffer).toBe(1);
+  });
+
+  it("completes durable appends without awaiting pending or rejecting event callbacks", async () => {
+    const runtimeRoot = await root();
+    const offerEvent = vi
+      .fn()
+      .mockReturnValueOnce(new Promise<void>(() => {}))
+      .mockRejectedValueOnce(new Error("private exporter failure"));
+    const store = new OrchestratorFsStore(runtimeRoot, {
+      publication: { offerEvent },
+    });
+    await expect(store.appendRunEvent("run-1", event)).resolves.toBeUndefined();
+    await expect(store.appendRunEvent("run-1", event)).resolves.toBeUndefined();
+    await Promise.resolve();
+    expect(offerEvent).toHaveBeenCalledTimes(2);
+    expect(
+      (
+        await readFile(
+          join(store.runDir("run-1", "project-1"), "events.ndjson"),
+          "utf8"
+        )
+      )
+        .trim()
+        .split("\n")
+    ).toHaveLength(2);
   });
 
   it("offers nothing on primary append failure", async () => {

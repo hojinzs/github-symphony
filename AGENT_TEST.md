@@ -272,6 +272,12 @@ Control worker behavior with the `STUB_SCENARIO` environment variable:
 STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml up -d --build
 ```
 
+### Durable publication regression
+
+| Scenario                                                         | Unit coverage                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Docker confirmation                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local-first publication without backpressure (#992, OT-07/04/12) | `packages/orchestrator/src/publication.test.ts` verifies primary/mirror bytes, integrity, append IDs, immutable redacted offers, no offer on primary failure, mirror warning order and callback failure containment. `service.test.ts` verifies successful status commit before offers, monotonic committed identity despite repeated timestamps, duration/outcome, unchanged coordination health, no status-read offers, and optional provenance retention through legacy updates and recovery finalization. | [TC-25](e2e/scenarios/25-durable-publication.md) uses `./e2e/run-standalone-project-e2e.sh` to confirm normal CLI dispatch and worker completion with default no-op publication. Injected callbacks remain unit-tested because exporter activation is outside this slice. |
+
 ### Concurrent project regression
 
 `./e2e/run-standalone-project-e2e.sh` starts two project folders concurrently
@@ -419,6 +425,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                       |
 | `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication               |
 | `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry   |
+| `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                 |
 | `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                     |
 
 ## TC Writing Guide

@@ -4705,7 +4705,9 @@ Retry inconclusive work.
           throw new Error("private exporter failure");
         }
       );
-      const onTick = vi.fn();
+      const onTick = vi.fn(() => {
+        expect(clock).toHaveBeenCalledTimes(2);
+      });
       const stderr = { write: vi.fn() };
       const clock = vi
         .fn()
@@ -4754,6 +4756,50 @@ Retry inconclusive work.
       const count = offers.length;
       await service.status();
       expect(offers).toHaveLength(count);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("completes ticks without awaiting pending or rejecting snapshot and timer callbacks", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-offer-pending-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const offerSnapshot = vi
+        .fn()
+        .mockReturnValueOnce(new Promise<void>(() => {}))
+        .mockRejectedValueOnce(new Error("private exporter failure"));
+      const observeTick = vi
+        .fn()
+        .mockReturnValueOnce(new Promise<void>(() => {}))
+        .mockRejectedValueOnce(new Error("private exporter failure"));
+      const service = new OrchestratorService(
+        store,
+        createProjectConfig(tempRoot, repository),
+        {
+          fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+          publication: { offerSnapshot, observeTick },
+        }
+      );
+      await expect(service.runOnce()).resolves.toMatchObject({
+        health: "idle",
+        lastError: null,
+      });
+      await expect(service.runOnce()).resolves.toMatchObject({
+        health: "idle",
+        lastError: null,
+      });
+      await Promise.resolve();
+      expect(offerSnapshot).toHaveBeenCalledTimes(2);
+      expect(observeTick).toHaveBeenCalledTimes(2);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -4889,6 +4935,52 @@ Retry inconclusive work.
       }
     }
   );
+
+  it("retains latest persisted provenance when finalizing a stale recovered inventory record", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-provenance-recovery-")
+    );
+    try {
+      const repository = {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      };
+      const store = new OrchestratorFsStore(tempRoot);
+      const config = createProjectConfig(tempRoot, repository);
+      const staleRun = {
+        ...createConvergenceRunRecord(repository, tempRoot, {
+          completedAt: "2026-03-08T00:00:00.000Z",
+        }),
+        status: "running" as const,
+        lastError: null,
+      };
+      await store.saveRun({
+        ...staleRun,
+        runtimeKind: "codex-app-server",
+        tokenUsageMeasured: true,
+        runPhase: "succeeded",
+        workerExitCode: 0,
+        runtimeSession: {
+          ...staleRun.runtimeSession!,
+          status: "completed",
+          exitClassification: "completed",
+        },
+      });
+      const service = new OrchestratorService(store, config, {
+        now: () => new Date("2026-03-08T00:01:00.000Z"),
+      });
+      await service["reconcileRun"](config, staleRun, []);
+      expect(
+        await store.loadRun(staleRun.runId, staleRun.projectId)
+      ).toMatchObject({
+        runtimeKind: "codex-app-server",
+        tokenUsageMeasured: true,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 
   it("invokes onTick with the reconciliation snapshot when run() completes a tick", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
