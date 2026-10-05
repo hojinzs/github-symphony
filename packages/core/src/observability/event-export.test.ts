@@ -457,14 +457,15 @@ describe("OT-01 SDK-free event projection", () => {
     );
   });
 
-  it("redacts payload and extracted strings/context before exporting", () => {
+  it("preserves redacted event values and redacts append context", () => {
     const secret = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
     const input = event({
       error: `Authorization: Bearer ${secret}`,
       reason: `token=${secret}`,
       rateLimits: { apiKey: "secret-value" },
     });
-    const result = normalizeEventForExport(input, {
+    const redactedInput = redactObservabilitySecrets(input);
+    const result = normalizeEventForExport(redactedInput, {
       ...context,
       runId: `token=${secret}`,
     });
@@ -473,6 +474,9 @@ describe("OT-01 SDK-free event projection", () => {
     expect(output).not.toContain("secret-value");
     expect(output).toContain("[REDACTED]");
     expect(input.error).toContain(secret);
+    expect(
+      result.ok && result.record.attributes["symphony.event.payload"]
+    ).toBe(JSON.stringify(redactedInput));
   });
 
   it("excludes raw worker text, agent params and trace/span fields", () => {
@@ -535,6 +539,26 @@ describe("OT-01 SDK-free event projection", () => {
 });
 
 describe("OT-07 local schema preservation", () => {
+  it("preserves persisted secret-like values across repeated projections", () => {
+    const input = redactObservabilitySecrets(
+      event({
+        lastError: "Authorization: Bearer secret-value",
+        error: "https://user:pw@host/x?token=secret-value",
+      })
+    );
+    const persisted = JSON.stringify(input);
+    expect(persisted).toContain("[REDACTED]");
+    for (let i = 0; i < 2; i++) {
+      const record = project(input);
+      expect(record.attributes["symphony.event.payload"]).toBe(persisted);
+      expect(record.attributes["symphony.event.lastError"]).toBe(
+        input.lastError
+      );
+      expect(record.attributes["symphony.event.error"]).toBe(input.error);
+      expect(JSON.stringify(input)).toBe(persisted);
+    }
+  });
+
   it("leaves redacted append input, context, NDJSON bytes and integrity unchanged", () => {
     const input = redactObservabilitySecrets(fixtures.turn_completed);
     const json = JSON.stringify(input);

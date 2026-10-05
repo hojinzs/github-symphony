@@ -42,6 +42,11 @@ const SEVERITIES = {
   "priority.unmapped": INFO,
 } satisfies Record<OrchestratorEvent["event"], EventSeverity>;
 
+const ISSUE_FREE_KINDS = new Set<OrchestratorEvent["event"]>([
+  "hook-executed",
+  "hook-failed",
+]);
+
 /** SDK-free severity contract; unknown future kinds use INFO. */
 export function getEventSeverity(kind: string): EventSeverity {
   const severity = Object.hasOwn(SEVERITIES, kind)
@@ -56,7 +61,7 @@ export const EVENT_EXPORT_LIMITS = Object.freeze({
   attributes: 64,
 });
 
-/** Append-owner context, supplied after redaction and successful persistence. */
+/** Append-owner context, supplied after successful persistence; redacted here. */
 export type EventAppendContext = {
   observedAt: string;
   projectId?: string;
@@ -171,6 +176,8 @@ const SCALAR_FIELDS = [
 ] as const;
 
 /**
+ * Accepts the immutable, already-redacted append event. Payload and extracted
+ * event fields are never redacted again; only caller-supplied context is redacted.
  * Pure, transport-independent projection. No clocks, tracker reads, mutation,
  * persistence or SDK imports. Mapping failure affects only this export record;
  * the owner counts it without changing local append semantics.
@@ -189,16 +196,17 @@ export function normalizeEventForExport(
     const payload = Object.fromEntries(
       Object.entries(event).filter(([key]) => PAYLOAD_FIELDS.has(key))
     );
-    // Defense in depth: callers supply redacted append input; context and all
-    // extracted attributes also pass through the existing redactor here.
-    const safe = redactObservabilitySecrets(payload);
+    // Preserve the persisted redacted values: the redactor is not idempotent.
+    const safe = payload;
     const safeContext = redactObservabilitySecrets(context);
     const serialized = JSON.stringify(safe);
     const attributes: ExportEventRecord["attributes"] = {};
+    // Reserve one slot for the payload, which has a separate string limit.
+    let attributeCount = 0;
     const put = (key: string, value: unknown) => {
-      if (Object.keys(attributes).length >= EVENT_EXPORT_LIMITS.attributes)
-        return;
+      if (attributeCount >= EVENT_EXPORT_LIMITS.attributes - 1) return;
       if (typeof value === "string" && value.length > 0) {
+        attributeCount++;
         attributes[key] = truncateUtf8(
           value,
           EVENT_EXPORT_LIMITS.scalarStringBytes
@@ -207,6 +215,7 @@ export function normalizeEventForExport(
         typeof value === "boolean" ||
         (typeof value === "number" && Number.isFinite(value))
       ) {
+        attributeCount++;
         attributes[key] = value;
       }
     };
@@ -236,8 +245,7 @@ export function normalizeEventForExport(
 
     const knownIssueEvent =
       Object.hasOwn(SEVERITIES, event.event) &&
-      event.event !== "hook-executed" &&
-      event.event !== "hook-failed";
+      !ISSUE_FREE_KINDS.has(event.event as OrchestratorEvent["event"]);
     if (
       (knownIssueEvent || issueId || issueIdentifier || safe.issue) &&
       (!issueId || !issueIdentifier)
