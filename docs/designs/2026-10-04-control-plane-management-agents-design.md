@@ -6,7 +6,7 @@
 - **Scope:** Proposed architecture; this document does not describe shipped commands or APIs
 - **Tracking:** [Epic #983](https://github.com/hojinzs/github-symphony/issues/983), [specification and usability child #984](https://github.com/hojinzs/github-symphony/issues/984), [delivery PR #982](https://github.com/hojinzs/github-symphony/pull/982)
 - **Related documents:** [Standalone project boundary](../adr/2026-08-13_standalone-project-instance-boundary.md), [standalone project model](2026-08-11-standalone-project-model-design.md), [orchestrator extraction scope](2026-09-14-orchestrator-extraction-scope.md), [current control-plane package](../../packages/control-plane/README.md)
-- **Visual redesign:** [A — Graphite selected](2026-10-05-ohmysymphony-theme-directions.md), [previous C22 handoff and screen inventory](2026-10-05-ohmysymphony-c22-design-handoff.md). The operator selected A on 2026-10-05; whole-system application and final redesign approval remain pending. Archived decision samples remain source references.
+- **Visual redesign:** [A — Graphite selected](2026-10-05-ohmysymphony-theme-directions.md), [C22 Graphite handoff and screen inventory](2026-10-05-ohmysymphony-c22-design-handoff.md). The operator selected A on 2026-10-05; the 58-screen Graphite application and static verification were completed on 2026-10-06; final redesign approval remains pending. Archived decision samples remain source references.
 
 ## Intent and agreed scope
 

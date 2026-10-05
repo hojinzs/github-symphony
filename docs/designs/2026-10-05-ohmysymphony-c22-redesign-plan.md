@@ -1,6 +1,6 @@
 # OhMySymphony C22 redesign implementation plan
 
-- **Status:** A — Graphite selected; full-system redesign and final approval pending
+- **Status:** A — Graphite full-system candidate delivered; final approval pending
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [#1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 
@@ -10,7 +10,7 @@
 
 **Selection:** On 2026-10-05 the operator said “A안으로 가자. 목표 재설정” (“Go with A. Reset the goal”). The selected reference is [A — Graphite, node 53:490](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-490). This authorizes whole-system application; it is not approval of the resulting full redesign.
 
-**App Goal state:** The existing app Goal remains `blocked`. Its available status tool cannot edit the objective or resume it, and creating a replacement was rejected because the existing goal is unfinished. This document records the revised objective; it does not claim that the app Goal was replaced. The visual-selection prerequisite itself is resolved.
+**App Goal state:** After the operator cleared the previous Goal, a new Graphite-specific Goal was created successfully and is `active`. Whole-system application and static/repository verification are complete; actual final operator approval remains required.
 
 **Architecture:** This is the presentation design of the repository-local management plane above Symphony. Preserve the approved Control Plane → Management Agent → per-project orchestrator boundaries; introduce no scheduling or execution behavior. Build screens from widgets, widgets from component instances, and components from shared foundations.
 
@@ -25,8 +25,8 @@ Inspection on 2026-10-05 established:
 - #1026 is open. Its native blocked-by relationship points to closed #984; its native blocking relationships point to #1018–#1022. Backend dependencies remain separately binding.
 - The planning checkout was `dcfcaffc` (PR #981) and lacked the management-plane design document. Its contents were read from GitHub main for this analysis. Start execution from a revision containing merged #982; do not reconstruct an old copy or overwrite the checkout during planning.
 - The remote design header still says Draft, whereas #984's latest completion section explicitly records operator approval and merge. Preserve that provenance and reconcile status/link metadata during delivery without rewriting approved behavior.
-- [OhMySymphony](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e) currently exposes one page, `0:1`, named `01 · Spec validation samples`. Board `13:154` contains six 1440px views: environment list, create, Linux waiting, macOS waiting, connected, and expired/reopened. Metadata confirms editable text and instances, but does not prove rendering, variables, accessibility or complete state coverage.
-- The copied [Tailwind library](https://www.figma.com/design/Bg9Hb0nSo97A4eNHqeApwk) currently exposes only `Welcome` (`1:1180`) through metadata. The earlier design document reports eight pages and hundreds of styles. This discrepancy needs asset/access inspection; it does not prove the assets were deleted.
+- [OhMySymphony](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e) at the initial planning inspection exposed one page, `0:1`, named `01 · Spec validation samples`. Board `13:154` contains six 1440px views: environment list, create, Linux waiting, macOS waiting, connected, and expired/reopened. Metadata confirms editable text and instances, but does not prove rendering, variables, accessibility or complete state coverage.
+- The copied [Tailwind library](https://www.figma.com/design/Bg9Hb0nSo97A4eNHqeApwk) at the initial planning inspection exposed only `Welcome` (`1:1180`) through metadata. The earlier design document reports eight pages and hundreds of styles. This discrepancy needs asset/access inspection; it does not prove the assets were deleted.
 - Existing runtime references include `packages/control-plane/client/src/index.css`, `components/Button.tsx`, `components/Badge.tsx`, and `pages/FoundationsPage.tsx`. They use Inter, JetBrains Mono, dark surfaces and semantic colors. They are a reuse/alignment reference, not authorization to turn the existing per-project server into the fleet service.
 
 ## Global constraints
@@ -189,7 +189,7 @@ first visual theme did not meet their quality expectations. See the
       fixture, isolated tokens/components and preserved state semantics.
 - [x] R2: Record the operator's explicit selection of A — Graphite on
       2026-10-05, quoted above. No additional visual adjustment was requested.
-- [ ] R3: Apply the chosen direction consistently to shared foundations,
+- [x] R3: Apply the chosen direction consistently to shared foundations,
       components, widgets and all 58 required screen/state compositions, preserving
       approved behavior, responsive coverage and the original archive.
 - [ ] R4: Repeat applicable D01–D07 structural/rendered checks and repository
@@ -205,7 +205,7 @@ first visual theme did not meet their quality expectations. See the
    restrained separators. Verify text contrast and meaningful focus/control
    boundaries before downstream composition; preserve distinct state axes.
 2. **Components and widgets:** Revise controls, navigation, rows, dialogs and
-   all 11 domain widgets using shared tokens and instances. Replace repeated
+   all domain widgets (15 production widget definitions after Graphite application) using shared tokens and instances. Replace repeated
    card outlines and oversized summaries with Graphite's hierarchy where the
    content permits. Preserve long paths, command diagnostics, disabled reasons
    and destructive/unknown command semantics. Run D02, D05 and D06.
@@ -233,3 +233,19 @@ review found no material contradictions. Targeted Prettier and whitespace
 checks passed; fresh `pnpm test` passed 2,150 tests across 14 packages. These
 checks verify the revised plan and repository baseline, not completion of the
 Graphite screen redesign.
+
+### Graphite delivery record — 2026-10-06
+
+After the operator cancelled the obsolete Goal, the new Graphite Goal was
+created successfully. R3 is complete: all 58 root IDs remain stable, with
+Graphite foundations, shell, rows, compact summaries, dialogs and log controls.
+Tablet row masters and a mobile 2 × 2 observation grid preserve the full data
+hierarchy. Shared components preserve approved management-plane semantics.
+
+R4 verification is complete: all 58 renders reviewed, reported defects repaired,
+1,168 semantic/boundary assertions passed and a fresh full `pnpm test` retry
+passed 2,150 tests across 14 packages. The handoff records the initial existing
+stdout timeout, focused retry, graph/contrast evidence and runtime limitations.
+R4 remains unchecked because it also requires actual final operator approval.
+The existing PR stays draft. The app Goal remains active pending that approval;
+no completion is inferred from sample selection or automated verification.

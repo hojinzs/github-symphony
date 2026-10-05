@@ -1,7 +1,7 @@
 # OhMySymphony C22 visual design handoff
 
-- **Date:** 2026-10-05
-- **Status:** A — Graphite selected — previous candidate retained as reference; full-system application pending
+- **Date:** 2026-10-06 (Graphite full-system review candidate)
+- **Status:** A — Graphite applied to the full system; final operator approval pending
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [C22 #1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 - **Source:** [Approved management-plane design](2026-10-04-control-plane-management-agents-design.md), [#984 completion](https://github.com/hojinzs/github-symphony/issues/984), merged [PR #982](https://github.com/hojinzs/github-symphony/pull/982)
@@ -10,19 +10,19 @@
 
 ## Delivery boundary and approval
 
-The operator requested a new visual direction after reviewing this candidate,
-then explicitly selected [A — Graphite](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-490)
+The operator selected [A — Graphite](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-490)
 on 2026-10-05. The [theme decision record](2026-10-05-ohmysymphony-theme-directions.md)
-contains the selection evidence. The 58 screens below remain unapproved
-behavior/state references. Their earlier verification records describe that
-candidate only; Graphite must be applied and verified across the
-full system before final operator review.
+preserves that selection. Graphite is now applied to the shared foundations,
+components, widgets and all **58 screen frames: 48 at 1440px, five at 1024px and
+five at 390px**. All 58 existing screen-root IDs remain stable. The original
+decision archive and the three exploration samples remain available.
 
-This candidate reorganizes the existing file into shared foundations, reusable
-components and widgets, and five screen areas. The inventory contains **58
-screen frames: 48 at 1440px, five at 1024px and five at 390px**. Their names and
-node links below identify the review set. Figma is mutable; final approval must
-identify the reviewed revision or dated review snapshot as well as these nodes.
+This is the **2026-10-06 Graphite review candidate**, not an approved release.
+The [dated review manifest](2026-10-06-ohmysymphony-graphite-review.json) records
+the exact node set, final render hashes and static verification totals. Figma
+is mutable; final approval must identify this dated candidate or explicitly
+identify a later reviewed revision. Selection of A does not approve the full
+result, and no frontend/runtime implementation is claimed here.
 
 The presentation preserves the approved Control Plane → Management Agent →
 per-project orchestrator authority boundary. It adds no scheduler, tracker,
@@ -42,15 +42,15 @@ The operator approved the specification and decision samples in #984 on
 2026-10-05. That approval does not approve this redesign. Authorization to begin
 C22 also does not substitute for review of its resulting frames.
 
-| Evidence stage                        | Current status                                          | Recorded evidence / remaining work                                                                               |
-| ------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Artifact inventory                    | Complete                                                | 58 screen frames and page/component/widget IDs recorded below                                                    |
-| Independent structural inspection     | Complete                                                | Source links resolve; final graph/font/binding/overflow and measured color-pair results recorded below           |
-| Rendered inspection/model walkthrough | Complete; reported defects repaired                     | 58 screens reviewed; nine focused repair/library renders rechecked                                               |
-| Repository delivery checks            | Build, fresh full test retry and document checks passed | `pnpm build`; 2,150 tests across 14 packages; eight document assertions; targeted Prettier and whitespace checks |
-| Human redesign approval               | **Pending**                                             | Operator, date, exact revision/node set and approval reference required                                          |
-| Prototype/accessibility behavior      | Pending #1018                                           | Actual focus, keyboard, clipboard, transitions and walkthrough evidence                                          |
-| CP runtime/OS acceptance              | Pending implementation children                         | Executable CP-01–CP-23 evidence and real OS service validation                                                   |
+| Evidence stage                     | Current status                  | Evidence / remaining work                                                                                                              |
+| ---------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Graphite application               | Complete                        | Shared foundations, 62 component definitions on production pages, 15 production widget definitions and 58 screen roots                 |
+| Structural and semantic inspection | Passed                          | All instance references resolve; no missing fonts or raster screen fills; 1,168 static assertions pass with zero screen-bound overflow |
+| Rendered/model review              | Passed after repairs            | All 58 screens reviewed; modal, tablet, context and fixture corrections re-rendered and rechecked                                      |
+| Repository checks                  | Passed                          | Fresh full retry: 2,150 tests in 14 packages; document, formatting and whitespace checks                                               |
+| Human redesign approval            | **Pending**                     | Actual operator approval of the dated full-system candidate                                                                            |
+| Prototype/accessibility behavior   | Pending #1018                   | Executable focus, keyboard, clipboard, transitions and walkthrough evidence                                                            |
+| CP runtime/OS acceptance           | Pending implementation children | Executable CP-01–CP-23 and real OS service evidence                                                                                    |
 
 Screenshots or static checks do not establish keyboard behavior, command safety,
 runtime responsiveness or human approval. C22 completion and the downstream
@@ -103,63 +103,76 @@ publication or Code Connect integration is claimed.
 
 ## Shared foundations
 
-`OMS / Primitives` (`VariableCollectionId:23:384`) holds color values.
-`OMS / Semantic` (`VariableCollectionId:23:385`) has 18 semantic color roles,
-including the added `oms/border/control`, and aliases primitive values by role.
-Existing spacing/radius definitions are reused, with missing sizes added. The
-archived sample collection is retained to avoid breaking old references.
+The selected A — Graphite direction uses `OMS / Primitives`
+(`VariableCollectionId:23:384`, 37 variables) and `OMS / Semantic`
+(`VariableCollectionId:23:385`, 30 variables: 23 color roles and seven geometry
+variables). Color roles alias primitive values. Existing spacing/radius
+definitions are reused, with missing sizes added. Archived sample and exploration
+collections remain available to preserve their references; they are not counted
+as additional production semantic roles.
 
-| Role                                        | Semantic variable                                                        | Value / rule                                                                          |
-| ------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Canvas / surface / elevated / muted surface | `oms/bg/default`, `oms/bg/surface`, `oms/bg/elevated`, `oms/bg/muted`    | `#09090b`, `#18181a`, `#1c1c1f`, `#27272a`                                            |
-| Primary / secondary text                    | `oms/text/primary`, `oms/text/secondary`                                 | `#fafafa`, `#a1a1aa`                                                                  |
-| Border                                      | `oms/border/default`                                                     | `#3e3e42`                                                                             |
-| Meaningful control boundary                 | `oms/border/control`                                                     | `#71717a`; default input outlines; focus/error keep their corresponding state strokes |
-| Filled primary action / focus               | `oms/interactive`, `oms/focus`                                           | `#1d4ed8`, `#93c5fd`                                                                  |
-| Information                                 | `oms/info/bg`, `oms/info/text`                                           | `#172554`, `#93c5fd`                                                                  |
-| Verified success                            | `oms/success/bg`, `oms/success/text`                                     | `#052e16`, `#4ade80`                                                                  |
-| Warning / unresolved outcome                | `oms/warning/bg`, `oms/warning/text`                                     | `#422006`, `#facc15`                                                                  |
-| Failure / destructive consequence           | `oms/danger/bg`, `oms/danger/text`                                       | `#450a0a`, `#f87171`                                                                  |
-| Spacing                                     | `spacing/0`, `/4`, `/8`, `/12`, `/16`, `/20`, `/24`, `/32`, `/40`, `/48` | Shared gaps and padding in pixels                                                     |
-| Radius                                      | `radius/0`, `/6`, `/8`, `/12`, `/16`                                     | Controls 6, panels 8, overlays 12; documentation may use 16                           |
-| Control / target size                       | `size/control`, `size/target` and button wrapper sizing                  | 44px controls and target envelope; wraps the reused library button without overflow   |
-| Dialog elevation                            | `OMS/Elevation/Dialog` effect style                                      | 0 / 16 / 48 shadow, black at 40%                                                      |
+| Role                                        | Semantic variable                                                        | Value / rule                                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canvas / surface / elevated / muted surface | `oms/bg/default`, `oms/bg/surface`, `oms/bg/elevated`, `oms/bg/muted`    | `#171819`, `#1c1d1f`, `#202124`, `#27282c`                                                                                                                  |
+| Primary / secondary text                    | `oms/text/primary`, `oms/text/secondary`                                 | `#e9e9e7`, `#9b9da4`                                                                                                                                        |
+| Quiet separator                             | `oms/border/default`                                                     | `#2b2d31`; not the sole meaningful control boundary                                                                                                         |
+| Meaningful control boundary                 | `oms/border/control`                                                     | `#73767f`; default input outlines; focus/error keep their corresponding state strokes                                                                       |
+| Primary action fill / text / focus          | `oms/interactive`, `oms/interactive/text`, `oms/focus`                   | `#ededee`, `#202124`, `#cac7ff`                                                                                                                             |
+| Information                                 | `oms/info/bg`, `oms/info/text`                                           | `#29273b`, `#cac7ff`                                                                                                                                        |
+| Verified success                            | `oms/success/bg`, `oms/success/text`                                     | `#1e322c`, `#7acfac`                                                                                                                                        |
+| Warning / unresolved outcome                | `oms/warning/bg`, `oms/warning/text`                                     | `#362f22`, `#d9b56a`                                                                                                                                        |
+| Failure / destructive consequence           | `oms/danger/bg`, `oms/danger/text`                                       | `#3b2428`, `#ef9a9a`                                                                                                                                        |
+| Navigation surface / selected surface       | `oms/nav/bg`, `oms/nav/selected`                                         | `#111213`, `#242528`                                                                                                                                        |
+| Navigation primary / muted text             | `oms/nav/text`, `oms/nav/muted`                                          | `#e9e9e7`, `#9b9da4`                                                                                                                                        |
+| Spacing                                     | `spacing/0`, `/4`, `/8`, `/12`, `/16`, `/20`, `/24`, `/32`, `/40`, `/48` | Shared gaps and padding in pixels                                                                                                                           |
+| Radius                                      | `radius/0`, `/6`, `/8`, `/12`, `/16`                                     | Controls 6, panels 8, overlays 12; documentation may use 16                                                                                                 |
+| Control / target size                       | `size/control`, `size/target` and button wrapper sizing                  | Reused button wrappers retain a 44px minimum; concept-derived compact controls have separate visible geometry. Verify interactive target envelopes in #1018 |
+| Dialog elevation                            | `OMS/Elevation/Dialog` effect style                                      | 0 / 16 / 48 shadow, black at 40%                                                                                                                            |
 
-The product zinc surfaces follow the existing runtime reference. Filled primary
-actions intentionally change the runtime reference `#3b82f6` to `#1d4ed8` for
-small-text contrast. Essential muted metadata uses `#a1a1aa`, rather than the
-older `#71717a`. These are proposed visual implementation changes; runtime CSS
-has not changed. The border uses the runtime subtle-border value `#3e3e42`,
-rather than the muted surface `#27272a`. Reused button wrappers were increased
-from the initial 40px control baseline to 44px after a 2px overflow was identified.
-Default inputs use the separate `oms/border/control` value `#71717a`; focus and
-error states retain their respective strokes. The target is 4.5:1 normal text
-and 3:1 large text and meaningful control/focus boundaries.
+Graphite uses warm charcoal surfaces, neutral light primary actions and
+restrained lavender information/focus accents. This is an intentional visual
+departure from the shipped runtime palette; runtime CSS has not changed.
+Essential secondary metadata and remapped faint/icon content use `#9b9da4`.
+The quieter `#2b2d31` separator is distinct from the `#73767f` input boundary;
+focus and error states retain their corresponding strokes. The target is 4.5:1
+normal text and 3:1 large text and meaningful control/focus boundaries.
 
 | Measured token pair                       | Contrast ratio |
 | ----------------------------------------- | -------------- |
-| Primary text / surface                    | 16.99:1        |
-| Secondary text / surface                  | 6.92:1         |
-| Button text / primary fill                | 6.42:1         |
-| Warning text / warning background         | 9.52:1         |
-| Danger text / danger background           | 5.84:1         |
-| Information text / information background | 8.15:1         |
-| Control stroke / surface                  | 3.67:1         |
+| Primary text / surface                    | 13.88:1        |
+| Secondary text / surface                  | 6.23:1         |
+| Secondary text / muted selected surface   | 5.44:1         |
+| Button text / primary fill                | 13.76:1        |
+| Warning text / warning background         | 6.79:1         |
+| Danger text / danger background           | 6.64:1         |
+| Information text / information background | 9.07:1         |
+| Success text / success background         | 7.33:1         |
+| Control stroke / surface                  | 3.72:1         |
+| Control stroke / muted selected surface   | 3.24:1         |
+| Focus / muted selected surface            | 9.20:1         |
 
-These are measured token-pair results. They do not establish complete
+These are opaque sRGB token-pair calculations. The quiet separator/surface pair
+is 1.22:1 and is used for decorative division, not as the sole input or focus
+affordance. These results do not establish complete
 accessibility conformance for every rendered state, opacity, focus treatment or
 interaction. #1018 and implementation verification retain those checks.
 
-| Style                                            | Font / size / line height       | Use                             |
-| ------------------------------------------------ | ------------------------------- | ------------------------------- |
-| `Tailwind copy/text-sm/leading-5/font-normal`    | Inter Regular, 14 / 20          | Body and controls               |
-| `Tailwind copy/text-sm/leading-5/font-semibold`  | Inter Semi Bold, 14 / 20        | Emphasis and control labels     |
-| `Tailwind copy/text-2xl/leading-8/font-semibold` | Inter Semi Bold, 24 / 32        | Area titles                     |
-| `Sample/Operational command`                     | JetBrains Mono Regular, 13 / 20 | Commands, paths, IDs and logs   |
-| `OMS/Display`                                    | Inter Semi Bold, 36 / 44        | Documentation covers            |
-| `OMS/Section`                                    | Inter Semi Bold, 18 / 26        | Panels and confirmations        |
-| `OMS/Caption`                                    | Inter Regular, 12 / 18          | Secondary labels and timestamps |
-| `OMS/Metric`                                     | Inter Semi Bold, 32 / 40        | Metric values                   |
+The file contains 18 local text styles, including six exploration styles and
+four new `OMS/Graphite` styles. The current type hierarchy is below. Copied
+Tailwind styles and the earlier `OMS/Metric` remain available; concept-derived
+assets can retain equivalent exploration styles. Their presence does not mean
+that every current screen uses the first candidate's 14px body or 24px title.
+
+| Style                        | Font / size / line height       | Use                              |
+| ---------------------------- | ------------------------------- | -------------------------------- |
+| `OMS/Graphite/Body`          | Inter Regular, 13 / 20          | Body and operational UI          |
+| `OMS/Graphite/Label`         | Inter Medium, 13 / 20           | Controls and compact emphasis    |
+| `OMS/Graphite/Page title`    | Inter Semi Bold, 28 / 36        | Page titles and compact metrics  |
+| `OMS/Graphite/Entity`        | Inter Medium, 15 / 22           | Project and environment identity |
+| `Sample/Operational command` | JetBrains Mono Regular, 13 / 20 | Commands, paths, IDs and logs    |
+| `OMS/Display`                | Inter Semi Bold, 36 / 44        | Documentation covers             |
+| `OMS/Section`                | Inter Semi Bold, 18 / 26        | Panels and confirmations         |
+| `OMS/Caption`                | Inter Regular, 12 / 18          | Secondary labels and timestamps  |
 
 Connection, process, health, work and command outcome are separate state axes.
 Pair state colors with labels and timestamps. A disabled action requires a
@@ -167,10 +180,16 @@ readable adjacent reason; tooltip-only explanations are insufficient. Focus is
 an explicit 2px ring with offset, with actual keyboard and screen-reader behavior
 assigned to #1018.
 
-At 1440px, navigation is 216px wide and content uses 32px gutters. At 1024px,
-navigation moves into a top bar and grids/tools wrap. At 390px, rows become
-stacked cards, identity and environment stay together, and controls remain
-reachable. Narrow dialogs have 16px outside gutters and scrollable bodies;
+At 1440px, navigation is 208px wide, the location header is 56px high and content
+uses 32px gutters. Continuous data rows and compact, unboxed summaries carry
+Graphite's hierarchy. The shared shell keeps environment-specific observations
+in the inventory and shows private-workspace context rather than an invented
+live freshness timestamp. At 1024px, navigation moves into a top bar, content
+uses 24px gutters and project/environment identity is combined in one column.
+At 390px, content uses 16px gutters; the three fleet totals remain visible and
+each project row places identity above Connection/Process and Work/Observed
+pairs. The log toolbar wraps while preserving its run/stream and follow state.
+Narrow dialogs have 16px outside gutters and scrollable bodies;
 title/close and actions must stay reachable. Long paths wrap in detail. Logs and
 tables may use explicitly named overflow regions; critical text cannot silently
 clip. The 390px frames represent vertical compositions, not proof that every
@@ -183,25 +202,39 @@ frontend boundaries, not existing exports, generated code or Code Connect
 mappings. Reuse of shipped `Button`, `Badge` and related frontend patterns must
 preserve the separate fleet-service package boundary.
 
-| Figma component                                                                                      | Definition / properties                                                                                                          | Proposed code name      |
-| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| [Component/Button](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-424)               | Kind: Primary/Secondary/Destructive; State: Default/Hover/Focus/Disabled/Loading; editable label; wraps existing shadcn instance | `Button`                |
-| [Component/Field](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-450)                | State: Default/Focus/Disabled/Error/Loading; Label/Value/Hint                                                                    | `TextField`             |
-| [Component/Search](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-451)               | Editable search label/value; field-based composition                                                                             | `SearchField`           |
-| [Component/Select](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-455)               | Editable label/value; option behavior deferred to C14                                                                            | `SelectField`           |
-| [Component/Badge](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-382)                | Tone: Neutral/Info/Success/Warning/Danger; Label                                                                                 | `StatusBadge`           |
-| [Component/NavigationItem](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-391)       | State: Default/Selected/Focus/Disabled; Label                                                                                    | `PrimaryNavigationItem` |
-| [Component/Tab](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-400)                  | State: Default/Selected/Focus/Disabled; Label                                                                                    | `DetailTab`             |
-| [Component/DataCell](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-401)             | Label/Value                                                                                                                      | `ObservationCell`       |
-| [Component/Metric](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-404)               | Label/Value/Caption                                                                                                              | `MetricCard`            |
-| [Component/TimelineItem](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-408)         | Label/Value                                                                                                                      | `TimelineItem`          |
-| [Component/Notice/Info](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-415)          | Title/Body; information                                                                                                          | `Notice`                |
-| [Component/Notice/Warning](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-418)       | Title/Body; warning or uncertainty                                                                                               | `Notice`                |
-| [Component/Notice/Danger](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-421)        | Title/Body; error                                                                                                                | `Notice`                |
-| [Component/Notice/Success](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-424)       | Title/Body; verified success                                                                                                     | `Notice`                |
-| [Component/EmptyState/Neutral](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-427)   | Title/Body; successful empty state                                                                                               | `EmptyState`            |
-| [Component/LoadingState/Neutral](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-430) | Title/Body; data pending                                                                                                         | `LoadingState`          |
-| [Component/Dialog](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-433)               | Title/Body and nested Cancel/Stop buttons; confirmation contract                                                                 | `ConfirmationDialog`    |
+| Figma component                                                                                            | Definition / properties                                                                                                          | Proposed code name      |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| [Component/Button](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-424)                     | Kind: Primary/Secondary/Destructive; State: Default/Hover/Focus/Disabled/Loading; editable label; wraps existing shadcn instance | `Button`                |
+| [Component/Field](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-450)                      | State: Default/Focus/Disabled/Error/Loading; Label/Value/Hint                                                                    | `TextField`             |
+| [Component/Search](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-451)                     | Editable search label/value; field-based composition                                                                             | `SearchField`           |
+| [Component/Select](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=25-455)                     | Editable label/value; option behavior deferred to C14                                                                            | `SelectField`           |
+| [Component/Badge](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-382)                      | Tone: Neutral/Info/Success/Warning/Danger; Label                                                                                 | `StatusBadge`           |
+| [Component/NavigationItem](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-391)             | State: Default/Selected/Focus/Disabled; Label                                                                                    | `PrimaryNavigationItem` |
+| [Component/Tab](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-400)                        | State: Default/Selected/Focus/Disabled; Label                                                                                    | `DetailTab`             |
+| [Component/DataCell](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-401)                   | Label/Value                                                                                                                      | `ObservationCell`       |
+| [Component/Metric](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-404)                     | Label/Value/Caption; compact unboxed value-and-label composition                                                                 | `MetricSummary`         |
+| [Component/TimelineItem](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-408)               | Label/Value                                                                                                                      | `TimelineItem`          |
+| [Component/Notice/Info](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-415)                | Title/Body; information                                                                                                          | `Notice`                |
+| [Component/Notice/Warning](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-418)             | Title/Body; warning or uncertainty                                                                                               | `Notice`                |
+| [Component/Notice/Danger](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-421)              | Title/Body; error                                                                                                                | `Notice`                |
+| [Component/Notice/Success](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-424)             | Title/Body; verified success                                                                                                     | `Notice`                |
+| [Component/EmptyState/Neutral](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-427)         | Title/Body; successful empty state                                                                                               | `EmptyState`            |
+| [Component/LoadingState/Neutral](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-430)       | Title/Body; data pending                                                                                                         | `LoadingState`          |
+| [Component/Dialog](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=26-433)                     | Title/Body and nested Cancel/Stop buttons; confirmation contract                                                                 | `ConfirmationDialog`    |
+| [Component/GraphiteSidebar](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=65-426)            | 208px desktop shell; navigation instances, explicit selection indicator and private-workspace context                            | `WorkspaceSidebar`      |
+| [Component/GraphiteLocationHeader](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=65-435)     | Location TEXT property; 56px workspace header without a synthetic live-update timestamp                                          | `WorkspaceHeader`       |
+| [Widget/GraphiteProjectRow/Tablet](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=78-416)     | 976px row; preserves desktop TEXT properties, combines project/environment identity and aligns five observation columns          | `ProjectRow`            |
+| [Widget/GraphiteProjectRow/Narrow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=71-5520)    | 358px row; preserves desktop TEXT properties, identity then Connection/Process and Work/Observed pairs                           | `ProjectRow`            |
+| [Widget/GraphiteEnvironmentRow/Tablet](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=81-417) | 976px environment row with aligned registry, connection, host, project-count and contact columns                                 | `EnvironmentRow`        |
+| [Widget/GraphiteCommandRow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=76-395)            | 1168px row; Timestamp/Command/Target/Result TEXT properties, aligned Submitted/Command/Target/Result columns                     | `CommandHistoryRow`     |
+
+The live desktop project row is the referenced
+[Widget/A/Project row master](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=54-568)
+on the theme-assets page. It remains an explicit dependency of the final desktop
+fleet compositions, outside the production-page definition count. The tablet
+and narrow project masters preserve its editable text properties. The earlier
+project rows remain available for legacy and special-state compositions; they
+are not the primary six-project fleet table.
 
 ## Widget contracts and traceability paths
 
@@ -212,17 +245,25 @@ project/environment identities, never an arbitrary remote folder or executable.
 Widgets display aggregate projections and durable command records; the
 orchestrator retains work/retry authority.
 
-| Widget / proposed code name                                                                                                                                                                                                       | Owner and inputs                                                                                                | State, freshness and disabled reasons                                                                             | Operator intent                                                                            | Components                               | Consumer                |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------- | ----------------------- |
-| [Widget/EnvironmentRow/Wide](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-372)<br>[Widget/EnvironmentRow/Narrow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-411); proposed `EnvironmentRow` | Registry/agent transport: name, nullable host/OS/version, connection, project count, last authenticated contact | Pending/enrolled/online/offline/revoked; no invented host metadata; contact freshness uses server receipt         | View environment or reopen connection; no lifecycle intent                                 | DataCell, Button                         | #1019                   |
-| [Widget/ProjectRow/Wide](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-392)<br>[Widget/ProjectRow/Narrow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-430); proposed `ProjectRow`             | Project projection: environment-qualified identity, connection, process, work, observedAt                       | Fresh/stale/offline/invalid/unmanaged; historical work remains labeled; disconnect never means stopped            | Open project; registered project identity only                                             | DataCell, Button                         | #1020                   |
-| [Widget/ConnectionCard](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-449); proposed `ConnectionCard`                                                                                                            | Registry/agent transport: current connection, host/version and last authenticated contact                       | Enrolled/awaiting signal differs from online; project readiness and count independent                             | Inspect environment                                                                        | Badge, DataCell                          | #1019                   |
-| [Widget/SetupPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-480); proposed `SetupPanel`                                                                                                                    | Enrollment issuance session: configured origin, OS, issuance/expiry, pending/enrolled and one-session token     | Waiting/expired/reopened/resume; never recover old token or regenerate an enrolled identity implicitly            | Copy setup/token; regenerate pending token; resume setup using saved identity              | Select, Button, Notice, operational text | #1019; host setup #1017 |
-| [Widget/CommandProgress](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-496); proposed `CommandProgress`                                                                                                          | Durable command: commandId, operation/target, state, submittedAt, original claimedAt, resultAt and evidence     | Accepted/executing/terminal/expired/unknown; 30s claim and 60s execution deadlines; process time separate         | Inspect record; no duplicate submission from progress                                      | Badge, TimelineItem, Notice              | #1021                   |
-| [Widget/RecoveryPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-508); proposed `RecoveryPanel`                                                                                                              | Durable command and audit: unknown outcome, last evidence, required reason, closure actor/time                  | Unknown and closed-unresolved; no Retry; closure preserves unknown; new command still needs online/process checks | Inspect host evidence, review closure and confirm separately                               | Notice, TimelineItem, Field, Button      | #1021                   |
-| [Widget/RuntimeMetrics](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-527); proposed `RuntimeMetrics`                                                                                                            | Current aggregate observations: fresh running, active work and stale/offline totals                             | Freshness-qualified totals; stale observations excluded from running count; no global scheduler authority         | Display only                                                                               | Metric                                   | #1020                   |
-| [Widget/HistoryPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-540); proposed `HistoryPanel`                                                                                                                | Known project run summaries: run identity, local timestamp/status and diagnostics                               | Empty/loading/recent/historical; maximum 100 cached summaries; read failures are explicit                         | Inspect known run; no issue retry/cancel                                                   | TimelineItem, text styles                | #1022                   |
-| [Widget/LogPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-548); proposed `LogPanel`                                                                                                                        | Bounded read lane: known project/run/stream, request state, cursor/generation, text and fetchedAt               | Following/paused/reset/offline/unavailable; 256 KiB chunks, 30s read lifetime; fetched content stays historical   | Choose run/stream, pause/follow, request read or reset cursor; offline disables fresh read | Select, Badge, Button, mono text         | #1022                   |
+The production pages contain **15 widget definitions**, including retained
+legacy/special-state rows and four new Graphite row definitions. They also
+reference the desktop A project-row master outside those pages. Combined rows
+in the table below can describe more than one definition; the shared shell is
+listed separately in the component inventory.
+
+| Widget / proposed code name                                                                                                                                                                                                                                                                                                                     | Owner and inputs                                                                                                        | State, freshness and disabled reasons                                                                                                               | Operator intent                                                                            | Components                                                                | Consumer                |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ----------------------- |
+| [Widget/EnvironmentRow/Wide](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-372)<br>[Widget/GraphiteEnvironmentRow/Tablet](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=81-417)<br>[Widget/EnvironmentRow/Narrow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-411); proposed `EnvironmentRow` | Registry/agent transport: name, nullable host/OS/version, connection, project count, last authenticated contact         | Pending/enrolled/online/offline/revoked; no invented host metadata; contact freshness uses server receipt                                           | View environment or reopen connection; no lifecycle intent                                 | DataCell, row chevron; retained button composition                        | #1019                   |
+| [Widget/A/Project row](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=54-568)<br>[Widget/GraphiteProjectRow/Tablet](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=78-416)<br>[Widget/GraphiteProjectRow/Narrow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=71-5520); proposed `ProjectRow`          | Project projection: environment-qualified identity, connection, process, work/retrying counts, observation time and age | Fresh/stale/offline; historical work remains labeled and excluded from current totals; desktop/tablet rows reflow to explicit state pairs on mobile | Open project; registered project identity only                                             | Editable text properties, monogram, connection indicator and row chevron  | #1020                   |
+| [Widget/ProjectRow/Wide](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-392)<br>[Widget/ProjectRow/Narrow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-430); retained `ProjectRow` references                                                                                                                | Legacy/special-state project projection: environment-qualified identity, connection, process, work, observedAt          | Fresh/stale/offline/invalid/unmanaged; historical work remains labeled; disconnect never means stopped                                              | Open project; registered project identity only                                             | DataCell, retained Button/row affordance                                  | #1020                   |
+| [Widget/ConnectionCard](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-449); proposed `ConnectionCard`                                                                                                                                                                                                                          | Registry/agent transport: current connection, host/version and last authenticated contact                               | Enrolled/awaiting signal differs from online; project readiness and count independent                                                               | Inspect environment                                                                        | Badge, DataCell                                                           | #1019                   |
+| [Widget/SetupPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-480); proposed `SetupPanel`                                                                                                                                                                                                                                  | Enrollment issuance session: configured origin, OS, issuance/expiry, pending/enrolled and one-session token             | Waiting/expired/reopened/resume; never recover old token or regenerate an enrolled identity implicitly                                              | Copy setup/token; regenerate pending token; resume setup using saved identity              | Select, Button, Notice, operational text                                  | #1019; host setup #1017 |
+| [Widget/CommandProgress](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-496); proposed `CommandProgress`                                                                                                                                                                                                                        | Durable command: commandId, operation/target, state, submittedAt, original claimedAt, resultAt and evidence             | Accepted/executing/terminal/expired/unknown; 30s claim and 60s execution deadlines; process time separate                                           | Inspect record; no duplicate submission from progress                                      | Badge, TimelineItem, Notice                                               | #1021                   |
+| [Widget/GraphiteCommandRow](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=76-395); proposed `CommandHistoryRow`                                                                                                                                                                                                                   | Durable command history: submission time, operation, environment-qualified target, result and diagnostic summary        | Workspace-wide history has explicit scope; command results remain separate from current process observations; unknown is not success                | Inspect command history; no replay or lifecycle Retry                                      | Timestamp/Command/Target/Result text properties and semantic result color | #1021                   |
+| [Widget/RecoveryPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-508); proposed `RecoveryPanel`                                                                                                                                                                                                                            | Durable command and audit: unknown outcome, last evidence, required reason, closure actor/time                          | Unknown and closed-unresolved; no Retry; closure preserves unknown; new command still needs online/process checks                                   | Inspect host evidence, review closure and confirm separately                               | Notice, TimelineItem, Field, Button                                       | #1021                   |
+| [Widget/RuntimeMetrics](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-527); proposed `RuntimeMetrics`                                                                                                                                                                                                                          | Current aggregate observations: fresh running, active work and stale/offline totals                                     | Freshness-qualified totals; stale observations excluded from running count; no global scheduler authority                                           | Display only                                                                               | Metric                                                                    | #1020                   |
+| [Widget/HistoryPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-540); proposed `HistoryPanel`                                                                                                                                                                                                                              | Known project run summaries: run identity, local timestamp/status and diagnostics                                       | Empty/loading/recent/historical; maximum 100 cached summaries; read failures are explicit                                                           | Inspect known run; no issue retry/cancel                                                   | TimelineItem, text styles                                                 | #1022                   |
+| [Widget/LogPanel](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=27-548); proposed `LogPanel`                                                                                                                                                                                                                                      | Bounded read lane: known project/run/stream, request state, cursor/generation, text and fetchedAt                       | Following/paused/reset/offline/unavailable; 256 KiB chunks, 30s read lifetime; fetched content stays historical                                     | Choose run/stream, pause/follow, request read or reset cursor; offline disables fresh read | Select, Badge, Button, mono text                                          | #1022                   |
 
 Use the following path keys in the frame inventory. Each path ends in the shared
 semantic colors, text styles and geometry above. Direct empty/loading/diagnostic
@@ -230,14 +271,14 @@ compositions use feedback component instances without introducing a domain
 widget solely for wrapping them. Modal shells preserve the page context and use
 the documented Dialog contract plus reusable fields, buttons and notices.
 
-| Path     | Screen → widget → component → foundation                                                                                                                                          |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ENV      | Environment screen → EnvironmentRow / ConnectionCard / SetupPanel as applicable → DataCell, Select, Button, Badge, Notice, Field → OMS roles, copied type styles, shared geometry |
-| PROJ     | Fleet screen → ProjectRow and RuntimeMetrics → DataCell, Metric, Button; Search/Select/Notice → OMS roles, type styles, shared geometry                                           |
-| DETAIL   | Project detail → HistoryPanel and CommandProgress → TimelineItem, Badge, Notice; DataCell/Tab/Button → OMS roles, type styles, shared geometry                                    |
-| CMD      | Command state → CommandProgress / RecoveryPanel as applicable → TimelineItem, Badge, Notice, Field, Button; Dialog contract → OMS roles, type styles, shared geometry             |
-| LOG      | Run/log state → HistoryPanel / LogPanel as applicable → TimelineItem, Select, Badge, Button; operational text → OMS roles, mono style, shared geometry                            |
-| FEEDBACK | Empty/loading/error state → direct EmptyState / LoadingState / Notice and applicable Button → OMS roles, type styles, shared geometry                                             |
+| Path     | Screen → widget → component → foundation                                                                                                                                                                                                                                                       |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ENV      | Environment screen → wide/tablet/narrow EnvironmentRow / ConnectionCard / SetupPanel as applicable → DataCell, Select, Button, Badge, Notice, Field and row affordance → OMS roles, Graphite/reused type styles, shared geometry                                                               |
+| PROJ     | Fleet screen → referenced A desktop / Graphite tablet/narrow ProjectRow and compact metrics; retained rows for special states → text properties, monogram, connection indicator, row affordance, Metric, Search/Select/Notice → documented semantic roles, Graphite/reused styles and geometry |
+| DETAIL   | Project detail → HistoryPanel and CommandProgress → TimelineItem, Badge, Notice; DataCell/Tab/Button → OMS roles, type styles, shared geometry                                                                                                                                                 |
+| CMD      | Command history/state → GraphiteCommandRow / CommandProgress / RecoveryPanel as applicable → editable result text, TimelineItem, Badge, Notice, Field, Button; Dialog contract → OMS roles, Graphite/reused styles and shared geometry                                                         |
+| LOG      | Run/log state → HistoryPanel / LogPanel as applicable → TimelineItem, Select, Badge, Button; operational text → OMS roles, mono style, shared geometry                                                                                                                                         |
+| FEEDBACK | Empty/loading/error state → direct EmptyState / LoadingState / Notice and applicable Button → OMS roles, type styles, shared geometry                                                                                                                                                          |
 
 ## Screen inventory
 
@@ -426,82 +467,63 @@ without a dedicated product screen.
 
 ## Design test cases and delivery evidence
 
-These cases distinguish completed artifact inspection and repository checks from
-remaining interaction/runtime work. All 58 screens were reviewed through 15
-contact sheets and seven original-size renders; the reported findings were
-repaired in the live file. Focused review of the repaired frames and final structural inspection also passed.
+This record supersedes the first candidate's visual measurements. Verification
+was repeated for the 2026-10-06 Graphite candidate. Static evidence does not
+establish runtime command safety, input behavior or human approval.
 
-| ID                             | Procedure and passing result                                                                                  | Current evidence / result                                                                                                                                                                                                               |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D01 Archive and reuse          | Resolve original IDs; inspect archive structure and Tailwind reuse provenance                                 | Source IDs resolve; eight original top-level archive nodes, `3:52` with 471 descendants and `13:154` with 484. Eight Tailwind pages and copied styles/spacing/button reuse verified. No byte-identity baseline claim                    |
-| D02 Foundation/component graph | Resolve instances/variants; inspect bindings, fonts, auto-layout, contrast and disabled reasons               | Shared assets inventoried; 18 semantic color roles and token-pair contrast recorded. 2px button-wrapper overflow repaired with 44px controls. Final inspection: no broken instances, missing fonts, image fills or containment overflow |
-| D03 Enrollment matrix          | Distinguish waiting/enrolled/zero-project success/reopen/regeneration/resume                                  | Full screen review completed; create copy repaired to avoid premature saved/keep claims, revoke target repaired to studio-mac. Focused repairs re-rendered and checked; actual transitions remain #1018/#1019                           |
-| D04 Freshness matrix           | Check historical state, fresh-only totals, timestamps and action reasons                                      | Full review completed; filtered rows/paging and totals aligned, stale/unmanaged metrics made historical, mobile active/stale metrics restored. Focused repairs re-rendered and checked                                                  |
-| D05 Lifecycle/recovery         | Check stop impact, accepted versus verified exit, original deadlines, no Retry and audited unresolved closure | U05/U06 states reviewed; project detail command history repaired to avoid an outstanding-command/active-action contradiction. Runtime command safety remains implementation evidence                                                    |
-| D06 Layout/log edge cases      | Inspect 1440/1024/390 long content, reachable controls and distinct log recovery states                       | All 58 frames reviewed; compact environment control width repaired; rotation now awaits explicit reset; missing/expired reads retain target selectors. Focused repairs re-rendered and checked                                          |
-| D07 Handoff and delivery       | Verify traceability, patch metadata, docs checks, unit tests and approval provenance                          | All 58 links, U01–U08, CP-01–23 and patch metadata present; eight document assertions, targeted Prettier, whitespace, build and fresh full unit retry passed. Human approval pending                                                    |
+| ID                             | Procedure                                                                    | Graphite result                                                                                                                                                                                                                           |
+| ------------------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D01 Archive and reuse          | Resolve source IDs and inspect reusable assets                               | Eight original top-level archive nodes remain; original source links resolve. Shared geometry, Inter/mono and button assets remain referenced. No byte-identity claim                                                                     |
+| D02 Foundation/component graph | Inspect aliases, styles, instances, fonts and contrast                       | 23 semantic colors, 62 production component definitions and 15 production widget definitions; no broken references, missing fonts or image fills in the audited production graph. Contrast pairs are recorded above                       |
+| D03 Enrollment matrix          | Distinguish waiting, enrolled, authenticated signal and zero-project success | Pending/enrolled/connected/expired/reopened/resume and revoke states pass. Create does not claim prior persistence. Setup names the 10-minute token lifetime and trusted HTTPS/private CA guidance                                        |
+| D04 Freshness matrix           | Derive totals from fixture and verify historical labels/actions              | Six projects across three environments; 3 fresh running, 6 active runs, 2 offline. Filtered rows/page count agree while workspace totals remain explicitly scoped. Offline/stale detail keeps action reasons                              |
+| D05 Lifecycle/recovery         | Verify target, acceptance/result distinction and unresolved closure          | Unknown has no Retry; required reason, error feedback and separate second confirmation remain visible. Historical command result stays separate from current process state                                                                |
+| D06 Layout/log states          | Inspect 1440/1024/390 compositions and recovery states                       | All 58 renders reviewed. Tablet columns, mobile state grid, modal stacking, loading target and historical log timestamps corrected. Rotation requires reset; offline follow is paused; unavailable/expired reads retain selection context |
+| D07 Handoff/delivery           | Verify links, metadata, docs/tests and approval boundary                     | All 58 root links, U01–U08, CP matrix and CLI patch metadata retained. Mandatory repository tests pass; final operator approval remains pending                                                                                           |
 
-Recorded review repairs:
+The read-only state audit executed **1,168 assertions** over all 58 screens:
+Environments 265, Projects 318, detail 220, commands/recovery 233 and runs/logs 132. There were zero errors, review flags or visible text/control overflows
+past screen bounds at a 1px tolerance. Hidden ancestors are excluded; clipping
+at the screen root does not mask the boundary check. These assertions cover
+text/property contracts and geometry, not glyph-level clipping or paint order.
+Separate screenshot review caught and repaired the modal stacking defect.
 
-- Create environment no longer claims the record is already saved or offers
-  “keep” copy before creation; revoke confirmation names the same `studio-mac`
-  target as the underlying inventory.
-- Local registration uses positional `gh-symphony agent project add <prepared-folder>` syntax. Filtered fleet rows and pagination agree, and totals
-  match the displayed observations. Stale and unmanaged process/work data is
-  explicitly historical. The mobile fleet includes Active work and Offline /
-  stale metrics.
-- Project detail shows a historical succeeded command when lifecycle actions are
-  enabled, and stopped detail shows zero active work. This removes a visual
-  contradiction between an outstanding command and an enabled Stop action.
-- Log rotation indicates reset is pending and exposes an explicit reset action.
-  Missing-file and expired-read views retain their run/stream target selectors.
-- The compact environment control width and button-wrapper overflow were
-  repaired; controls are 44px. Footer/context uses “Private workspace · Single
-  operator.”
+The fully loaded production graph was inspected recursively, including nested
+instances, across pages `23:368`–`23:383`. It contains 62 component definitions,
+five component sets and 15 widgets. The shared A desktop project-row master
+`54:568` and its exploration assets remain external dependencies within this
+same file. The manifest records the final graph measurement. Four local text
+overrides remain editable; this is not a claim that every text node uses a style.
+There are no missing fonts, broken instance references or image fills in this
+audit. The archive and B/C concepts are excluded from production counts.
 
-Final delivery verification record (2026-10-05):
+Rendered review covered all 58 screens. Independent reviewers inspected the 32
+Environment/Command states and 26 Project/Detail/Log states; the latter were
+inspected at full size. Reported issues were repaired and focused renders were
+rechecked: tablet column alignment and fragmented labels, modal paint order and
+backdrop opacity, mobile navigation wrapping, command-history scope, project/log
+identity, and the run/log sample timestamps. Final render hashes identify the
+dated review set. This remains model/static review.
 
-- Structural inspection: 16 new pages, 3,922 nodes, 2,264 text nodes, 1,137
-  instances, 56 component definitions, five component sets and 1,636 auto-layout
-  nodes inspected. 3,917 nodes have variable bindings and 2,259 text nodes use
-  text styles. A small number of local text overrides remain inspectable and
-  editable; this is a binding inventory, not a claim of 100% style binding. No broken
-  instance references, missing fonts, image fills or visible child containment
-  overflow were found (0.75px tolerance; component-set placement excluded).
-  Archive structure and source references resolve as recorded above.
-- Rendered review: all 58 screens inspected via 15 contact sheets and seven
-  original-size renders. Findings repaired live and nine focused renders rechecked: library page
-  `23:374`, create `29:466`, revoked `29:1439`, unmanaged `31:2366`, rotation
-  `31:3160`, missing/expired reads `31:3244` / `31:3277`, compact environments
-  `29:1600` and mobile fleet `31:915`. Transparent library specimens now use a
-  dark canvas background. This is model/static review, not human or runtime
-  evidence.
-- Document checks: eight assertions passed for all 58 screen links, all 23 CP
-  rows, all seven design TCs, absence of generation placeholders, source/plan
-  existence, explicit pending approval, patch metadata and exact frame count.
-  Targeted `pnpm exec prettier --check` and `git diff --check` passed, including
-  the final one-file formatting check for this evidence update.
-- Build: `pnpm build` passed.
-- Mandatory unit tests: the initial full `pnpm test` run hit a timeout in the
-  existing `hooks.test.ts` large-stdout test. Its focused retry passed 12/12; a
-  fresh full retry passed **2,150 tests across 14 packages**. No runtime code was
-  changed to obtain the passing retry.
-- `docs/symphony-spec.md` preservation: no upstream-spec edit is part of this
-  delivery; `git diff HEAD -- docs/symphony-spec.md` returned no changes.
-- Runtime/Docker/OS tests: not needed for this design/documentation-only change
-  and not executed. Implementation children own applicable `AGENT_TEST.md` gates
-  and all CP runtime/OS evidence.
-- Independent final branch review: `ce905860..0ad5358b` was reviewed against the
-  approved specification, screen inventory, structural evidence and test logs.
-  No Critical or Important findings remain. One minor precision improvement is
-  deferred to #1018: narrow each frame's CP references from the current area-level
-  set to its exact state-specific subset. The separate CP matrix is the current
-  authoritative coverage classification.
-- Review limits accepted: prototype/keyboard/clipboard behavior belongs to
-  #1018; runtime fencing, durability, logs and OS services belong to implementation
-  children. This final branch pass supplements the separate full visual review;
-  it does not provide human approval.
-- Operator approval: **Pending**; no approver, revision or approval reference yet.
+Repository verification on 2026-10-06:
+
+- Mandatory `pnpm test`: the initial run timed out in the existing
+  `hooks.test.ts` large-stdout case at its 1-second limit. A focused retry passed
+  12/12; the fresh full retry passed **2,150 tests across 14 packages and 142 test
+  files**, exit 0. No runtime code or test configuration was changed. The
+  timing-sensitive failure's OS cause was not measured.
+- Document checks cover the 58 unique screen IDs, U01–U08, CP-01–23, D01–D07,
+  local links, selected A provenance, pending final approval, patch metadata,
+  manifest counts and render hashes. Targeted Prettier and whitespace checks pass.
+- Earlier `pnpm build` success is baseline evidence from the first candidate;
+  this Graphite revision changes Figma and documentation only.
+- `docs/symphony-spec.md` has no branch changes. Presentation stays within
+  Configuration, Integration and Observability; no new upstream divergence.
+- Runtime/Docker/OS verification was not run for this design-only revision.
+  Implementation children retain those gates. Focus, keyboard and clipboard
+  behavior remain #1018 work; static designs do not satisfy them.
+- Operator approval is **pending**. C22 and its Goal remain incomplete until
+  actual full-system approval is received and recorded.
 
 ## C14 handoff and downstream gates
 

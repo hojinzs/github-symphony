@@ -1,0 +1,563 @@
+{
+  "candidate": "C22 Graphite full-system review candidate",
+  "review_date": "2026-10-06",
+  "timezone": "Asia/Seoul",
+  "file_key": "vUCdtVjmYMNWv7YYLRdo3e",
+  "selected_reference": "53:490",
+  "approval": "pending",
+  "layers": ["Configuration", "Integration", "Observability"],
+  "screens": [
+    {
+      "node_id": "29:372",
+      "name": "Screen/Environments/list/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-372",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "619d06609be6971aac9d266b5d8bd647d3bd7e71bb6380add2ae53503fdd49d9"
+    },
+    {
+      "node_id": "29:466",
+      "name": "Screen/Environments/create/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-466",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "9a37bfd6888a8b6f04ab353c4710c225fc2bda52fd7336f8eaa3a3a88c0cbb90"
+    },
+    {
+      "node_id": "29:565",
+      "name": "Screen/Environments/waiting-linux/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-565",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "6291fdae822b1bf52e79d3f96445a8fee0688fd2fbcf0118e35da4b0f2acdeee"
+    },
+    {
+      "node_id": "29:683",
+      "name": "Screen/Environments/waiting-macos/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-683",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "e4c5b21a26912ac3956f167216bbfbb86e040b4c9db08d7601b56b97ce3e4205"
+    },
+    {
+      "node_id": "29:792",
+      "name": "Screen/Environments/enrolled/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-792",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "84589c631754eac3e8cb4d31abd5353a4f1ec241f528fe37cbd7d628acb48177"
+    },
+    {
+      "node_id": "29:887",
+      "name": "Screen/Environments/connected/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-887",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "354aae778222d812a98e8158f56b426af77b25f3f12b4d6273353fc53e7a0a50"
+    },
+    {
+      "node_id": "29:981",
+      "name": "Screen/Environments/expired/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-981",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "a504ab245691caec0c0209c58d835c1443136a95bad1f3b4269b9591c08fdee5"
+    },
+    {
+      "node_id": "29:1075",
+      "name": "Screen/Environments/reopened/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1075",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "ffe57e01adfda0d28672eea7b0ff8975b664a2bc7ee9e807b3e7a4399fc4479f"
+    },
+    {
+      "node_id": "29:1169",
+      "name": "Screen/Environments/resume-setup/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1169",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "57832783fad3b023fb32689e0398cd05cee29dec20f8389bf2e1a88073bd2847"
+    },
+    {
+      "node_id": "29:1264",
+      "name": "Screen/Environments/inventory/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1264",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "85f503cf26f6d1c1e20de18f12c58f3f31d76ff200c008e574f3679324a81a4f"
+    },
+    {
+      "node_id": "29:1355",
+      "name": "Screen/Environments/revoke-confirm/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1355",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "818347ce35220052613f52776ea33bf2c79f308d4257a0123936488228bec9f4"
+    },
+    {
+      "node_id": "29:1439",
+      "name": "Screen/Environments/revoked/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1439",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "be6a6ec2920f19723b689f8295b2d38ad1fb09124f1d32260e32249389bc4bd7"
+    },
+    {
+      "node_id": "29:1522",
+      "name": "Screen/Environments/empty/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1522",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "7dd048cf8f5d19894623967cf5adbdd7b67e38e14441368b1bfc0748d6ff01f1"
+    },
+    {
+      "node_id": "29:1548",
+      "name": "Screen/Environments/loading/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1548",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "ebf397eae829040eea273e33a1cdfbef457b77ba8de07c34807fa59d8d9d6eb6"
+    },
+    {
+      "node_id": "29:1574",
+      "name": "Screen/Environments/error/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1574",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "e18d1882d5ebaac9d90a50fd165c0668a346b9528665c17d9938bc252c1e5ff3"
+    },
+    {
+      "node_id": "29:1600",
+      "name": "Screen/Environments/list/1024",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1600",
+      "review_width": 1024,
+      "render_width": 1024,
+      "render_height": 960,
+      "sha256": "017a845632e77145f093e196a12443dc7b1c84ba294108c9db9f992692ef390d"
+    },
+    {
+      "node_id": "29:1679",
+      "name": "Screen/Environments/enrolled/390",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=29-1679",
+      "review_width": 390,
+      "render_width": 390,
+      "render_height": 844,
+      "sha256": "e171b2758dfd4ea32c3ead607f3201a81fcd0d2a4239e5068c95ca18e994b5c7"
+    },
+    {
+      "node_id": "31:372",
+      "name": "Screen/Projects/fleet/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-372",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "f787953aa500506094b051a6d40a16fe6b3d43581bd6a508eae7d58ec34886f1"
+    },
+    {
+      "node_id": "31:508",
+      "name": "Screen/Projects/filtered/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-508",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "c064b0f163d7de05f0799a47df2e3519fd70bb57f1e5e6856ed39aa28bd6117a"
+    },
+    {
+      "node_id": "31:621",
+      "name": "Screen/Projects/scope-warning/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-621",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 987,
+      "sha256": "eb5fab4312192b31a3258cd2e5881c76e706c4b01b774e9915b02b7f5655062e"
+    },
+    {
+      "node_id": "31:737",
+      "name": "Screen/Projects/empty/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-737",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "8e6d2f668e3dd3cba4d7268ba7a6ef1fd96e33efb14e7019d1a54e3ba9592684"
+    },
+    {
+      "node_id": "31:759",
+      "name": "Screen/Projects/loading/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-759",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "f9bf7aafa7ef027f1a1a71d6118e3b13714bf86d5de020dfaa287bd4a51688fb"
+    },
+    {
+      "node_id": "31:781",
+      "name": "Screen/Projects/error/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-781",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "9d4728755e43f09edd3f79fd7abe32931836adf647b2a1b5a67f35cf5394725e"
+    },
+    {
+      "node_id": "31:803",
+      "name": "Screen/Projects/fleet/1024",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-803",
+      "review_width": 1024,
+      "render_width": 1024,
+      "render_height": 974,
+      "sha256": "dcf4321222d2931464132e4a96e3679b650b439b8692fc69f1c26a2ad6e4f431"
+    },
+    {
+      "node_id": "31:915",
+      "name": "Screen/Projects/fleet/390",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-915",
+      "review_width": 390,
+      "render_width": 390,
+      "render_height": 1896,
+      "sha256": "e4a52350eb9fabd5341a815a00406f48ee962bedd1e4a77363f2387700760246"
+    },
+    {
+      "node_id": "31:2005",
+      "name": "Screen/Project detail/running/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2005",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "7a77c5553879060fe957480a934a79c41b3563922c2aeb79cf5760b4342e3b71"
+    },
+    {
+      "node_id": "31:2076",
+      "name": "Screen/Project detail/stopped/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2076",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "4f60878eb52fe43e1169ad3c4dad27d35dfa49b11ffc5a75bc4693c5a991bd41"
+    },
+    {
+      "node_id": "31:2147",
+      "name": "Screen/Project detail/offline/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2147",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "36d54d8a130e37a2e07d0c4f0fca3ec87ac1660a7bdb6c34879beedb9f4c90cb"
+    },
+    {
+      "node_id": "31:2220",
+      "name": "Screen/Project detail/stale/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2220",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "96444a496f4a723e18fed705c89770befb823519c28da085036508f6e6f8c194"
+    },
+    {
+      "node_id": "31:2293",
+      "name": "Screen/Project detail/invalid-workflow/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2293",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "20e3e2e63fb52e8ab6f7a2495af0bd4b8bc7cd3f077063c523828e64eb38ed5d"
+    },
+    {
+      "node_id": "31:2366",
+      "name": "Screen/Project detail/unmanaged/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2366",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "01e648b3e8d2d8b1066e47cd295dbd02e785089576d4841eeee53badf62f4f18"
+    },
+    {
+      "node_id": "31:2439",
+      "name": "Screen/Project detail/incompatible/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2439",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "32aa922d04273fd45db63ae099bb7f05dfee89a1c0d106a04020f7ad81c7d3f9"
+    },
+    {
+      "node_id": "31:2512",
+      "name": "Screen/Project detail/offline/1024",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2512",
+      "review_width": 1024,
+      "render_width": 1024,
+      "render_height": 1164,
+      "sha256": "8bd07880f0d3bf85a3c29aa702edd47d6396ba70ea3c574e4dfeba756d5b410f"
+    },
+    {
+      "node_id": "31:2584",
+      "name": "Screen/Project detail/offline/390",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2584",
+      "review_width": 390,
+      "render_width": 390,
+      "render_height": 1534,
+      "sha256": "d9a8c0de7fdd6c32b1a8f4a5180448e2f6afe8eae198d62bb05a8f0297368719"
+    },
+    {
+      "node_id": "31:2660",
+      "name": "Screen/Commands and recovery/history/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2660",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "a9e6d8ad47e4189f8ee9daf74b9e70055e2e79abc50b1474d1cdff4d169853b5"
+    },
+    {
+      "node_id": "31:2693",
+      "name": "Screen/Commands and recovery/stop-confirm/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2693",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "1888849d8ab4debd7bc1de76c322d506d81ef59ba9dfd3505b624547fe95ed85"
+    },
+    {
+      "node_id": "31:2724",
+      "name": "Screen/Commands and recovery/accepted/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2724",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "f0201f1738da6beb722c584d84cb1ade679a6e04e761561c279dc2a2161a6265"
+    },
+    {
+      "node_id": "31:2751",
+      "name": "Screen/Commands and recovery/executing/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2751",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "9de77614d52295f906c1c5b02a87a3610f29e7d4bab9395560e92ab0efd421b7"
+    },
+    {
+      "node_id": "31:2787",
+      "name": "Screen/Commands and recovery/succeeded/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2787",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "f842d1f5d83b7c5d60cbaef56336329d8b3f1a543dd61626169883e3f6adddd8"
+    },
+    {
+      "node_id": "31:2811",
+      "name": "Screen/Commands and recovery/failed/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2811",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "d81fe6ee31f964e5a9d0efaaee8520cd3dbb69b15b76449aff65b1cfa9d76c75"
+    },
+    {
+      "node_id": "31:2835",
+      "name": "Screen/Commands and recovery/expired/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2835",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "4deea654d5463e15cba5f1aa8b0822f23d9f011d6907ddc800f5c53e49087ac6"
+    },
+    {
+      "node_id": "31:2859",
+      "name": "Screen/Commands and recovery/rejected/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2859",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "c8e38956a45c2a0f2185b9b311f3cce7d1a796109f54c4bc5f99f5b89e447464"
+    },
+    {
+      "node_id": "31:2883",
+      "name": "Screen/Commands and recovery/superseded-target/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2883",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "ffeddabdf810da9bcde53efc6af12400f4a9ffba230413955348d8cd7c26ce69"
+    },
+    {
+      "node_id": "31:2907",
+      "name": "Screen/Commands and recovery/unknown/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2907",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "12392f15ee68acafa7352144f485f8a03c35c9735f987bd9e87ec83119a5d66c"
+    },
+    {
+      "node_id": "31:2942",
+      "name": "Screen/Commands and recovery/reason-error/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2942",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "b303c73aea974f2b500d3588ffeae132f18574c654ddcefb494eb8e25994e9df"
+    },
+    {
+      "node_id": "31:2980",
+      "name": "Screen/Commands and recovery/closure-confirm/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-2980",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "8b968d2e6481f12c25df914c2bf3b69d33c93afd0fee1ddcea158c2ee14e96b8"
+    },
+    {
+      "node_id": "31:3026",
+      "name": "Screen/Commands and recovery/closed-unresolved/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3026",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "67b7ed61c0c1e7881ee530469daa711d4d57482a3c5bede7e8ee8745d667a9f5"
+    },
+    {
+      "node_id": "31:3049",
+      "name": "Screen/Commands and recovery/unknown/1024",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3049",
+      "review_width": 1024,
+      "render_width": 1024,
+      "render_height": 960,
+      "sha256": "9cfb4892de1cf18bfdcf2d980bbf6e6deb3bcce90ab556b7f6d276bc88709556"
+    },
+    {
+      "node_id": "31:3083",
+      "name": "Screen/Commands and recovery/unknown/390",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3083",
+      "review_width": 390,
+      "render_width": 390,
+      "render_height": 844,
+      "sha256": "4bc2770971e588858d427f54d5f1aa5c117209b787ebf724197292086cecd092"
+    },
+    {
+      "node_id": "31:3121",
+      "name": "Screen/Runs and logs/following/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3121",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "95cda7d62c7f045141a537c61f6f5125d139b9d83e6845b4fd666d8c3a4e7674"
+    },
+    {
+      "node_id": "31:3160",
+      "name": "Screen/Runs and logs/rotation/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3160",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "410d44e54a948ce6530753290f40702da1e5bb3dbd0aa4796b75f1b5b6b95d09"
+    },
+    {
+      "node_id": "31:3202",
+      "name": "Screen/Runs and logs/offline/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3202",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "4e074ec49c0de8e8070720b12b84c36282cf9c15bbb63583463398ea5ba0450c"
+    },
+    {
+      "node_id": "31:3244",
+      "name": "Screen/Runs and logs/unavailable/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3244",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "163e0140642805a8e48806882bca3fc752619459e286efe7cf0162065b8302fa"
+    },
+    {
+      "node_id": "31:3277",
+      "name": "Screen/Runs and logs/expired-read/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3277",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "26e85949c0aaebc034b199957567f4e3cb475b91fa08a6fd9c01d8edd7608912"
+    },
+    {
+      "node_id": "31:3310",
+      "name": "Screen/Runs and logs/empty/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3310",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "3db64b9c7318e210646758373bb3372f47e061a5f6f4864169dd17a13c3e6798"
+    },
+    {
+      "node_id": "31:3332",
+      "name": "Screen/Runs and logs/loading/1440",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3332",
+      "review_width": 1440,
+      "render_width": 1440,
+      "render_height": 960,
+      "sha256": "63ad24c9e50a57a66364c2dd38d5577931486c8399160b211efe9ac76680545d"
+    },
+    {
+      "node_id": "31:3354",
+      "name": "Screen/Runs and logs/offline/1024",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3354",
+      "review_width": 1024,
+      "render_width": 1024,
+      "render_height": 965,
+      "sha256": "5615047a61824a727a99786969f85b059ef76ed81ed4ed5c463544ae523c2a0b"
+    },
+    {
+      "node_id": "31:3395",
+      "name": "Screen/Runs and logs/offline/390",
+      "url": "https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=31-3395",
+      "review_width": 390,
+      "render_width": 390,
+      "render_height": 1077,
+      "sha256": "ec7e94c4a9e9473cf4c1cf84acb458ee996b5db82ebf6bc22f8fd8e57a0ec22f"
+    }
+  ],
+  "static_assertions": 1168,
+  "static_errors": 0,
+  "screen_bound_overflows": 0,
+  "graph_scope": "Production pages 23:368 through 23:383, nested instances included; archive and exploration definitions excluded",
+  "graph": {
+    "nodes": 6348,
+    "texts": 2467,
+    "styledTexts": 2463,
+    "boundNodes": 5794,
+    "instances": 1405,
+    "autoLayout": 2501,
+    "sets": 5,
+    "imageFills": 0
+  },
+  "component_definitions": 62,
+  "widget_definitions": 15,
+  "external_in_file_project_row": "54:568",
+  "unit_tests": {
+    "command": "pnpm test",
+    "packages": 14,
+    "files": 142,
+    "passed": 2150,
+    "exit_code": 0,
+    "attempt": "fresh full retry after existing large-stdout timeout; focused retry also passed"
+  },
+  "limitations": [
+    "Static/model review, not operator approval",
+    "No executable interaction, runtime command-safety or OS-service evidence",
+    "Hashes identify rendered review images; editable Figma nodes may change later"
+  ]
+}
