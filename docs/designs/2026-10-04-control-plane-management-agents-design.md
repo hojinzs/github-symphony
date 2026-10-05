@@ -482,26 +482,38 @@ must distinguish agent inspection from actual human usability validation.
 
 ### Package and CLI boundaries
 
-| Proposed package                   | Responsibility                                                                                 | Proposed executable         |
+| Proposed package                   | Responsibility                                                                                 | CLI entry point             |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------- |
 | `@gh-symphony/management-protocol` | Versioned transport types, validation, errors and limits; no tracker or scheduler dependencies | None                        |
-| `@gh-symphony/management-agent`    | Local allowlist, CLI adapter, journal, authenticated outbound client                           | `gh-symphony-agent`         |
-| `@gh-symphony/fleet-control-plane` | Aggregate API, SQLite records, agent sessions, browser assets                                  | `gh-symphony-control-plane` |
+| `@gh-symphony/management-agent`    | Local allowlist, CLI adapter, journal, authenticated outbound client                           | `gh-symphony agent`         |
+| `@gh-symphony/fleet-control-plane` | Aggregate API, SQLite records, agent sessions, browser assets                                  | `gh-symphony control-plane` |
 
 The current `@gh-symphony/control-plane` per-project server retains its API and
 CLI behavior. Reusable frontend components can be shared through a focused
 follow-up boundary; neither fleet service nor agent becomes an orchestrator
-dependency. All proposed executables target the repository's supported Node.js
-runtime and run as the local project owner.
+dependency. The existing `@gh-symphony/cli` package owns one public executable,
+`gh-symphony`, and routes the new command groups to the separate management
+packages. The routing layer does not own transport, storage or lifecycle logic.
+All commands target the repository's supported Node.js runtime and run as the
+ordinary OS user that owns their local configuration. Installation, version
+reporting and help use this shared CLI; standalone management executables are
+not part of the first release. Existing `gh-symphony project` commands and the
+per-project `--web` behavior are preserved.
+
+Proposed Control Plane foreground entry point:
+
+```text
+gh-symphony control-plane run --config ./control-plane.yaml
+```
 
 Proposed first-release agent commands:
 
 ```text
-gh-symphony-agent enroll --server https://symphony.lan
-gh-symphony-agent project add /srv/symphony/projects/backend
-gh-symphony-agent project list
-gh-symphony-agent project remove <local-project-id>
-gh-symphony-agent run
+gh-symphony agent enroll --server https://symphony.lan
+gh-symphony agent project add /srv/symphony/projects/backend
+gh-symphony agent project list
+gh-symphony agent project remove <local-project-id>
+gh-symphony agent run
 ```
 
 Enrollment accepts the one-use token through an interactive hidden prompt or
@@ -515,11 +527,40 @@ Native service installation and machine boot auto-start are deferred; `run` is
 the first-release foreground daemon entry point, independently of the detached
 orchestrators it manages.
 
-The proposed aggregate executable accepts an explicit private bind address, TLS
+The proposed `control-plane run` subcommand accepts an explicit private bind address, TLS
 termination configuration and data directory, defaulting its backend to
 `127.0.0.1:4690` and `~/.gh-symphony-control-plane/`. It must not silently select
 another port on address conflict. The deployment defines one configured HTTPS
 origin used by the browser and agents. Per-project `:4680` behavior is unaffected.
+
+### Required installation and startup documentation
+
+Epic #983 must include two dedicated documentation children when implementation
+issues are registered after spec approval:
+
+1. **README and CLI documentation update:** update `README.md` and
+   `packages/cli/README.md` with installation, the shared command tree, help and
+   version usage, and the distinction between local `project`, host `agent`, and
+   aggregate `control-plane` commands. Keep existing local project usage valid.
+2. **Control Plane installation and startup guide:** document supported Node.js
+   prerequisites and package installation; the exact configuration schema and
+   a runnable example; private bind/HTTPS origin, TLS/reverse proxy and private
+   CA setup; data-directory permissions; foreground startup and initial UI
+   access; environment creation, agent enrollment and local folder registration;
+   health/readiness verification; shutdown, restart and common startup failures.
+   Include persistence/backup guidance for SQLite and enrolled-agent identity.
+
+The startup guide must demonstrate the sequence: install the shared CLI, configure
+and start the Control Plane, open its UI, create an environment, enroll/start its
+agent, register prepared folders and verify their inventory. Command examples
+must be exercised against the implemented CLI in a clean environment before
+these children are completed. Native service installation, boot auto-start,
+Docker deployment and public-network/OIDC operation remain outside that guide's
+first-release path. Exact configuration and installation instructions must be
+specified before the feature is released; this draft command tree is not yet a
+usable installation runbook. Documentation placement follows `docs/README.md`;
+configuration details belong in `docs/configuration.md` with the guide linking
+to them rather than defining a second conflicting schema.
 
 ### Identity and wire representation
 
@@ -750,6 +791,9 @@ command behavior, keyboard accessibility, or operator usability test has passed.
 The board records six walkthrough prompts and the next detailed design tasks.
 The full eight walkthrough acceptance scenarios above, human review and design
 approval remain pending. This evidence does not approve the spec or close #984.
+The initial enrollment sample predates the 2026-10-05 shared-CLI decision; its
+standalone agent executable labels must be updated to `gh-symphony agent` during
+the next Figma interaction/design pass before approval.
 
 ## Documentation verification (2026-10-04)
 
