@@ -185,6 +185,10 @@ values through this surface.
 
 ### Observability Surfaces
 
+Optional `observability.otlp` workflow policy is parsed without activating export.
+Exporter support and runtime integration are pending; see the
+[OTLP configuration contract](docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
+
 Use `gh-symphony project start --project-dir <path> --web` when you want the browser-based
 control-plane dashboard. It starts the orchestrator and serves the React SPA at
 `http://127.0.0.1:4680/` by default. The dashboard includes the project
