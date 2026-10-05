@@ -487,6 +487,10 @@ gh-symphony doctor --project-dir <projectDir>
 
 ## Diagnostics
 
+Optional `observability.otlp` workflow policy is parsed without activating export.
+Exporter support and runtime integration are pending; see the
+[OTLP configuration contract](../../docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
+
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony project start --project-dir <path> --once`: it resolves the active managed project, reads a target issue through the configured tracker integration, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker. GitHub projects retain the GitHub Project read path and require `owner/repo#number` for explicit issues; Linear projects read through the Linear adapter, use identifiers such as `DEV-54`, and do not require a GitHub Project binding.
 
 Use an explicit issue when you want a deterministic check:
@@ -583,7 +587,3 @@ Global Options:
   --help, -h          Show help
   --version, -V       Show version
 ```
-
-Optional `observability.otlp` workflow policy is parsed without activating export.
-Exporter support and runtime integration are pending; see the
-[OTLP configuration contract](../../docs/configuration.md#otlp-workflow-policy-exporter-support-pending).

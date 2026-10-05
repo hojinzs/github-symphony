@@ -802,7 +802,11 @@ and fragments; headers reject reserved names, duplicate names and CR/LF.
 `OTEL_SDK_DISABLED=true` vetoes enabled policy. Disabled policy resolves no
 references and ignores invalid ambient transport settings. Resources merge
 `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, then YAML; secret-bearing
-resources are rejected by the existing redactor. Safe diagnostics contain only
+resources are rejected by the existing redactor, with only the offending key
+named in the error. Reserved identity key conflict validation and the 16 custom-key
+limit are pending orchestrator-owned identity integration in slice D (see the
+[design’s Resource identity section](designs/2026-10-04-otlp-export-design.md#resource-identity)).
+Safe diagnostics contain only
 endpoint, protocol, header names, resource metadata, auth-reference names and
 unsupported environment names, never header values. Resolved transports belong
 in owner-local memory. The shared loader retains its hashed environment digest

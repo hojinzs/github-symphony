@@ -122,11 +122,11 @@ describe("owner-only OTLP resolution", () => {
     });
   });
 
-  it("merges resources in environment, service-name, YAML order and resolves scalar references", () => {
+  it("merges YAML over environment resources and resolves scalar references", () => {
     const result = resolveOtlpConfiguration(
       policy({
         resource_attributes: {
-          "service.name": "yaml",
+          region: "west",
           deployment: "$DEPLOYMENT",
           count: 2,
           active: true,
@@ -134,14 +134,12 @@ describe("owner-only OTLP resolution", () => {
       }),
       {
         ...generalEnv,
-        OTEL_RESOURCE_ATTRIBUTES: "service.name=ambient,region=east",
-        OTEL_SERVICE_NAME: "process",
+        OTEL_RESOURCE_ATTRIBUTES: "region=east,deployment=production",
         DEPLOYMENT: "staging",
       }
     );
     expect(result.resourceAttributes).toEqual({
-      "service.name": "yaml",
-      region: "east",
+      region: "west",
       deployment: "staging",
       count: 2,
       active: true,
@@ -150,6 +148,37 @@ describe("owner-only OTLP resolution", () => {
       result.resourceAttributes
     );
   });
+
+  it.each([
+    ["build", "ZmFrZV9iYXNlNjRfYnV0X3JlYWxpc3RpY19sb29raW5nMTIz"],
+    ["secret", "private-resource-value"],
+  ])(
+    "identifies rejected resource key %s without exposing its value",
+    (key, value) => {
+      for (const source of ["yaml", "environment"]) {
+        const raw =
+          source === "yaml"
+            ? { resource_attributes: { region: "east", [key]: value } }
+            : {};
+        const env =
+          source === "environment"
+            ? {
+                ...generalEnv,
+                OTEL_RESOURCE_ATTRIBUTES: `region=east,${key}=${value}`,
+              }
+            : generalEnv;
+        expect(() => resolveOtlpConfiguration(policy(raw), env)).toThrow(
+          `must not contain secrets (attribute "${key}")`
+        );
+        try {
+          resolveOtlpConfiguration(policy(raw), env);
+        } catch (error) {
+          expect(String(error)).not.toContain(value);
+          expect(String(error)).not.toContain('attribute "region"');
+        }
+      }
+    }
+  );
 
   it("lists unsupported environment names without their values", () => {
     const result = resolveOtlpConfiguration(null, {

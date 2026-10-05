@@ -76,16 +76,19 @@ export function parseOtlpPolicy(
   }
   const refs = new Set<string>();
   const auth = new Set<string>();
-  function string(value: unknown, field: string): string {
+  function string(
+    value: unknown,
+    field: string
+  ): { value: string; ref: string | null } {
     if (typeof value !== "string" || !value.trim())
       invalid(field, "must be a non-empty string");
     const name = otlpReferenceName(value, field);
     if (name) refs.add(name);
-    return value;
+    return { value, ref: name };
   }
   function headers(value: unknown, field: string): OtlpHeaders {
     if (typeof value === "string") {
-      const ref = otlpReferenceName(string(value, field), field);
+      const { ref } = string(value, field);
       if (!ref) invalid(field, "must be an environment reference");
       auth.add(ref);
       return value;
@@ -105,8 +108,7 @@ export function parseOtlpPolicy(
         );
       }
       seen.add(lower);
-      const text = string(entry, field);
-      const ref = otlpReferenceName(text, field);
+      const { value: text, ref } = string(entry, field);
       if (!ref) invalid(field, "requires secret references for header values");
       auth.add(ref);
       result[name] = text;
@@ -119,7 +121,7 @@ export function parseOtlpPolicy(
   ): OtlpTransportPolicy {
     const result: OtlpTransportPolicy = {};
     if (raw.endpoint !== undefined)
-      result.endpoint = string(raw.endpoint, `${field}.endpoint`);
+      result.endpoint = string(raw.endpoint, `${field}.endpoint`).value;
     if (raw.protocol !== undefined) {
       if (raw.protocol !== "http/protobuf")
         invalid(`${field}.protocol`, "supports only http/protobuf");
@@ -148,7 +150,7 @@ export function parseOtlpPolicy(
     )) {
       const field = `${path}.resource_attributes.${key}`;
       if (typeof value === "string")
-        result.resourceAttributes[key] = string(value, field);
+        result.resourceAttributes[key] = string(value, field).value;
       else if (
         typeof value === "boolean" ||
         (typeof value === "number" && Number.isFinite(value))

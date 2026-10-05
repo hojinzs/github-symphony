@@ -247,9 +247,17 @@ export function resolveOtlpConfiguration(
           )
         : value;
   }
-  const redacted = redactObservabilitySecretsWithStats(resources);
-  if (redacted.redactions.length)
-    fail("observability.otlp.resource_attributes", "must not contain secrets");
+  // TODO(slice D): enforce reserved identity conflicts and the 16 custom-key
+  // limit from docs/designs/2026-10-04-otlp-export-design.md (Resource identity)
+  // when orchestrator-owned identity values are available.
+  for (const [key, value] of Object.entries(resources)) {
+    const redacted = redactObservabilitySecretsWithStats({ [key]: value });
+    if (redacted.redactions.length)
+      fail(
+        "observability.otlp.resource_attributes",
+        `must not contain secrets (attribute ${JSON.stringify(key)})`
+      );
+  }
   result.resourceAttributes = resources;
   diagnostics.resourceAttributes = { ...resources };
   return result;

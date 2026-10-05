@@ -157,6 +157,7 @@ export type WorkflowDefinition = {
   };
   repository: WorkflowRepositoryExtension;
   server: WorkflowServerConfig;
+  /** Optional for compatibility with callers constructing workflow literals. */
   observability?: { otlp: WorkflowOtlpPolicy | null };
   workspace: WorkflowWorkspaceConfig;
   hooks: WorkflowHooksConfig;
