@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  buildProjectMetricProjection,
   EVENT_EXPORT_LIMITS,
   getEventSeverity,
   normalizeEventForExport,
@@ -10,6 +11,11 @@ import {
   parseRunEventLine,
   redactObservabilitySecrets,
 } from "../index.js";
+
+it("exports event and metric projections together from the public barrel", () => {
+  expect(typeof normalizeEventForExport).toBe("function");
+  expect(typeof buildProjectMetricProjection).toBe("function");
+});
 
 const at = "2026-10-04T10:00:00.123Z";
 const context = {

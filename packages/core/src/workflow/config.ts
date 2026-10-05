@@ -1,3 +1,4 @@
+import type { WorkflowOtlpPolicy } from "./otlp.js";
 import type { WorkflowLifecycleConfig } from "./lifecycle.js";
 
 export type WorkflowHooksConfig = {
@@ -100,10 +101,19 @@ export type WorkflowCodexConfig = {
   stallTimeoutMs: number;
 };
 
-export type WorkflowRuntimeKind =
-  | "codex-app-server"
-  | "claude-print"
-  | "custom";
+export const WORKFLOW_RUNTIME_KINDS = [
+  "codex-app-server",
+  "claude-print",
+  "custom",
+] as const;
+
+export type WorkflowRuntimeKind = (typeof WORKFLOW_RUNTIME_KINDS)[number];
+
+export function isWorkflowRuntimeKind(
+  value: unknown
+): value is WorkflowRuntimeKind {
+  return WORKFLOW_RUNTIME_KINDS.some((kind) => kind === value);
+}
 
 export type WorkflowRuntimeIsolationConfig = {
   bare: boolean;
@@ -156,6 +166,8 @@ export type WorkflowDefinition = {
   };
   repository: WorkflowRepositoryExtension;
   server: WorkflowServerConfig;
+  /** Optional for compatibility with callers constructing workflow literals. */
+  observability?: { otlp: WorkflowOtlpPolicy | null };
   workspace: WorkflowWorkspaceConfig;
   hooks: WorkflowHooksConfig;
   agent: WorkflowAgentConfig;
@@ -255,6 +267,7 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   },
   repository: null,
   server: DEFAULT_WORKFLOW_SERVER,
+  observability: { otlp: null },
   workspace: DEFAULT_WORKFLOW_WORKSPACE,
   hooks: DEFAULT_WORKFLOW_HOOKS,
   agent: DEFAULT_WORKFLOW_AGENT,

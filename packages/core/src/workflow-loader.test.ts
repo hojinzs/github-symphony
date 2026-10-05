@@ -1993,6 +1993,49 @@ Prompt body.
 });
 
 describe("WorkflowConfigStore", () => {
+  it("caches unresolved OTLP policy across secret rotation and retains it after invalid reload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-otlp-"));
+    tempDirs.push(root);
+    const path = join(root, "WORKFLOW.md");
+    const store = new WorkflowConfigStore();
+    const markdown = `---
+observability:
+  otlp:
+    enabled: true
+    endpoint: $BASE
+    headers: $AUTH
+---
+Prompt`;
+    await writeFile(path, markdown);
+    const first = await store.load(path, {});
+    const cache = (
+      store as unknown as {
+        cache: Map<string, { envSignature: string }>;
+      }
+    ).cache;
+    const digest = cache.get(path)!.envSignature;
+    const rotated = await store.load(path, { AUTH: "private-rotated" });
+    expect(first.isValid).toBe(true);
+    expect(rotated.workflow.observability?.otlp).toMatchObject({
+      enabled: true,
+      endpoint: "$BASE",
+      headers: "$AUTH",
+      authReferenceNames: ["AUTH"],
+    });
+    expect(rotated.revision).toBe(first.revision);
+    expect(cache.get(path)!.envSignature).not.toBe(digest);
+    expect(JSON.stringify(rotated)).not.toContain("private-rotated");
+    await writeFile(
+      path,
+      markdown.replace("enabled: true", "enabled: invalid")
+    );
+    const invalid = await store.load(path, {});
+    expect(invalid.isValid).toBe(false);
+    expect(invalid.usedLastKnownGood).toBe(true);
+    expect(invalid.workflow).toEqual(first.workflow);
+    expect(invalid.validationError).toContain("observability.otlp.enabled");
+  });
+
   it("stores a hash instead of plaintext environment values in cache metadata", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
     tempDirs.push(root);

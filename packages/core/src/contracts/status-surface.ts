@@ -4,6 +4,7 @@ import { isPathWithinRoot } from "../workspace/path-safety.js";
 import type {
   WorkflowDefinition,
   WorkflowPriorityConfig,
+  WorkflowRuntimeKind,
 } from "../workflow/config.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
 import type { TrackerAdapterKind } from "./tracker-adapter.js";
@@ -186,7 +187,16 @@ export function isSessionExitClassification(
   );
 }
 
-export type OrchestratorRunRecord = {
+/** Optional measurement attribution; absence means unknown, never measured zero.
+ * Producers set tokenUsageMeasured only after a valid absolute usage update.
+ * Provenance travels with the session delta and must survive recovery.
+ */
+export type TokenMeasurementProvenance = {
+  runtimeKind?: WorkflowRuntimeKind;
+  tokenUsageMeasured?: boolean;
+};
+
+export type OrchestratorRunRecord = TokenMeasurementProvenance & {
   runId: string;
   projectId: string;
   projectSlug: string;
