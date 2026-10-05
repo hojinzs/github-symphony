@@ -1,7 +1,7 @@
 # OhMySymphony C22 visual design handoff
 
 - **Date:** 2026-10-05
-- **Status:** Review ready — editable redesign verified; operator approval pending
+- **Status:** Visual direction reopened — previous candidate retained as reference; theme selection pending
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [C22 #1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 - **Source:** [Approved management-plane design](2026-10-04-control-plane-management-agents-design.md), [#984 completion](https://github.com/hojinzs/github-symphony/issues/984), merged [PR #982](https://github.com/hojinzs/github-symphony/pull/982)
@@ -9,6 +9,13 @@
 - **Artifact:** [OhMySymphony overview](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=23-368), in the existing [Dani Works / OhMySymphony folder](https://www.figma.com/files/team/987232692286731920/folder/665174118)
 
 ## Delivery boundary and approval
+
+The operator requested a new visual direction after reviewing this candidate.
+The [three Projects theme directions](2026-10-05-ohmysymphony-theme-directions.md)
+are the current selection artifact. The 58 screens below remain unapproved
+behavior/state references. Their earlier verification records describe that
+candidate only; the chosen direction must be applied and verified across the
+full system before final operator review.
 
 This candidate reorganizes the existing file into shared foundations, reusable
 components and widgets, and five screen areas. The inventory contains **58

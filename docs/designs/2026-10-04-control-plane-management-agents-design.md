@@ -6,7 +6,7 @@
 - **Scope:** Proposed architecture; this document does not describe shipped commands or APIs
 - **Tracking:** [Epic #983](https://github.com/hojinzs/github-symphony/issues/983), [specification and usability child #984](https://github.com/hojinzs/github-symphony/issues/984), [delivery PR #982](https://github.com/hojinzs/github-symphony/pull/982)
 - **Related documents:** [Standalone project boundary](../adr/2026-08-13_standalone-project-instance-boundary.md), [standalone project model](2026-08-11-standalone-project-model-design.md), [orchestrator extraction scope](2026-09-14-orchestrator-extraction-scope.md), [current control-plane package](../../packages/control-plane/README.md)
-- **Visual redesign:** [C22 handoff and screen inventory](2026-10-05-ohmysymphony-c22-design-handoff.md), [Figma overview](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=23-368). This subsequent redesign remains pending its own operator review; archived decision samples remain source references.
+- **Visual redesign:** [Three theme directions awaiting selection](2026-10-05-ohmysymphony-theme-directions.md), [previous C22 handoff and screen inventory](2026-10-05-ohmysymphony-c22-design-handoff.md). The operator reopened the visual direction; full redesign follows their sample selection and requires its own approval. Archived decision samples remain source references.
 
 ## Intent and agreed scope
 

@@ -1,6 +1,6 @@
 # OhMySymphony C22 redesign implementation plan
 
-- **Status:** In progress — design delivery verified; operator approval pending
+- **Status:** In progress — visual direction reopened; three Projects samples ready for selection
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [#1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 
@@ -30,7 +30,7 @@ Inspection on 2026-10-05 established:
 - Keep the existing Figma file and Dani Works / OhMySymphony folder. Archive decision samples with their links intact.
 - One operator, private network, Linux/macOS, already prepared projects. No available Docker deployment, login/OIDC, public deployment, provisioning, bulk lifecycle or global scheduler controls.
 - Keep Projects as the landing area and Projects / Environments / Commands as primary navigation. Runs/logs have a dedicated design page but need not become a new primary navigation item.
-- Preserve 1440px desktop, dark treatment, Inter UI and monospaced operational text. Use synthetic credentials only.
+- Preserve 1440px desktop, Inter UI and monospaced operational text. The operator's theme-change request reopens the earlier dark-only constraint for the three candidate directions; apply the selected palette only after explicit selection. Use synthetic credentials only.
 - C22 defines visual states and accessibility contracts; #1018 validates detailed prototype transitions, focus/keyboard behavior and walkthroughs. Runtime and OS validation belongs to implementation children.
 - Preserve `docs/symphony-spec.md`. The management plane is an explicit repository extension; no new upstream divergence is proposed.
 - Delivery requires a CLI patch changeset even though this is design/documentation work. Do not add that release claim for the planning artifact alone.
@@ -137,8 +137,10 @@ Planning verification completed: scope/header, five task boundaries, seven desig
 
 The operator authorized Goal activation and execution in this Codex task. Work
 uses `codex/ohmysymphony-c22-redesign`, based on `ce905860` with merged #982.
-T1–T4 and the artifact/repository portion of T5 are complete. The active Goal and
-C22 completion remain pending explicit review of the resulting redesign.
+T1–T4 and the artifact/repository portion of T5 were completed for the first
+candidate. The operator subsequently reopened its visual direction. These
+checks preserve a useful state-coverage baseline but do not complete the revised
+delivery; the revision work below and final operator approval remain required.
 
 - T1: eight original archive top-level nodes preserved; the copied Tailwind
   file exposes all eight pages through the plugin API. Compatible styles,
@@ -160,8 +162,9 @@ Execution rulings:
 - Ruling: use static design TCs, structural inspection and rendered review for
   Figma changes, with mandatory repository unit tests — code TDD cannot prove
   a design artifact — actual interactions and runtime safety remain downstream.
-- Ruling: retain the approved dark treatment — adding a light theme is outside
-  the current visual scope — future theme work needs additional contrast checks.
+- Earlier ruling: retain dark treatment for the first candidate. Superseded by
+  the operator's request for three new visual directions; light candidates are
+  now within exploration scope. The selected system needs fresh contrast checks.
 - Ruling: change filled-primary contrast and use 44px button wrappers — the
   reused button exceeded the initial 40px wrapper — frontend implementation
   must adopt the documented token/geometry changes.
@@ -170,3 +173,22 @@ Execution rulings:
   delegated without parallel writes to the design file.
 - Ruling: keep approval explicitly pending — #1026 requires actual operator
   review — neither test results nor authorization to start closes this gate.
+
+## Visual revision — 2026-10-05
+
+The operator requested current research and three Projects samples because the
+first visual theme did not meet their quality expectations. See the
+[theme research, exact samples and verification](2026-10-05-ohmysymphony-theme-directions.md).
+
+- [x] R1: Research recent official Linear, Attio and Vercel/Geist design changes;
+      create three editable 1440 × 960 Projects samples with the same six-project
+      fixture, isolated tokens/components and preserved state semantics.
+- [ ] R2: Record the operator's explicit choice of A — Graphite, B — Ivory or
+      C — Contrast, including any requested adjustments. Do not propagate a theme
+      before this choice.
+- [ ] R3: Apply the chosen direction consistently to shared foundations,
+      components, widgets and all 58 required screen/state compositions, preserving
+      approved behavior, responsive coverage and the original archive.
+- [ ] R4: Repeat applicable D01–D07 structural/rendered checks and repository
+      checks; update the dated handoff and obtain approval of the resulting full
+      redesign. A sample selection alone does not complete C22.
