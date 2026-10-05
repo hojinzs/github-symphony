@@ -118,8 +118,11 @@ const handler = async (
     const result = await stopExpectedTarget(
       {
         configDir: options.configDir,
-        projectId: resolvedProjectId,
-        projectDir: projectConfig.projectDir ?? projectConfig.workspaceDir,
+        projectId: options.projectId ?? resolvedProjectId,
+        projectDir:
+          options.requestedProjectDir ??
+          projectConfig.projectDir ??
+          projectConfig.workspaceDir,
       },
       parsed.expectedTarget
     );

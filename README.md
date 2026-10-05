@@ -171,6 +171,17 @@ gh-symphony project start --project-dir <path> --web             # Browser contr
 gh-symphony project start --project-dir <path> --web --bind-all  # Explicitly bind the dashboard to all interfaces
 ```
 
+For automation with a persisted process target, use
+`gh-symphony --json project stop --project-dir <path> --expected-pid <pid> --expected-process-identity <identity>`.
+Supply both values from the verified target's PID/lock record; pass the identity
+as one quoted argument. This mode rejects replacement owners (`superseded_target`)
+and missing evidence (`process_unverified`) without signaling or deleting their
+records. `--force` is incompatible. `signal_sent` acknowledges graceful SIGTERM
+delivery; verify process exit, released locks, and absence of a replacement before
+claiming stop completion. `already_stopped` requires verified exit and released
+locks. Older daemons without the local endpoint must be restarted with this CLI
+before expected-target stop is available.
+
 Monitor from the terminal:
 
 ```bash

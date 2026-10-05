@@ -24,6 +24,8 @@ export type GlobalOptions = {
   invocation?: "project";
   /** Explicit runtime target, resolved from a standalone project folder. */
   projectId?: string;
+  /** Caller-selected folder; expected-target stop must not redirect via cache. */
+  requestedProjectDir?: string;
 };
 
 export type CommandHandler = (

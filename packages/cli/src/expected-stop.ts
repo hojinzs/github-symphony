@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   lstatSync,
@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { rm } from "node:fs/promises";
 import { createConnection, createServer, type Server } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   getProcessCwd,
   getProcessIdentity,
@@ -32,6 +32,17 @@ export type ExpectedStopResult =
   | "already_stopped"
   | "superseded_target"
   | "process_unverified";
+
+// ps exposes lstart with only second precision. Include a process-lifetime
+// nonce in its OS-visible command identity before acquiring ownership locks,
+// so same-command PID reuse within that second cannot match a prior target.
+export function installExpectedStopProcessIdentity(): () => void {
+  const previousTitle = process.title;
+  process.title = `gh-symphony ${randomUUID()} repo start`;
+  return () => {
+    process.title = previousTitle;
+  };
+}
 
 // Keep below macOS's Unix socket path limit, even for deeply nested projects.
 export function expectedStopSocketPath(context: ExpectedStopContext): string {
@@ -117,7 +128,7 @@ export async function startExpectedStopServer(
   context: ExpectedStopContext
 ): Promise<Server> {
   const path = expectedStopSocketPath(context);
-  const directory = join(path, "..");
+  const directory = dirname(path);
   mkdirSync(directory, { mode: 0o700, recursive: true });
   const info = lstatSync(directory);
   if (!info.isDirectory() || info.uid !== process.getuid?.()) {
@@ -144,9 +155,10 @@ export async function startExpectedStopServer(
       let result: ExpectedStopResult = "process_unverified";
       try {
         const target = JSON.parse(input.trim()) as ExpectedStopTarget;
+        const currentIdentity = getProcessIdentity(process.pid);
         if (
           target.pid !== process.pid ||
-          target.processIdentity !== getProcessIdentity(process.pid)
+          (currentIdentity && target.processIdentity !== currentIdentity)
         ) {
           result = "superseded_target";
         } else {

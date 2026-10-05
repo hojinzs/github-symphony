@@ -21,6 +21,7 @@ vi.mock("@gh-symphony/orchestrator", async (importOriginal) => ({
 import {
   expectedStopSocketPath,
   inspectExpectedStopTarget,
+  installExpectedStopProcessIdentity,
   startExpectedStopServer,
   stopExpectedTarget,
   type ExpectedStopContext,
@@ -104,6 +105,20 @@ async function requestSocket(expected: typeof target): Promise<string> {
 }
 
 describe("expected-target local stop", () => {
+  it("makes each OS-visible process identity unique even within one start-time second", () => {
+    const original = process.title;
+    const restoreA = installExpectedStopProcessIdentity();
+    const a = process.title;
+    restoreA();
+    expect(process.title).toBe(original);
+    const restoreB = installExpectedStopProcessIdentity();
+    const b = process.title;
+    restoreB();
+    expect(a).toMatch(/^gh-symphony [0-9a-f-]{36} repo start$/);
+    expect(b).toMatch(/^gh-symphony [0-9a-f-]{36} repo start$/);
+    expect(a).not.toBe(b);
+    expect(process.title).toBe(original);
+  });
   it("delivers graceful self-signal through a verified socket and retains all records", async () => {
     server = await startExpectedStopServer(context);
     expect(await stopExpectedTarget(context, target)).toBe("signal_sent");
@@ -160,6 +175,9 @@ describe("expected-target local stop", () => {
         await writeFile(paths[1]!, contents[1]!.replace(root, tmpdir()));
       const before = await Promise.all(
         paths.map((path) => readFile(path, "utf8").catch(() => null))
+      );
+      expect(inspectExpectedStopTarget(context, target)).toBe(
+        "process_unverified"
       );
       expect(await stopExpectedTarget(context, target)).toBe(
         "process_unverified"
@@ -218,45 +236,56 @@ describe("expected-target local stop", () => {
     await assertRecordsPreserved();
   });
 
-  it.each([
-    ["--expected-pid", "123"],
-    ["--expected-process-identity", "identity"],
-    ["--expected-pid", "0", "--expected-process-identity", "identity"],
-    ["--expected-pid", "1.5", "--expected-process-identity", "identity"],
+  it("fails closed when server-side OS identity evidence disappears after verification", async () => {
+    server = await startExpectedStopServer(context);
+    expect(inspectExpectedStopTarget(context, target)).toBe("verified");
+    probes.identity.mockReturnValue(null);
+    expect(await requestSocket(target)).toBe("process_unverified");
+    expect(process.kill).not.toHaveBeenCalled();
+    await assertRecordsPreserved();
+  });
+
+  it.each(
     [
-      "--expected-pid",
-      "9007199254740992",
-      "--expected-process-identity",
-      "identity",
-    ],
-    ["--expected-pid", "123", "--expected-process-identity", " "],
-    ["--expected-pid", "123", "--expected-process-identity"],
-    [
-      "--expected-pid",
-      "123",
-      "--expected-pid",
-      "123",
-      "--expected-process-identity",
-      "identity",
-    ],
-    [
-      "--expected-pid",
-      "123",
-      "--expected-process-identity",
-      "identity",
-      "--expected-process-identity",
-      "identity",
-    ],
-    [
-      "--force",
-      "--expected-pid",
-      "123",
-      "--expected-process-identity",
-      "identity",
-    ],
-  ])(
+      ["--expected-pid", "123"],
+      ["--expected-process-identity", "identity"],
+      ["--expected-pid", "0", "--expected-process-identity", "identity"],
+      ["--expected-pid", "1.5", "--expected-process-identity", "identity"],
+      [
+        "--expected-pid",
+        "9007199254740992",
+        "--expected-process-identity",
+        "identity",
+      ],
+      ["--expected-pid", "123", "--expected-process-identity", " "],
+      ["--expected-pid", "123", "--expected-process-identity"],
+      [
+        "--expected-pid",
+        "123",
+        "--expected-pid",
+        "123",
+        "--expected-process-identity",
+        "identity",
+      ],
+      [
+        "--expected-pid",
+        "123",
+        "--expected-process-identity",
+        "identity",
+        "--expected-process-identity",
+        "identity",
+      ],
+      [
+        "--force",
+        "--expected-pid",
+        "123",
+        "--expected-process-identity",
+        "identity",
+      ],
+    ].map((args) => [args])
+  )(
     "rejects invalid target arguments %j before reading project state",
-    async (...args) => {
+    async (args) => {
       await stopCommand(args, {
         configDir: root,
         projectId: "fixture",
@@ -306,6 +335,46 @@ describe("expected-target local stop", () => {
     );
     expect(process.stdout.write).toHaveBeenCalledWith(
       `${JSON.stringify({ outcome: "superseded_target", pid: target.pid })}\n`
+    );
+    expect(process.exitCode).toBe(1);
+    expect(process.kill).not.toHaveBeenCalled();
+    await assertRecordsPreserved();
+  });
+
+  it("binds stop to the caller-selected canonical folder instead of a cached redirect", async () => {
+    server = await startExpectedStopServer(context);
+    const config: CliProjectConfig = {
+      projectId: "fixture",
+      slug: "fixture",
+      projectDir: root,
+      workspaceDir: root,
+      tracker: { adapter: "file", bindingId: "fixture" },
+    };
+    await writeFile(
+      join(root, "projects", "fixture", "project.json"),
+      JSON.stringify(config)
+    );
+    const callerFolder = join(root, "different-project");
+    await mkdir(callerFolder);
+    await stopCommand(
+      [
+        "--expected-pid",
+        String(target.pid),
+        "--expected-process-identity",
+        target.processIdentity,
+      ],
+      {
+        configDir: root,
+        projectId: "fixture",
+        requestedProjectDir: callerFolder,
+        invocation: "project",
+        verbose: false,
+        json: true,
+        noColor: true,
+      }
+    );
+    expect(process.stdout.write).toHaveBeenCalledWith(
+      `${JSON.stringify({ outcome: "process_unverified", pid: target.pid })}\n`
     );
     expect(process.exitCode).toBe(1);
     expect(process.kill).not.toHaveBeenCalled();

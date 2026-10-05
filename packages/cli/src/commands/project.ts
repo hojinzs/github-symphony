@@ -484,6 +484,7 @@ const handler = async (
       configDir: runtimeConfigDir,
       invocation: "project" as const,
       projectId,
+      requestedProjectDir: resolvedProjectDir,
     };
     if (subcommand === "status") {
       await statusCommand(forwarded, runtimeOptions);

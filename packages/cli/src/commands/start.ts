@@ -70,7 +70,10 @@ import {
   releaseProjectStartLocks,
   type ProjectStartLocks,
 } from "../project-start-lock.js";
-import { startExpectedStopServer } from "../expected-stop.js";
+import {
+  installExpectedStopProcessIdentity,
+  startExpectedStopServer,
+} from "../expected-stop.js";
 import type { Server as LocalStopServer } from "node:net";
 
 const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
@@ -1134,6 +1137,9 @@ const handler = async (
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
   let projectLocks: ProjectStartLocks | null = null;
   let expectedStopServer: LocalStopServer | null = null;
+  const restoreProcessIdentity = projectConfig.projectDir
+    ? installExpectedStopProcessIdentity()
+    : () => {};
   try {
     projectLocks = await acquireProjectStartLocks({
       runtimeRoot,
@@ -1383,7 +1389,11 @@ const handler = async (
       }
     }
   } finally {
-    await releaseProjectStartLocks(projectLocks);
+    try {
+      await releaseProjectStartLocks(projectLocks);
+    } finally {
+      restoreProcessIdentity();
+    }
   }
 };
 

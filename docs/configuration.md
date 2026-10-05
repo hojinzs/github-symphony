@@ -11,6 +11,23 @@ runtime state. Use `gh-symphony project start --project-dir <path>`; daemon
 children receive the same explicit directory on respawn. The former internal
 `GH_SYMPHONY_DAEMON_PROJECT_ID` environment handoff is no longer used.
 
+Expected-target stop uses the paired CLI options `--expected-pid` and
+`--expected-process-identity`; no new environment variables or workflow settings
+are required. The identity is the exact recorded OS process identity, not a
+command name. Linux/macOS process verification requires `ps`; macOS CWD
+verification also requires `lsof`. Missing evidence fails closed.
+New project processes include a random lifetime token in their OS-visible
+process title before recording lock/PID identities. This distinguishes rapid
+same-command PID reuse even when `ps` start-time timestamps share a second.
+New standalone project processes host a private Unix socket beneath
+`/tmp/gh-symphony-stop-<uid>/` (directory mode `0700`, socket mode `0600`). Its
+short filename hashes the canonical runtime configuration directory and project
+ID, avoiding platform socket path-length limits. This is a local CLI lifecycle
+endpoint, separate from `--web` and the per-project HTTP API. It is not exposed
+over the network. Stale endpoints are replaced only while holding the existing
+project and canonical-folder start locks. Existing daemons must be restarted
+with the new CLI to provide the endpoint.
+
 ## WORKFLOW.md Reload Semantics
 
 The orchestrator does not need a restart to apply a valid `WORKFLOW.md` edit.

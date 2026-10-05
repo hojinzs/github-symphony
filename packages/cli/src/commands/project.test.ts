@@ -402,6 +402,7 @@ describe("deriveStandaloneProject", () => {
       noColor: true,
       invocation: "project",
       projectId: "repository",
+      requestedProjectDir: projectDir,
     });
   });
 });
