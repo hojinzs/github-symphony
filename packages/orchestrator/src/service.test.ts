@@ -4679,6 +4679,217 @@ Retry inconclusive work.
     expect(isProcessRunning).toHaveBeenCalledWith(4102);
   });
 
+  it("OT-04/12 offers committed projections with monotonic identity and isolates callback errors", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-offer-"));
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const config = createProjectConfig(tempRoot, repository);
+      const commits: unknown[] = [];
+      const save = store.saveProjectStatus.bind(store);
+      vi.spyOn(store, "saveProjectStatus").mockImplementation(
+        async (snapshot) => {
+          await save(snapshot);
+          commits.push(snapshot);
+        }
+      );
+      const offers: import("@gh-symphony/core").CommittedMetricSnapshot[] = [];
+      const commitsAtOffer: number[] = [];
+      const observeTick = vi.fn(
+        (_measurement: import("@gh-symphony/core").TickMeasurement) => {
+          throw new Error("private exporter failure");
+        }
+      );
+      const onTick = vi.fn();
+      const stderr = { write: vi.fn() };
+      const clock = vi
+        .fn()
+        .mockReturnValueOnce(100)
+        .mockReturnValueOnce(350)
+        .mockReturnValueOnce(400)
+        .mockReturnValueOnce(900);
+      const service = new OrchestratorService(store, config, {
+        fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+        monotonicNow: clock,
+        stderr,
+        onTick,
+        publication: {
+          offerSnapshot: (snapshot) => {
+            commitsAtOffer.push(commits.length);
+            offers.push(snapshot);
+            throw new Error("private exporter failure");
+          },
+          observeTick,
+        },
+      });
+      await service.run({ once: true });
+      await service.runOnce();
+      expect(commitsAtOffer).toEqual([1, 2]);
+      expect(Object.isFrozen(offers[0])).toBe(true);
+      expect(Object.isFrozen(offers[0].projection.tickOutcomes)).toBe(true);
+      expect(offers.map((o) => o.sequence)).toEqual([1, 2]);
+      expect(offers[0].instanceId).toBe(offers[1].instanceId);
+      expect(offers[0].projection.sourceTime).toBe(
+        offers[1].projection.sourceTime
+      );
+      expect(offers[0].projection).toMatchObject({
+        activeRuns: 0,
+        tokenTotals: null,
+      });
+      expect(onTick).toHaveBeenCalledOnce();
+      expect(observeTick.mock.calls).toEqual([
+        [{ durationSeconds: 0.25, outcome: "success" }],
+        [{ durationSeconds: 0.5, outcome: "success" }],
+      ]);
+      expect(
+        (await store.loadProjectStatus(config.projectId))?.lastError
+      ).toBeNull();
+      expect(stderr.write).not.toHaveBeenCalled();
+      const count = offers.length;
+      await service.status();
+      expect(offers).toHaveLength(count);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not publish a failed status commit and measures failed ticks without masking persistence errors", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-offer-fail-"));
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const save = vi
+        .spyOn(store, "saveProjectStatus")
+        .mockRejectedValueOnce(new Error("commit failed"));
+      const offerSnapshot = vi.fn();
+      const observeTick = vi.fn();
+      const clock = vi
+        .fn()
+        .mockReturnValueOnce(10)
+        .mockReturnValueOnce(1010)
+        .mockReturnValueOnce(2000)
+        .mockReturnValueOnce(2100);
+      const service = new OrchestratorService(
+        store,
+        createProjectConfig(tempRoot, repository),
+        {
+          fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+          monotonicNow: clock,
+          publication: { offerSnapshot, observeTick },
+        }
+      );
+      await expect(service.runOnce()).rejects.toThrow("commit failed");
+      expect(offerSnapshot).not.toHaveBeenCalled();
+      expect(observeTick).toHaveBeenCalledWith({
+        durationSeconds: 1,
+        outcome: "failure",
+      });
+      save.mockRestore();
+      await service.runOnce();
+      expect(offerSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ sequence: 1 })
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    "heartbeat",
+    "codex_update",
+    "turn_completed",
+    "turn_failed",
+  ] as const)(
+    "persists C2 provenance from %s and retains it through recovery reads and legacy updates",
+    async (type) => {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-provenance-")
+      );
+      try {
+        const repository = {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        };
+        const store = new OrchestratorFsStore(tempRoot);
+        const config = createProjectConfig(tempRoot, repository);
+        const run = {
+          ...createConvergenceRunRecord(repository, tempRoot, {
+            completedAt: "2026-03-08T00:00:00.000Z",
+          }),
+          status: "running" as const,
+        };
+        await store.saveRun(run);
+        const service = new OrchestratorService(store, config);
+        const usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        const update = {
+          type,
+          issueId: run.issueId,
+          runtimeKind: "codex-app-server",
+          tokenUsageMeasured: true,
+          tokenUsage: usage,
+          lastEventAt: run.updatedAt,
+          rateLimits: null,
+          sessionInfo: null,
+          executionPhase: null,
+          runPhase: null,
+          lastError: null,
+          startedAt: run.updatedAt,
+          completedAt: run.updatedAt,
+          failedAt: run.updatedAt,
+          durationMs: 0,
+          threadId: null,
+          turnId: null,
+          turnCount: 0,
+          sessionId: null,
+          error: null,
+        } as import("@gh-symphony/core").OrchestratorChannelEvent;
+        await service["applyWorkerChannelEvent"](run.runId, update);
+        const persisted = await store.loadRun(run.runId, run.projectId);
+        expect(persisted).toMatchObject({
+          runtimeKind: "codex-app-server",
+          tokenUsageMeasured: true,
+          tokenUsage: usage,
+        });
+        const recovered = new OrchestratorService(store, config);
+        expect(await recovered["fetchWorkerRunInfo"](run)).toMatchObject({
+          runtimeKind: "codex-app-server",
+          tokenUsageMeasured: true,
+        });
+        const legacy = { ...update };
+        delete (
+          legacy as import("@gh-symphony/core").TokenMeasurementProvenance
+        ).runtimeKind;
+        delete (
+          legacy as import("@gh-symphony/core").TokenMeasurementProvenance
+        ).tokenUsageMeasured;
+        await recovered["applyWorkerChannelEvent"](run.runId, legacy);
+        expect(await store.loadRun(run.runId, run.projectId)).toMatchObject({
+          runtimeKind: "codex-app-server",
+          tokenUsageMeasured: true,
+        });
+        await store.saveRun(run);
+        await recovered["applyWorkerChannelEvent"](run.runId, legacy);
+        const unknown = await store.loadRun(run.runId, run.projectId);
+        expect(unknown?.runtimeKind).toBeUndefined();
+        expect(unknown?.tokenUsageMeasured).toBeUndefined();
+      } finally {
+        await rm(tempRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
   it("invokes onTick with the reconciliation snapshot when run() completes a tick", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-on-tick-"));

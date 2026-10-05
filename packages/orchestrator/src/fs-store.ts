@@ -9,6 +9,7 @@ import {
   type IssueWorkspaceRecord,
   type IssueStatusEvent,
   type OrchestratorEvent,
+  type ObservabilityPublication,
   type OrchestratorRunRecord,
   type OrchestratorRunQuery,
   type OrchestratorStateStore,
@@ -20,6 +21,7 @@ import {
   readJsonFile as readCoreJsonFile,
   safeReadDir,
 } from "@gh-symphony/core";
+import { freezeEvent, offerBestEffort } from "./publication.js";
 import { appendFileDurably, writeFileAtomically } from "./durable-file.js";
 
 const PROJECTS_DIR = "projects";
@@ -46,6 +48,7 @@ export async function observeRunRecordReads<T>(
 }
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
+  private readonly publication: Pick<ObservabilityPublication, "offerEvent">;
   private readonly resolvedRuntimeRoot: string;
   private readonly resolvedEventsMirrorRoot: string | null;
 
@@ -53,8 +56,10 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     readonly runtimeRoot: string,
     options: {
       eventsMirrorRoot?: string;
+      publication?: Pick<ObservabilityPublication, "offerEvent">;
     } = {}
   ) {
+    this.publication = options.publication ?? {};
     this.resolvedRuntimeRoot = resolve(runtimeRoot);
     this.resolvedEventsMirrorRoot = options.eventsMirrorRoot
       ? resolve(options.eventsMirrorRoot)
@@ -329,17 +334,28 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     await appendFileDurably(path, serializedEvent, { mode: 0o644 });
 
     const mirrorPath = this.resolveMirroredEventsPath(resolvedPath);
-    if (!mirrorPath) {
-      return;
+    if (mirrorPath) {
+      try {
+        await appendFileDurably(mirrorPath, serializedEvent, { mode: 0o644 });
+      } catch (error) {
+        console.warn(
+          `Failed to mirror orchestrator event log to ${mirrorPath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
     }
-
-    try {
-      await appendFileDurably(mirrorPath, serializedEvent, { mode: 0o644 });
-    } catch (error) {
-      console.warn(
-        `Failed to mirror orchestrator event log to ${mirrorPath}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
+    if (this.publication.offerEvent) {
+      offerBestEffort(() =>
+        this.publication.offerEvent!(
+          freezeEvent(redactedEvent),
+          Object.freeze({
+            observedAt: new Date().toISOString(),
+            projectId: resolvedProjectId,
+            runId,
+            integrity,
+          })
+        )
       );
     }
   }
