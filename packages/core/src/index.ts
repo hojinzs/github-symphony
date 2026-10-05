@@ -7,6 +7,8 @@ export * from "./contracts/run-attempt-phase.js";
 export * from "./contracts/status-surface.js";
 export * from "./contracts/state-store.js";
 export * from "./workflow/config.js";
+export * from "./workflow/otlp.js";
+export * from "./workflow/otlp-resolver.js";
 export * from "./workflow/lifecycle.js";
 export * from "./workflow/parser.js";
 export * from "./workflow/loader.js";

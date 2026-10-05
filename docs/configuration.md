@@ -767,3 +767,47 @@ values from leaking into new runs.
 | `SYMPHONY_CUMULATIVE_OUTPUT_TOKENS`   | `0` on fresh worker start     | Worker/runtime | Internal          | Cumulative output tokens.                                 |
 | `SYMPHONY_CUMULATIVE_TOTAL_TOKENS`    | `0` on fresh worker start     | Worker/runtime | Internal          | Cumulative total tokens.                                  |
 | `SYMPHONY_LAST_TURN_SUMMARY`          | cleared on fresh worker start | Worker/runtime | Internal          | Last turn summary used for continuation/recovery context. |
+
+### OTLP workflow policy (exporter support pending)
+
+The optional `observability.otlp` mapping is parsed structurally by the shared
+workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
+enable export. This contract slice does not install an SDK or activate an
+exporter. The SDK-free owner resolver is available as a separate helper; runtime integration
+and exporter activation remain pending. Shared loading never calls this helper.
+
+Supported fields are `enabled` (boolean), `endpoint` (non-empty string),
+`protocol` (`http/protobuf`), `headers`, `resource_attributes`, and signal
+mappings `logs`/`metrics` with endpoint/protocol/headers. Headers accept a map
+of names to secret references or a whole header-list reference; empty maps are
+preserved. Resource attributes accept string, boolean and finite numeric values.
+Unknown fields in the observability block are rejected.
+
+Whole-value references use `env:NAME`, `$NAME`, or `${NAME}`; interpolation is
+unsupported. Parsing preserves references and records referenced names, including
+header auth provenance, without reading their values. Enabled policies therefore
+parse in workers without exporter variables. Resolved credentials never enter
+the shared parsed workflow cache. This is an additive repository Configuration
+Layer extension to the upstream Symphony specification.
+
+The owner helper accepts a caller-supplied effective environment (project `.env`
+overlaid by process values). Transport precedence is signal YAML, general YAML,
+signal environment, general environment, then default. Endpoint defaults are
+absent; protocol defaults to `http/protobuf`, headers to empty. General endpoints
+append `/v1/logs` or `/v1/metrics`; signal endpoints are complete URLs. Header
+maps replace the whole lower-precedence map. Invalid selected protocols or empty
+transport values fail instead of falling back. URLs reject credentials, queries
+and fragments; headers reject reserved names, duplicate names and CR/LF.
+
+`OTEL_SDK_DISABLED=true` vetoes enabled policy. Disabled policy resolves no
+references and ignores invalid ambient transport settings. Resources merge
+`OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, then YAML; secret-bearing
+resources are rejected by the existing redactor, with only the offending key
+named in the error. Reserved identity key conflict validation and the 16 custom-key
+limit are pending orchestrator-owned identity integration in slice D (see the
+[design’s Resource identity section](designs/2026-10-04-otlp-export-design.md#resource-identity)).
+Safe diagnostics contain only
+endpoint, protocol, header names, resource metadata, auth-reference names and
+unsupported environment names, never header values. Resolved transports belong
+in owner-local memory. The shared loader retains its hashed environment digest
+and last-known-good structural policy, without resolving exporter credentials.
