@@ -1066,3 +1066,7 @@ immediately rather than pausing for interactive confirmation.
 ## License
 
 This project is released under the [MIT License](LICENSE).
+
+The internal [management protocol](packages/management-protocol/README.md) package defines the v1 agent/fleet
+transport boundary for the planned management extension. It adds no CLI commands;
+existing project commands and the per-project web server retain their behavior.

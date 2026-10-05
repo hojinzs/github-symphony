@@ -587,3 +587,7 @@ Global Options:
   --help, -h          Show help
   --version, -V       Show version
 ```
+
+The internal [management protocol](../management-protocol/README.md) package defines the v1 agent/fleet
+transport boundary for the planned management extension. It adds no CLI commands;
+existing project commands and the per-project web server retain their behavior.
