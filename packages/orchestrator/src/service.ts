@@ -4479,7 +4479,8 @@ export class OrchestratorService {
       await this.store.saveRun({
         ...run,
         ...provenance,
-        tokenUsage: event.tokenUsage,
+        // Turn events carry deltas; cumulative usage comes from session updates.
+        updatedAt: this.now().toISOString(),
       });
     }
 

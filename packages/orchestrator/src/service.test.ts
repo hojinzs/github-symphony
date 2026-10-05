@@ -4875,10 +4875,22 @@ Retry inconclusive work.
             completedAt: "2026-03-08T00:00:00.000Z",
           }),
           status: "running" as const,
+          tokenUsage: {
+            inputTokens: 1000,
+            outputTokens: 500,
+            totalTokens: 1500,
+          },
         };
         await store.saveRun(run);
-        const service = new OrchestratorService(store, config);
-        const usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        const now = new Date("2026-03-08T00:01:00.000Z");
+        const service = new OrchestratorService(store, config, {
+          now: () => now,
+        });
+        const usage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
+        const expectedUsage =
+          type === "turn_completed" || type === "turn_failed"
+            ? run.tokenUsage
+            : usage;
         const update = {
           type,
           issueId: run.issueId,
@@ -4906,7 +4918,8 @@ Retry inconclusive work.
         expect(persisted).toMatchObject({
           runtimeKind: "codex-app-server",
           tokenUsageMeasured: true,
-          tokenUsage: usage,
+          tokenUsage: expectedUsage,
+          updatedAt: now.toISOString(),
         });
         const recovered = new OrchestratorService(store, config);
         expect(await recovered["fetchWorkerRunInfo"](run)).toMatchObject({
@@ -4924,6 +4937,7 @@ Retry inconclusive work.
         expect(await store.loadRun(run.runId, run.projectId)).toMatchObject({
           runtimeKind: "codex-app-server",
           tokenUsageMeasured: true,
+          tokenUsage: expectedUsage,
         });
         await store.saveRun(run);
         await recovered["applyWorkerChannelEvent"](run.runId, legacy);
