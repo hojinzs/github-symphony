@@ -204,3 +204,81 @@ export interface AgentControlPlaneClient {
   claim(request: ClaimRequest): Promise<ClaimResponse>;
   publishResult(request: ResultRequest): Promise<Acknowledgment>;
 }
+
+export interface CreateEnvironmentRequest {
+  name: string;
+}
+export interface EnrollmentTokenResponse {
+  environmentId: UUID;
+  token: string;
+  expiresAt: UtcTimestamp;
+}
+export interface EnvironmentRecord {
+  environmentId: UUID;
+  name: string;
+  enrollment: "pending" | "enrolled" | "revoked";
+  connection: "awaiting-signal" | "online" | "offline";
+  lastContactAt?: UtcTimestamp;
+  agentVersion?: string;
+  host?: { hostname: string; os: "linux" | "darwin" };
+}
+export interface SubmitCommandRequest {
+  operation: LifecycleOperation;
+}
+/** Idempotency-Key is an HTTP header; actor is resolved by the service. */
+export interface SubmitCommandResponse {
+  commandId: UUID;
+  state: "accepted";
+}
+export interface CloseUnresolvedRequest {
+  acknowledged: true;
+  reason: string;
+}
+export interface PageRequest {
+  limit: number;
+  cursor?: string;
+}
+export interface ProjectFilter extends PageRequest {
+  environmentId?: UUID;
+  process?: "running" | "stopped" | "unknown";
+  connection?: "online" | "offline";
+}
+export interface AggregateProject extends ProjectIdentity {
+  managed: boolean;
+  connection: "online" | "offline";
+  lastReceivedAt: UtcTimestamp;
+  observation: ProjectObservation;
+}
+export interface Page<T> {
+  items: T[];
+  nextCursor?: string;
+}
+export interface OperatorManagementClient {
+  createEnvironment(
+    request: CreateEnvironmentRequest
+  ): Promise<EnrollmentTokenResponse>;
+  listEnvironments(): Promise<EnvironmentRecord[]>;
+  regenerateEnrollment(environmentId: UUID): Promise<EnrollmentTokenResponse>;
+  revoke(environmentId: UUID): Promise<void>;
+  listProjects(request: ProjectFilter): Promise<Page<AggregateProject>>;
+  getProject(projectId: UUID): Promise<AggregateProject>;
+  submitCommand(
+    projectId: UUID,
+    idempotencyKey: string,
+    request: SubmitCommandRequest
+  ): Promise<SubmitCommandResponse>;
+  getCommand(commandId: UUID): Promise<CommandRecord>;
+  closeUnresolved(
+    commandId: UUID,
+    request: CloseUnresolvedRequest
+  ): Promise<CommandRecord>;
+  listCommands(
+    projectId: UUID,
+    request: PageRequest
+  ): Promise<Page<CommandRecord>>;
+  submitRead(
+    projectId: UUID,
+    request: ReadSelection
+  ): Promise<{ readId: UUID }>;
+  getRead(readId: UUID): Promise<ReadResult>;
+}

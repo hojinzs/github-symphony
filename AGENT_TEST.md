@@ -454,3 +454,16 @@ Stop the container, reset fixtures
 - **Polling interval**: poll state at 1-second intervals, but set a maximum wait time
 - **Issue removal**: after observing worker completion, always remove issues to avoid retry loops
 - **STUB_SCENARIO**: pick the worker behavior matching the scenario (e.g. `STUB_SCENARIO=fail docker compose ...`)
+
+### Management protocol contract cases (C01)
+
+These deterministic wire tests do not change integration runtime behavior or add a
+Docker scenario. Run `pnpm --filter @gh-symphony/management-protocol test`; the
+repository `pnpm test` gate includes the same files. The [package acceptance
+matrix](packages/management-protocol/README.md#verification-and-acceptance-scope)
+separates protocol evidence from future CP-01–CP-23 runtime/OS validation.
+
+| Case                        | Automated coverage                                                                                                                                                                                                                                                          | Docker black-box confirmation                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| V1 peer wire contracts      | `packages/management-protocol/src/schemas.test.ts`: independent typed peer fixtures, UUID/UTC/sequence validation, inventory/body/run limits, session-scoped polls, claim replay/unknown closure, enrollment/first-signal states, log/read bounds and error/operator shapes | N/A: no HTTP, lifecycle, tracker or CLI runtime implementation in C01 |
+| Approved protocol constants | `packages/management-protocol/src/constants.test.ts`: version, capacity/retention and stable HTTP error categories                                                                                                                                                          | N/A: pure constants                                                   |

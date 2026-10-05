@@ -811,3 +811,8 @@ endpoint, protocol, header names, resource metadata, auth-reference names and
 unsupported environment names, never header values. Resolved transports belong
 in owner-local memory. The shared loader retains its hashed environment digest
 and last-known-good structural policy, without resolving exporter credentials.
+
+The internal [management protocol](../packages/management-protocol/README.md)
+package exports fixed v1 wire/capacity contracts. It introduces no runtime
+configuration or environment variables. Agent allowlists and fleet service
+configuration remain owned by their separate implementation slices.

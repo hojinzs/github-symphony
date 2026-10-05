@@ -79,7 +79,7 @@ the tracker adapter:
 
 ### 2. Configuration — typed parsing and validation
 
-- Management v1 identity, capacity and wire contracts: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
+- Management v1 identity, capacity, wire contracts and strict runtime schemas: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
 - Runtime kinds and their shared validation guard: `packages/core/src/workflow/config.ts`; the workflow parser and worker-channel provenance validator reuse the same catalog.
@@ -197,7 +197,7 @@ the tracker adapter:
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
-- `packages/management-protocol` defines the agent/fleet transport boundary without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. Agent and fleet service implementations belong to separate delivery slices.
+- `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. Agent and fleet service implementations belong to separate delivery slices.
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason. State-list filtering preserves the exact malformed-item count and bounded diagnostic samples so startup cleanup remains observable.
 - Tracker adapters expose state reads and mutations to the Coordination layer, but the orchestrator does not author issue comments. Status reports, blocker notices, and other tracker comments are worker-owned operations; GitHub approval-workflow comments remain in `packages/extension-github-workflow`.
