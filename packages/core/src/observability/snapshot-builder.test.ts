@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { buildProjectMetricProjection } from "./metric-projection.js";
 import {
   buildProjectSnapshot,
   type SnapshotInput,
@@ -1159,5 +1160,220 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns[0].lastEvent).toBeNull();
     expect(snapshot.activeRuns[0].lastEventAt).toBeNull();
     expect(snapshot.activeRuns[0].tokenUsage).toBeUndefined();
+  });
+});
+
+// OT-06/OT-08: projection fixtures deliberately preserve legacy API arithmetic.
+describe("authoritative metric projection", () => {
+  function fixture(runs: OrchestratorRunRecord[]) {
+    return buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: runs.filter(
+        (run) => run.status === "running" || run.status === "retrying"
+      ),
+      allRuns: runs,
+      summary: { dispatched: 2, suppressed: 3, recovered: 1 },
+      lastTickAt: "2024-01-01T00:06:00Z",
+      lastError: null,
+      effectivePollIntervalMs: 1000,
+    });
+  }
+
+  it("projects current reservations and per-tick decisions without tracker labels", () => {
+    const runs = [
+      mockRun(),
+      mockRun({ runId: "retry", status: "retrying", retryKind: "recovery" }),
+    ];
+    const snapshot = fixture(runs);
+    expect(buildProjectMetricProjection(snapshot, runs)).toEqual({
+      sourceTime: snapshot.lastTickAt,
+      activeRuns: 2,
+      retryingRuns: 1,
+      health: { idle: 0, running: 1, degraded: 0 },
+      pollIntervalMs: 1000,
+      tickOutcomes: { dispatched: 2, suppressed: 3, recovered: 1, skipped: 0 },
+      tokensSupported: { codex: 1, claude: 0 },
+      tokenTotals: null,
+      runtimeSeconds: 540,
+    });
+    const withoutPoll = {
+      ...snapshot,
+      effectivePollIntervalMs: undefined,
+      health: "degraded" as const,
+    };
+    expect(buildProjectMetricProjection(withoutPoll, runs)).not.toHaveProperty(
+      "pollIntervalMs"
+    );
+    expect(buildProjectMetricProjection(withoutPoll, runs).health).toEqual({
+      idle: 0,
+      running: 0,
+      degraded: 1,
+    });
+    expect(buildProjectMetricProjection(fixture([]), []).health.idle).toBe(1);
+  });
+
+  it("distinguishes measured zero from initialized, absent and unknown usage", () => {
+    const zero = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    const measured = mockRun({
+      runtimeKind: "codex-app-server",
+      tokenUsageMeasured: true,
+      tokenUsage: zero,
+    });
+    expect(
+      buildProjectMetricProjection(fixture([measured]), [measured]).tokenTotals
+    ).toEqual(zero);
+    for (const unmeasured of [
+      mockRun({ tokenUsage: zero }),
+      mockRun({ runtimeKind: "codex-app-server", tokenUsage: zero }),
+      mockRun({
+        runtimeKind: "codex-app-server",
+        tokenUsageMeasured: false,
+        tokenUsage: zero,
+      }),
+      mockRun({ runtimeKind: "codex-app-server", tokenUsageMeasured: true }),
+      mockRun({ tokenUsageMeasured: true, tokenUsage: zero }),
+      mockRun({
+        runtimeKind: "claude-print",
+        tokenUsageMeasured: true,
+        tokenUsage: zero,
+      }),
+      mockRun({
+        runtimeKind: "custom",
+        tokenUsageMeasured: true,
+        tokenUsage: zero,
+      }),
+    ]) {
+      expect(
+        buildProjectMetricProjection(fixture([unmeasured]), [unmeasured])
+          .tokenTotals
+      ).toBeNull();
+    }
+  });
+
+  it("keeps null persisted token usage absent even with measured provenance", () => {
+    const run = mockRun({
+      runtimeKind: "codex-app-server",
+      tokenUsageMeasured: true,
+    });
+    // Legacy JSON can carry null even though the typed contract uses undefined.
+    const reloaded: OrchestratorRunRecord = JSON.parse(
+      JSON.stringify({ ...run, tokenUsage: null })
+    );
+    expect(
+      buildProjectMetricProjection(fixture([reloaded]), [reloaded]).tokenTotals
+    ).toBeNull();
+  });
+
+  it("sums measured session deltas only and leaves mixed-runtime snapshot totals unchanged", () => {
+    const usage = {
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      cumulativeTotalTokens: 999,
+    };
+    const runs = [
+      mockRun({
+        runtimeKind: "codex-app-server",
+        tokenUsageMeasured: true,
+        tokenUsage: usage,
+      }),
+      mockRun({
+        runId: "next",
+        runtimeKind: "codex-app-server",
+        tokenUsageMeasured: true,
+        tokenUsage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+      }),
+      mockRun({
+        runId: "claude",
+        runtimeKind: "claude-print",
+        tokenUsageMeasured: true,
+        tokenUsage: usage,
+      }),
+      mockRun({ runId: "legacy", tokenUsage: usage }),
+    ];
+    const snapshot = fixture(runs);
+    expect(snapshot.codexTotals).toMatchObject({
+      inputTokens: 32,
+      outputTokens: 16,
+      totalTokens: 48,
+    });
+    expect(buildProjectMetricProjection(snapshot, runs).tokenTotals).toEqual({
+      inputTokens: 12,
+      outputTokens: 6,
+      totalTokens: 18,
+    });
+    // Reloaded attribution does not depend on today's workflow runtime.
+    const reloaded: OrchestratorRunRecord[] = JSON.parse(JSON.stringify(runs));
+    expect(
+      buildProjectMetricProjection(fixture(reloaded), reloaded).tokenTotals
+    ).toEqual({ inputTokens: 12, outputTokens: 6, totalTokens: 18 });
+  });
+
+  it("repeated absolute updates and projection reads never accumulate or mutate inputs", () => {
+    const run = mockRun({
+      runtimeKind: "codex-app-server",
+      tokenUsageMeasured: true,
+      tokenUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    });
+    for (const total of [15, 15, 18, 18]) {
+      run.tokenUsage = {
+        inputTokens: total - 5,
+        outputTokens: 5,
+        totalTokens: total,
+      };
+      const snapshot = fixture([run]);
+      const before = JSON.stringify({ run, snapshot });
+      const first = buildProjectMetricProjection(snapshot, [run]);
+      expect(first.tokenTotals?.totalTokens).toBe(total);
+      expect(buildProjectMetricProjection(snapshot, [run])).toEqual(first);
+      expect(JSON.stringify({ run, snapshot })).toBe(before);
+      expect(Object.isFrozen(first)).toBe(true);
+      for (const nested of [
+        first.health,
+        first.tickOutcomes,
+        first.tokensSupported,
+        first.tokenTotals,
+      ]) {
+        expect(Object.isFrozen(nested)).toBe(true);
+      }
+    }
+  });
+
+  it("reuses authoritative recovery lifecycle runtime including legacy sessions", () => {
+    const runs = [
+      mockRun({
+        runId: "old",
+        status: "suppressed",
+        runtimeLifecycleId: "life",
+        cumulativeRuntimeMs: 0,
+        startedAt: "2024-01-01T00:01:00Z",
+        completedAt: "2024-01-01T00:02:00Z",
+        updatedAt: "2024-01-01T00:02:00Z",
+      }),
+      mockRun({
+        runId: "recovery",
+        runtimeLifecycleId: "life",
+        cumulativeRuntimeMs: 60000,
+        retryKind: "recovery",
+        startedAt: "2024-01-01T00:05:00Z",
+      }),
+      mockRun({
+        runId: "legacy",
+        issueId: "other",
+        status: "succeeded",
+        completedAt: "2024-01-01T00:02:00Z",
+      }),
+    ];
+    const snapshot = fixture(runs);
+    expect(snapshot.codexTotals?.secondsRunning).toBe(180);
+    expect(buildProjectMetricProjection(snapshot, runs).runtimeSeconds).toBe(
+      180
+    );
+    expect(
+      buildProjectMetricProjection(
+        { ...snapshot, codexTotals: undefined },
+        runs
+      ).runtimeSeconds
+    ).toBe(180);
   });
 });
