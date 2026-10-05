@@ -63,6 +63,20 @@ describe("absolute token measurement", () => {
     ).toBeNull();
   });
 
+  it("prefers camelCase absolute totals regardless of key order", () => {
+    expect(
+      extractAbsoluteTokenUsage({
+        tokenUsage: {
+          last: { inputTokens: 9, outputTokens: 3, totalTokens: 12 },
+          total: { inputTokens: 140, outputTokens: 70, totalTokens: 210 },
+        },
+      })
+    ).toEqual({ inputTokens: 140, outputTokens: 70, totalTokens: 210 });
+    expect(
+      extractAbsoluteTokenUsage({ tokenUsage: { last: { inputTokens: 9 } } })
+    ).toBeNull();
+  });
+
   it("leaves generic usage maps uninterpreted", () => {
     expect(
       extractAbsoluteTokenUsage({

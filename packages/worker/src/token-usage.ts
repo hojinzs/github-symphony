@@ -57,6 +57,8 @@ export function extractAbsoluteTokenUsage(value: unknown): TokenUsage | null {
   const record = value as Record<string, unknown>;
   const preferredKeys = [
     "total_token_usage",
+    "total",
+    "tokenUsage",
     "token_usage",
     "info",
     "msg",
@@ -76,7 +78,7 @@ export function extractAbsoluteTokenUsage(value: unknown): TokenUsage | null {
   }
 
   for (const [key, nestedValue] of Object.entries(record)) {
-    if (key === "last_token_usage" || key === "usage") {
+    if (key === "last_token_usage" || key === "last" || key === "usage") {
       continue;
     }
     const nested = extractAbsoluteTokenUsage(nestedValue);
