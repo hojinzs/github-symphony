@@ -1,3 +1,4 @@
+import { isWorkflowRuntimeKind } from "../workflow/config.js";
 import {
   isWorkflowExecutionPhase,
   isSessionExitClassification,
@@ -171,9 +172,7 @@ export function isOrchestratorChannelEvent(
 
   if (
     (value.runtimeKind !== undefined &&
-      value.runtimeKind !== "codex-app-server" &&
-      value.runtimeKind !== "claude-print" &&
-      value.runtimeKind !== "custom") ||
+      !isWorkflowRuntimeKind(value.runtimeKind)) ||
     (value.tokenUsageMeasured !== undefined &&
       typeof value.tokenUsageMeasured !== "boolean")
   ) {

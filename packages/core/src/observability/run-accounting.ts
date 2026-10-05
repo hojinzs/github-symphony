@@ -11,6 +11,19 @@ export function aggregateTokenUsage(
   runs: readonly OrchestratorRunRecord[],
   lastTickAt: string
 ): NonNullable<ProjectStatusSnapshot["codexTotals"]> {
+  return {
+    ...sumRunTokenUsage(runs),
+    secondsRunning: aggregateRuntimeSeconds(runs, lastTickAt),
+  };
+}
+
+/** Sum attached session token data without computing lifecycle runtime. */
+export function sumRunTokenUsage(
+  runs: readonly OrchestratorRunRecord[]
+): Pick<
+  NonNullable<ProjectStatusSnapshot["codexTotals"]>,
+  "inputTokens" | "outputTokens" | "totalTokens"
+> {
   let inputTokens = 0;
   let outputTokens = 0;
   let totalTokens = 0;
@@ -21,15 +34,20 @@ export function aggregateTokenUsage(
       totalTokens += run.tokenUsage.totalTokens;
     }
   }
+  return { inputTokens, outputTokens, totalTokens };
+}
 
+/** Reuse authoritative retained-lifecycle runtime independently of token data. */
+export function aggregateRuntimeSeconds(
+  runs: readonly OrchestratorRunRecord[],
+  lastTickAt: string
+): number {
   const runtimeMs = Array.from(runsByLifecycle(runs).values()).reduce(
     (total, lifecycleRuns) =>
       total + runtimeMsForLifecycle(lifecycleRuns, lastTickAt),
     0
   );
-  const secondsRunning = Math.max(0, Math.round(runtimeMs / 1000));
-
-  return { inputTokens, outputTokens, totalTokens, secondsRunning };
+  return Math.max(0, Math.round(runtimeMs / 1000));
 }
 
 function runsByLifecycle(

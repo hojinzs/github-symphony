@@ -46,7 +46,7 @@ it("accepts legacy channel events and optional provenance but rejects malformed 
     },
   ];
   for (const event of events) {
-    expect(isOrchestratorChannelEvent(event)).toBe(true);
+    expect(isOrchestratorChannelEvent(event), JSON.stringify(event)).toBe(true);
     for (const runtimeKind of ["codex-app-server", "claude-print", "custom"]) {
       for (const tokenUsageMeasured of [true, false, undefined]) {
         expect(
@@ -54,7 +54,8 @@ it("accepts legacy channel events and optional provenance but rejects malformed 
             ...event,
             runtimeKind,
             tokenUsageMeasured,
-          })
+          }),
+          JSON.stringify({ ...event, runtimeKind, tokenUsageMeasured })
         ).toBe(true);
       }
     }
@@ -65,9 +66,10 @@ it("accepts legacy channel events and optional provenance but rejects malformed 
       { tokenUsageMeasured: "true" },
       { tokenUsageMeasured: null },
     ]) {
-      expect(isOrchestratorChannelEvent({ ...event, ...provenance })).toBe(
-        false
-      );
+      expect(
+        isOrchestratorChannelEvent({ ...event, ...provenance }),
+        JSON.stringify({ ...event, ...provenance })
+      ).toBe(false);
     }
   }
 });

@@ -100,10 +100,19 @@ export type WorkflowCodexConfig = {
   stallTimeoutMs: number;
 };
 
-export type WorkflowRuntimeKind =
-  | "codex-app-server"
-  | "claude-print"
-  | "custom";
+export const WORKFLOW_RUNTIME_KINDS = [
+  "codex-app-server",
+  "claude-print",
+  "custom",
+] as const;
+
+export type WorkflowRuntimeKind = (typeof WORKFLOW_RUNTIME_KINDS)[number];
+
+export function isWorkflowRuntimeKind(
+  value: unknown
+): value is WorkflowRuntimeKind {
+  return WORKFLOW_RUNTIME_KINDS.some((kind) => kind === value);
+}
 
 export type WorkflowRuntimeIsolationConfig = {
   bare: boolean;

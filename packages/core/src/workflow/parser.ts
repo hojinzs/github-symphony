@@ -21,6 +21,8 @@ import {
   type WorkflowRuntimeConfig,
   type WorkflowRuntimeKind,
   resolveWorkflowRuntimeCommand,
+  isWorkflowRuntimeKind,
+  WORKFLOW_RUNTIME_KINDS,
 } from "./config.js";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -1163,16 +1165,12 @@ function readRuntimeKind(
   runtime: Record<string, WorkflowFrontMatterNode>
 ): WorkflowRuntimeKind {
   const kind = readRequiredString(runtime, "kind");
-  if (
-    kind === "codex-app-server" ||
-    kind === "claude-print" ||
-    kind === "custom"
-  ) {
+  if (isWorkflowRuntimeKind(kind)) {
     return kind;
   }
 
   throw new Error(
-    `Unsupported workflow runtime kind "${kind}". Supported values: codex-app-server, claude-print, custom.`
+    `Unsupported workflow runtime kind "${kind}". Supported values: ${WORKFLOW_RUNTIME_KINDS.join(", ")}.`
   );
 }
 

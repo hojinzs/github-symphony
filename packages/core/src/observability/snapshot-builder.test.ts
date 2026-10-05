@@ -1250,6 +1250,20 @@ describe("authoritative metric projection", () => {
     }
   });
 
+  it("keeps null persisted token usage absent even with measured provenance", () => {
+    const run = mockRun({
+      runtimeKind: "codex-app-server",
+      tokenUsageMeasured: true,
+    });
+    // Legacy JSON can carry null even though the typed contract uses undefined.
+    const reloaded: OrchestratorRunRecord = JSON.parse(
+      JSON.stringify({ ...run, tokenUsage: null })
+    );
+    expect(
+      buildProjectMetricProjection(fixture([reloaded]), [reloaded]).tokenTotals
+    ).toBeNull();
+  });
+
   it("sums measured session deltas only and leaves mixed-runtime snapshot totals unchanged", () => {
     const usage = {
       inputTokens: 10,

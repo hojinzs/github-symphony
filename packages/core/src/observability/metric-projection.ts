@@ -2,7 +2,7 @@ import type {
   OrchestratorRunRecord,
   ProjectStatusSnapshot,
 } from "../contracts/status-surface.js";
-import { aggregateTokenUsage } from "./run-accounting.js";
+import { aggregateRuntimeSeconds, sumRunTokenUsage } from "./run-accounting.js";
 
 export type ProjectMetricProjection = Readonly<{
   sourceTime: string;
@@ -40,9 +40,9 @@ export function buildProjectMetricProjection(
     (run) =>
       run.runtimeKind === "codex-app-server" &&
       run.tokenUsageMeasured === true &&
-      run.tokenUsage !== undefined
+      run.tokenUsage != null
   );
-  const totals = aggregateTokenUsage(measuredRuns, snapshot.lastTickAt);
+  const totals = sumRunTokenUsage(measuredRuns);
   return Object.freeze({
     sourceTime: snapshot.lastTickAt,
     activeRuns: snapshot.summary.activeRuns,
@@ -72,6 +72,6 @@ export function buildProjectMetricProjection(
           }),
     runtimeSeconds:
       snapshot.codexTotals?.secondsRunning ??
-      aggregateTokenUsage(runs, snapshot.lastTickAt).secondsRunning,
+      aggregateRuntimeSeconds(runs, snapshot.lastTickAt),
   });
 }
