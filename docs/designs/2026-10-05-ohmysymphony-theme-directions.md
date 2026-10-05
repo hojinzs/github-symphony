@@ -1,30 +1,38 @@
 # OhMySymphony Projects theme directions
 
 - **Date:** 2026-10-05
-- **Status:** Awaiting selection — three editable Projects samples verified; full redesign follows explicit user selection
+- **Status:** Selected — A / Graphite; full design-system and 58-screen application and final redesign approval remain incomplete
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [C22 #1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 - **Behavior source:** [Approved management-plane design](2026-10-04-control-plane-management-agents-design.md)
 - **Previous candidate:** [C22 handoff and 58-screen inventory](2026-10-05-ohmysymphony-c22-design-handoff.md)
-- **Figma:** [05 Exploration / Theme directions](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-368), [comparison introduction](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=58-888)
+- **Figma:** [Selected A / Graphite (`53:490`)](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-490), [05 Exploration / Theme directions](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-368), [comparison introduction](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=58-888)
 
 ## Decision and scope
 
 The operator found the previous C22 visual theme insufficiently polished and
 requested current design research plus three Projects samples before choosing a
 direction. The previous 58 screens remain behavior and state-coverage references;
-their visual theme is not approved. Approval of #984's architecture does not
-approve either visual candidate.
+their visual theme is not approved. Approval of #984's architecture is separate
+from the visual-direction selection recorded below.
 
 This exploration contains three editable 1440 × 960 Projects compositions with
 the same fictional dataset. It changes presentation, not management semantics.
-It is scoped to choosing a visual direction, rather than completing another
-design library, implementing runtime code or redesigning the full file.
+It records the choice of visual direction. It does not deliver a complete design
+library, runtime implementation or redesign of the full file.
 
-**No direction has been selected.** The user must explicitly select a direction
-before theme changes propagate across the product's foundations, components,
-widgets or remaining screens. Model preference, structural checks and rendered
-review do not count as that selection or as approval of the final redesign.
+**The user selected A — Graphite on 2026-10-05**, referring to
+[`Explore/A/Projects/1440`, node `53:490`](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-490).
+The selection evidence is the user's exact message in the current working
+conversation:
+
+> A안으로 가자. 목표 재설정
+
+This establishes A as the direction for the reset goal. Applying it across the
+full foundations, components, widgets and 58-screen set remains incomplete.
+Final approval of that resulting redesign also remains pending. The user's
+direction selection does not convert the previous 58-screen theme or a future
+full-file implementation into an approved delivery.
 
 Configuration, Integration and Observability presentation remains separate from
 orchestration authority. The management plane remains the existing
@@ -39,11 +47,11 @@ does not change `docs/symphony-spec.md`.
 | [B — Ivory](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-491), `Explore/B/Projects/1440`    | Horizontal primary navigation and project cards grouped by environment           | Warm light canvas `#f4f3ef`, white cards and forest-green action color `#294838`; Inter type and deliberate breathing room; environment grouping carries connection context while process/work/freshness remain explicit | A recognizable product identity and clear ownership of projects by host                        |
 | [C — Contrast](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-492), `Explore/C/Projects/1440` | Dark sidebar, white workspace, project list and selected-project preview         | Strong monochrome structure, restrained blue selection `#0068d4`, fine separators; Inter labels with JetBrains Mono operational details; preview keeps the selected entity's context visible                             | Inspecting one project while preserving fleet context; preview width trades against list width |
 
-The current design recommendation is **B — Ivory** for visual identity. **A —
-Graphite** is the strongest option when compact cross-project scanning dominates.
-C offers a stronger inspection workspace. These are design judgments for the
-operator to compare; they are not a recorded preference or selection from the
-operator.
+During the comparison, the model recommended **B — Ivory** for visual identity,
+identified **A — Graphite** as the strongest option for compact cross-project
+scanning, and described C as an inspection workspace. These were earlier review
+opinions. The user's subsequent explicit selection of **A — Graphite** is the
+decision to carry forward; B and C remain comparison references.
 
 The differences are structural as well as chromatic: continuous table,
 environment-grouped cards, and list plus preview. All three retain Projects,
@@ -122,14 +130,14 @@ visually inspected for hierarchy, required labels, clipping and overlap.
 
 ## Acceptance test cases and evidence
 
-| ID                           | Test case and passing condition                                                                                                                   | Evidence / status                                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| T01 Editable comparison set  | Three distinct, editable 1440 × 960 frames exist on the exploration page, with actual text and reusable instances                                 | Passed: exact roots, dimensions, text and instance counts verified                                      |
-| T02 Identical fixture        | Each frame presents all six identical projects across the same three environments; summary is 3 running, 6 active runs and 2 offline projects     | Passed: extracted text and final renders match the fixture and arithmetic above                         |
-| T03 State integrity          | Connection/process/work/freshness are distinguishable; offline rows retain last-known/historical labels and are excluded from running/work totals | Passed: per-project state labels, B's environment connection headers and all summary qualifiers checked |
-| T04 Rendering and references | No overflow, clipping, missing fonts, broken instances or image fallback obscures required content                                                | Passed: zero structural failures; all three post-fix renders reviewed                                   |
-| T05 Source traceability      | Directions identify direct official sources, exact known publication dates and local adaptations                                                  | Source inventory completed; undated references marked with check date                                   |
-| T06 Selection boundary       | No whole-file theme propagation occurs before explicit user selection; prior visual candidate is not treated as approved                          | Selection pending; three-sample scope and isolation recorded                                            |
+| ID                           | Test case and passing condition                                                                                                                   | Evidence / status                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| T01 Editable comparison set  | Three distinct, editable 1440 × 960 frames exist on the exploration page, with actual text and reusable instances                                 | Passed: exact roots, dimensions, text and instance counts verified                                                        |
+| T02 Identical fixture        | Each frame presents all six identical projects across the same three environments; summary is 3 running, 6 active runs and 2 offline projects     | Passed: extracted text and final renders match the fixture and arithmetic above                                           |
+| T03 State integrity          | Connection/process/work/freshness are distinguishable; offline rows retain last-known/historical labels and are excluded from running/work totals | Passed: per-project state labels, B's environment connection headers and all summary qualifiers checked                   |
+| T04 Rendering and references | No overflow, clipping, missing fonts, broken instances or image fallback obscures required content                                                | Passed: zero structural failures; all three post-fix renders reviewed                                                     |
+| T05 Source traceability      | Directions identify direct official sources, exact known publication dates and local adaptations                                                  | Source inventory completed; undated references marked with check date                                                     |
+| T06 Selection boundary       | No whole-file theme propagation occurs before explicit user selection; prior visual candidate is not treated as approved                          | Selection received on 2026-10-05 for A (`53:490`); full-system/58-screen application and final approval remain incomplete |
 
 Final verification record:
 
@@ -147,11 +155,14 @@ Final verification record:
   packages**, with no retry needed. This exploration introduces no runtime code;
   unit tests do not validate Figma interactions. No new Docker, OS-service or
   accessibility behavior verification is claimed.
-- User direction selection: **Pending**; no chosen direction or approval
-  reference has been received.
+- User direction selection: **A — Graphite selected** on 2026-10-05, node
+  `53:490`; exact user message: “A안으로 가자. 목표 재설정”.
+- Full design-system and 58-screen application: **Incomplete**.
+- Final redesign approval: **Pending**; the selected sample establishes the
+  direction, not approval of the completed product design.
 
-After explicit selection, record the chosen frame and the user's reference,
-then revise the C22 execution scope for applying that direction consistently to
-the remaining visual system and state coverage. Completion still requires
-review of that resulting redesign; selection of one sample is not approval of
-the entire product design.
+The next delivery scope is to apply the selected A direction consistently to the
+remaining visual system and state coverage under the reset goal. Completion
+still requires full-system and 58-screen application, verification and review of
+the resulting redesign. This selection record makes no claim that those steps
+are complete.

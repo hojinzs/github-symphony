@@ -1,12 +1,16 @@
 # OhMySymphony C22 redesign implementation plan
 
-- **Status:** In progress — visual direction reopened; three Projects samples ready for selection
+- **Status:** A — Graphite selected; full-system redesign and final approval pending
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [#1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 
 > For agentic workers: use superpowers:executing-plans to execute this plan task by task after the user initiates execution.
 
-**Active Goal:** Deliver a reusable, editable OhMySymphony visual system and redesigned operator screens in the existing Figma file, with scenario traceability, verification evidence and operator approval, ready for #1018 and subsequent UI implementation.
+**Revised delivery goal:** Complete #1026 by applying the operator-selected A — Graphite direction to the editable OhMySymphony foundations, components, widgets and all 58 operator screen/state compositions in the existing Figma file, including the 1440/1024/390px coverage. Preserve approved management behavior and source archives, update the handoff and existing draft PR, pass structural/rendered/contrast and repository checks, and record actual operator approval of the completed redesign.
+
+**Selection:** On 2026-10-05 the operator said “A안으로 가자. 목표 재설정” (“Go with A. Reset the goal”). The selected reference is [A — Graphite, node 53:490](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-490). This authorizes whole-system application; it is not approval of the resulting full redesign.
+
+**App Goal state:** The existing app Goal remains `blocked`. Its available status tool cannot edit the objective or resume it, and creating a replacement was rejected because the existing goal is unfinished. This document records the revised objective; it does not claim that the app Goal was replaced. The visual-selection prerequisite itself is resolved.
 
 **Architecture:** This is the presentation design of the repository-local management plane above Symphony. Preserve the approved Control Plane → Management Agent → per-project orchestrator boundaries; introduce no scheduling or execution behavior. Build screens from widgets, widgets from component instances, and components from shared foundations.
 
@@ -30,7 +34,7 @@ Inspection on 2026-10-05 established:
 - Keep the existing Figma file and Dani Works / OhMySymphony folder. Archive decision samples with their links intact.
 - One operator, private network, Linux/macOS, already prepared projects. No available Docker deployment, login/OIDC, public deployment, provisioning, bulk lifecycle or global scheduler controls.
 - Keep Projects as the landing area and Projects / Environments / Commands as primary navigation. Runs/logs have a dedicated design page but need not become a new primary navigation item.
-- Preserve 1440px desktop, Inter UI and monospaced operational text. The operator's theme-change request reopens the earlier dark-only constraint for the three candidate directions; apply the selected palette only after explicit selection. Use synthetic credentials only.
+- Use A — Graphite: warm charcoal surfaces, subdued navigation, compact summaries, continuous data tables, restrained lavender accents, Inter UI and monospaced operational text. Preserve 1440px desktop and the existing 1024/390px coverage. Use synthetic credentials only.
 - C22 defines visual states and accessibility contracts; #1018 validates detailed prototype transitions, focus/keyboard behavior and walkthroughs. Runtime and OS validation belongs to implementation children.
 - Preserve `docs/symphony-spec.md`. The management plane is an explicit repository extension; no new upstream divergence is proposed.
 - Delivery requires a CLI patch changeset even though this is design/documentation work. Do not add that release claim for the planning artifact alone.
@@ -183,12 +187,49 @@ first visual theme did not meet their quality expectations. See the
 - [x] R1: Research recent official Linear, Attio and Vercel/Geist design changes;
       create three editable 1440 × 960 Projects samples with the same six-project
       fixture, isolated tokens/components and preserved state semantics.
-- [ ] R2: Record the operator's explicit choice of A — Graphite, B — Ivory or
-      C — Contrast, including any requested adjustments. Do not propagate a theme
-      before this choice.
+- [x] R2: Record the operator's explicit selection of A — Graphite on
+      2026-10-05, quoted above. No additional visual adjustment was requested.
 - [ ] R3: Apply the chosen direction consistently to shared foundations,
       components, widgets and all 58 required screen/state compositions, preserving
       approved behavior, responsive coverage and the original archive.
 - [ ] R4: Repeat applicable D01–D07 structural/rendered checks and repository
       checks; update the dated handoff and obtain approval of the resulting full
       redesign. A sample selection alone does not complete C22.
+
+### R3 application sequence and acceptance
+
+1. **Foundations and shared shell:** Map Graphite's existing semantic roles to
+   the production foundations. Start from canvas `#171819`, navigation
+   `#111213`, panel `#1c1d1f`, primary text `#e9e9e7` and accent `#cac7ff`.
+   Carry over the quiet sidebar, aligned header, compact metric treatment and
+   restrained separators. Verify text contrast and meaningful focus/control
+   boundaries before downstream composition; preserve distinct state axes.
+2. **Components and widgets:** Revise controls, navigation, rows, dialogs and
+   all 11 domain widgets using shared tokens and instances. Replace repeated
+   card outlines and oversized summaries with Graphite's hierarchy where the
+   content permits. Preserve long paths, command diagnostics, disabled reasons
+   and destructive/unknown command semantics. Run D02, D05 and D06.
+3. **Five screen areas:** Apply the revised system to Environments (17),
+   Projects (8), Project detail (9), Commands/recovery (15), and Runs/logs (9).
+   The total remains 58: 48 at 1440px, five at 1024px and five at 390px. Preserve
+   existing state coverage and stable references where possible; record any
+   replacement IDs. Run D03–D06 and compare the main Projects screen with the
+   selected sample for density, hierarchy and visual consistency.
+4. **Delivery:** Render and inspect every changed screen, audit component and
+   token references, fonts, editable text, overflow and relevant contrast
+   pairs. Update the inventory and traceability in the handoff, then run D01–D07,
+   document checks and `pnpm test`. Keep the PR draft until actual final
+   operator approval is recorded. Detailed interaction and runtime acceptance
+   remains with #1018 and the implementation children.
+
+This revision changes presentation within Configuration, Integration and
+Observability. It adds no upstream divergence, scheduling authority or new
+product workflow; `docs/symphony-spec.md` remains read-only.
+
+Goal-revision verification on 2026-10-05 passed: selection provenance and node,
+R2 completion versus pending R3/R4, accurate app Goal state, both 58-screen
+count totals, local links and upstream preservation. Independent document
+review found no material contradictions. Targeted Prettier and whitespace
+checks passed; fresh `pnpm test` passed 2,150 tests across 14 packages. These
+checks verify the revised plan and repository baseline, not completion of the
+Graphite screen redesign.
