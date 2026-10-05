@@ -70,6 +70,8 @@ import {
   releaseProjectStartLocks,
   type ProjectStartLocks,
 } from "../project-start-lock.js";
+import { startExpectedStopServer } from "../expected-stop.js";
+import type { Server as LocalStopServer } from "node:net";
 
 const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
 
@@ -1131,6 +1133,7 @@ const handler = async (
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
   let projectLocks: ProjectStartLocks | null = null;
+  let expectedStopServer: LocalStopServer | null = null;
   try {
     projectLocks = await acquireProjectStartLocks({
       runtimeRoot,
@@ -1206,6 +1209,8 @@ const handler = async (
         return shutdownPromise;
       }
       shuttingDown = true;
+      expectedStopServer?.close();
+      expectedStopServer = null;
       keepHttpAliveResolve?.();
       keepHttpAliveResolve = null;
       const heldLocks = projectLocks;
@@ -1233,6 +1238,13 @@ const handler = async (
     process.on("SIGTERM", handleSigterm);
 
     try {
+      if (projectConfig.projectDir) {
+        expectedStopServer = await startExpectedStopServer({
+          configDir: options.configDir,
+          projectId,
+          projectDir: projectConfig.projectDir,
+        });
+      }
       const trackerStateToken = randomBytes(32).toString("hex");
       workerHttpServer = await startHttpServer({
         runtimeRoot,
@@ -1363,6 +1375,7 @@ const handler = async (
         }
       }
     } finally {
+      expectedStopServer?.close();
       process.off("SIGINT", handleSigint);
       process.off("SIGTERM", handleSigterm);
       if (shutdownPromise) {
