@@ -108,13 +108,20 @@ buffered indefinitely. Unacknowledged command results remain durable locally.
 
 ## Registration, identity, and project inventory
 
-1. The operator creates a named environment in the UI.
+1. The operator opens Add environment from the Environments list and creates a
+   named environment in a modal. The pending record is persisted immediately.
 2. The Control Plane generates a single-use enrollment token, valid for 10 minutes.
 3. The installed agent exchanges it for an environment-scoped credential over HTTPS.
 4. The agent stores its identity and credential in a local file readable only by
    its OS user. The Control Plane stores a verifier, not the raw bearer credential.
 5. The operator configures an explicit local allowlist of project folders.
 6. The agent reports those folders, their validation results, and current runtime observations.
+
+Token exchange alone does not mean connected. Enrollment moves the environment
+from pending enrollment to enrolled / awaiting first signal. Only the first
+authenticated heartbeat or observation from the current agent session changes
+it to online. An online environment with zero projects is a successful connection,
+not a failed enrollment. Project readiness is reported separately.
 
 Enrollment consumption is atomic. Credential revocation blocks subsequent agent
 requests without stopping local orchestrators. Re-enrollment replaces the old
@@ -433,27 +440,31 @@ and must not revive removed repository-cache or orchestrator cloning behavior.
 These behavioral TCs are implementation acceptance requirements. They have not
 been executed against a management plane, which does not yet exist.
 
-| TC    | Scenario                                                                                              | Expected result                                                                                                                |
-| ----- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| CP-01 | Two environments report the same folder/local project ID                                              | Separate aggregate projects and correctly scoped operations                                                                    |
-| CP-02 | Register canonical folder and symlink alias                                                           | One project; a retargeted alias cannot redirect commands                                                                       |
-| CP-03 | Register unstarted or invalid workflow folder                                                         | Visible inventory; invalid start rejected, verified stop remains possible                                                      |
-| CP-04 | Concurrent local CLI and remote start, duplicate command delivery                                     | Existing lock retained; no second orchestrator; one command result                                                             |
-| CP-05 | Agent or Control Plane disconnects during active work                                                 | Orchestrator continues; UI retains explicitly stale observations                                                               |
-| CP-06 | Offline submission, unclaimed disconnect/expiry, claim-versus-expiry race                             | No offline backlog; unclaimed commands expire, never become unknown; atomic first claim permits effects only once              |
-| CP-07 | Command executes but result upload is lost; restart either side                                       | Durable result reconciled; no false failure or replacement command                                                             |
-| CP-08 | Stop returns before exit; target A exits and local CLI installs B before stop/recovery; PID reused    | Expected-target entry rejects B without a signal or deleting B's records; completion requires verified exit and released locks |
-| CP-09 | Restart after effects with insufficient recovery evidence                                             | Unknown outcome shown; explicit audited closure needed for another command                                                     |
-| CP-10 | Clock skew, out-of-order observations, second agent session                                           | Receipt-based freshness, older observations ignored, live second session rejected                                              |
-| CP-11 | Reuse enrollment token, wrong environment credential, revocation                                      | Authentication rejected; local orchestrators remain running                                                                    |
-| CP-12 | Missing logs, traversal, rotation, large log, offline detail request                                  | Containment and size enforced; explicit reset/unavailable, no false empty success                                              |
-| CP-13 | Start needs interactive confirmation or remediation                                                   | Non-interactive failure with diagnostic; no policy rewrite                                                                     |
-| CP-14 | Project removed from allowlist or folder moved                                                        | Remote control revoked; process unaffected; no silent identity migration                                                       |
-| CP-15 | Agent launches CLI, submits inventory and status                                                      | Management credentials absent from child environment and uploaded metadata                                                     |
-| CP-16 | Private browser mutation from a foreign origin                                                        | Mutation rejected; valid local-owner operation is audited                                                                      |
-| CP-17 | Incompatible protocol or unresolved cross-environment tracker overlap                                 | Commands disabled for incompatible agent; overlap limitation visible                                                           |
-| CP-18 | Claim commits but response is lost; same owner retries after claim deadline                           | Original state/ownership/claimedAt returned; absent effect marker permits the original execution once; deadlines are not reset |
-| CP-19 | Claim replay by stale session or another owner; replay after effect marker, terminal or unknown state | Stale/foreign ownership rejected; no second local invocation; terminal/unknown replay gives no effect permission               |
+| TC    | Scenario                                                                                              | Expected result                                                                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| CP-01 | Two environments report the same folder/local project ID                                              | Separate aggregate projects and correctly scoped operations                                                                                     |
+| CP-02 | Register canonical folder and symlink alias                                                           | One project; a retargeted alias cannot redirect commands                                                                                        |
+| CP-03 | Register unstarted or invalid workflow folder                                                         | Visible inventory; invalid start rejected, verified stop remains possible                                                                       |
+| CP-04 | Concurrent local CLI and remote start, duplicate command delivery                                     | Existing lock retained; no second orchestrator; one command result                                                                              |
+| CP-05 | Agent or Control Plane disconnects during active work                                                 | Orchestrator continues; UI retains explicitly stale observations                                                                                |
+| CP-06 | Offline submission, unclaimed disconnect/expiry, claim-versus-expiry race                             | No offline backlog; unclaimed commands expire, never become unknown; atomic first claim permits effects only once                               |
+| CP-07 | Command executes but result upload is lost; restart either side                                       | Durable result reconciled; no false failure or replacement command                                                                              |
+| CP-08 | Stop returns before exit; target A exits and local CLI installs B before stop/recovery; PID reused    | Expected-target entry rejects B without a signal or deleting B's records; completion requires verified exit and released locks                  |
+| CP-09 | Restart after effects with insufficient recovery evidence                                             | Unknown outcome shown; explicit audited closure needed for another command                                                                      |
+| CP-10 | Clock skew, out-of-order observations, second agent session                                           | Receipt-based freshness, older observations ignored, live second session rejected                                                               |
+| CP-11 | Reuse enrollment token, wrong environment credential, revocation                                      | Authentication rejected; local orchestrators remain running                                                                                     |
+| CP-12 | Missing logs, traversal, rotation, large log, offline detail request                                  | Containment and size enforced; explicit reset/unavailable, no false empty success                                                               |
+| CP-13 | Start needs interactive confirmation or remediation                                                   | Non-interactive failure with diagnostic; no policy rewrite                                                                                      |
+| CP-14 | Project removed from allowlist or folder moved                                                        | Remote control revoked; process unaffected; no silent identity migration                                                                        |
+| CP-15 | Agent launches CLI, submits inventory and status                                                      | Management credentials absent from child environment and uploaded metadata                                                                      |
+| CP-16 | Private browser mutation from a foreign origin                                                        | Mutation rejected; valid local-owner operation is audited                                                                                       |
+| CP-17 | Incompatible protocol or unresolved cross-environment tracker overlap                                 | Commands disabled for incompatible agent; overlap limitation visible                                                                            |
+| CP-18 | Claim commits but response is lost; same owner retries after claim deadline                           | Original state/ownership/claimedAt returned; absent effect marker permits the original execution once; deadlines are not reset                  |
+| CP-19 | Claim replay by stale session or another owner; replay after effect marker, terminal or unknown state | Stale/foreign ownership rejected; no second local invocation; terminal/unknown replay gives no effect permission                                |
+| CP-20 | Create environment, close/reopen modal, expire/regenerate token and enroll without a heartbeat        | Pending record survives; old token is not recovered and regenerated token fences the previous one; exchange alone stays awaiting first signal   |
+| CP-21 | Current session sends first authenticated heartbeat with empty inventory                              | Environment becomes online automatically; zero projects is successful connection, distinct from project readiness                               |
+| CP-22 | Linux/macOS setup service installation fails after enrollment, then setup is retried                  | Saved identity resumes setup without another token; no duplicate agent or changed allowlist; absolute executable paths and user scope preserved |
+| CP-23 | Start/restart/stop/uninstall user service; Linux linger absent; macOS logout/login                    | OS auto-start limits are explicit; agent lifecycle preserves orchestrators and journal; conflicting foreground process is rejected              |
 
 During implementation, cover journal recovery, session fencing, identity,
 timeouts, and log containment with deterministic unit tests. Verify the two-agent
@@ -509,11 +520,18 @@ gh-symphony control-plane run --config ./control-plane.yaml
 Proposed first-release agent commands:
 
 ```text
+gh-symphony agent setup --server https://symphony.lan
 gh-symphony agent enroll --server https://symphony.lan
 gh-symphony agent project add /srv/symphony/projects/backend
 gh-symphony agent project list
 gh-symphony agent project remove <local-project-id>
 gh-symphony agent run
+gh-symphony agent service install
+gh-symphony agent service start
+gh-symphony agent service stop
+gh-symphony agent service restart
+gh-symphony agent service status
+gh-symphony agent service uninstall
 ```
 
 Enrollment accepts the one-use token through an interactive hidden prompt or
@@ -523,9 +541,50 @@ the server cannot change these host settings. `project add` only registers an
 existing folder and does not create repositories or projects. `project remove`
 revokes management but does not stop work. Agent configuration and journal are
 under `~/.gh-symphony-agent/` by default, separate from orchestrator state.
-Native service installation and machine boot auto-start are deferred; `run` is
-the first-release foreground daemon entry point, independently of the detached
-orchestrators it manages.
+`agent setup` is the guided connection entry point: check prerequisites, enroll
+through the hidden token prompt, install the current user's native service and
+start it. It reports each stage and the actual auto-start coverage. A partial
+failure preserves enrolled identity so retry resumes service setup without
+consuming another token. A second live agent is rejected by the existing lock;
+setup must not replace another environment's identity or alter project allowlists.
+The lower-level `enroll`, `service` and foreground `run` entries remain available
+for recovery and diagnostics. Re-running service installation is idempotent for
+the same user, executable and data directory; conflicting configuration requires
+an explicit local repair. These commands manage only the agent, never managed
+orchestrators. Uninstall removes the service definition but preserves identity,
+project registrations and journal; credential revocation remains a separate action.
+
+Both Linux and macOS use the same public commands. Linux uses a systemd user
+service, enabled for the user manager and started immediately. Setup checks
+whether systemd/user-session support is available and whether linger is enabled.
+Boot startup and persistence after logout require linger; if absent, explain the
+required `loginctl enable-linger` action and any local authorization requirement,
+without silently elevating privileges. Unsupported Linux service managers use
+the documented foreground path and are not reported as service-installed.
+macOS uses a user-owned LaunchAgent under `~/Library/LaunchAgents`, loaded for
+the current login session and configured to start again at user login. This is
+not pre-login machine-boot startup and does not survive logout. Privileged
+LaunchDaemons are outside v1. Both services resolve absolute Node/CLI/config
+paths, restart the agent after unexpected exit with bounded backoff, and retain
+user-readable diagnostics; credentials are not embedded in unit/plist arguments.
+Foreground execution and services use the same single-process lock.
+
+Service shutdown must preserve the existing agent/orchestrator lifetime boundary
+at the OS level, not only in application signal handlers. Linux orchestration
+processes must be outside the agent unit's stop/kill scope; detached spawning
+alone does not leave a systemd control group. macOS managed processes must likewise
+be outside the agent job's process-group cleanup. The implementation plan must
+define and verify the concrete service/adapter isolation before service packaging
+ships. CP-23 must stop/restart/uninstall the actual OS service while a remotely
+started project is running and prove that project remains alive. Machine shutdown
+or user-session teardown is not promised to preserve running projects.
+
+These OS lifecycle distinctions follow the upstream platform documentation:
+[systemd loginctl](https://www.freedesktop.org/software/systemd/man/252/loginctl.html)
+and [Apple launchd jobs](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
+Service process-cleanup behavior is described in
+[systemd.kill](https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html)
+and [Apple launchd.plist](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5).
 
 The proposed `control-plane run` subcommand accepts an explicit private bind address, TLS
 termination configuration and data directory, defaulting its backend to
@@ -546,7 +605,8 @@ issues are registered after spec approval:
    prerequisites and package installation; the exact configuration schema and
    a runnable example; private bind/HTTPS origin, TLS/reverse proxy and private
    CA setup; data-directory permissions; foreground startup and initial UI
-   access; environment creation, agent enrollment and local folder registration;
+   access; environment modal, copyable setup instructions, native agent service
+   installation/startup, local folder registration and recovery;
    health/readiness verification; shutdown, restart and common startup failures.
    Include persistence/backup guidance for SQLite and enrolled-agent identity.
 
@@ -554,9 +614,10 @@ The startup guide must demonstrate the sequence: install the shared CLI, configu
 and start the Control Plane, open its UI, create an environment, enroll/start its
 agent, register prepared folders and verify their inventory. Command examples
 must be exercised against the implemented CLI in a clean environment before
-these children are completed. Native service installation, boot auto-start,
-Docker deployment and public-network/OIDC operation remain outside that guide's
-first-release path. Exact configuration and installation instructions must be
+these children are completed on both Linux and macOS. Include user service
+status/stop/restart/uninstall, Linux linger and macOS login-start limitations.
+Docker deployment, privileged system services and public-network/OIDC operation
+remain outside that guide's first-release path. Exact configuration and installation instructions must be
 specified before the feature is released; this draft command tree is not yet a
 usable installation runbook. Documentation placement follows `docs/README.md`;
 configuration details belong in `docs/configuration.md` with the guide linking
@@ -666,12 +727,45 @@ are excluded from that current total. Rows show both observation time and
 last-known process state when freshness is lost. State is communicated by text
 and timestamps as well as color. All primary actions are keyboard focusable.
 
-Environment enrollment is a four-step flow: name environment, copy the proposed
-install/enroll instructions and one-use token, configure existing folders on the
-host, and inspect the discovered inventory. Token is shown only at issuance with
-its expiry; closing the screen does not make it recoverable. Reconnection and
-pending enrollment are distinct states. The UI never accepts an arbitrary remote
-folder path as a lifecycle target.
+Environments has a dedicated list page reachable from primary navigation. Rows
+show name, connection state, host/OS/version when known, project count and last
+authenticated contact. Pending records appear without invented host metadata;
+empty, pending, online, offline and revoked states have explicit text. Row actions
+open connection instructions for pending records or the existing inventory view
+for enrolled records. Add environment opens a centered modal over the list;
+there is no separate full-page enrollment wizard.
+
+The modal first asks only for the environment name. Create environment persists
+the record and issues a ten-minute single-use token, then displays a Linux/macOS
+selector, the configured HTTPS Control Plane origin, Copy setup command and Copy
+token actions. No agent host/IP, inbound port or SSH key is required. The setup
+instructions install the compatible shared CLI if needed, then invoke
+`gh-symphony agent setup --server <configured-origin>`. The release's actual CLI
+version and package installation method must be pinned and verified before
+shipping; copied shell arguments are safely quoted. The command contains no
+token: paste the copied token into the hidden terminal prompt. Installation
+instructions identify prerequisites, current-user scope and OS auto-start limits.
+
+The modal observes server state automatically: pending enrollment, enrolled /
+awaiting first signal, then connected with host, OS, agent version and last
+contact. No Refresh or second approval is required after successful setup. A
+connected environment with zero projects offers the local `agent project add`
+instructions and View environment. A successful credential exchange without a
+heartbeat must not show connected. Waiting is not an indefinite progress spinner:
+show elapsed time, token expiry and troubleshooting for token, TLS/private CA,
+server reachability and service startup problems. The UI cannot infer a specific
+host-side error when no signal reached the server.
+
+Closing the modal keeps the environment and its waiting state in the list. The
+token is visible/copyable only during the issuance session and is never restored
+on reopen. Reopened pending records offer Regenerate token, which invalidates the
+previous unused token while preserving the environment ID. After exchange, resume
+instructions use the persisted agent identity instead of offering a new token.
+Replacing an enrolled agent remains a separate explicit revocation flow.
+Reconnection and pending enrollment are distinct states. Modal implementation
+must trap focus, support Escape/close without deleting the record and return focus
+to its trigger; asynchronous progress must be announced accessibly.
+The UI never accepts an arbitrary remote folder path as a lifecycle target.
 
 Project detail shows Connection, Process, Health, and Last observed independently.
 It includes active/retrying work, recent runs, diagnostics and command history.
@@ -719,12 +813,13 @@ never contain a real enrollment token or credential.
 | Screen                         | Scenario                                                         | Required evidence                                                                                         |
 | ------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | U01 — Fleet projects           | Locate running, stopped and offline projects across environments | Separate connection/process labels, observation age, per-project actions and stale count                  |
-| U02 — Add environment          | Name and enroll a new installed agent                            | One-use token expiry, safe enroll instructions, local folder registration and awaiting-agent state        |
+| U02 — Add environment modal    | Register, copy setup/token and await the first agent signal      | Name/create, OS selector, issuance/expiry, enrolled-but-waiting and connected/zero-project states         |
 | U03 — Environment inventory    | Verify discovered folders or investigate invalid registration    | Online/last contact, inventory validation, unmanaged guidance and explicit revoke action                  |
 | U04 — Project detail           | Inspect work and submit a lifecycle command                      | Independent connection/process/health, active/retry/recent work, command result and action reasons        |
 | U05 — Stop confirmation        | Understand disruption before stopping one project                | Project/environment identity, active-run count, interruption copy and Cancel/Stop actions                 |
 | U06 — Unknown command recovery | Resolve an ambiguous command outcome without blind replay        | Last evidence, no Retry, reconnection guidance, required-reason closure and explicit acknowledgment       |
 | U07 — Run logs                 | Read and follow one known stream                                 | Run/stream selection, historical timestamps, bounded follow state and offline/unavailable/reset messaging |
+| U08 — Environments list        | Find connected or pending hosts and open Add environment         | Host metadata only when known, separate project count, last contact and reopen-pending action             |
 
 Walkthrough acceptance scenarios:
 
@@ -746,6 +841,13 @@ Walkthrough acceptance scenarios:
 8. Navigate all primary actions using keyboard focus and distinguish states
    without relying on color alone. These are implementation accessibility
    requirements; a static screenshot alone cannot prove keyboard behavior.
+9. Create an environment from the list, copy setup/token and close the modal.
+   Reopen without revealing the old token; regenerate an unused token, complete
+   setup, observe enrolled / awaiting first signal, then connected with zero
+   projects. Register folders afterward; enrollment success never depends on them.
+10. Verify agent service start/restart/status/uninstall on Linux and macOS,
+    including partial setup retry, foreground lock conflict, Linux linger missing
+    and macOS logout/login. No agent service action stops local orchestrators.
 
 Validation proceeds in three separately reported stages: editable-layer and
 prototype-link inspection, rendered-screen inspection/model walkthrough, and
@@ -772,7 +874,7 @@ repository and package names are unchanged. The artifact is stored in the
 | Screen | Figma sample                                                                                                                                                                      | Static evidence                                                                                                                                     | Remaining interaction/design validation                                                                         |
 | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | U01    | [Fleet](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-593)                                                                                                        | Six projects across three environments; separate connection/process/work labels and age; historical offline state excluded from fresh-running count | Row actions, explicit stale filter/count, search and pagination behavior                                        |
-| U02    | [Enrollment](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-683)                                                                                                   | Masked sample token with one-use/expiry copy; hidden terminal entry; host-side project registration; awaiting-agent state                           | Installation details, issuance/expiry/error transitions and one-time token visibility                           |
+| U02    | [Enrollment modal](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-683)                                                                                             | Updated to the 2026-10-05 list-backed waiting modal; shared CLI, OS selection and setup/token copy controls                                         | Actual clipboard, enrollment/service behavior, issuance/expiry and first-signal transitions                     |
 | U03    | [Environment](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-728)                                                                                                  | Inventory, invalid workflow, contact age, local registration/removal guidance and revocation impact                                                 | Unmanaged row and explicit revocation confirmation                                                              |
 | U04    | [Running detail](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-795), [verified stopped result](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-944) | Connection/process/work cards, active/retry/history, separate command result and verified-exit copy                                                 | Start/stop pending, rejected and expired states; adjacent disabled-action reasons; full diagnostics and history |
 | U05    | [Stop confirmation](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=4-844)                                                                                            | Project/environment identity, active-run count, interruption warning and Cancel/Stop                                                                | Click-through cancel/confirm, focus behavior and asynchronous progress                                          |
@@ -789,11 +891,40 @@ fleet spacing; these were repaired, and all panels' content bounds fit afterward
 This is a static model review of synthetic states. No prototype links, live
 command behavior, keyboard accessibility, or operator usability test has passed.
 The board records six walkthrough prompts and the next detailed design tasks.
-The full eight walkthrough acceptance scenarios above, human review and design
+The walkthrough acceptance scenarios above, human review and design
 approval remain pending. This evidence does not approve the spec or close #984.
-The initial enrollment sample predates the 2026-10-05 shared-CLI decision; its
-standalone agent executable labels must be updated to `gh-symphony agent` during
-the next Figma interaction/design pass before approval.
+The initial full-page enrollment sample is superseded by the 2026-10-05 list and
+modal revision below, including the shared `gh-symphony agent` command surface.
+
+### Environment connection revision (2026-10-05)
+
+The [environment connection review board](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=13-154)
+adds a dedicated list and five list-backed modal states:
+
+| Sample | Figma view                                                                                     | Static evidence                                                                                                   |
+| ------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| U08    | [Environments list](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=13-156)        | Online/offline/pending rows, contact age, zero-project connected host and connection instructions                 |
+| U02a   | [Create modal](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=13-157)             | Name-only creation over the environment list; no agent IP/port                                                    |
+| U02b   | [Linux waiting modal](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=13-159)      | Shared setup command, separate copy controls, hidden token prompt, expiry, first-signal waiting and linger limits |
+| U02c   | [macOS waiting modal](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=13-160)      | Same CLI, LaunchAgent/login-start and logout limits                                                               |
+| U02d   | [Connected modal](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=13-162)          | First signal, reported host/OS/version, zero projects and local folder registration next step                     |
+| U02e   | [Expired / reopened modal](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=13-163) | Saved environment, no recovered token, regeneration and connection/service troubleshooting                        |
+
+The six 1440 × 1120 panels contain 484 editable descendants: 81 frames,
+327 text nodes, 71 component instances and five modal-backdrop rectangles.
+No image-filled nodes or font-family mismatches were found (Inter / JetBrains
+Mono). The existing Tailwind aliases, sample field/navigation components and
+shadcn button instances were reused, with a new reusable environment-row
+component. Multiline command clipping and oversized horizontal containers were
+repaired and the rendered board inspected. The former full-page enrollment
+sample now shows the waiting modal over the list.
+
+These remain synthetic static samples. Copy controls, OS selection, token
+regeneration, modal focus behavior and server-driven transitions are not live
+prototypes or runtime verification. Enrolled-but-awaiting-first-signal, empty
+list, revoked rows and detailed error variants remain for the interaction/design
+pass. CP-20 through CP-23 and walkthroughs 9–10 specify implementation validation;
+no OS service is installed by this documentation/design change.
 
 ## Documentation verification (2026-10-04)
 
