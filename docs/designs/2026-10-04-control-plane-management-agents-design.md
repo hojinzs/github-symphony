@@ -1,11 +1,12 @@
 # Control Plane and environment management agents
 
 - **Date:** 2026-10-04
-- **Status:** Draft
+- **Status:** Approved — operator approval and completion recorded in [#984](https://github.com/hojinzs/github-symphony/issues/984) on 2026-10-05; PR #982 merged. Earlier Draft/review-pending statements below describe the pre-approval snapshot.
 - **Symphony Layers:** Configuration, Coordination, Integration, Observability; Execution at the host process lifecycle boundary
 - **Scope:** Proposed architecture; this document does not describe shipped commands or APIs
 - **Tracking:** [Epic #983](https://github.com/hojinzs/github-symphony/issues/983), [specification and usability child #984](https://github.com/hojinzs/github-symphony/issues/984), [delivery PR #982](https://github.com/hojinzs/github-symphony/pull/982)
 - **Related documents:** [Standalone project boundary](../adr/2026-08-13_standalone-project-instance-boundary.md), [standalone project model](2026-08-11-standalone-project-model-design.md), [orchestrator extraction scope](2026-09-14-orchestrator-extraction-scope.md), [current control-plane package](../../packages/control-plane/README.md)
+- **Visual redesign:** [A — Graphite selected](2026-10-05-ohmysymphony-theme-directions.md), [C22 Graphite handoff and screen inventory](2026-10-05-ohmysymphony-c22-design-handoff.md). The operator selected A on 2026-10-05; the 58-screen Graphite application and static verification were completed on 2026-10-06; the operator explicitly approved the full design with “시안 승인함.” on 2026-10-06. Archived decision samples remain source references.
 
 ## Intent and agreed scope
 
