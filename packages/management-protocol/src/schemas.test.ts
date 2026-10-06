@@ -154,7 +154,12 @@ describe("v1 peer wire boundary", () => {
       F.unknown,
       F.closedUnknown,
       { ...F.accepted, state: "expired" },
-      { ...F.executing, state: "succeeded", completedAt: F.time },
+      {
+        ...F.executing,
+        state: "succeeded",
+        completedAt: "2026-10-05T00:00:25Z",
+        evidence: { exitVerified: true },
+      },
     ])
       expect(S.commandRecordSchema.parse(wire(record))).toEqual(record);
     expect(
@@ -439,4 +444,85 @@ it("validates operator and error wire contracts with explicit extra-field reject
   } catch (error) {
     expect(String(error)).not.toContain(secret);
   }
+});
+
+it("rejects foreign or absent claim owners", () => {
+  rejects(S.claimResponseSchema, [
+    { ...F.claimReplay, command: F.accepted },
+    {
+      ...F.claimReplay,
+      command: {
+        ...F.executing,
+        owner: { ...F.executing.owner, sessionId: F.agentId },
+      },
+    },
+  ]);
+});
+
+it("requires evidence for both terminal outcomes", () => {
+  for (const state of ["succeeded", "failed"]) {
+    const record = {
+      ...F.executing,
+      state,
+      completedAt: "2026-10-05T00:00:25Z",
+    };
+    rejects(S.commandRecordSchema, [record]);
+    expect(
+      S.commandRecordSchema.parse({ ...record, evidence: { verified: true } })
+        .evidence
+    ).toEqual({ verified: true });
+  }
+});
+
+it("requires revoked management to be offline", () => {
+  const record = { ...F.awaiting, enrollment: "revoked" };
+  rejects(S.environmentRecordSchema, [
+    record,
+    { ...record, connection: "online", lastContactAt: F.time },
+  ]);
+  expect(
+    S.environmentRecordSchema.parse({ ...record, connection: "offline" })
+      .connection
+  ).toBe("offline");
+});
+
+it("enforces command submission, claim and completion chronology", () => {
+  for (const expiresAt of [F.time, "2026-10-04T23:59:59Z"]) {
+    rejects(S.lifecycleCommandSchema, [{ ...F.poll.commands[0], expiresAt }]);
+    rejects(S.commandRecordSchema, [{ ...F.accepted, expiresAt }]);
+  }
+  rejects(S.commandRecordSchema, [
+    { ...F.executing, claimedAt: "2026-10-05T00:00:31Z" },
+    { ...F.executing, claimedAt: "2026-10-04T23:59:59Z" },
+    { ...F.executing, state: "succeeded", completedAt: F.time, evidence: {} },
+  ]);
+  const boundary = {
+    ...F.executing,
+    claimedAt: F.accepted.expiresAt,
+    completedAt: F.accepted.expiresAt,
+    state: "succeeded",
+    evidence: {},
+  };
+  expect(S.commandRecordSchema.parse(boundary)).toEqual(boundary);
+});
+
+it("requires a positive read lifetime", () => {
+  rejects(S.readRequestSchema, [
+    { ...F.poll.reads[0], expiresAt: F.time },
+    { ...F.poll.reads[0], expiresAt: "2026-10-04T23:59:59Z" },
+  ]);
+  expect(S.readRequestSchema.parse(wire(F.poll.reads[0]))).toEqual(
+    F.poll.reads[0]
+  );
+});
+
+it("validates the independent submit-read response fixture", () => {
+  expect(S.submitReadResponseSchema.parse(wire(F.submittedRead))).toEqual(
+    F.submittedRead
+  );
+  rejects(S.submitReadResponseSchema, [
+    {},
+    { readId: "invalid" },
+    { ...F.submittedRead, unexpected: true },
+  ]);
 });

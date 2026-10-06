@@ -101,3 +101,5 @@ UI interaction/accessibility (walkthrough 8), real commands and native service
 behavior (walkthrough 10) belong to later slices. No actual Linux/macOS service
 validation or Docker runtime integration is claimed by C01. It adds no CLI
 commands, runtime configuration or environment variables.
+
+Command and read expiry must follow submission. Claims cannot precede submission or follow expiry; completion cannot precede the original claim. Claim replay responses must carry the envelope session as their owning session. Terminal succeeded/failed records require evidence, and revoked environments must be offline. `SubmitReadResponse` and `submitReadResponseSchema` validate the read-submission response.

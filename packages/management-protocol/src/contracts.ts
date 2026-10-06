@@ -279,6 +279,10 @@ export interface OperatorManagementClient {
   submitRead(
     projectId: UUID,
     request: ReadSelection
-  ): Promise<{ readId: UUID }>;
+  ): Promise<SubmitReadResponse>;
   getRead(readId: UUID): Promise<ReadResult>;
+}
+
+export interface SubmitReadResponse {
+  readId: UUID;
 }

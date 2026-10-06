@@ -203,6 +203,13 @@ export function parseObservationBody(body: string): C.ObservationRequest {
   return observationRequestSchema.parse(value);
 }
 
+function positiveLifetime(v: {
+  submittedAt: string;
+  expiresAt: string;
+}): boolean {
+  return Date.parse(v.submittedAt) < Date.parse(v.expiresAt);
+}
+
 const command = {
   commandId: uuidSchema,
   projectId: uuidSchema,
@@ -215,8 +222,11 @@ const command = {
   submittedAt: timestampSchema,
   expiresAt: timestampSchema,
 };
-export const lifecycleCommandSchema: Schema<C.LifecycleCommand> =
-  object(command);
+export const lifecycleCommandSchema: Schema<C.LifecycleCommand> = refine(
+  object(command),
+  positiveLifetime,
+  "expiry must follow submission"
+);
 export const commandRecordSchema: Schema<C.CommandRecord> = refine(
   object({
     ...command,
@@ -237,6 +247,15 @@ export const commandRecordSchema: Schema<C.CommandRecord> = refine(
   (v) => {
     const claimed = !["accepted", "expired"].includes(v.state);
     return (
+      positiveLifetime(v) &&
+      (v.claimedAt === undefined ||
+        (Date.parse(v.claimedAt) >= Date.parse(v.submittedAt) &&
+          Date.parse(v.claimedAt) <= Date.parse(v.expiresAt))) &&
+      (v.completedAt === undefined ||
+        (v.claimedAt !== undefined &&
+          Date.parse(v.completedAt) >= Date.parse(v.claimedAt))) &&
+      (!["succeeded", "failed"].includes(v.state) ||
+        v.evidence !== undefined) &&
       claimed === (v.claimedAt !== undefined && v.owner !== undefined) &&
       (claimed || (v.claimedAt === undefined && v.owner === undefined)) &&
       ["succeeded", "failed"].includes(v.state) ===
@@ -252,8 +271,10 @@ export const claimRequestSchema: Schema<C.ClaimRequest> = object({
 });
 export const claimResponseSchema: Schema<C.ClaimResponse> = refine(
   object({ ...envelope, command: commandRecordSchema }),
-  (v) => v.environmentId === v.command.environmentId,
-  "claim environment mismatch"
+  (v) =>
+    v.environmentId === v.command.environmentId &&
+    v.command.owner?.sessionId === v.sessionId,
+  "claim environment or owning session mismatch"
 );
 export const readSelectionSchema: Schema<C.ReadSelection> =
   union<C.ReadSelection>(
@@ -271,15 +292,19 @@ export const readSelectionSchema: Schema<C.ReadSelection> =
       maxBytes: integer(1, LIMITS.logChunkBytes),
     })
   );
-export const readRequestSchema: Schema<C.ReadRequest> = object({
-  readId: uuidSchema,
-  projectId: uuidSchema,
-  localProjectId: text,
-  sessionId: uuidSchema,
-  submittedAt: timestampSchema,
-  expiresAt: timestampSchema,
-  selection: readSelectionSchema,
-});
+export const readRequestSchema: Schema<C.ReadRequest> = refine(
+  object({
+    readId: uuidSchema,
+    projectId: uuidSchema,
+    localProjectId: text,
+    sessionId: uuidSchema,
+    submittedAt: timestampSchema,
+    expiresAt: timestampSchema,
+    selection: readSelectionSchema,
+  }),
+  positiveLifetime,
+  "expiry must follow submission"
+);
 export const readPayloadSchema: Schema<C.ReadPayload> = union<C.ReadPayload>(
   object({ kind: literal("runs"), runs, nextCursor: optional(text) }),
   object({ kind: literal("run-detail"), runId: text, detail: jsonValueSchema }),
@@ -371,9 +396,10 @@ export const environmentRecordSchema: Schema<C.EnvironmentRecord> = refine(
     host: optional(host),
   }),
   (v) =>
-    v.connection !== "online" ||
-    (v.enrollment === "enrolled" && v.lastContactAt !== undefined),
-  "online requires enrolled agent and authenticated contact"
+    (v.enrollment !== "revoked" || v.connection === "offline") &&
+    (v.connection !== "online" ||
+      (v.enrollment === "enrolled" && v.lastContactAt !== undefined)),
+  "revoked requires offline; online requires enrolled agent and authenticated contact"
 );
 export const submitCommandRequestSchema: Schema<C.SubmitCommandRequest> =
   object({ operation: command.operation });
@@ -413,3 +439,7 @@ export function pageSchema<T>(item: Schema<T>): Schema<C.Page<T>> {
     nextCursor: optional(text),
   });
 }
+
+export const submitReadResponseSchema: Schema<C.SubmitReadResponse> = object({
+  readId: uuidSchema,
+});
