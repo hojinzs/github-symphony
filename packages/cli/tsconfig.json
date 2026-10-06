@@ -24,7 +24,11 @@
       "@gh-symphony/tracker-file": ["../tracker-file/src/index.ts"],
       "@gh-symphony/tracker-github": ["../tracker-github/src/index.ts"],
       "@gh-symphony/tracker-linear": ["../tracker-linear/src/index.ts"],
-      "@gh-symphony/worker": ["../worker/src/index.ts"]
+      "@gh-symphony/worker": ["../worker/src/index.ts"],
+      "@gh-symphony/management-agent": ["../management-agent/src/index.ts"],
+      "@gh-symphony/management-protocol": [
+        "../management-protocol/src/index.ts"
+      ]
     }
   },
   "include": ["src/**/*.ts"],

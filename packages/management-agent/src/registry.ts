@@ -41,10 +41,23 @@ interface RegistryState {
 }
 /** Local metadata only; the server assigns aggregate project UUIDs. */
 export type LocalInventory = Omit<ProjectObservation, "projectId">;
+export interface LocalProjectMetadata {
+  workflowRevision?: string;
+  trackerScope?: {
+    adapter: string;
+    bindingId: string;
+    repository: string;
+    activeStates: string[];
+    includeLabels: string[];
+    excludeLabels: string[];
+  };
+}
 export interface LocalInventoryReader {
-  inspect(
-    project: RegisteredProject
-  ): Promise<Pick<LocalInventory, "validation" | "process" | "runs">>;
+  inspect(project: RegisteredProject): Promise<
+    Pick<LocalInventory, "validation" | "process" | "runs"> & {
+      metadata?: LocalProjectMetadata;
+    }
+  >;
 }
 
 /** Exactly the existing CLI folder-derived ID algorithm (no realpath inside it). */
@@ -210,8 +223,28 @@ export class AgentRegistry {
           return {
             ...base,
             validation: inspected.validation,
-            process: inspected.process,
-            runs: inspected.runs,
+            process:
+              inspected.process.state === "running"
+                ? {
+                    state: "running" as const,
+                    pid: inspected.process.pid,
+                    observedAt: inspected.process.observedAt,
+                    // Wire process identity is opaque; keep raw OS command identity
+                    // only in the local adapter/journal, never upload it.
+                    identity: createHash("sha256")
+                      .update(inspected.process.identity)
+                      .digest("hex"),
+                  }
+                : inspected.process,
+            runs: inspected.runs.map((run) => ({
+              runId: run.runId,
+              status: run.status,
+              startedAt: run.startedAt,
+              updatedAt: run.updatedAt,
+            })),
+            ...(inspected.metadata
+              ? { snapshot: metadataSnapshot(inspected.metadata) }
+              : {}),
           };
         } catch {
           const diagnostic = {
@@ -307,4 +340,27 @@ function parseState(raw: string): RegistryState {
     ids.add(project.localProjectId);
   }
   return value;
+}
+
+function metadataSnapshot(metadata: LocalProjectMetadata): {
+  [key: string]: import("@gh-symphony/management-protocol").JsonValue;
+} {
+  const scope = metadata.trackerScope;
+  return {
+    ...(metadata.workflowRevision
+      ? { workflowRevision: metadata.workflowRevision }
+      : {}),
+    ...(scope
+      ? {
+          trackerScope: {
+            adapter: scope.adapter,
+            bindingId: scope.bindingId,
+            repository: scope.repository,
+            activeStates: [...scope.activeStates],
+            includeLabels: [...scope.includeLabels],
+            excludeLabels: [...scope.excludeLabels],
+          },
+        }
+      : {}),
+  };
 }
