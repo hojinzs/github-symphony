@@ -38,7 +38,7 @@ export type ExpectedStopResult =
 // so same-command PID reuse within that second cannot match a prior target.
 export function installExpectedStopProcessIdentity(): () => void {
   const previousTitle = process.title;
-  process.title = `gh-symphony ${randomUUID()} repo start`;
+  process.title = `gh-symphony ${randomUUID()} project start`;
   return () => {
     process.title = previousTitle;
   };

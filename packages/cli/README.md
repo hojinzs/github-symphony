@@ -437,6 +437,11 @@ the project locks are held, before daemon readiness, and closes on shutdown.
 Older daemons without this endpoint fail with `process_unverified`; restart
 them with the new CLI before using expected-target mode. Folder-only stop keeps
 its existing behavior.
+Expected-target stop supports Linux/macOS daemons, or foreground processes
+started from the selected project folder. Foreground starts from another CWD
+with `--project-dir` fail closed in this mode. If endpoint setup fails, ordinary
+startup continues with a warning and expected-target stop returns
+`process_unverified`. Ordinary startup on other platforms skips the endpoint.
 
 `signal_sent` is a delivery acknowledgment, not proof of exit. The management
 adapter must verify exit, lock release, and absence of a replacement within its

@@ -181,6 +181,11 @@ delivery; verify process exit, released locks, and absence of a replacement befo
 claiming stop completion. `already_stopped` requires verified exit and released
 locks. Older daemons without the local endpoint must be restarted with this CLI
 before expected-target stop is available.
+Expected-target stop supports Linux/macOS daemons, or foreground processes
+started from the selected project folder. Foreground starts from another CWD
+with `--project-dir` fail closed in this mode. If endpoint setup fails, ordinary
+startup continues with a warning and expected-target stop returns
+`process_unverified`. Ordinary startup on other platforms skips the endpoint.
 
 Monitor from the terminal:
 

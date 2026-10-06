@@ -1244,12 +1244,25 @@ const handler = async (
     process.on("SIGTERM", handleSigterm);
 
     try {
-      if (projectConfig.projectDir) {
-        expectedStopServer = await startExpectedStopServer({
-          configDir: options.configDir,
-          projectId,
-          projectDir: projectConfig.projectDir,
-        });
+      if (
+        projectConfig.projectDir &&
+        (process.platform === "linux" || process.platform === "darwin")
+      ) {
+        try {
+          expectedStopServer = await startExpectedStopServer({
+            configDir: options.configDir,
+            projectId,
+            projectDir: projectConfig.projectDir,
+          });
+        } catch (error) {
+          // Optional local management endpoint: ordinary startup must remain
+          // available. Expected-target stop fails closed without this endpoint.
+          const message =
+            error instanceof Error ? error.message : String(error);
+          process.stderr.write(
+            `[start] Expected-target stop unavailable: ${message}\n`
+          );
+        }
       }
       const trackerStateToken = randomBytes(32).toString("hex");
       workerHttpServer = await startHttpServer({

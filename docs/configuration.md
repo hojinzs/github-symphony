@@ -26,7 +26,18 @@ ID, avoiding platform socket path-length limits. This is a local CLI lifecycle
 endpoint, separate from `--web` and the per-project HTTP API. It is not exposed
 over the network. Stale endpoints are replaced only while holding the existing
 project and canonical-folder start locks. Existing daemons must be restarted
-with the new CLI to provide the endpoint.
+with the new CLI to provide the endpoint. Endpoint setup is optional on
+Linux/macOS: failure emits a warning and startup continues; expected-target stop
+then fails closed with `process_unverified`. Other platforms skip this endpoint.
+Expected-target stop supports daemons and foreground processes started from the
+selected project folder; a foreground process started from another CWD is
+unverified even with `--project-dir`.
+
+The shared `/tmp` directory may be removed by OS temporary-file cleanup during a
+long daemon lifetime. A removed endpoint makes expected-target stop unavailable
+until the daemon is restarted. Keep this fixed discovery path consistent across
+caller and daemon environments; it does not depend on `TMPDIR` or
+`XDG_RUNTIME_DIR`. Folder-only stop remains available for operator recovery.
 
 ## WORKFLOW.md Reload Semantics
 

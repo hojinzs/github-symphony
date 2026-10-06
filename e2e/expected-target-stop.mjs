@@ -153,7 +153,7 @@ Expected-target stop black-box fixture.
   );
   assert.match(
     lockA.processIdentity,
-    /gh-symphony [0-9a-f-]{36} repo start/,
+    /gh-symphony [0-9a-f-]{36} project start/,
     "OS identity must include a process-lifetime nonce"
   );
   const targetA = { pid: a.pid, processIdentity: lockA.processIdentity };

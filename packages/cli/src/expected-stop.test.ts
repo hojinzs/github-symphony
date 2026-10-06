@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection, type Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -11,6 +12,11 @@ const probes = vi.hoisted(() => ({
   identity: vi.fn(),
   running: vi.fn(),
 }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual };
+});
+
 vi.mock("@gh-symphony/orchestrator", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@gh-symphony/orchestrator")>()),
   getProcessCwd: probes.cwd,
@@ -114,11 +120,26 @@ describe("expected-target local stop", () => {
     const restoreB = installExpectedStopProcessIdentity();
     const b = process.title;
     restoreB();
-    expect(a).toMatch(/^gh-symphony [0-9a-f-]{36} repo start$/);
-    expect(b).toMatch(/^gh-symphony [0-9a-f-]{36} repo start$/);
+    expect(a).toMatch(/^gh-symphony [0-9a-f-]{36} project start$/);
+    expect(b).toMatch(/^gh-symphony [0-9a-f-]{36} project start$/);
     expect(a).not.toBe(b);
     expect(process.title).toBe(original);
   });
+  it("fails closed without changing records when the socket directory owner is untrusted", async () => {
+    const originalLstat = fs.lstatSync;
+    vi.spyOn(fs, "lstatSync").mockImplementation((...args) =>
+      Object.assign(originalLstat(...args), { uid: -1 })
+    );
+    await expect(startExpectedStopServer(context)).rejects.toThrow(
+      "Untrusted expected-stop socket directory"
+    );
+    expect(await stopExpectedTarget(context, target)).toBe(
+      "process_unverified"
+    );
+    expect(process.kill).not.toHaveBeenCalled();
+    await assertRecordsPreserved();
+  });
+
   it("delivers graceful self-signal through a verified socket and retains all records", async () => {
     server = await startExpectedStopServer(context);
     expect(await stopExpectedTarget(context, target)).toBe("signal_sent");
