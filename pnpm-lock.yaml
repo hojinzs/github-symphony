@@ -170,6 +170,8 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/management-protocol: {}
+
   packages/orchestrator:
     dependencies:
       '@gh-symphony/core':

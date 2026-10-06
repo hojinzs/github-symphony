@@ -1065,6 +1065,12 @@ immediately rather than pausing for interactive confirmation.
 - [Code of Conduct](CODE_OF_CONDUCT.md) — community expectations for issues, discussions, and pull requests.
 - [MIT License](LICENSE) — project license terms.
 
+## Management protocol
+
+The internal [management protocol](packages/management-protocol/README.md) package defines the v1 agent/fleet
+transport boundary for the planned management extension. It adds no CLI commands;
+existing project commands and the per-project web server retain their behavior.
+
 ## License
 
 This project is released under the [MIT License](LICENSE).
