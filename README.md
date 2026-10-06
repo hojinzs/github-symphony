@@ -1090,3 +1090,8 @@ existing project commands and the per-project web server retain their behavior.
 ## License
 
 This project is released under the [MIT License](LICENSE).
+
+The internal [local management registry](packages/management-agent/README.md) adds canonical folder allowlists
+and private enrollment persistence (C03, #1007). Its initial library slice does
+not add an agent CLI command; existing `project` and per-project `--web` usage
+continues unchanged.

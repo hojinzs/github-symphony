@@ -627,3 +627,8 @@ Global Options:
 The internal [management protocol](../management-protocol/README.md) package defines the v1 agent/fleet
 transport boundary for the planned management extension. It adds no CLI commands;
 existing project commands and the per-project web server retain their behavior.
+
+The internal [local management registry](../management-agent/README.md) adds canonical folder allowlists
+and private enrollment persistence (C03, #1007). Its initial library slice does
+not add an agent CLI command; existing `project` and per-project `--web` usage
+continues unchanged.

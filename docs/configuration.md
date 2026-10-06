@@ -846,3 +846,14 @@ The internal [management protocol](../packages/management-protocol/README.md)
 package exports fixed v1 wire/capacity contracts. It introduces no runtime
 configuration or environment variables. Agent allowlists and fleet service
 configuration remain owned by their separate implementation slices.
+
+### Local management registry (C03 initial slice)
+
+The internal [management agent](../packages/management-agent/README.md) accepts
+an explicit user-owned data directory through `AgentRegistry.open`. It stores
+`registry.json` at mode `0600` in a canonical mode `0700` directory and holds
+`agent.lock` while open. Enrollment identity and the explicit project allowlist
+are preserved across restarts. The server must be an HTTPS origin. There is no
+new environment variable or user-facing agent command in this slice. Removing
+a project registration does not stop its existing orchestrator. Keep backups
+private because the registry contains the environment-scoped credential.

@@ -170,6 +170,15 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/management-agent:
+    dependencies:
+      '@gh-symphony/management-protocol':
+        specifier: workspace:*
+        version: link:../management-protocol
+      '@gh-symphony/orchestrator':
+        specifier: workspace:*
+        version: link:../orchestrator
+
   packages/management-protocol: {}
 
   packages/orchestrator:
