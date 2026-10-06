@@ -773,8 +773,10 @@ values from leaking into new runs.
 The optional `observability.otlp` mapping is parsed structurally by the shared
 workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
 enable export. This contract slice does not install an SDK or activate an
-exporter. The SDK-free owner resolver is available as a separate helper; runtime integration
-and exporter activation remain pending. Shared loading never calls this helper.
+exporter. The SDK-free owner resolver is available as a separate helper; exporter
+activation remains pending. Shared loading never calls this helper. Optional
+SDK-free post-persistence publication hooks default to no-op and add no CLI
+flags or environment variables; they do not enable network export.
 
 Supported fields are `enabled` (boolean), `endpoint` (non-empty string),
 `protocol` (`http/protobuf`), `headers`, `resource_attributes`, and signal

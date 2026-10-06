@@ -186,7 +186,9 @@ values through this surface.
 ### Observability Surfaces
 
 Optional `observability.otlp` workflow policy is parsed without activating export.
-Exporter support and runtime integration are pending; see the
+Durable local events and committed status remain authoritative; publication
+failures cannot fail a tick or mark coordination unhealthy. Network exporter
+support and activation are pending; see the
 [OTLP configuration contract](docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
 
 Use `gh-symphony project start --project-dir <path> --web` when you want the browser-based

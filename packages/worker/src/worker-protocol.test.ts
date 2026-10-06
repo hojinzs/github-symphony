@@ -24,6 +24,7 @@ import {
   getCodexObservabilityEventName,
   normalizeCodexRuntimeEvents,
 } from "@gh-symphony/runtime-codex";
+import { extractAbsoluteTokenUsage } from "./token-usage.js";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
 import {
   createTrackerToolContext,
@@ -532,112 +533,6 @@ function createProtocolContext(options: {
     }
 
     return { ...record };
-  }
-
-  function extractAbsoluteTokenUsage(value: unknown): {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  } | null {
-    const direct = parseTokenUsageSnapshot(value);
-    if (direct) {
-      return direct;
-    }
-
-    if (!value || typeof value !== "object") {
-      return null;
-    }
-
-    const record = value as Record<string, unknown>;
-    const preferredKeys = [
-      "total_token_usage",
-      "token_usage",
-      "info",
-      "msg",
-      "event",
-      "data",
-      "result",
-      "payload",
-    ];
-
-    for (const key of preferredKeys) {
-      if (key in record) {
-        const nested = extractAbsoluteTokenUsage(record[key]);
-        if (nested) {
-          return nested;
-        }
-      }
-    }
-
-    for (const [key, nestedValue] of Object.entries(record)) {
-      if (key === "last_token_usage") {
-        continue;
-      }
-      const nested = extractAbsoluteTokenUsage(nestedValue);
-      if (nested) {
-        return nested;
-      }
-    }
-
-    return null;
-  }
-
-  function parseTokenUsageSnapshot(value: unknown): {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  } | null {
-    if (!value || typeof value !== "object") {
-      return null;
-    }
-
-    const record = value as Record<string, unknown>;
-    const inputTokens =
-      typeof record.input_tokens === "number"
-        ? record.input_tokens
-        : typeof record.inputTokens === "number"
-          ? record.inputTokens
-          : null;
-    const outputTokens =
-      typeof record.output_tokens === "number"
-        ? record.output_tokens
-        : typeof record.outputTokens === "number"
-          ? record.outputTokens
-          : null;
-    const explicitTotalTokens =
-      typeof record.total_tokens === "number"
-        ? record.total_tokens
-        : typeof record.totalTokens === "number"
-          ? record.totalTokens
-          : null;
-
-    if (
-      inputTokens === null &&
-      outputTokens === null &&
-      explicitTotalTokens === null
-    ) {
-      return null;
-    }
-
-    const normalizedInputTokens = inputTokens ?? 0;
-    const normalizedOutputTokens = outputTokens ?? 0;
-    const normalizedTotalTokens =
-      explicitTotalTokens ?? normalizedInputTokens + normalizedOutputTokens;
-
-    if (
-      normalizedInputTokens <= 0 &&
-      normalizedOutputTokens <= 0 &&
-      normalizedTotalTokens <= 0
-    ) {
-      return null;
-    }
-
-    return {
-      inputTokens: normalizedInputTokens,
-      outputTokens: normalizedOutputTokens,
-      totalTokens:
-        normalizedTotalTokens || normalizedInputTokens + normalizedOutputTokens,
-    };
   }
 
   function sendMessage(msg: Record<string, unknown>): void {
@@ -2846,7 +2741,7 @@ describe("token usage tracking", () => {
     expect(ctx.runtimeState.tokenUsage.totalTokens).toBe(120);
   });
 
-  it("ignores events with all-zero token counts", () => {
+  it("accepts events with valid all-zero absolute token counts", () => {
     const ctx = createProtocolContext({});
 
     // Set initial values
@@ -2855,16 +2750,16 @@ describe("token usage tracking", () => {
       params: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
     });
 
-    // This should be ignored — all zeros
+    // A measured zero replaces the absolute counters.
     ctx.handleServerMessage({
       method: "thread/tokenUsage/updated",
       params: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
     });
 
     expect(ctx.runtimeState.tokenUsage).toEqual({
-      inputTokens: 100,
-      outputTokens: 50,
-      totalTokens: 150,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
     });
   });
 });

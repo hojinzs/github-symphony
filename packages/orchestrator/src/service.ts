@@ -2,7 +2,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,9 @@ import {
   buildIssueIdentityHeader,
   buildPromptVariables,
   buildProjectSnapshot,
+  buildProjectMetricProjection,
+  type ObservabilityPublication,
+  type TokenMeasurementProvenance,
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
   deriveLegacyWorkspaceKey,
@@ -91,6 +95,7 @@ import {
   type WorkflowSourceIdentity,
 } from "./workflow-source-identity.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
+import { offerBestEffort } from "./publication.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import {
   getProcessStartIdentity,
@@ -456,6 +461,8 @@ export class OrchestratorService {
     string,
     Promise<WorkflowResolution>
   > | null = null;
+  private readonly publicationInstanceId = randomUUID();
+  private committedTickSequence = 0;
   private running = true;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | null = null;
@@ -495,6 +502,12 @@ export class OrchestratorService {
       ) => WorkerLogStreamLike;
       logLevel?: OrchestratorLogLevel;
       onTick?: OrchestratorTickHandler;
+      publication?: Pick<
+        ObservabilityPublication,
+        "offerSnapshot" | "observeTick"
+      >;
+      /** Read-only monotonic clock for tick-duration measurement. */
+      monotonicNow?: () => number;
       assignedOnly?: boolean;
       rmImpl?: typeof rm;
       ownerToken?: string;
@@ -2407,6 +2420,19 @@ export class OrchestratorService {
       ...status,
       projectId: tenant.projectId,
     } as ProjectStatusSnapshot & { projectId: string });
+    const sequence = ++this.committedTickSequence;
+    if (this.dependencies.publication?.offerSnapshot) {
+      offerBestEffort(() =>
+        this.dependencies.publication!.offerSnapshot!(
+          Object.freeze({
+            projectId: tenant.projectId,
+            instanceId: this.publicationInstanceId,
+            sequence,
+            projection: buildProjectMetricProjection(status, allTenantRuns),
+          })
+        )
+      );
+    }
     return status;
   }
 
@@ -2698,13 +2724,25 @@ export class OrchestratorService {
         Promise<WorkflowResolution>
       >();
       this.workflowResolutionCache = workflowResolutionCache;
+      const monotonicNow =
+        this.dependencies.monotonicNow ?? (() => performance.now());
+      const started = monotonicNow();
+      let outcome: "success" | "failure" = "failure";
       try {
-        return await this.reconcileProject(
+        const snapshot = await this.reconcileProject(
           this.projectConfig,
           issueIdentifier,
           trackerDependencies
         );
+        outcome = "success";
+        return snapshot;
       } finally {
+        const durationSeconds = Math.max(0, monotonicNow() - started) / 1000;
+        offerBestEffort(() =>
+          this.dependencies.publication?.observeTick?.(
+            Object.freeze({ durationSeconds, outcome })
+          )
+        );
         if (this.workflowResolutionCache === workflowResolutionCache) {
           this.workflowResolutionCache = null;
         }
@@ -3805,6 +3843,9 @@ export class OrchestratorService {
         workerInfo.turnCount ?? null
       ),
       tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
+      runtimeKind: workerInfo.runtimeKind ?? run.runtimeKind,
+      tokenUsageMeasured:
+        workerInfo.tokenUsageMeasured ?? run.tokenUsageMeasured,
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
       lastTurnSummary: resolveLastTurnSummary(
         run.lastTurnSummary,
@@ -4420,6 +4461,29 @@ export class OrchestratorService {
       return;
     }
 
+    const provenance =
+      event.type === "turn_started"
+        ? {}
+        : {
+            ...(event.runtimeKind === undefined
+              ? {}
+              : { runtimeKind: event.runtimeKind }),
+            ...(event.tokenUsageMeasured === undefined
+              ? {}
+              : { tokenUsageMeasured: event.tokenUsageMeasured }),
+          };
+    if (
+      (event.type === "turn_completed" || event.type === "turn_failed") &&
+      Object.keys(provenance).length > 0
+    ) {
+      await this.store.saveRun({
+        ...run,
+        ...provenance,
+        // Turn events carry deltas; cumulative usage comes from session updates.
+        updatedAt: this.now().toISOString(),
+      });
+    }
+
     if (event.type === "heartbeat") {
       const nowIso = this.now().toISOString();
       const persistedLastEventAt = event.lastEventAt ?? run.lastEventAt ?? null;
@@ -4438,6 +4502,7 @@ export class OrchestratorService {
             ? "event-channel"
             : (run.lastEventAtSource ?? null),
         tokenUsage: event.tokenUsage,
+        ...provenance,
         rateLimits: event.rateLimits,
         runtimeSession: buildRuntimeSession(
           run.runtimeSession,
@@ -4536,6 +4601,7 @@ export class OrchestratorService {
       lastEventAt: event.lastEventAt,
       lastEventAtSource: "event-channel",
       tokenUsage: event.tokenUsage ?? run.tokenUsage,
+      ...provenance,
       rateLimits: event.rateLimits ?? run.rateLimits ?? null,
       runtimeSession: buildRuntimeSession(
         run.runtimeSession,
@@ -4989,6 +5055,8 @@ export class OrchestratorService {
 
   private async fetchWorkerRunInfo(run: OrchestratorRunRecord): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
+    runtimeKind: TokenMeasurementProvenance["runtimeKind"];
+    tokenUsageMeasured: TokenMeasurementProvenance["tokenUsageMeasured"];
     sessionId: string | null;
     threadId: string | null;
     turnCount: number | null;
@@ -5010,6 +5078,8 @@ export class OrchestratorService {
       await this.readPersistedWorkerTokenUsage(latestRun);
     return {
       tokenUsage: persistedTokenUsage,
+      runtimeKind: latestRun.runtimeKind,
+      tokenUsageMeasured: latestRun.tokenUsageMeasured,
       sessionId: latestRun.runtimeSession?.sessionId ?? null,
       threadId:
         latestRun.threadId ?? latestRun.runtimeSession?.threadId ?? null,

@@ -9,6 +9,7 @@ import {
   type AgentEvent,
   type AgentRuntimeAdapter,
   type OrchestratorChannelEvent,
+  type TokenMeasurementProvenance,
   type RunAttemptPhase,
   type SessionExitClassification,
   type UnpublishedWorktree,
@@ -74,7 +75,11 @@ import {
   resolveRefreshFailureThreshold,
   resolveTrackerRefreshGate,
 } from "./turn-lease.js";
-import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
+import {
+  extractAbsoluteTokenUsage,
+  persistTokenUsageArtifact,
+  type TokenUsage,
+} from "./token-usage.js";
 import {
   createCodexProtocolExitError,
   createCodexProtocolFailureGate,
@@ -97,7 +102,7 @@ import { createUnhandledServerRequestError } from "./server-request.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
-const runtimeState: {
+const runtimeState: TokenMeasurementProvenance & {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   executionPhase: WorkflowExecutionPhase | null;
   runPhase: RunAttemptPhase | null;
@@ -134,6 +139,7 @@ const runtimeState: {
   };
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
+  tokenUsageMeasured: false,
   executionPhase: null,
   runPhase: launcherEnv.SYMPHONY_RUN_ID ? "preparing_workspace" : null,
   sessionId: null,
@@ -359,6 +365,8 @@ function emitOrchestratorHeartbeat(): void {
     type: "heartbeat",
     issueId,
     lastEventAt: runtimeState.lastEventAt,
+    runtimeKind: runtimeState.runtimeKind,
+    tokenUsageMeasured: runtimeState.tokenUsageMeasured,
     tokenUsage: resolveSessionTokenUsageDelta(),
     rateLimits: runtimeState.rateLimits ? { ...runtimeState.rateLimits } : null,
     sessionInfo: { ...runtimeState.sessionInfo },
@@ -402,6 +410,8 @@ function emitOrchestratorChannelEvent(event?: string): void {
     type: "codex_update",
     issueId,
     lastEventAt,
+    runtimeKind: runtimeState.runtimeKind,
+    tokenUsageMeasured: runtimeState.tokenUsageMeasured,
     tokenUsage: resolveSessionTokenUsageDelta(),
     sessionInfo: { ...runtimeState.sessionInfo },
     executionPhase: runtimeState.executionPhase,
@@ -492,6 +502,8 @@ function emitTurnCompletedEvent(turn: ActiveTurnTelemetry): void {
     turnId: turn.turnId,
     turnCount: turn.turnCount,
     sessionId: turn.sessionId,
+    runtimeKind: runtimeState.runtimeKind,
+    tokenUsageMeasured: runtimeState.tokenUsageMeasured,
     tokenUsage: resolveTurnTokenUsageDelta(turn.tokenUsageBaseline),
   };
 
@@ -521,6 +533,8 @@ function emitTurnFailedEvent(
     turnId: turn.turnId,
     turnCount: turn.turnCount,
     sessionId: turn.sessionId,
+    runtimeKind: runtimeState.runtimeKind,
+    tokenUsageMeasured: runtimeState.tokenUsageMeasured,
     tokenUsage: resolveTurnTokenUsageDelta(turn.tokenUsageBaseline),
     error,
   };
@@ -556,6 +570,7 @@ async function startAssignedRun() {
       launcherEnv,
       { workflowPath }
     );
+    runtimeState.runtimeKind = workflow.runtime?.kind ?? "codex-app-server";
     const route = resolveWorkerRuntimeRoute(workflow);
     const runtimeCommand = resolveWorkflowRuntimeCommand(workflow);
     const claudeCommand = resolveClaudeCommandBinary(runtimeCommand);
@@ -2161,6 +2176,7 @@ function applyTokenUsageUpdate(
   source: string,
   tokenUsage: TokenUsageSnapshot
 ): void {
+  runtimeState.tokenUsageMeasured = true;
   runtimeState.tokenUsage.inputTokens = tokenUsage.inputTokens;
   runtimeState.tokenUsage.outputTokens = tokenUsage.outputTokens;
   runtimeState.tokenUsage.totalTokens = tokenUsage.totalTokens;
@@ -2258,104 +2274,6 @@ function parseRateLimitRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return { ...record };
-}
-
-function extractAbsoluteTokenUsage(value: unknown): TokenUsageSnapshot | null {
-  const direct = parseTokenUsageSnapshot(value);
-  if (direct) {
-    return direct;
-  }
-
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const preferredKeys = [
-    "total_token_usage",
-    "token_usage",
-    "info",
-    "msg",
-    "event",
-    "data",
-    "result",
-    "payload",
-  ];
-
-  for (const key of preferredKeys) {
-    if (key in record) {
-      const nested = extractAbsoluteTokenUsage(record[key]);
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-
-  for (const [key, nestedValue] of Object.entries(record)) {
-    if (key === "last_token_usage") {
-      continue;
-    }
-    const nested = extractAbsoluteTokenUsage(nestedValue);
-    if (nested) {
-      return nested;
-    }
-  }
-
-  return null;
-}
-
-function parseTokenUsageSnapshot(value: unknown): TokenUsageSnapshot | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const inputTokens =
-    typeof record.input_tokens === "number"
-      ? record.input_tokens
-      : typeof record.inputTokens === "number"
-        ? record.inputTokens
-        : null;
-  const outputTokens =
-    typeof record.output_tokens === "number"
-      ? record.output_tokens
-      : typeof record.outputTokens === "number"
-        ? record.outputTokens
-        : null;
-  const explicitTotalTokens =
-    typeof record.total_tokens === "number"
-      ? record.total_tokens
-      : typeof record.totalTokens === "number"
-        ? record.totalTokens
-        : null;
-
-  if (
-    inputTokens === null &&
-    outputTokens === null &&
-    explicitTotalTokens === null
-  ) {
-    return null;
-  }
-
-  const normalizedInputTokens = inputTokens ?? 0;
-  const normalizedOutputTokens = outputTokens ?? 0;
-  const normalizedTotalTokens =
-    explicitTotalTokens ?? normalizedInputTokens + normalizedOutputTokens;
-
-  if (
-    normalizedInputTokens <= 0 &&
-    normalizedOutputTokens <= 0 &&
-    normalizedTotalTokens <= 0
-  ) {
-    return null;
-  }
-
-  return {
-    inputTokens: normalizedInputTokens,
-    outputTokens: normalizedOutputTokens,
-    totalTokens:
-      normalizedTotalTokens || normalizedInputTokens + normalizedOutputTokens,
-  };
 }
 
 function failWorkerTurnGate(event: string, reason: string): void {
