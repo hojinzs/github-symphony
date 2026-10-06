@@ -1,7 +1,7 @@
 # OhMySymphony C22 visual design handoff
 
-- **Date:** 2026-10-06 (Graphite full-system review candidate)
-- **Status:** A — Graphite applied to the full system; final operator approval pending
+- **Date:** 2026-10-06 (approved Graphite full-system design)
+- **Status:** Approved — A / Graphite full-system design, operator confirmation on 2026-10-06
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [C22 #1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 - **Source:** [Approved management-plane design](2026-10-04-control-plane-management-agents-design.md), [#984 completion](https://github.com/hojinzs/github-symphony/issues/984), merged [PR #982](https://github.com/hojinzs/github-symphony/pull/982)
@@ -17,12 +17,17 @@ components, widgets and all **58 screen frames: 48 at 1440px, five at 1024px and
 five at 390px**. All 58 existing screen-root IDs remain stable. The original
 decision archive and the three exploration samples remain available.
 
-This is the **2026-10-06 Graphite review candidate**, not an approved release.
-The [dated review manifest](2026-10-06-ohmysymphony-graphite-review.json) records
-the exact node set, final render hashes and static verification totals. Figma
-is mutable; final approval must identify this dated candidate or explicitly
-identify a later reviewed revision. Selection of A does not approve the full
-result, and no frontend/runtime implementation is claimed here.
+The operator explicitly approved the **2026-10-06 Graphite full-system design**
+with the message **“시안 승인함.”** in the current Codex conversation on
+2026-10-06 (Asia/Seoul). This approval covers the shared foundations, components,
+widgets and all 58 screen/state compositions delivered at revision
+`df2375cb245ecf922a3cdd67bd2093ff8d3f6af4`, identified by the unchanged node set
+and rendered hashes in the [dated review manifest](2026-10-06-ohmysymphony-graphite-review.json).
+Source: Codex thread `01a10bfc-0576-7d20-a2ec-aac0a4193c73`, operator message
+responding to the final full-system approval request. This is distinct from the
+earlier A-theme selection and #984 architecture approval. Figma is mutable;
+later substantive changes require their own review. No merged PR, shipped UI or
+runtime implementation is implied by this design approval.
 
 The presentation preserves the approved Control Plane → Management Agent →
 per-project orchestrator authority boundary. It adds no scheduler, tracker,
@@ -47,14 +52,15 @@ C22 also does not substitute for review of its resulting frames.
 | Graphite application               | Complete                        | Shared foundations, 62 component definitions on production pages, 15 production widget definitions and 58 screen roots                 |
 | Structural and semantic inspection | Passed                          | All instance references resolve; no missing fonts or raster screen fills; 1,168 static assertions pass with zero screen-bound overflow |
 | Rendered/model review              | Passed after repairs            | All 58 screens reviewed; modal, tablet, context and fixture corrections re-rendered and rechecked                                      |
-| Repository checks                  | Passed                          | Fresh full retry: 2,150 tests in 14 packages; document, formatting and whitespace checks                                               |
-| Human redesign approval            | **Pending**                     | Actual operator approval of the dated full-system candidate                                                                            |
+| Repository checks                  | Passed                          | Fresh approval-record run: 2,150 tests in 14 packages; document, formatting and whitespace checks                                      |
+| Human redesign approval            | **Approved — 2026-10-06**       | Operator message “시안 승인함.”; exact 58-screen candidate and source revision recorded above                                          |
 | Prototype/accessibility behavior   | Pending #1018                   | Executable focus, keyboard, clipboard, transitions and walkthrough evidence                                                            |
 | CP runtime/OS acceptance           | Pending implementation children | Executable CP-01–CP-23 and real OS service evidence                                                                                    |
 
 Screenshots or static checks do not establish keyboard behavior, command safety,
-runtime responsiveness or human approval. C22 completion and the downstream
-unblock condition remain pending explicit redesign approval.
+runtime responsiveness or human approval. The actual operator confirmation
+above satisfies the C22 design-approval gate. Existing backend prerequisites
+for #1018–#1022 remain binding.
 
 ## Page and source inventory
 
@@ -479,7 +485,7 @@ establish runtime command safety, input behavior or human approval.
 | D04 Freshness matrix           | Derive totals from fixture and verify historical labels/actions              | Six projects across three environments; 3 fresh running, 6 active runs, 2 offline. Filtered rows/page count agree while workspace totals remain explicitly scoped. Offline/stale detail keeps action reasons                              |
 | D05 Lifecycle/recovery         | Verify target, acceptance/result distinction and unresolved closure          | Unknown has no Retry; required reason, error feedback and separate second confirmation remain visible. Historical command result stays separate from current process state                                                                |
 | D06 Layout/log states          | Inspect 1440/1024/390 compositions and recovery states                       | All 58 renders reviewed. Tablet columns, mobile state grid, modal stacking, loading target and historical log timestamps corrected. Rotation requires reset; offline follow is paused; unavailable/expired reads retain selection context |
-| D07 Handoff/delivery           | Verify links, metadata, docs/tests and approval boundary                     | All 58 root links, U01–U08, CP matrix and CLI patch metadata retained. Mandatory repository tests pass; final operator approval remains pending                                                                                           |
+| D07 Handoff/delivery           | Verify links, metadata, docs/tests and approval boundary                     | All 58 root links, U01–U08, CP matrix and CLI patch metadata retained. Mandatory repository tests pass; actual operator approval is recorded above                                                                                        |
 
 The read-only state audit executed **1,168 assertions** over all 58 screens:
 Environments 265, Projects 318, detail 220, commands/recovery 233 and runs/logs 132. There were zero errors, review flags or visible text/control overflows
@@ -513,22 +519,30 @@ Repository verification on 2026-10-06:
   files**, exit 0. No runtime code or test configuration was changed. The
   timing-sensitive failure's OS cause was not measured.
 - Document checks cover the 58 unique screen IDs, U01–U08, CP-01–23, D01–D07,
-  local links, selected A provenance, pending final approval, patch metadata,
+  local links, selected A provenance, the then-pending final approval, patch metadata,
   manifest counts and render hashes. Targeted Prettier and whitespace checks pass.
 - Earlier `pnpm build` success is baseline evidence from the first candidate;
   this Graphite revision changes Figma and documentation only.
 - `docs/symphony-spec.md` has no branch changes. Presentation stays within
   Configuration, Integration and Observability; no new upstream divergence.
-- Runtime/Docker/OS verification was not run for this design-only revision.
-  Implementation children retain those gates. Focus, keyboard and clipboard
-  behavior remain #1018 work; static designs do not satisfy them.
-- Operator approval is **pending**. C22 and its Goal remain incomplete until
-  actual full-system approval is received and recorded.
+- [CI run 37331586912](https://github.com/hojinzs/github-symphony/actions/runs/37331586912)
+  passed on the reviewed `df2375cb` revision: Test, Container Smoke and Standalone
+  Docker E2E. This repository baseline does not establish the future management
+  plane's CP runtime/OS acceptance. Focus, keyboard and clipboard remain #1018 work.
+- Operator approval is **recorded**: “시안 승인함.” on 2026-10-06 (Asia/Seoul),
+  referring to the dated full-system candidate and unchanged review manifest.
+- Approval-record verification: a fresh `pnpm test` run passed **2,150 tests in
+  14 packages / 142 files**, exit 0. Twelve approval-specific assertions confirm
+  the exact operator evidence, unchanged 58 render records/hashes, preserved
+  downstream gates, source-spec integrity, patch metadata and valid local links.
+  Targeted Prettier and `git diff --check` pass. Only the two overview approval
+  text nodes changed in Figma; their rendered overview remains readable.
 
 ## C14 handoff and downstream gates
 
 [#1018](https://github.com/hojinzs/github-symphony/issues/1018) consumes this
-redesign after explicit operator approval and C22 completion. Its remaining work:
+approved redesign, subject to its other native dependency prerequisites. Its
+remaining work:
 
 1. Link prototype transitions, including Cancel versus Stop, acceptance and
    asynchronously verified outcomes, and unknown unresolved closure.

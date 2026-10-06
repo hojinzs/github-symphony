@@ -1,6 +1,6 @@
 # OhMySymphony C22 redesign implementation plan
 
-- **Status:** A — Graphite full-system candidate delivered; final approval pending
+- **Status:** Approved — A / Graphite full-system delivery; operator approval recorded 2026-10-06
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [#1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 
@@ -10,7 +10,7 @@
 
 **Selection:** On 2026-10-05 the operator said “A안으로 가자. 목표 재설정” (“Go with A. Reset the goal”). The selected reference is [A — Graphite, node 53:490](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=53-490). This authorizes whole-system application; it is not approval of the resulting full redesign.
 
-**App Goal state:** After the operator cleared the previous Goal, a new Graphite-specific Goal was created successfully and is `active`. Whole-system application and static/repository verification are complete; actual final operator approval remains required.
+**Approval gate:** The Graphite Goal was created after the operator cleared the obsolete Goal, then marked blocked while awaiting final review. The operator resolved that gate on 2026-10-06 with “시안 승인함.” Approval applies to the 58-screen candidate at `df2375cb` and the dated review manifest. The app records final Goal completion after approval-record delivery checks; this document does not claim a PR merge.
 
 **Architecture:** This is the presentation design of the repository-local management plane above Symphony. Preserve the approved Control Plane → Management Agent → per-project orchestrator boundaries; introduce no scheduling or execution behavior. Build screens from widgets, widgets from component instances, and components from shared foundations.
 
@@ -116,8 +116,8 @@ Consumes complete designs. Produces a reviewable delivery and actual approval ev
 - [x] Inspect editability, instance references, variable/style bindings, auto-layout and missing fonts; render all required states and inspect overflow, overlap and hierarchy.
 - [x] Write the handoff file and targeted source/index updates. Separate structural evidence, rendered/model review, human approval and future runtime checks.
 - [x] Add the CLI patch changeset. Run document link/format/whitespace checks and mandatory `pnpm test` on the delivery revision. If runtime code is added, revisit scope and run all AGENT_TEST.md gates plus applicable Docker E2E.
-- [ ] Present the exact reviewed Figma nodes/revision and remaining C14 checks to the operator. Record actual approval with date/reference; do not infer it from automated checks or earlier #984 approval.
-- [ ] Mark delivery complete only after all acceptance criteria, including operator approval, pass. Preserve backend blockers when handing off to #1018–#1022.
+- [x] Present the exact reviewed Figma nodes/revision and remaining C14 checks to the operator. Record actual approval with date/reference; do not infer it from automated checks or earlier #984 approval.
+- [x] Mark delivery complete only after all acceptance criteria, including operator approval, pass. Preserve backend blockers when handing off to #1018–#1022.
 
 ## Design test cases
 
@@ -192,7 +192,7 @@ first visual theme did not meet their quality expectations. See the
 - [x] R3: Apply the chosen direction consistently to shared foundations,
       components, widgets and all 58 required screen/state compositions, preserving
       approved behavior, responsive coverage and the original archive.
-- [ ] R4: Repeat applicable D01–D07 structural/rendered checks and repository
+- [x] R4: Repeat applicable D01–D07 structural/rendered checks and repository
       checks; update the dated handoff and obtain approval of the resulting full
       redesign. A sample selection alone does not complete C22.
 
@@ -246,6 +246,9 @@ R4 verification is complete: all 58 renders reviewed, reported defects repaired,
 1,168 semantic/boundary assertions passed and a fresh full `pnpm test` retry
 passed 2,150 tests across 14 packages. The handoff records the initial existing
 stdout timeout, focused retry, graph/contrast evidence and runtime limitations.
-R4 remains unchecked because it also requires actual final operator approval.
-The existing PR stays draft. The app Goal remains active pending that approval;
-no completion is inferred from sample selection or automated verification.
+The operator subsequently approved the full candidate with “시안 승인함.” on
+2026-10-06 (Asia/Seoul). R4 and the final T5 design-approval gates are satisfied.
+The approval refers to `df2375cb` and the unchanged 58-frame review manifest;
+it is not inferred from sample selection or automated checks. The repository
+delivery follows the existing PR #1029 path; merge and runtime acceptance are
+separate from this design approval.

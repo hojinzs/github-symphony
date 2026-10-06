@@ -1,7 +1,7 @@
 # OhMySymphony Projects theme directions
 
 - **Date:** 2026-10-05
-- **Status:** Selected — A / Graphite; full design-system and 58-screen application complete; final redesign approval pending
+- **Status:** Selected — A / Graphite; full design-system and 58-screen application approved on 2026-10-06
 - **Symphony Layers:** Configuration, Integration, Observability (cross-layer presentation contracts)
 - **Tracking:** [C22 #1026](https://github.com/hojinzs/github-symphony/issues/1026), [Epic #983](https://github.com/hojinzs/github-symphony/issues/983)
 - **Behavior source:** [Approved management-plane design](2026-10-04-control-plane-management-agents-design.md)
@@ -31,9 +31,10 @@ conversation:
 This establishes A as the direction for the reset goal. It has now been applied across the
 full foundations, components, widgets and 58-screen set; the dated
 2026-10-06 verification is recorded in the full-system handoff.
-Final approval of that resulting redesign also remains pending. The user's
-direction selection does not convert the previous 58-screen theme or a future
-full-file implementation into an approved delivery.
+The operator separately approved that resulting full-system design on
+2026-10-06 with “시안 승인함.” The handoff records the reviewed `df2375cb`
+revision and exact 58-screen manifest. The earlier selection by itself did not
+approve the result; this later explicit confirmation does.
 
 Configuration, Integration and Observability presentation remains separate from
 orchestration authority. The management plane remains the existing
@@ -131,14 +132,14 @@ visually inspected for hierarchy, required labels, clipping and overlap.
 
 ## Acceptance test cases and evidence
 
-| ID                           | Test case and passing condition                                                                                                                   | Evidence / status                                                                                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| T01 Editable comparison set  | Three distinct, editable 1440 × 960 frames exist on the exploration page, with actual text and reusable instances                                 | Passed: exact roots, dimensions, text and instance counts verified                                                                |
-| T02 Identical fixture        | Each frame presents all six identical projects across the same three environments; summary is 3 running, 6 active runs and 2 offline projects     | Passed: extracted text and final renders match the fixture and arithmetic above                                                   |
-| T03 State integrity          | Connection/process/work/freshness are distinguishable; offline rows retain last-known/historical labels and are excluded from running/work totals | Passed: per-project state labels, B's environment connection headers and all summary qualifiers checked                           |
-| T04 Rendering and references | No overflow, clipping, missing fonts, broken instances or image fallback obscures required content                                                | Passed: zero structural failures; all three post-fix renders reviewed                                                             |
-| T05 Source traceability      | Directions identify direct official sources, exact known publication dates and local adaptations                                                  | Source inventory completed; undated references marked with check date                                                             |
-| T06 Selection boundary       | No whole-file theme propagation occurs before explicit user selection; prior visual candidate is not treated as approved                          | Selection received on 2026-10-05 for A (`53:490`); full-system/58-screen application completed 2026-10-06; final approval pending |
+| ID                           | Test case and passing condition                                                                                                                   | Evidence / status                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| T01 Editable comparison set  | Three distinct, editable 1440 × 960 frames exist on the exploration page, with actual text and reusable instances                                 | Passed: exact roots, dimensions, text and instance counts verified                                                                   |
+| T02 Identical fixture        | Each frame presents all six identical projects across the same three environments; summary is 3 running, 6 active runs and 2 offline projects     | Passed: extracted text and final renders match the fixture and arithmetic above                                                      |
+| T03 State integrity          | Connection/process/work/freshness are distinguishable; offline rows retain last-known/historical labels and are excluded from running/work totals | Passed: per-project state labels, B's environment connection headers and all summary qualifiers checked                              |
+| T04 Rendering and references | No overflow, clipping, missing fonts, broken instances or image fallback obscures required content                                                | Passed: zero structural failures; all three post-fix renders reviewed                                                                |
+| T05 Source traceability      | Directions identify direct official sources, exact known publication dates and local adaptations                                                  | Source inventory completed; undated references marked with check date                                                                |
+| T06 Selection boundary       | No whole-file theme propagation occurs before explicit user selection; prior visual candidate is not treated as approved                          | Selection received on 2026-10-05 for A (`53:490`); full-system/58-screen application and explicit final approval recorded 2026-10-06 |
 
 Final verification record:
 
@@ -159,11 +160,12 @@ Final verification record:
 - User direction selection: **A — Graphite selected** on 2026-10-05, node
   `53:490`; exact user message: “A안으로 가자. 목표 재설정”.
 - Full design-system and 58-screen application: **Complete**, 2026-10-06; see the updated handoff for verification.
-- Final redesign approval: **Pending**; the selected sample establishes the
-  direction, not approval of the completed product design.
+- Final redesign approval: **Approved**, separately confirmed by the operator
+  with “시안 승인함.” on 2026-10-06; reviewed revision `df2375cb` and the
+  58-screen manifest are recorded in the handoff.
 
 The selected A direction is now applied across the full visual system and
 58-screen coverage under the reset Goal. The [full-system handoff](2026-10-05-ohmysymphony-c22-design-handoff.md)
-records the resulting 2026-10-06 candidate and its verification. Final operator
-approval of that result remains required; this theme selection record does not
-substitute for it.
+records the resulting 2026-10-06 design, verification and actual final operator
+approval. This exploration record preserves the earlier choice independently
+of that later full-system approval.

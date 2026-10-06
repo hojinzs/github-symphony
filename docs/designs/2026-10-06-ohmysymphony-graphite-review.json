@@ -4,7 +4,7 @@
   "timezone": "Asia/Seoul",
   "file_key": "vUCdtVjmYMNWv7YYLRdo3e",
   "selected_reference": "53:490",
-  "approval": "pending",
+  "approval": "approved",
   "layers": ["Configuration", "Integration", "Observability"],
   "screens": [
     {
@@ -556,8 +556,23 @@
     "attempt": "fresh full retry after existing large-stdout timeout; focused retry also passed"
   },
   "limitations": [
-    "Static/model review, not operator approval",
+    "Static/model verification is separate from the actual operator approval recorded in approval_evidence",
     "No executable interaction, runtime command-safety or OS-service evidence",
     "Hashes identify rendered review images; editable Figma nodes may change later"
-  ]
+  ],
+  "approval_evidence": {
+    "date": "2026-10-06",
+    "timezone": "Asia/Seoul",
+    "actor": "operator in the current Codex conversation",
+    "exact_message": "시안 승인함.",
+    "source_thread_id": "01a10bfc-0576-7d20-a2ec-aac0a4193c73",
+    "reviewed_commit": "df2375cb245ecf922a3cdd67bd2093ff8d3f6af4",
+    "scope": "Shared Graphite foundations, components, widgets and all 58 indexed screen/state compositions",
+    "render_hashes_unchanged": true,
+    "does_not_approve": [
+      "Unreviewed future visual changes",
+      "PR merge",
+      "Runtime/OS acceptance or executable interaction behavior"
+    ]
+  }
 }
