@@ -186,6 +186,9 @@ values through this surface.
 ### Observability Surfaces
 
 Optional `observability.otlp` workflow policy is parsed without activating export.
+The orchestrator validates enabled transport settings before dispatch and excludes
+exporter credentials from workers and hooks. Exporter auth references must use
+separate names from agent/tracker credentials, even when OTLP is disabled.
 Durable local events and committed status remain authoritative; publication
 failures cannot fail a tick or mark coordination unhealthy. Network exporter
 support and activation are pending; see the

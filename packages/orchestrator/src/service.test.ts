@@ -29,7 +29,10 @@ import {
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
+import { CodexRuntimeAdapter } from "@gh-symphony/runtime-codex";
+import { createWorkflowRuntimeAdapter } from "./runtime-factory.js";
 import { OrchestratorFsStore } from "./fs-store.js";
+import * as coreModule from "@gh-symphony/core";
 import * as gitModule from "./git.js";
 import { getProcessStartIdentity } from "./lock.js";
 import {
@@ -18025,6 +18028,301 @@ Prefer focused changes.
       }
     }
   });
+
+  it("OT-09 strips exporter credentials at the final hook boundary", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-otlp-hook-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "PROJECT_EXPORT_AUTH=secret\nOTEL_EXPORTER_OTLP_HEADERS=x=secret\nSYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n"
+    );
+    const workflow = coreModule.parseWorkflowMarkdown(
+      `---
+hooks:
+  before_run: hook.sh
+observability:
+  otlp:
+    enabled: false
+    headers:
+      Authorization: $PROJECT_EXPORT_AUTH
+---
+Prompt`,
+      {}
+    );
+    const execute = vi
+      .spyOn(coreModule, "executeWorkspaceHook")
+      .mockResolvedValue({
+        kind: "before_run",
+        outcome: "success",
+        exitCode: 0,
+        durationMs: 0,
+      });
+    try {
+      const service = new OrchestratorService(store, projectConfig, {});
+      await (
+        service as unknown as {
+          runHook: (...args: unknown[]) => Promise<unknown>;
+        }
+      ).runHook(
+        "before_run",
+        projectConfig,
+        tempRoot,
+        repository,
+        {
+          projectId: projectConfig.projectId,
+          workspaceKey: "test",
+          issueSubjectId: "issue-1",
+          issueIdentifier: "acme/platform#1",
+          workspacePath: tempRoot,
+          repositoryPath: tempRoot,
+        },
+        {
+          workflow,
+          workflowPath: join(repository.path, "WORKFLOW.md"),
+          isValid: true,
+          usedLastKnownGood: false,
+          validationError: null,
+        }
+      );
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(
+        execute.mock.calls[0]?.[0].env?.PROJECT_EXPORT_AUTH
+      ).toBeUndefined();
+      expect(
+        execute.mock.calls[0]?.[0].env?.OTEL_EXPORTER_OTLP_HEADERS
+      ).toBeUndefined();
+    } finally {
+      execute.mockRestore();
+    }
+  });
+
+  it.each([false, true])(
+    "OT-09 rejects shared auth visibly before resolution, enabled=%s",
+    async (enabled) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "tracker-token";
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-otlp-conflict-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+observability:
+  otlp:
+    enabled: ${enabled}
+    endpoint: $MISSING_ENDPOINT
+    headers:
+      Authorization: $ANTHROPIC_API_KEY
+---
+Prompt`,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      const spawnImpl = vi.fn();
+      const stderr = { write: vi.fn() };
+      const service = new OrchestratorService(store, projectConfig, {
+        spawnImpl: spawnImpl as never,
+        stderr,
+      });
+      await service.runOnce();
+      expect(spawnImpl).not.toHaveBeenCalled();
+      const status = await store.loadProjectStatus(projectConfig.projectId);
+      expect(status?.lastError).toContain(
+        "use a distinct exporter credential name"
+      );
+      expect(status?.lastError).not.toContain("MISSING_ENDPOINT");
+    }
+  );
+
+  it.each([false, true])(
+    "OT-09 resolves exporter values only in the enabled owner, enabled=%s",
+    async (enabled) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "tracker-token";
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-otlp-owner-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+hooks:
+  after_create: hooks/after_create.sh
+observability:
+  otlp:
+    enabled: ${enabled}
+    endpoint: $ABSENT_EXPORT_ENDPOINT_991
+    headers:
+      Authorization: $ABSENT_EXPORT_AUTH_991
+---
+Prompt`,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      const spawnImpl = vi.fn().mockReturnValue({ pid: 4306, unref: vi.fn() });
+      const service = new OrchestratorService(store, projectConfig, {
+        spawnImpl: spawnImpl as never,
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      });
+      await service.runOnce();
+      const status = await store.loadProjectStatus(projectConfig.projectId);
+      if (enabled) {
+        expect(spawnImpl).not.toHaveBeenCalled();
+        expect(status?.lastError).toContain("ABSENT_EXPORT_ENDPOINT_991");
+      } else {
+        expect(spawnImpl).toHaveBeenCalledTimes(1);
+        expect(status?.lastError).toBeNull();
+      }
+    }
+  );
+
+  it.each(["codex-app-server", "claude-print", "custom"])(
+    "OT-09 starts %s workers with exporter credentials stripped",
+    async (kind) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "tracker-token";
+      const previous = process.env.PROCESS_EXPORT_AUTH;
+      process.env.PROCESS_EXPORT_AUTH = "process-export-secret";
+      try {
+        const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-otlp-"));
+        const repository = await createRepositoryFixture(
+          tempRoot,
+          "acme",
+          "platform",
+          {
+            rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+hooks:
+  after_create: hooks/after_create.sh
+runtime:
+  kind: ${kind}
+  command: ${kind === "codex-app-server" ? "codex app-server" : "agent"}
+  auth:
+    env: AGENT_AUTH
+observability:
+  otlp:
+    enabled: true
+    endpoint: $EXPORT_ENDPOINT
+    headers:
+      Authorization: $PROJECT_EXPORT_AUTH
+      X-Process: $PROCESS_EXPORT_AUTH
+---
+Prompt`,
+          }
+        );
+        const store = new OrchestratorFsStore(tempRoot);
+        const projectConfig = createProjectConfig(tempRoot, repository);
+        await store.saveProjectConfig(projectConfig);
+        await writeFile(
+          join(store.projectDir(projectConfig.projectId), ".env"),
+          "PROJECT_EXPORT_AUTH=project-export-secret\nEXPORT_ENDPOINT=http://localhost:4318\nOTEL_EXPORTER_OTLP_HEADERS=x=reserved-secret\nAGENT_AUTH=agent-secret\nANTHROPIC_API_KEY=claude-secret\nOPENAI_API_KEY=codex-secret\n"
+        );
+        const spawnImpl = vi
+          .fn()
+          .mockReturnValue({ pid: 4306, unref: vi.fn() });
+        const service = new OrchestratorService(store, projectConfig, {
+          fetchImpl: vi
+            .fn()
+            .mockResolvedValue(createTrackerResponse(repository)),
+          spawnImpl: spawnImpl as never,
+        });
+        await service.runOnce();
+        expect(spawnImpl).toHaveBeenCalledTimes(1);
+        const env = spawnImpl.mock.calls[0]?.[2]?.env;
+        expect(env?.PROJECT_EXPORT_AUTH).toBeUndefined();
+        expect(env?.PROCESS_EXPORT_AUTH).toBeUndefined();
+        expect(env?.OTEL_EXPORTER_OTLP_HEADERS).toBeUndefined();
+        expect(env?.AGENT_AUTH).toBe("agent-secret");
+        expect(env?.ANTHROPIC_API_KEY).toBe("claude-secret");
+        expect(env?.OPENAI_API_KEY).toBe("codex-secret");
+        expect(env?.GITHUB_GRAPHQL_TOKEN).toBe("tracker-token");
+        expect(env?.SYMPHONY_WORKFLOW_PATH).toBeTruthy();
+        // The same stripped worker environment is consumed by the real runtime factory.
+        const parsed = coreModule.parseWorkflowMarkdown(
+          await readFile(env.SYMPHONY_WORKFLOW_PATH, "utf8"),
+          {}
+        );
+        expect(parsed.observability?.otlp?.endpoint).toBe("$EXPORT_ENDPOINT");
+        let agentEnv: NodeJS.ProcessEnv | undefined;
+        const child = new EventEmitter() as EventEmitter & {
+          stdin: PassThrough;
+          stdout: PassThrough;
+          stderr: PassThrough;
+        };
+        child.stdin = new PassThrough();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        const adapter = createWorkflowRuntimeAdapter(parsed, {
+          projectId: projectConfig.projectId,
+          workingDirectory: env.WORKING_DIRECTORY,
+          runtimeDirectory: env.WORKSPACE_RUNTIME_DIR,
+          env,
+          claudeDependencies: {
+            spawnImpl: (_command, _args, options) => {
+              agentEnv = options.env;
+              queueMicrotask(() => {
+                child.stdout.end();
+                child.stderr.end();
+                child.emit("close", 0, null);
+              });
+              return child as never;
+            },
+          },
+        });
+        if (adapter instanceof CodexRuntimeAdapter) {
+          await adapter.prepare();
+          agentEnv = adapter.getPreparedPlan()?.env;
+        } else {
+          await adapter.spawnTurn({ messages: [], prompt: "Prompt" });
+        }
+        expect(agentEnv).toBeDefined();
+        expect(agentEnv?.PROJECT_EXPORT_AUTH).toBeUndefined();
+        expect(agentEnv?.PROCESS_EXPORT_AUTH).toBeUndefined();
+        expect(agentEnv?.OTEL_EXPORTER_OTLP_HEADERS).toBeUndefined();
+        expect(agentEnv?.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+        if (kind === "custom")
+          expect(agentEnv?.AGENT_AUTH).toBe("agent-secret");
+        if (kind === "claude-print")
+          expect(agentEnv?.ANTHROPIC_API_KEY).toBe("claude-secret");
+        if (kind === "codex-app-server")
+          expect(agentEnv?.OPENAI_API_KEY).toBe("codex-secret");
+      } finally {
+        if (previous === undefined) delete process.env.PROCESS_EXPORT_AUTH;
+        else process.env.PROCESS_EXPORT_AUTH = previous;
+      }
+    }
+  );
 
   it("prefers project tracker credentials over daemon credentials", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "daemon-token";

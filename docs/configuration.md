@@ -801,6 +801,22 @@ maps replace the whole lower-precedence map. Invalid selected protocols or empty
 transport values fail instead of falling back. URLs reject credentials, queries
 and fragments; headers reject reserved names, duplicate names and CR/LF.
 
+The orchestrator invokes the owner resolver before dispatch and checks the
+post-hook project environment again before worker spawn. It strips header auth
+reference names from final worker and hook environments after project `.env`,
+process, and explicit merges. Arbitrary names such as `COLLECTOR_AUTH` are covered,
+along with `OTEL_EXPORTER_OTLP_*HEADERS`, `*CLIENT_KEY`, and
+`*CLIENT_CERTIFICATE` names (general and logs/metrics/traces variants). Non-secret
+project environment policy stays unchanged; no agent OTEL inheritance is added.
+
+Exporter auth references must use distinct names from agent, tracker, and reserved
+child-boundary credentials, including `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and
+`runtime.auth.env`. A shared name is rejected visibly before OTLP value resolution,
+even when export is disabled or vetoed by `OTEL_SDK_DISABLED`. Disabled policies
+need no exporter values for ownership checks or stripping. Existing agent and
+tracker credentials remain available to their established consumers. This adds no
+credential broker and does not activate network export.
+
 `OTEL_SDK_DISABLED=true` vetoes enabled policy. Disabled policy resolves no
 references and ignores invalid ambient transport settings. Resources merge
 `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, then YAML; secret-bearing

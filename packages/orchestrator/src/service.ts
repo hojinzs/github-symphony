@@ -44,6 +44,8 @@ import {
   parseTrackerTimestamp,
   readEnvFile,
   renderPrompt,
+  resolveOtlpConfiguration,
+  type WorkflowDefinition,
   resolveWorkflowExecutionPhase,
   resolveWorkflowRuntimeCommand,
   resolveWorkflowRuntimeTimeouts,
@@ -95,6 +97,10 @@ import {
   type WorkflowSourceIdentity,
 } from "./workflow-source-identity.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
+import {
+  exporterCredentialNames,
+  stripExporterCredentials,
+} from "./exporter-environment.js";
 import { offerBestEffort } from "./publication.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import {
@@ -3016,7 +3022,23 @@ export class OrchestratorService {
           environment,
           trackerAdapter
         );
-    return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
+    const effective = await this.resolveWorkflowResolution(
+      repository,
+      cacheRoot,
+      resolution
+    );
+    if (isUsableWorkflowResolution(effective)) {
+      // Owner-only resolution: never put resolved credentials in the workflow cache.
+      exporterCredentialNames(
+        effective.workflow,
+        resolveTrackerSecretEnvironmentNames(trackerAdapter)
+      );
+      resolveOtlpConfiguration(
+        effective.workflow.observability?.otlp,
+        environment
+      );
+    }
+    return effective;
   }
 
   private async resolveWorkflowSourceIdentity(
@@ -3383,6 +3405,14 @@ export class OrchestratorService {
     // credential gate and the spawned worker deliberately share this read so
     // hooks may refresh same-run values without creating a diagnostic race.
     const projectEnvironment = this.readProjectEnv(tenant);
+    exporterCredentialNames(
+      workflow.workflow,
+      resolveTrackerSecretEnvironmentNames(trackerAdapter)
+    );
+    resolveOtlpConfiguration(workflow.workflow.observability?.otlp, {
+      ...projectEnvironment,
+      ...process.env,
+    });
     const workerCredentials =
       trackerAdapter.resolveWorkerCredentials?.(tenant, {
         project: projectEnvironment,
@@ -3454,7 +3484,8 @@ export class OrchestratorService {
         SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
         SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
       },
-      projectEnvironment
+      projectEnvironment,
+      workflow.workflow
     );
     const environmentDigest = digestEnvironment(projectEnvironment);
     const buildRunRecord = (
@@ -5225,7 +5256,17 @@ export class OrchestratorService {
               }
             : projectHookEnv;
         const hookEnv = Object.fromEntries(
-          Object.entries(hostHookEnv).filter(
+          Object.entries(
+            stripExporterCredentials(
+              hostHookEnv,
+              exporterCredentialNames(
+                workflowResolution.workflow,
+                resolveTrackerSecretEnvironmentNames(
+                  resolveTrackerAdapter(tenant.tracker)
+                )
+              )
+            )
+          ).filter(
             (entry): entry is [string, string] => typeof entry[1] === "string"
           )
         );
@@ -5423,7 +5464,8 @@ export class OrchestratorService {
   private buildProjectExecutionEnv(
     tenant: OrchestratorProjectConfig,
     env: Record<string, string | undefined>,
-    projectEnv = this.readProjectEnv(tenant)
+    projectEnv = this.readProjectEnv(tenant),
+    workflow?: WorkflowDefinition
   ): Record<string, string> {
     const inheritedEnv = Object.fromEntries(
       Object.entries(process.env).filter(
@@ -5437,11 +5479,21 @@ export class OrchestratorService {
       )
     );
 
-    return {
-      ...projectEnv,
-      ...inheritedEnv,
-      ...explicitEnv,
-    };
+    return stripExporterCredentials(
+      {
+        ...projectEnv,
+        ...inheritedEnv,
+        ...explicitEnv,
+      },
+      workflow
+        ? exporterCredentialNames(
+            workflow,
+            resolveTrackerSecretEnvironmentNames(
+              resolveTrackerAdapter(tenant.tracker)
+            )
+          )
+        : undefined
+    );
   }
 
   private async restartRun(

@@ -22,6 +22,7 @@ trap cleanup EXIT
 set -euo pipefail
 
 export HOME=/tmp/standalone-home
+export E2E_PROCESS_EXPORT_AUTH=process-export-canary
 CONFIG_DIR=/tmp/standalone-config
 PROJECT_ROOT=/tmp/standalone-projects
 FIXTURE=/tmp/standalone-issues.json
@@ -52,6 +53,13 @@ hooks:
 agent:
   max_concurrent_agents: 1
   max_turns: 1
+observability:
+  otlp:
+    enabled: true
+    endpoint: http://localhost:4318
+    headers:
+      Authorization: \$E2E_PROJECT_EXPORT_AUTH
+      X-Process: \$E2E_PROCESS_EXPORT_AUTH
 codex:
   command: codex
 repository:
@@ -63,7 +71,7 @@ workspace:
 Standalone E2E project.
 EOF
   printf "{\"mcpServers\":{\"%s\":{\"command\":\"node\",\"args\":[\"-e\",\"process.exit(0)\"]}}}\n" "$label" > "$project_dir/.mcp.json"
-  printf "STUB_SCENARIO=happy\nSYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n" > "$project_dir/.env"
+  printf "STUB_SCENARIO=happy\nSYMPHONY_ALLOW_WORKFLOW_HOOKS=1\nSTUB_EXPECT_OTLP_ISOLATION=1\nE2E_PROJECT_EXPORT_AUTH=project-export-canary\nOTEL_EXPORTER_OTLP_HEADERS=x=reserved-canary\n" > "$project_dir/.env"
   chmod 600 "$project_dir/.env"
   printf "%s\n" "---" "name: $label" "---" "$label skill" > "$project_dir/.agent/skills/$label/SKILL.md"
 }
@@ -243,6 +251,7 @@ for project in project-alpha project-beta; do
   test "$branch" = "$expected"
   logs=$(find "$CONFIG_DIR/projects/$project_id" -path "*/runs/*/worker.log" -type f -print)
   test -n "$logs"
+  grep -q "\\[stub-worker\\] otlp_credentials=isolated" $logs
   grep -q "\\[stub-worker\\] mcp_servers=$label" $logs
   grep -q "\\[stub-worker\\] status=completed" $logs
 done

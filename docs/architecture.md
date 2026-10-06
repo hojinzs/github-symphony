@@ -89,7 +89,7 @@ the tracker adapter:
 - Workflow `server.port` configuration and the `project start --port` / `--http`
   status-API options: `packages/core/src/workflow/`,
   `packages/cli/src/commands/start.ts`
-- SDK-free owner-side OTLP resolution: `packages/core/src/workflow/otlp-resolver.ts`; explicit effective-environment input, precedence and transport validation, with secret-free diagnostics. No shared-loader invocation or exporter activation.
+- SDK-free owner-side OTLP resolution: `packages/core/src/workflow/otlp-resolver.ts`; explicit effective-environment input, precedence and transport validation, with secret-free diagnostics. The orchestrator invokes it before dispatch; shared loaders never resolve credentials and exporter activation remains separate.
 - Structural OTLP policy and reference provenance: `packages/core/src/workflow/otlp.ts`; shared parsing never reads exporter environment values or activates export.
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
 - MCP declarations are resolved at the host boundary. Codex advertises adapter tools through dynamic-tool schemas without `config.mcp_servers`; Claude's worker starts a loopback HTTP MCP service and generates an `mcp.json` containing only its URL and ephemeral session capability. Repository/project subprocess entries are not exposed to either coding-agent child.
@@ -185,6 +185,11 @@ the tracker adapter:
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config. The file is defensively re-read on every reconciliation tick; no filesystem watcher is installed (an explicit upstream divergence documented in [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md)).
 
 ### 4. Execution — worker and agent subprocess
+
+- Exporter credential ownership: `packages/orchestrator/src/exporter-environment.ts`
+  uses core OTLP auth-reference provenance to strip final worker/hook environments.
+  Name-only conflicts with agent/tracker credentials fail even for disabled OTLP;
+  owner resolution remains outside worker parsing and shared workflow caches.
 
 - Single-issue execution, approval workflow, hooks: `packages/worker`. The
   control-plane routes, including `/api/v1/state`, are served by
