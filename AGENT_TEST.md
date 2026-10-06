@@ -469,3 +469,17 @@ separates protocol evidence from future CP-01–CP-23 runtime/OS validation.
 | Approved protocol constants | `packages/management-protocol/src/constants.test.ts`: version, capacity/retention and stable HTTP error categories                                                                                                                                                          | N/A: pure constants                                                   |
 
 C01 protocol rework regressions: `pnpm --filter @gh-symphony/management-protocol test` covers foreign/absent claim ownership (CP-19), revoked offline state (CP-20), required terminal evidence, chronological command/read intervals, and the strict submit-read response fixture. These are wire-boundary tests; no runtime or native-service validation is claimed.
+
+### Fleet storage foundation cases (C04)
+
+Run `pnpm --filter @gh-symphony/fleet-control-plane test` (also included in
+`pnpm test`). The initial foundation adds no HTTP listener, worker lifecycle,
+tracker integration or CLI runtime command; Docker confirmation belongs to the
+later enrollment/browser black-box slice, not these library-only checks.
+
+| Case                      | Automated coverage                                                                                                                                                                       | Runtime/OS scope                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| HTTPS configuration       | `foundation.test.ts`: loopback default, canonical HTTPS origin, rejection of insecure/non-origin/relative inputs                                                                         | Pure typed configuration                           |
+| User-owned persistence    | Real temporary SQLite files: 0700/0600, symlink and unsafe sidecar rejection, durable reopen; foreign-owner check uses a deliberately mismatched expected UID against real file metadata | Host filesystem only; not native service isolation |
+| Migration recovery        | Real SQLite: transactional rollback, contiguous migration ordering, idempotent reopen and future-schema rejection                                                                        | Host SQLite                                        |
+| Peer transaction boundary | Real SQLite: commit, failure rollback, asynchronous-work rejection                                                                                                                       | Synchronous peer database ownership contract       |

@@ -79,6 +79,8 @@ the tracker adapter:
 
 ### 2. Configuration — typed parsing and validation
 
+- Fleet HTTPS origin, explicit private bind and absolute user-owned persistence configuration: `packages/fleet-control-plane/src/config.ts` (C04, #1008). This is independent of workflow configuration.
+
 - Management v1 identity, capacity, wire contracts and strict runtime schemas: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
@@ -197,6 +199,7 @@ the tracker adapter:
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
+- Fleet SQLite schema migrations, private filesystem checks and transaction boundaries: `packages/fleet-control-plane` (C04, #1008). Enrollment and HTTP consumers remain under implementation; this package does not dispatch workers or stop orchestrators.
 - `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. Agent and fleet service implementations belong to separate delivery slices.
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason. State-list filtering preserves the exact malformed-item count and bounded diagnostic samples so startup cleanup remains observable.
@@ -227,6 +230,8 @@ the tracker adapter:
   independently constructed agent-child boundary.
 
 ### 6. Observability — events and status surfaces
+
+- Fleet durable audit storage schema: `packages/fleet-control-plane/src/migrations.ts`. Audit-producing enrollment/browser operations remain under implementation in C04.
 
 - Structured events and snapshot builder: `packages/core/src/observability/`; the project snapshot exposes the short SHA-256-derived workflow revision and load time applied during its latest tick, and `run-dispatched` records that revision. For external standalone workflows, `packages/orchestrator/src/workflow-source-identity.ts` gives the orchestrator and CLI doctor one repository resolver, compares the loaded path against a configured local repository or the project's newest persisted issue checkout/run directory (never an unrelated operator cwd), and walks reachable base-ref history. It classifies linked/current/stale/independent/no-repository-policy/unavailable policy and adds non-secret source and committed revisions to the snapshot. A historically related stale copy warns, as does an unavailable comparison that could not verify the committed ref; independent policy and a repository with no committed policy remain informational. Retry scheduling emits `run-retried` with the run and issue IDs, attempt, retry kind, due time, and error summary; a capacity-postponed reservation emits one `retry-postponed` signal per distinct (attempt, retained due time, capacity reason) reservation instead of repeating it on every reconciliation poll, while preserving the original retry error in the queue row. Retry queue rows expose the issue ID, attempt, and error. Completed-run reconciliation emits `run-finalization-deferred` with the discriminated unknown cause, diagnostic error, consecutive count, bound, and exhaustion flag, while candidate-level reconciliation emits `tracker-terminal-candidate-reconciled` before any run exists.
 - Core owns the SDK-free export projection in `packages/core/src/observability/event-export.ts`, exported through `@gh-symphony/core`. `getEventSeverity` preserves the CLI's ERROR/17, WARN/13 and INFO/9 classification for all 27 structured kinds; unknown kinds default to INFO. `normalizeEventForExport` accepts structured append events and caller-supplied observed time, project/run fallback IDs and optional integrity. Nested issue IDs take precedence over legacy flat fields; absent session/turn IDs are omitted and incomplete issue context is marked without tracker reads. The caller supplies the immutable event after append-owner secret redaction; payload and extracted event values are preserved without a second redaction pass. Caller-supplied append context is redacted by the mapper. Known context/outcome/error scalars retain their types. Only structured-event schema fields enter the payload, excluding raw worker text, agent params and trace/span fields.

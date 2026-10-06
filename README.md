@@ -1069,6 +1069,10 @@ The internal [management protocol](packages/management-protocol/README.md) packa
 transport boundary for the planned management extension. It adds no CLI commands;
 existing project commands and the per-project web server retain their behavior.
 
+The internal [fleet storage foundation](packages/fleet-control-plane/README.md) adds private SQLite migrations
+and typed HTTPS-origin configuration for C04 (#1008). It does not yet add fleet
+CLI commands or change per-project `--web` behavior.
+
 ## License
 
 This project is released under the [MIT License](LICENSE).

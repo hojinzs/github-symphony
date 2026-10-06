@@ -816,3 +816,17 @@ The internal [management protocol](../packages/management-protocol/README.md)
 package exports fixed v1 wire/capacity contracts. It introduces no runtime
 configuration or environment variables. Agent allowlists and fleet service
 configuration remain owned by their separate implementation slices.
+
+## Fleet service configuration foundation (C04)
+
+The internal [fleet package](../packages/fleet-control-plane/README.md) accepts
+typed `dataDir` (absolute canonical user-owned path), `publicOrigin` (HTTPS
+origin, without credentials/path/query/fragment), and optional `bindAddress`
+(default `127.0.0.1`). A private remote interface must be selected explicitly.
+No environment variables or CLI flags are added by this foundation.
+
+Storage is `<dataDir>/fleet.sqlite`. The service user owns the directory (0700),
+database (0600) and any SQLite sidecars. Unsafe existing permissions, foreign
+ownership, symlinks and hardlinked database files fail closed. Backup only a
+closed database or a SQLite-consistent snapshot. This management metadata is
+separate from project runtime state and remote workspaces.

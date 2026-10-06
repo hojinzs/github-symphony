@@ -591,3 +591,7 @@ Global Options:
 The internal [management protocol](../management-protocol/README.md) package defines the v1 agent/fleet
 transport boundary for the planned management extension. It adds no CLI commands;
 existing project commands and the per-project web server retain their behavior.
+
+The internal [fleet storage foundation](../fleet-control-plane/README.md) adds private SQLite migrations
+and typed HTTPS-origin configuration for C04 (#1008). It does not yet add fleet
+CLI commands or change per-project `--web` behavior.
