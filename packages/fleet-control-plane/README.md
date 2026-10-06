@@ -4,7 +4,7 @@ Internal repository extension for #1008 (C04, Epic #983), separate from the
 per-project `@gh-symphony/control-plane` HTTP server. Requires Node.js 24 on
 Linux/macOS. No fleet command or listener is installed by this package.
 
-## Configuration and storage foundation
+## Configuration and storage
 
 `resolveFleetConfig({ dataDir, publicOrigin, bindAddress? })` validates an absolute
 data directory and an HTTPS UI origin. The default bind address is `127.0.0.1`;
@@ -24,16 +24,51 @@ SQLite-consistent snapshot; do not copy only an active database while ignoring
 its journal. Backup metadata includes credential verifiers, never recoverable
 remote workspaces.
 
-The initial schema reserves environment, enrollment-verifier, credential-verifier
-and audit tables. Enrollment/security services and HTTP integration are still
-pending in this delivery's later slices; schema presence is not acceptance
-evidence for CP-11/16/20.
+## Enrollment and peer ownership
+
+`createEnrollmentService(store, options)` implements the C01 environment creation,
+list, regeneration, enrollment exchange and revocation method shapes. Environment
+names are trimmed and limited to 256 UTF-8 bytes. Tokens and credentials use
+256-bit random secrets; only SHA-256 verifiers are stored. Tokens expire after
+ten minutes, including at the exact deadline. Exchange consumes a token, stores
+the agent identity and writes its audit event in one immediate transaction.
+The same request ID cannot recover or reuse a consumed token.
+
+Pending records survive reopen without returning a token again. Regeneration
+fences all previous tokens while preserving environment ID. An enrolled identity
+must be explicitly revoked before replacement. Replacement creates a new agent
+ID and clears old contact state; exchange alone remains awaiting first signal.
+
+The required `invalidateManagementAccess(database, environmentId)` option is a
+synchronous peer-owned database hook returning `undefined`. It must fence the
+session owner's records and expire unclaimed commands on the supplied connection,
+inside C04's revocation transaction. It may also fence projection identities
+owned by that peer. It must not perform asynchronous work, commit separately,
+call external services or stop orchestrators. A hook failure rolls back
+credential deletion, environment state, audit and all peer writes together.
+The implementation is required even when the peer has no records; this prevents
+a consuming service from accidentally omitting its revocation contract.
+
+`authenticate(identity)` rejects credentials for another environment/agent,
+revoked credentials and malformed stored verifiers. The observation owner calls
+`recordAuthenticatedSignal(identityWithSessionId, verifySession)` to change
+connection state. That method rechecks the credential inside a transaction and
+requires the supplied session-owner verifier to confirm the exclusive current
+session. Zero projects are valid; enrollment is independent of project readiness.
+
+Successful create/regenerate/revoke operations durably audit `local-owner`;
+exchange audits the new agent identity and request ID. Audits contain no raw
+tokens or credentials and commit with the mutation. These library methods are a
+trusted server boundary: browser-origin/CSRF routing remains the next C04 slice,
+and no HTTP listener is provided here.
 
 ## Verification
 
 `pnpm --filter @gh-symphony/fleet-control-plane test` exercises real SQLite files,
 private modes and ownership, unsafe paths, reopen durability, migration rollback
-and future-schema rejection. See the
+and future-schema rejection. Enrollment tests use C01 schemas, independently
+owned peer session/command fixture tables, audit fault injection and simultaneous
+SQLite connections on worker threads running actual compiled sources. See the
 [C04 implementation plan](../../docs/designs/2026-10-06-fleet-control-plane-c04-plan.md)
 for the remaining contract and black-box cases. These tests validate the host
 filesystem, not native service isolation or another operating system.

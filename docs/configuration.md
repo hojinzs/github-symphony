@@ -817,7 +817,7 @@ package exports fixed v1 wire/capacity contracts. It introduces no runtime
 configuration or environment variables. Agent allowlists and fleet service
 configuration remain owned by their separate implementation slices.
 
-## Fleet service configuration foundation (C04)
+## Fleet service configuration and enrollment (C04)
 
 The internal [fleet package](../packages/fleet-control-plane/README.md) accepts
 typed `dataDir` (absolute canonical user-owned path), `publicOrigin` (HTTPS
@@ -830,3 +830,15 @@ database (0600) and any SQLite sidecars. Unsafe existing permissions, foreign
 ownership, symlinks and hardlinked database files fail closed. Backup only a
 closed database or a SQLite-consistent snapshot. This management metadata is
 separate from project runtime state and remote workspaces.
+
+Enrollment tokens expire after ten minutes. Environment names are trimmed and
+limited to 256 UTF-8 bytes. Regeneration preserves environment ID and invalidates
+old tokens; replacing an enrolled identity requires explicit revocation.
+Exchange creates an agent ID and returns a credential once, keeping the
+environment awaiting its first authenticated signal. The SQLite store persists
+only SHA-256 secret verifiers.
+
+The consuming session/command service must supply a synchronous transactional
+revocation invalidator and a current-session verifier for first-signal updates.
+These are internal typed interfaces, not configuration/environment variables.
+Neither enrollment nor revocation controls local orchestrator processes.

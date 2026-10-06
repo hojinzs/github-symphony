@@ -9,3 +9,13 @@ export {
   FLEET_MIGRATIONS,
   type Migration,
 } from "./migrations.js";
+export {
+  createEnrollmentService,
+  FleetError,
+  type EnrollmentService,
+  type EnrollmentOptions,
+  type AgentCredential,
+  type AgentSessionCredential,
+  type RevocationInvalidator,
+  type SessionVerifier,
+} from "./enrollment.js";

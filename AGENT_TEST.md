@@ -483,3 +483,21 @@ later enrollment/browser black-box slice, not these library-only checks.
 | User-owned persistence    | Real temporary SQLite files: 0700/0600, symlink and unsafe sidecar rejection, durable reopen; foreign-owner check uses a deliberately mismatched expected UID against real file metadata | Host filesystem only; not native service isolation |
 | Migration recovery        | Real SQLite: transactional rollback, contiguous migration ordering, idempotent reopen and future-schema rejection                                                                        | Host SQLite                                        |
 | Peer transaction boundary | Real SQLite: commit, failure rollback, asynchronous-work rejection                                                                                                                       | Synchronous peer database ownership contract       |
+
+### Fleet enrollment contract cases (C04)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes these cases.
+Peer tables belong only to an independent typed fixture; C04 knows neither their
+schema nor their command/session algorithms. No native-process preservation
+claim is made from fixture rows. The concurrent case runs actual C04 and C01
+sources compiled into a temporary package on two independent SQLite connections
+in separate worker threads. It does not require stale repository build output.
+
+| Case                                          | Automated coverage                                                                                                                                                                 | Runtime/OS scope                                                      |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| CP-11 one-use exchange and scoped identity    | Reuse (including same request ID), concurrent exchange, wrong environment/agent/credential, verifier-only persistence                                                              | Real SQLite and actual protocol schemas                               |
+| CP-11 transactional revocation                | Independent peer session fencing/unclaimed-command expiry; executing rows retained; rollback on peer failure and rejected asynchronous hook                                        | Library/peer database contract; no native-service claim               |
+| CP-20 pending/expiry/regeneration/replacement | Reopen pending state without secret recovery, exact ten-minute expiry, old-token fencing, explicit revoke before replacement, fresh agent identity, awaiting-signal after exchange | Real SQLite                                                           |
+| First authenticated signal                    | Current session-owner verification required; wrong/stale session rejected; zero-project environment can become online                                                              | Independent session fixture; session negotiation belongs to its owner |
+| Invalid/recovery inputs                       | Invalid name/protocol/UUID/token, unknown environment, malformed credential verifier/token expiry; audit-write failure rolls back exchange and original token permits retry        | Deterministic fault injection on actual database                      |
+| Durable audit                                 | Create/regenerate/revoke local-owner identity and exchange agent/request identity, mutation and audit commit together                                                              | Actual audit table; no raw secrets                                    |
