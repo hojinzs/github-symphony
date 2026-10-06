@@ -186,7 +186,9 @@ values through this surface.
 ### Observability Surfaces
 
 Optional `observability.otlp` workflow policy is parsed without activating export.
-Exporter support and runtime integration are pending; see the
+Durable local events and committed status remain authoritative; publication
+failures cannot fail a tick or mark coordination unhealthy. Network exporter
+support and activation are pending; see the
 [OTLP configuration contract](docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
 
 Use `gh-symphony project start --project-dir <path> --web` when you want the browser-based
@@ -1062,6 +1064,12 @@ immediately rather than pausing for interactive confirmation.
 - [Security policy](SECURITY.md) — supported reporting path for vulnerabilities and sensitive disclosures.
 - [Code of Conduct](CODE_OF_CONDUCT.md) — community expectations for issues, discussions, and pull requests.
 - [MIT License](LICENSE) — project license terms.
+
+## Management protocol
+
+The internal [management protocol](packages/management-protocol/README.md) package defines the v1 agent/fleet
+transport boundary for the planned management extension. It adds no CLI commands;
+existing project commands and the per-project web server retain their behavior.
 
 ## License
 

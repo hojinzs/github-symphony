@@ -7,3 +7,4 @@ export * from "./status-assembler.js";
 export * from "./error-format.js";
 export * from "./event-export.js";
 export * from "./metric-projection.js";
+export * from "./publication.js";
