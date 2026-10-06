@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
@@ -250,15 +250,26 @@ export function createLocalManagementAdapter(
   const configDir = resolve(options.configDir);
   const reader: RuntimeDriver = {
     inspect: (project) => inspectLocalProject(configDir, project, environment),
-    start: (project, deadline) => {
+    start: async (project, deadline) => {
+      const runtime = await resolveCanonicalRuntime(
+        configDir,
+        project.canonicalPath
+      );
+      const launchPath = runtime?.project.projectDir ?? project.canonicalPath;
+      if (
+        (await realpath(launchPath).catch(() => null)) !== project.canonicalPath
+      )
+        throw new Error(
+          "Cached runtime path no longer addresses the registered canonical folder"
+        );
       const args = [
         "--config",
-        configDir,
+        runtime?.configDir ?? configDir,
         "--json",
         "project",
         "start",
         "--project-dir",
-        project.canonicalPath,
+        launchPath,
         "--daemon",
       ];
       return options.launchContext.kind === "native-service"

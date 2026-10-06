@@ -225,3 +225,38 @@ it("rejects native-service launches without an explicit isolated project launche
     "isolated project launcher"
   );
 });
+
+it("restarts cached aliases through their verified path and original config root", async () => {
+  const expected = await installAliasRuntime();
+  const project = await registry.add(folder);
+  const { createLocalManagementAdapter } =
+    await import("./management-local.js");
+  const requests: import("./management-local.js").IsolatedProjectLaunch[] = [];
+  const { reader } = createLocalManagementAdapter(registry, {
+    configDir,
+    executable: process.execPath,
+    launchContext: {
+      kind: "native-service",
+      async launchIsolatedProject(request) {
+        requests.push(request);
+        return { exitCode: 0 };
+      },
+    },
+  });
+  await reader.start(project, Date.now() + 5000);
+  expect(requests[0].args).toContain(join(root, "alias"));
+  expect(requests[0].args).toContain(configDir);
+  expect(requests[0].cwd).toBe(folder);
+  expect(
+    (await resolveCanonicalRuntime(configDir, folder))?.runtimeProjectId
+  ).toBe(expected.runtimeId);
+  // Cached aliases must not redirect a later launch after retargeting.
+  await rm(join(root, "alias"));
+  const other = join(root, "other");
+  await mkdir(other);
+  await symlink(other, join(root, "alias"));
+  await expect(reader.start(project, Date.now() + 5000)).rejects.toThrow(
+    "Cached runtime path"
+  );
+  expect(requests).toHaveLength(1);
+});

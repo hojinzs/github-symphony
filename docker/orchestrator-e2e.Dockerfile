@@ -34,6 +34,7 @@ COPY --from=build --chown=node:node /app/package.json /app/package.json
 COPY --from=build --chown=node:node /app/e2e-compiled/stub-worker.js /app/e2e/stub-worker.js
 COPY --from=build --chown=node:node /app/e2e/host-dynamic-tool-e2e.mjs /app/e2e/host-dynamic-tool-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/expected-target-stop.mjs /app/e2e/expected-target-stop.mjs
+COPY --from=build --chown=node:node /app/e2e/management-agent-contract.mjs /app/e2e/management-agent-contract.mjs
 
 # Copy seed data
 COPY --chown=node:node e2e/seed /e2e/seed

@@ -60,3 +60,21 @@ they contain credentials or raw local process evidence.
 Run `pnpm --filter @gh-symphony/management-agent test` for registry, lifecycle and
 independent executable-peer contracts; CLI-side inspection tests also verify real
 OS process/CWD and ownership records without mocking those probes.
+
+### Verification and acceptance scope
+
+| Requirement                                   | Evidence                                                                                                                                                                         |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CP-02 canonical inventory/allowlist           | registry tests; TC-27 real prepared, invalid and aliased folders                                                                                                                 |
+| CP-01/14 identity, agent lock, access removal | two independent enrollment fixtures share a local ID with distinct environment identities; private persistent registry and lock tests; TC-27 close/reopen and process continuity |
+| CP-03 bounded verified lifecycle              | lifecycle mutations and real invalid-workflow stop with durable target journal                                                                                                   |
+| CP-04 local/manual start arbitration          | serialized starts and existing CLI canonical folder lock; TC-27 independent contender                                                                                            |
+| CP-15 non-secret metadata/credentials         | typed protocol peer fixture, inventory projections, executable child environment and TC-27 canaries                                                                              |
+| Applicable CP-08 recovery                     | exact C02 stop identity retained; TC-27 replacement ownership fault probe                                                                                                        |
+
+TC-27 covers the local portions of operator inventory/start/stop/removal
+walkthroughs. Fleet authentication, claim journaling, transport/read handlers and
+native systemd/launchd service lifecycle are separate slices; the native launcher
+port requires verified isolation instead of assuming detached processes suffice.
+Cached aliases restart through their rechecked original path and config root to
+preserve runtime IDs and history; retargeted/missing cached paths fail closed.
