@@ -50,6 +50,7 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 | [2026-09-14-orchestrator-extraction-scope.md](designs/2026-09-14-orchestrator-extraction-scope.md)                           | Configuration, Coordination, Execution, Integration, Observability         | Shipped (PR #973)               |
 | [2026-10-04-otlp-export-design.md](designs/2026-10-04-otlp-export-design.md)                                                 | Configuration, Observability, Coordination, Execution, Integration, Policy | Draft                           |
 | [2026-10-04-otlp-export-dogfood-plan.md](designs/2026-10-04-otlp-export-dogfood-plan.md)                                     | Configuration, Observability, Coordination, Execution, Integration, Policy | Draft (plan; no issues created) |
+| [2026-10-04-control-plane-management-agents-design.md](designs/2026-10-04-control-plane-management-agents-design.md)         | Configuration, Coordination, Execution, Integration, Observability         | Draft                           |
 
 ## reports/
 
