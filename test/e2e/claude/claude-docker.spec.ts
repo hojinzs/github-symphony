@@ -425,6 +425,23 @@ global.fetch = async (url, options) => {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stderr).toContain("Claude runtime preflight");
     expect(result.stderr).toContain("claude-print/result");
+    const claudeTokenEvents = result.stderr
+      .split("\n")
+      .filter((line) =>
+        /^\{"type":"(heartbeat|codex_update|turn_started|turn_completed|turn_failed)"/.test(
+          line
+        )
+      )
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((event) => event.tokenUsage !== undefined);
+    expect(claudeTokenEvents.length).toBeGreaterThan(0);
+    for (const event of claudeTokenEvents)
+      expect(event).toMatchObject({
+        runtimeKind: "claude-print",
+        tokenUsageMeasured: false,
+        tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      });
+
     expect(result.stderr).toContain('"type":"turn_completed"');
     expect(result.stderr).not.toContain("sending codex initialize");
     expect(result.stderr).not.toContain("codex client protocol");
@@ -725,6 +742,146 @@ lines.on("line", (line) => {
       join(runtimeRoot, "child-home"),
       expectedCodexVisibleContext
     );
+  });
+
+  it("OT-08/OT-09: starts with unresolved OTLP references and emits measured session deltas", async () => {
+    const root = await mkdtemp(join(tmpdir(), "worker-otlp-provenance-"));
+    createdRoots.push(root);
+    const workspace = join(root, "workspace");
+    const runtimeRoot = join(root, "runtime");
+    const childEnvironmentPath = join(root, "child-env.json");
+    await mkdir(workspace, { recursive: true });
+    await mkdir(runtimeRoot, { recursive: true });
+    const stub = join(root, "codex");
+    await writeFile(
+      stub,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(childEnvironmentPath)}, JSON.stringify(process.env));
+const lines = require("node:readline").createInterface({ input: process.stdin });
+const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+let turn = 0;
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") send({ id: message.id, result: {} });
+  if (message.method === "thread/start") send({ id: message.id, result: { thread: { id: "measured-thread" } } });
+  if (message.method === "turn/start") {
+    turn++;
+    send({ id: message.id, result: { turn: { id: "turn-" + turn } } });
+    setTimeout(() => {
+    send({ method: "item/agentMessage/delta", params: { delta: "started" } });
+    if (turn === 1) send({ method: "thread/tokenUsage/updated", params: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } });
+    send({ method: "thread/tokenUsage/updated", params: { info: { total_token_usage: { input_tokens: turn * 10, output_tokens: turn * 5, total_tokens: turn * 15 }, last_token_usage: { input_tokens: 900 } } } });
+    send({ method: "thread/tokenUsage/updated", params: { usage: { input_tokens: 999, output_tokens: 999 } } });
+    setTimeout(() => send({ method: "turn/completed", params: {} }), 10);
+    }, 20);
+  }
+});
+`
+    );
+    await chmodExecutable(stub);
+    const workflowPath = join(workspace, "WORKFLOW.md");
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+runtime:
+  kind: codex-app-server
+  command: codex app-server
+observability:
+  otlp:
+    enabled: true
+    endpoint: env:OTLP_MISSING_ENDPOINT
+    headers:
+      Authorization: env:OTLP_MISSING_AUTH
+---
+Worker prompt.
+`
+    );
+    const remote = join(root, "remote.git");
+    await runGit(root, "init", "--bare", remote);
+    await runGit(workspace, "init", "-b", "symphony/test-990");
+    await runGit(workspace, "config", "user.name", "Symphony E2E");
+    await runGit(workspace, "config", "user.email", "e2e@example.com");
+    await runGit(workspace, "add", "WORKFLOW.md");
+    await runGit(workspace, "commit", "-m", "test: seed provenance workspace");
+    await runGit(workspace, "remote", "add", "origin", remote);
+    const leaseServer = await createTurnLeaseServer();
+    let result: Awaited<ReturnType<typeof runWorkerProcess>>;
+    try {
+      // Handcrafted launcher environment models the orchestrator's stripped
+      // environment: no exporter variables or referenced auth values exist.
+      result = await runWorkerProcess({
+        cwd: repoRoot,
+        env: {
+          PATH: `${root}:${process.env.PATH ?? ""}`,
+          HOME: root,
+          CODEX_PROJECT_ID: "otlp-provenance",
+          WORKING_DIRECTORY: workspace,
+          WORKSPACE_RUNTIME_DIR: runtimeRoot,
+          SYMPHONY_WORKFLOW_PATH: workflowPath,
+          SYMPHONY_RUN_ID: "run-990",
+          SYMPHONY_ISSUE_ID: "issue-990",
+          SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#990",
+          SYMPHONY_RENDERED_PROMPT: "Measure tokens.",
+          SYMPHONY_MAX_TURNS: "2",
+          SYMPHONY_ASSIGNED_BRANCH: "symphony/test-990",
+          TARGET_REPOSITORY_CLONE_URL: remote,
+          SYMPHONY_ORCHESTRATOR_URL: leaseServer.url,
+          SYMPHONY_ORCHESTRATOR_TOKEN: "lease-only-token",
+        },
+      });
+    } finally {
+      await leaseServer.close();
+    }
+    expect(result.exitCode, result.stderr).toBe(0);
+    const childEnv = JSON.parse(
+      await readFile(childEnvironmentPath, "utf8")
+    ) as NodeJS.ProcessEnv;
+    expect(
+      Object.keys(childEnv).filter(
+        (key) => key.startsWith("OTEL_") || key.startsWith("OTLP_MISSING_")
+      )
+    ).toEqual([]);
+    const events = result.stderr
+      .split("\n")
+      .filter((line) =>
+        /^\{"type":"(heartbeat|codex_update|turn_started|turn_completed|turn_failed)"/.test(
+          line
+        )
+      )
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const updates = events.filter((event) => event.type === "codex_update");
+    expect(
+      updates.some(
+        (event) =>
+          event.runtimeKind === "codex-app-server" &&
+          event.tokenUsageMeasured === false
+      )
+    ).toBe(true);
+    expect(updates).toContainEqual(
+      expect.objectContaining({
+        event: "thread/tokenUsage/updated",
+        runtimeKind: "codex-app-server",
+        tokenUsageMeasured: true,
+        tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      })
+    );
+    const completed = events.filter((event) => event.type === "turn_completed");
+    expect(completed).toHaveLength(2);
+    for (const event of completed)
+      expect(event).toMatchObject({
+        runtimeKind: "codex-app-server",
+        tokenUsageMeasured: true,
+        tokenUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      });
+    expect(events.at(-1)).toMatchObject({
+      type: "heartbeat",
+      runtimeKind: "codex-app-server",
+      tokenUsageMeasured: true,
+      tokenUsage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+    });
   });
 
   it("fails a built Codex worker startup with a terminal failed heartbeat", async () => {
