@@ -1,4 +1,4 @@
-# TC-25: Expected-target local CLI stop (CP-08)
+# TC-26: Expected-target local CLI stop (CP-08)
 
 ## Setup
 
