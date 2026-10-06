@@ -426,6 +426,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                       |
 | `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication               |
 | `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry   |
+| `e2e/scenarios/26-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes           |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                 |
 | `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                     |
 
@@ -482,8 +483,8 @@ C01 protocol rework regressions: `pnpm --filter @gh-symphony/management-protocol
 
 Run `pnpm --filter @gh-symphony/fleet-control-plane test` (also included in
 `pnpm test`). The initial foundation adds no HTTP listener, worker lifecycle,
-tracker integration or CLI runtime command; Docker confirmation belongs to the
-later enrollment/browser black-box slice, not these library-only checks.
+tracker integration or CLI runtime command. The HTTPS fixture below exercises
+the library boundary through a real listener and process restart.
 
 | Case                      | Automated coverage                                                                                                                                                                       | Runtime/OS scope                                   |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
@@ -509,3 +510,16 @@ in separate worker threads. It does not require stale repository build output.
 | First authenticated signal                    | Current session-owner verification required; wrong/stale session rejected; zero-project environment can become online                                                              | Independent session fixture; session negotiation belongs to its owner |
 | Invalid/recovery inputs                       | Invalid name/protocol/UUID/token, unknown environment, malformed credential verifier/token expiry; audit-write failure rolls back exchange and original token permits retry        | Deterministic fault injection on actual database                      |
 | Durable audit                                 | Create/regenerate/revoke local-owner identity and exchange agent/request identity, mutation and audit commit together                                                              | Actual audit table; no raw secrets                                    |
+
+### Fleet HTTPS access and restart cases (C04)
+
+`browser-security.test.ts` covers canonical HTTPS configuration, private cookie
+attributes, exact origins, malformed/duplicate cookies, cross-session CSRF,
+expiry/revocation and bounded registry capacity. [TC-26](e2e/scenarios/26-fleet-enrollment-security.md)
+uses a real TLS client with an ephemeral trusted certificate, actual SQLite and
+an independent typed session/command fixture. Run `pnpm build`, then
+`node e2e/fleet-enrollment-e2e.mjs` and `node e2e/fleet-enrollment-mutations.mjs`,
+or `./e2e/run-fleet-enrollment-e2e.sh` for Linux Docker. Every assertion prints a
+reached marker; eight copied-artifact mutations must fail their reached assertion.
+Native macOS runs and Linux container runs are distinct evidence. Neither claims
+native systemd/launchd isolation or preservation of actual managed processes.

@@ -59,8 +59,24 @@ session. Zero projects are valid; enrollment is independent of project readiness
 Successful create/regenerate/revoke operations durably audit `local-owner`;
 exchange audits the new agent identity and request ID. Audits contain no raw
 tokens or credentials and commit with the mutation. These library methods are a
-trusted server boundary: browser-origin/CSRF routing remains the next C04 slice,
-and no HTTP listener is provided here.
+trusted server boundary: consuming browser routes must resolve their actor with
+`createBrowserSecurity` before invoking them. No HTTP listener is provided here.
+
+## Browser access boundary
+
+`createBrowserSecurity(config, options?)` requires a canonical HTTPS origin.
+`issueSession()` creates an ephemeral session and CSRF token. Its `__Host-` cookie
+uses Secure, HttpOnly, SameSite=Strict and Path=/, without Domain. Mutating
+POST/PUT/PATCH/DELETE requests require the exact configured Origin, exactly one
+session cookie, and that session's CSRF token. Missing, duplicate, foreign,
+expired or revoked values fail closed. GET/HEAD resolves the private listener's
+local-owner read boundary; the consumer must keep that listener private.
+
+Defaults are eight hours and 256 sessions. Typed options allow lifetimes from
+one second through seven days and registry sizes from 1 through 10,000. Sessions
+are bounded in memory and disappear on restart; SQLite enrollment survives.
+The consumer owns TLS, no-store responses, no permissive CORS and routing agent
+credentials separately. Forwarded headers do not override Origin validation.
 
 ## Verification
 
@@ -70,5 +86,12 @@ and future-schema rejection. Enrollment tests use C01 schemas, independently
 owned peer session/command fixture tables, audit fault injection and simultaneous
 SQLite connections on worker threads running actual compiled sources. See the
 [C04 implementation plan](../../docs/designs/2026-10-06-fleet-control-plane-c04-plan.md)
-for the remaining contract and black-box cases. These tests validate the host
-filesystem, not native service isolation or another operating system.
+for the delivery boundary. Browser tests cover cookie attributes, exact origins,
+CSRF/session binding, expiry, revocation and bounded capacity.
+
+After `pnpm build`, run `node e2e/fleet-enrollment-e2e.mjs` and
+`node e2e/fleet-enrollment-mutations.mjs` for real HTTPS/SQLite process-restart
+checks and eight forbidden-condition probes. `./e2e/run-fleet-enrollment-e2e.sh`
+runs both in Linux Docker. The independent HTTP/session/command fixture is test
+infrastructure, not a shipped fleet server. These checks do not validate native
+service isolation or management of actual orchestrator processes.

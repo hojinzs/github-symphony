@@ -42,6 +42,8 @@ describe("fleet configuration", () => {
   it("rejects insecure origins, non-origins and relative persistence", () => {
     for (const publicOrigin of [
       "http://symphony.lan",
+      " https://symphony.lan",
+      "https://symphony.lan/a/..",
       "https://user@symphony.lan",
       "https://symphony.lan/path",
       "https://symphony.lan?x=1",

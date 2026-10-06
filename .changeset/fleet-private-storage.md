@@ -2,4 +2,4 @@
 "@gh-symphony/cli": patch
 ---
 
-Add internal Fleet Control Plane configuration, private SQLite persistence, atomic one-use enrollment and transactional credential revocation for #1008 (Epic #983), preserving existing per-project commands.
+Add internal Fleet Control Plane configuration, private SQLite persistence, atomic one-use enrollment and transactional credential revocation and same-origin browser session/CSRF validation for #1008 (Epic #983), preserving existing per-project commands.

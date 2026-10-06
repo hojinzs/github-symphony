@@ -594,8 +594,8 @@ The internal [management protocol](../management-protocol/README.md) package def
 transport boundary for the planned management extension. It adds no CLI commands;
 existing project commands and the per-project web server retain their behavior.
 
-The internal [fleet storage foundation](../fleet-control-plane/README.md) adds private SQLite migrations
+The internal [fleet services](../fleet-control-plane/README.md) adds private SQLite migrations
 and typed HTTPS-origin configuration for C04 (#1008). Its enrollment service
 provides atomic one-use tokens, scoped credential verifiers and transactional
-revocation. Fleet CLI commands and HTTP routing belong to later consumers;
+revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and HTTP routing belong to later consumers;
 per-project `--web` retains its existing behavior.

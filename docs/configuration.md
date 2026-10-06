@@ -844,3 +844,13 @@ The consuming session/command service must supply a synchronous transactional
 revocation invalidator and a current-session verifier for first-signal updates.
 These are internal typed interfaces, not configuration/environment variables.
 Neither enrollment nor revocation controls local orchestrator processes.
+
+Browser access uses `createBrowserSecurity(config, options?)`. The default session
+lifetime is eight hours and maximum registry size is 256; typed overrides permit
+one second through seven days and 1 through 10,000 sessions. These are internal
+options, with no new CLI flags or environment variables. Origins reject whitespace
+and paths even when URL normalization would remove them. Mutations require exact
+Origin, a unique Secure/HttpOnly/SameSite=Strict `__Host-` session cookie and its
+CSRF token. Sessions expire at the deadline, can be revoked, and disappear on
+restart. Consumers own TLS, private read access, no-store responses and no
+permissive CORS; forwarded headers cannot authorize a different origin.

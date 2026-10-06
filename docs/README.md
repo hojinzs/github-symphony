@@ -54,6 +54,7 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 | [2026-10-05-ohmysymphony-c22-redesign-plan.md](designs/2026-10-05-ohmysymphony-c22-redesign-plan.md)                         | Configuration, Integration, Observability                                  | Approved — Graphite delivery plan        |
 | [2026-10-05-ohmysymphony-c22-design-handoff.md](designs/2026-10-05-ohmysymphony-c22-design-handoff.md)                       | Configuration, Integration, Observability                                  | Approved — Graphite full-system design   |
 | [2026-10-05-ohmysymphony-theme-directions.md](designs/2026-10-05-ohmysymphony-theme-directions.md)                           | Configuration, Integration, Observability                                  | A / Graphite full-system design approved |
+| [2026-10-06-fleet-control-plane-c04-plan.md](designs/2026-10-06-fleet-control-plane-c04-plan.md)                             | Configuration, Integration, Observability                                  | Implemented, pending review (#1008)      |
 
 ## reports/
 

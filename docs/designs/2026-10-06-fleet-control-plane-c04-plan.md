@@ -1,6 +1,6 @@
 # C04: Fleet configuration, storage and enrollment implementation plan
 
-**Status:** Draft implementation plan (#1008; Epic #983)
+**Status:** Implemented, pending review (#1008; PR #1031; Epic #983)
 **Symphony Layers:** Configuration, Integration, Observability
 
 ## Scope and conformance
