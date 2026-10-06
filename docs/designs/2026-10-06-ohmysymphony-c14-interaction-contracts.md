@@ -1,6 +1,8 @@
 # C14 Graphite interaction and accessibility contracts
 
-Status: implementation plan and review contract; prototype verification pending.
+Status: prototype-link/model inspection delivered; human, browser/AT and runtime verification pending.
+
+The [dated prototype evidence](2026-10-06-ohmysymphony-c14-prototype-evidence.md) records actual artifact links, walkthrough results and verification limits.
 Issue: #1018, Epic #983. Baseline: operator-approved C22 / merged PR #1029.
 
 ## Ownership and delivery boundary
