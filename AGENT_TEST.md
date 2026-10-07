@@ -36,6 +36,13 @@ control-plane frontend source is present in `coverage/coverage-final.json`. CI
 uploads the complete directory as the `coverage-report` artifact even if a
 later step fails.
 
+C14 design artifact verification runs separately in the CI Test job:
+`node --experimental-strip-types --test docs/designs/c14/interaction-contracts.test.ts`.
+It checks typed walkthrough expectations against frozen Figma readback, including
+clipboard failure recovery and token absence. Run it locally after editing
+`docs/designs/c14/` evidence or fixtures; it supplies prototype evidence, not runtime
+or OS acceptance, and is outside package Vitest coverage.
+
 ## Local E2E Tests (without Docker)
 
 How to run E2E tests directly on the local machine without Docker. All state is stored under `.runtime/`.
