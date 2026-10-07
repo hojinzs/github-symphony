@@ -77,4 +77,9 @@ walkthroughs. Fleet authentication, claim journaling, transport/read handlers an
 native systemd/launchd service lifecycle are separate slices; the native launcher
 port requires verified isolation instead of assuming detached processes suffice.
 Cached aliases restart through their rechecked original path and config root to
-preserve runtime IDs and history; retargeted/missing cached paths fail closed.
+preserve runtime IDs and history. Only configured project/workflow paths establish
+folder ownership; process CWD never enrolls an unrelated runtime. A retargeted or
+missing cached alias is excluded, so launch falls back to the canonical folder.
+Missing or inaccessible allowlisted folders return a sanitized `project_unmanaged`
+error. CLI status/stop report ambiguous or unreadable runtime lookup failures with
+a diagnostic and exit code 1.

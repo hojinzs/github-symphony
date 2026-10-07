@@ -1094,7 +1094,10 @@ This project is released under the [MIT License](LICENSE).
 The internal [local management adapter](packages/management-agent/README.md) adds canonical folder allowlists,
 private enrollment persistence and typed lifecycle operations (C03, #1007).
 `project status` and `project stop` resolve a folder's existing alias-started
-runtime while retaining its runtime ID. A missing/invalid workflow remains
+runtime while retaining its runtime ID. Configured project/workflow paths establish
+folder ownership; a process's working directory cannot select an unrelated runtime.
+Unreadable or ambiguous runtime lookup produces a diagnostic and exit code 1.
+A missing/invalid workflow remains
 visible and does not prevent verified expected-target stop. The bundled
 `@gh-symphony/cli/management-local` module supplies the local driver; this does
 not add an `agent` command or change the per-project `--web` server into a fleet

@@ -190,16 +190,20 @@ export class AgentRegistry {
       (entry) => entry.localProjectId === id
     );
     if (!project) throw new Error("project_unmanaged");
-    if (
-      (await realpath(project.registeredPath)) !== project.canonicalPath ||
-      (await realpath(project.canonicalPath)) !== project.canonicalPath ||
-      !(await stat(project.canonicalPath)).isDirectory()
-    ) {
-      throw new Error(
-        "project_unmanaged: registered folder changed; re-register locally"
-      );
+    try {
+      if (
+        (await realpath(project.registeredPath)) === project.canonicalPath &&
+        (await realpath(project.canonicalPath)) === project.canonicalPath &&
+        (await stat(project.canonicalPath)).isDirectory()
+      ) {
+        return { ...project };
+      }
+    } catch {
+      // Missing, moved, or inaccessible folders revoke control identically.
     }
-    return { ...project };
+    throw new Error(
+      "project_unmanaged: registered folder changed; re-register locally"
+    );
   }
   async inventory(
     reader: LocalInventoryReader,

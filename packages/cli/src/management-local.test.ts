@@ -255,8 +255,68 @@ it("restarts cached aliases through their verified path and original config root
   const other = join(root, "other");
   await mkdir(other);
   await symlink(other, join(root, "alias"));
-  await expect(reader.start(project, Date.now() + 5000)).rejects.toThrow(
-    "Cached runtime path"
-  );
-  expect(requests).toHaveLength(1);
+  await reader.start(project, Date.now() + 5000);
+  expect(requests).toHaveLength(2);
+  expect(requests[1].args).toContain(folder);
+  expect(requests[1].args).not.toContain(join(root, "alias"));
+});
+
+it("ignores unrelated runtime CWD for live and stopped folder routing", async () => {
+  const target = await installAliasRuntime();
+  const unrelated = {
+    ...(await resolveCanonicalRuntime(configDir, folder))!.project,
+    projectId: "other-repo",
+    projectDir: root,
+    workflowSource: {
+      type: "external" as const,
+      path: join(root, "WORKFLOW.md"),
+    },
+  };
+  await saveProjectConfig(configDir, "other-repo", unrelated);
+  for (const name of ["daemon.pid", ".lock"]) {
+    await writeFile(
+      join(configDir, "projects", "other-repo", name),
+      await readFile(join(configDir, "projects", target.runtimeId, name))
+    );
+  }
+  expect(
+    (await resolveCanonicalRuntime(configDir, folder))?.runtimeProjectId
+  ).toBe(target.runtimeId);
+  await rm(join(configDir, "projects", target.runtimeId), { recursive: true });
+  expect(await resolveCanonicalRuntime(configDir, folder)).toBeNull();
+  for (const name of ["daemon.pid", ".lock"]) {
+    await writeFile(
+      join(configDir, "projects", "other-repo", name),
+      JSON.stringify({ pid: 0, cwd: folder })
+    );
+  }
+  expect(await resolveCanonicalRuntime(configDir, folder)).toBeNull();
+});
+
+it("reports runtime lookup failures for status and stop without throwing", async () => {
+  const { default: projectCommand } = await import("./commands/project.js");
+  const { vi } = await import("vitest");
+  // A real non-directory projects root makes readdir fail with ENOTDIR.
+  await writeFile(join(configDir, "projects"), "invalid registry root");
+  const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+  try {
+    for (const command of ["status", "stop"]) {
+      process.exitCode = undefined;
+      await expect(
+        projectCommand([command, "--project-dir", folder], {
+          configDir,
+          verbose: false,
+          json: false,
+          noColor: true,
+        })
+      ).resolves.toBeUndefined();
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toHaveBeenLastCalledWith(
+        expect.stringContaining("Unable to resolve project runtime:")
+      );
+    }
+  } finally {
+    stderr.mockRestore();
+    process.exitCode = undefined;
+  }
 });

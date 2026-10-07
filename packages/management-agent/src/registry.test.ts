@@ -102,9 +102,9 @@ describe("local management registry", () => {
     expect((await stat(first)).isDirectory()).toBe(true);
     const moved = await registry.add(second);
     await rm(second, { recursive: true });
-    await expect(
-      registry.resolveManaged(moved.localProjectId)
-    ).rejects.toThrow();
+    await expect(registry.resolveManaged(moved.localProjectId)).rejects.toThrow(
+      /^project_unmanaged: registered folder changed; re-register locally$/
+    );
   });
 
   it("persists user-only identity and allowlist, refuses cross-environment replacement", async () => {

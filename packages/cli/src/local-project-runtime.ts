@@ -41,16 +41,6 @@ export async function findCanonicalRuntimes(
           ? resolve(project.workflowSource.path, "..")
           : undefined,
       ];
-      for (const name of ["daemon.pid", ".lock"]) {
-        try {
-          const record = JSON.parse(
-            await readFile(join(directory, "projects", id, name), "utf8")
-          ) as { cwd?: unknown };
-          if (typeof record.cwd === "string") paths.push(record.cwd);
-        } catch {
-          /* Invalid ownership is handled by the strict inspector. */
-        }
-      }
       if (
         (
           await Promise.all(
@@ -70,7 +60,7 @@ export async function findCanonicalRuntimes(
   }
   return matches;
 }
-/** Resolve aliases using ownership evidence, retaining the stored runtime ID. */
+/** Resolve aliases using configured folder paths, retaining the stored runtime ID. */
 export async function resolveCanonicalRuntime(
   configDir: string,
   folder: string
