@@ -436,7 +436,8 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                                      |
 | `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                  |
-| `e2e/scenarios/26-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                            |
+| `e2e/scenarios/27-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                            |
+| `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution               |
 
 ## TC Writing Guide
 
@@ -523,7 +524,7 @@ in separate worker threads. It does not require stale repository build output.
 
 `browser-security.test.ts` covers canonical HTTPS configuration, private cookie
 attributes, exact origins, malformed/duplicate cookies, cross-session CSRF,
-expiry/revocation and bounded registry capacity. [TC-26](e2e/scenarios/26-fleet-enrollment-security.md)
+expiry/revocation and bounded registry capacity. [TC-27](e2e/scenarios/27-fleet-enrollment-security.md)
 uses a real TLS client with an ephemeral trusted certificate, actual SQLite and
 an independent typed session/command fixture. Run `pnpm build`, then
 `node e2e/fleet-enrollment-e2e.mjs` and `node e2e/fleet-enrollment-mutations.mjs`,
