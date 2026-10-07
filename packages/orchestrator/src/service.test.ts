@@ -18029,6 +18029,189 @@ Prefer focused changes.
     }
   });
 
+  it.each(["shared-name", "missing-endpoint"])(
+    "OT-09 preserves LKG across exporter %s reload faults",
+    async (fault) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "tracker-token";
+      const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-otlp-lkg-"));
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      const stderr = { write: vi.fn() };
+      const service = new OrchestratorService(store, projectConfig, { stderr });
+      const loader = service as unknown as {
+        loadProjectWorkflow: (
+          project: typeof projectConfig,
+          repo: RepositoryRef
+        ) => Promise<WorkflowResolution>;
+      };
+      const original = await loader.loadProjectWorkflow(
+        projectConfig,
+        repository
+      );
+      expect(original.isValid).toBe(true);
+      await commitWorkflowFixture(repository.path, {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+observability:
+  otlp:
+    enabled: ${fault === "missing-endpoint"}
+    endpoint: $ABSENT_EXPORT_ENDPOINT_991
+    headers:
+      Authorization: $${fault === "shared-name" ? "ANTHROPIC_API_KEY" : "ABSENT_EXPORT_AUTH_991"}
+---
+Invalid exporter policy`,
+      });
+      const invalid = await loader.loadProjectWorkflow(
+        projectConfig,
+        repository
+      );
+      expect(invalid).toMatchObject({
+        isValid: false,
+        usedLastKnownGood: true,
+        workflow: original.workflow,
+      });
+      expect(invalid.validationError).toContain(
+        fault === "shared-name"
+          ? "distinct exporter credential name"
+          : "ABSENT_EXPORT_ENDPOINT_991"
+      );
+      expect(await readFile(invalid.workflowPath!, "utf8")).not.toContain(
+        "Invalid exporter policy"
+      );
+      await commitWorkflowFixture(repository.path, {
+        rawWorkflow: "---\ninvalid: [\n---\n",
+      });
+      const fallback = await loader.loadProjectWorkflow(
+        projectConfig,
+        repository
+      );
+      expect(fallback.workflow).toEqual(original.workflow);
+      expect(await readFile(fallback.workflowPath!, "utf8")).not.toContain(
+        "Invalid exporter policy"
+      );
+      expect(stderr.write).toHaveBeenCalledWith(
+        expect.stringContaining("failed to reload WORKFLOW.md")
+      );
+    }
+  );
+
+  it.each(["shared-name", "missing-endpoint"])(
+    "OT-09 reconciles later due retries after exporter %s faults",
+    async (fault) => {
+      process.env.GITHUB_GRAPHQL_TOKEN = "tracker-token";
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-otlp-retry-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+observability:
+  otlp:
+    enabled: ${fault === "missing-endpoint"}
+    endpoint: $ABSENT_EXPORT_ENDPOINT_991
+    headers:
+      Authorization: $${fault === "shared-name" ? "ANTHROPIC_API_KEY" : "ABSENT_EXPORT_AUTH_991"}
+---
+Prompt`,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      const now = new Date("2026-03-08T00:01:00.000Z");
+      const runs = [1, 2].map(
+        (number): OrchestratorRunRecord => ({
+          runId: `run-${number}`,
+          projectId: projectConfig.projectId,
+          projectSlug: projectConfig.projectId,
+          issueId: `issue-${number}`,
+          issueSubjectId: `issue-${number}`,
+          issueIdentifier: `acme/platform#${number}`,
+          issueState: "Todo",
+          repository,
+          status: "retrying",
+          attempt: 2,
+          processId: null,
+          port: null,
+          workingDirectory: join(tempRoot, `run-${number}`),
+          issueWorkspaceKey: `acme_platform_${number}`,
+          workspaceRuntimeDir: join(tempRoot, `run-${number}`, ".runtime"),
+          workflowPath: null,
+          retryKind: "failure",
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          startedAt: null,
+          completedAt: now.toISOString(),
+          lastError: "retry failed",
+          nextRetryAt: `2026-03-08T00:00:0${number}.000Z`,
+        })
+      );
+      for (const run of runs) await store.saveRun(run);
+      await store.saveProjectIssueOrchestrations(
+        projectConfig.projectId,
+        runs.map((run) => ({
+          issueId: run.issueId,
+          identifier: run.issueIdentifier,
+          workspaceKey: run.issueWorkspaceKey!,
+          completedOnce: false,
+          failureRetryCount: 1,
+          state: "retry_queued" as const,
+          currentRunId: run.runId,
+          retryEntry: {
+            attempt: 2,
+            dueAt: run.nextRetryAt!,
+            error: run.lastError!,
+          },
+          updatedAt: now.toISOString(),
+        }))
+      );
+      const spawnImpl = vi.fn();
+      const stderr = { write: vi.fn() };
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+        spawnImpl: spawnImpl as never,
+        stderr,
+        now: () => now,
+      });
+      await service.runOnce();
+      // Both due retries must be postponed through their normal reconcile path.
+      for (const run of runs) {
+        expect(await store.loadRun(run.runId)).toMatchObject({
+          status: "retrying",
+          nextRetryAt: expect.not.stringMatching(run.nextRetryAt!),
+          lastError: expect.stringContaining(
+            "retry refresh failed: workflow policy unavailable"
+          ),
+        });
+      }
+      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(stderr.write).toHaveBeenCalledWith(
+        expect.stringContaining(
+          fault === "shared-name"
+            ? "distinct exporter credential name"
+            : "ABSENT_EXPORT_ENDPOINT_991"
+        )
+      );
+    }
+  );
+
   it("OT-09 strips exporter credentials at the final hook boundary", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-otlp-hook-"));
     const repository = await createRepositoryFixture(

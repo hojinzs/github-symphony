@@ -190,6 +190,9 @@ the tracker adapter:
   uses core OTLP auth-reference provenance to strip final worker/hook environments.
   Name-only conflicts with agent/tracker credentials fail even for disabled OTLP;
   owner resolution remains outside worker parsing and shared workflow caches.
+  Owner validation faults enter the invalid reload path before last-known-good
+  persistence, allowing other active runs to reconcile.
+
 The CLI owns expected-target local project shutdown in
 `packages/cli/src/expected-stop.ts`, with lifecycle wiring in `commands/start.ts`
 and `commands/stop.ts`. This Execution/Integration boundary is the explicit

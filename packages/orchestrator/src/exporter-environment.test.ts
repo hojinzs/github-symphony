@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
-  exporterCredentialNames,
+  validateExporterCredentialNames,
   stripExporterCredentials,
 } from "./exporter-environment.js";
 
@@ -20,7 +20,7 @@ observability:
 Prompt`,
         {}
       );
-      const names = exporterCredentialNames(workflow, ["TRACKER_AUTH"]);
+      const names = validateExporterCredentialNames(workflow, ["TRACKER_AUTH"]);
       expect(
         stripExporterCredentials(
           {
@@ -65,8 +65,8 @@ observability:
 Prompt`,
       {}
     );
-    expect(() => exporterCredentialNames(workflow, ["TRACKER_AUTH"])).toThrow(
-      /use a distinct exporter credential name/
-    );
+    expect(() =>
+      validateExporterCredentialNames(workflow, ["TRACKER_AUTH"])
+    ).toThrow(/use a distinct exporter credential name/);
   });
 });

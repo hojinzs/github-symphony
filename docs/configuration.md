@@ -830,8 +830,10 @@ transport values fail instead of falling back. URLs reject credentials, queries
 and fragments; headers reject reserved names, duplicate names and CR/LF.
 
 The orchestrator invokes the owner resolver before dispatch and checks the
-post-hook project environment again before worker spawn. It strips header auth
-reference names from final worker and hook environments after project `.env`,
+post-hook project environment again before worker spawn. Owner validation faults
+follow the invalid-workflow reload path: they are reported without interrupting
+other run reconciliation or replacing the last-known-good workflow. It strips
+header auth reference names from final worker and hook environments after project `.env`,
 process, and explicit merges. Arbitrary names such as `COLLECTOR_AUTH` are covered,
 along with `OTEL_EXPORTER_OTLP_*HEADERS`, `*CLIENT_KEY`, and
 `*CLIENT_CERTIFICATE` names (general and logs/metrics/traces variants). Non-secret

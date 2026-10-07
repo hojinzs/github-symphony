@@ -4,8 +4,8 @@ import {
   type WorkflowDefinition,
 } from "@gh-symphony/core";
 
-/** Credential ownership is determined by names, even while OTLP is disabled. */
-export function exporterCredentialNames(
+/** Validate name-only ownership, then return exporter references for stripping. */
+export function validateExporterCredentialNames(
   workflow: WorkflowDefinition,
   trackerSecretNames: readonly string[]
 ): ReadonlySet<string> {

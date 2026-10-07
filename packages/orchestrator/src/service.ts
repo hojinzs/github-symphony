@@ -98,7 +98,7 @@ import {
 } from "./workflow-source-identity.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 import {
-  exporterCredentialNames,
+  validateExporterCredentialNames,
   stripExporterCredentials,
 } from "./exporter-environment.js";
 import { offerBestEffort } from "./publication.js";
@@ -1451,6 +1451,12 @@ export class OrchestratorService {
         tenant,
         tenant.repository
       );
+      if (!workflowResolution.isValid) {
+        lastError = workflowResolution.validationError ?? lastError;
+      }
+      if (!isUsableWorkflowResolution(workflowResolution)) {
+        throw new Error(lastError ?? "Invalid repository WORKFLOW.md");
+      }
       if (
         isUsableWorkflowResolution(workflowResolution) &&
         isWorkflowHookExecutionAllowed(this.resolveProjectEnvironment(tenant))
@@ -3022,23 +3028,32 @@ export class OrchestratorService {
           environment,
           trackerAdapter
         );
-    const effective = await this.resolveWorkflowResolution(
+    let validatedResolution = resolution;
+    if (resolution.isValid) {
+      try {
+        // Validate ownership before resolving values, and before persisting LKG.
+        validateExporterCredentialNames(
+          resolution.workflow,
+          resolveTrackerSecretEnvironmentNames(trackerAdapter)
+        );
+        // Owner-only validation; resolved credentials never enter workflow caches.
+        resolveOtlpConfiguration(
+          resolution.workflow.observability?.otlp,
+          environment
+        );
+      } catch (error) {
+        validatedResolution = {
+          ...resolution,
+          isValid: false,
+          validationError: this.formatErrorMessage(error),
+        };
+      }
+    }
+    return this.resolveWorkflowResolution(
       repository,
       cacheRoot,
-      resolution
+      validatedResolution
     );
-    if (isUsableWorkflowResolution(effective)) {
-      // Owner-only resolution: never put resolved credentials in the workflow cache.
-      exporterCredentialNames(
-        effective.workflow,
-        resolveTrackerSecretEnvironmentNames(trackerAdapter)
-      );
-      resolveOtlpConfiguration(
-        effective.workflow.observability?.otlp,
-        environment
-      );
-    }
-    return effective;
   }
 
   private async resolveWorkflowSourceIdentity(
@@ -3405,7 +3420,7 @@ export class OrchestratorService {
     // credential gate and the spawned worker deliberately share this read so
     // hooks may refresh same-run values without creating a diagnostic race.
     const projectEnvironment = this.readProjectEnv(tenant);
-    exporterCredentialNames(
+    validateExporterCredentialNames(
       workflow.workflow,
       resolveTrackerSecretEnvironmentNames(trackerAdapter)
     );
@@ -5255,19 +5270,13 @@ export class OrchestratorService {
                 ),
               }
             : projectHookEnv;
-        const hookEnv = Object.fromEntries(
-          Object.entries(
-            stripExporterCredentials(
-              hostHookEnv,
-              exporterCredentialNames(
-                workflowResolution.workflow,
-                resolveTrackerSecretEnvironmentNames(
-                  resolveTrackerAdapter(tenant.tracker)
-                )
-              )
+        const hookEnv = stripExporterCredentials(
+          hostHookEnv,
+          validateExporterCredentialNames(
+            workflowResolution.workflow,
+            resolveTrackerSecretEnvironmentNames(
+              resolveTrackerAdapter(tenant.tracker)
             )
-          ).filter(
-            (entry): entry is [string, string] => typeof entry[1] === "string"
           )
         );
         const configuredHookCommand = resolveHookCommand(
@@ -5486,7 +5495,7 @@ export class OrchestratorService {
         ...explicitEnv,
       },
       workflow
-        ? exporterCredentialNames(
+        ? validateExporterCredentialNames(
             workflow,
             resolveTrackerSecretEnvironmentNames(
               resolveTrackerAdapter(tenant.tracker)
