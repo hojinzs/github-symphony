@@ -859,7 +859,9 @@ Storage is `<dataDir>/fleet.sqlite`. The service user owns the directory (0700),
 database (0600) and any SQLite sidecars. Unsafe existing permissions, foreign
 ownership, symlinks and hardlinked database files fail closed. Backup only a
 closed database or a SQLite-consistent snapshot. This management metadata is
-separate from project runtime state and remote workspaces.
+separate from project runtime state and remote workspaces. Use a realpath-resolved
+absolute data path: symlinked parents such as macOS `/var`/`/tmp` or some Linux
+`/home` paths must be resolved before opening storage.
 
 Enrollment tokens expire after ten minutes. Environment names are trimmed and
 limited to 256 UTF-8 bytes. Regeneration preserves environment ID and invalidates
@@ -871,7 +873,9 @@ only SHA-256 secret verifiers.
 The consuming session/command service must supply a synchronous transactional
 revocation invalidator and a current-session verifier for first-signal updates.
 These are internal typed interfaces, not configuration/environment variables.
-Neither enrollment nor revocation controls local orchestrator processes.
+Neither enrollment nor revocation controls local orchestrator processes. Operator
+mutation audits store NULL request IDs when no request identity is available;
+enrollment exchange retains its supplied request ID.
 
 Browser access uses `createBrowserSecurity(config, options?)`. The default session
 lifetime is eight hours and maximum registry size is 256; typed overrides permit
@@ -880,5 +884,8 @@ options, with no new CLI flags or environment variables. Origins reject whitespa
 and paths even when URL normalization would remove them. Mutations require exact
 Origin, a unique Secure/HttpOnly/SameSite=Strict `__Host-` session cookie and its
 CSRF token. Sessions expire at the deadline, can be revoked, and disappear on
-restart. Consumers own TLS, private read access, no-store responses and no
+restart. At capacity, issuance evicts the oldest live session, which becomes
+unauthenticated. Consumers should control or rate-limit issuance to prevent
+repeated requests from invalidating the operator session. Consumers own TLS,
+private read access, no-store responses and no
 permissive CORS; forwarded headers cannot authorize a different origin.

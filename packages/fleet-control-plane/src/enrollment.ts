@@ -106,7 +106,7 @@ export function createEnrollmentService(
     actor: string,
     target: UUID,
     operation: string,
-    requestId: UUID = randomUUID()
+    requestId: UUID | null = null
   ) {
     database
       .prepare(

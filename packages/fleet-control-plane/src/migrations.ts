@@ -60,7 +60,7 @@ export function applyMigrations(
     }
     database.exec("COMMIT");
   } catch (error) {
-    database.exec("ROLLBACK");
+    if (database.isTransaction) database.exec("ROLLBACK");
     throw error;
   }
 }

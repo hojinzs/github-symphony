@@ -85,6 +85,26 @@ afterEach(async () => {
 });
 
 describe("C04 enrollment persistence and C01 peer contracts", () => {
+  it("audits absent operator request IDs as null and preserves the enrollment request ID", async () => {
+    const f = fixture();
+    const first = await f.service.createEnvironment({ name: "Host" });
+    const replacement = await f.service.regenerateEnrollment(
+      first.environmentId
+    );
+    const exchange = request(replacement.token);
+    await f.service.enroll(exchange);
+    await f.service.revoke(first.environmentId);
+    expect(
+      f.store.database
+        .prepare("SELECT operation, request_id FROM audit_records ORDER BY id")
+        .all()
+    ).toEqual([
+      { operation: "environment.create", request_id: null },
+      { operation: "enrollment.regenerate", request_id: null },
+      { operation: "agent.enroll", request_id: exchange.requestId },
+      { operation: "environment.revoke", request_id: null },
+    ]);
+  });
   it("persists pending records across restart without recovering raw tokens", async () => {
     const f = fixture();
     const token = await f.service.createEnvironment({ name: "  Mac host  " });

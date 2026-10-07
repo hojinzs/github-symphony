@@ -15,8 +15,9 @@ server owns TLS or a trusted HTTPS reverse proxy.
 busy timeout, and transactionally applies versioned migrations. New directories
 and the database have modes 0700 and 0600. Existing paths must be owned by the
 service's Unix user with those modes; symlinks, hardlinked files and unsafe
-sidecars are rejected. Paths must use canonical parents (for example resolve
-macOS `/var` before using a temporary directory). Do not store fleet state in
+sidecars are rejected. Use a realpath-resolved absolute path: every parent must be free of symlinks.
+Resolve macOS `/var` or `/tmp` and symlinked Linux `/home` paths before choosing
+the data directory. Do not store fleet state in
 project folders or use a shared filesystem.
 
 Close the store when the service stops. Back up after closing it or use a
@@ -57,7 +58,8 @@ requires the supplied session-owner verifier to confirm the exclusive current
 session. Zero projects are valid; enrollment is independent of project readiness.
 
 Successful create/regenerate/revoke operations durably audit `local-owner`;
-exchange audits the new agent identity and request ID. Audits contain no raw
+operator audit request IDs are NULL because these methods have no request identity.
+Exchange audits the new agent identity and the supplied enrollment request ID. Audits contain no raw
 tokens or credentials and commit with the mutation. These library methods are a
 trusted server boundary: consuming browser routes must resolve their actor with
 `createBrowserSecurity` before invoking them. No HTTP listener is provided here.
@@ -75,6 +77,9 @@ local-owner read boundary; the consumer must keep that listener private.
 Defaults are eight hours and 256 sessions. Typed options allow lifetimes from
 one second through seven days and registry sizes from 1 through 10,000. Sessions
 are bounded in memory and disappear on restart; SQLite enrollment survives.
+At capacity, issuing a session evicts the oldest live session, whose next request
+fails as unauthenticated. Repeated issuance by anyone with listener access can
+invalidate the operator session; consumers should control or rate-limit issuance.
 The consumer owns TLS, no-store responses, no permissive CORS and routing agent
 credentials separately. Forwarded headers do not override Origin validation.
 

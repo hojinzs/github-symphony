@@ -116,6 +116,31 @@ describe("user-owned SQLite", () => {
   });
 });
 describe("transaction boundary", () => {
+  it("preserves the original error after SQLite automatically rolls back", () => {
+    const store = openFleetStore(directory());
+    try {
+      store.database.exec("CREATE TABLE unique_values (id INTEGER UNIQUE)");
+      expect(() =>
+        store.transaction(() => {
+          store.database.exec(
+            "INSERT INTO unique_values VALUES (1); INSERT OR ROLLBACK INTO unique_values VALUES (1)"
+          );
+        })
+      ).toThrow("UNIQUE constraint failed: unique_values.id");
+      expect(store.database.isTransaction).toBe(false);
+      expect(
+        store.database.prepare("SELECT * FROM unique_values").all()
+      ).toEqual([]);
+      store.transaction(() =>
+        store.database.exec("INSERT INTO unique_values VALUES (2)")
+      );
+      expect(
+        store.database.prepare("SELECT id FROM unique_values").get()
+      ).toEqual({ id: 2 });
+    } finally {
+      store.close();
+    }
+  });
   it("commits successful work, rolls back errors and rejects asynchronous work", () => {
     const store = openFleetStore(directory());
     const insert = () =>
@@ -150,6 +175,36 @@ describe("transaction boundary", () => {
   });
 });
 describe("migrations", () => {
+  it("preserves an automatic migration rollback error and permits retry", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      expect(() =>
+        applyMigrations(db, [
+          {
+            version: 1,
+            sql: "CREATE TABLE unique_values (id INTEGER UNIQUE); INSERT INTO unique_values VALUES (1); INSERT OR ROLLBACK INTO unique_values VALUES (1)",
+          },
+        ])
+      ).toThrow("UNIQUE constraint failed: unique_values.id");
+      expect(db.isTransaction).toBe(false);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 0,
+      });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE name = 'unique_values'"
+          )
+          .get()
+      ).toBeUndefined();
+      applyMigrations(db);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 1,
+      });
+    } finally {
+      db.close();
+    }
+  });
   it("rolls back failed migrations and rejects newer schemas", () => {
     const db = new DatabaseSync(":memory:");
     expect(() =>

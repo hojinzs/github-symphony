@@ -35,7 +35,7 @@ export function openFleetStore(dataDir: string): FleetStore {
         database.exec("COMMIT");
         return result;
       } catch (error) {
-        database.exec("ROLLBACK");
+        if (database.isTransaction) database.exec("ROLLBACK");
         throw error;
       }
     },
