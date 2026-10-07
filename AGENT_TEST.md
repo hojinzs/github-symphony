@@ -36,6 +36,13 @@ control-plane frontend source is present in `coverage/coverage-final.json`. CI
 uploads the complete directory as the `coverage-report` artifact even if a
 later step fails.
 
+C14 design artifact verification runs separately in the CI Test job:
+`node --experimental-strip-types --test docs/designs/c14/interaction-contracts.test.ts`.
+It checks typed walkthrough expectations against frozen Figma readback, including
+clipboard failure recovery and token absence. Run it locally after editing
+`docs/designs/c14/` evidence or fixtures; it supplies prototype evidence, not runtime
+or OS acceptance, and is outside package Vitest coverage.
+
 ## Local E2E Tests (without Docker)
 
 How to run E2E tests directly on the local machine without Docker. All state is stored under `.runtime/`.
@@ -437,6 +444,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe                         |
 | `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                          |
+| `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution                                       |
 
 ## TC Writing Guide
 
