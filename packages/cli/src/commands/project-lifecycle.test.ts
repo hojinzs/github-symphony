@@ -78,7 +78,11 @@ describe("standalone project lifecycle command", () => {
     );
     expect(stopMock).toHaveBeenCalledWith(
       [],
-      expect.objectContaining({ configDir, projectId })
+      expect.objectContaining({
+        configDir,
+        projectId,
+        requestedProjectDir: projectDir,
+      })
     );
   });
 

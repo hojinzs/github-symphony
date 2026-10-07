@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import * as fs from "node:fs";
 import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -55,6 +56,11 @@ const childProcessMocks = vi.hoisted(() => ({
 vi.mock("node:child_process", () => ({
   spawn: childProcessMocks.spawn,
 }));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual };
+});
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   acquireProjectLock: orchestratorMocks.acquireProjectLock,
@@ -979,6 +985,59 @@ Handle {{issue.identifier}}.\n`,
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
+
+  it.each(["untrusted directory", "unsupported platform"])(
+    "continues ordinary startup with an unavailable endpoint: %s",
+    async (reason) => {
+      const project = createProject("tenant-a", "acme", "platform");
+      const configDir = await createConfigFixture({
+        activeProject: "tenant-a",
+        projects: [project],
+      });
+      project.projectDir = configDir;
+      await writeFile(
+        join(configDir, "projects", "tenant-a", "project.json"),
+        JSON.stringify(project)
+      );
+      acquireProjectLock.mockResolvedValue({
+        lockPath: join(configDir, ".lock"),
+        ownerToken: "owner",
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+      });
+      run.mockResolvedValue(undefined);
+      const originalLstat = fs.lstatSync;
+      const lstat = vi.spyOn(fs, "lstatSync").mockImplementation((...args) => {
+        const info = originalLstat(...args);
+        if (String(args[0]).includes("gh-symphony-stop-")) {
+          return Object.assign(info, { uid: -1 });
+        }
+        return info;
+      });
+      if (reason === "unsupported platform") {
+        vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+      }
+      const stderr = captureWrites(process.stderr);
+      try {
+        await startModule.default([], baseOptions(configDir));
+        expect(run).toHaveBeenCalledOnce();
+        expect(setWorkerOrchestratorUrl).toHaveBeenCalledOnce();
+        expect(process.exitCode).toBeUndefined();
+        if (reason === "untrusted directory") {
+          expect(stderr.output()).toContain(
+            "Expected-target stop unavailable: Untrusted expected-stop socket directory"
+          );
+        } else {
+          expect(lstat).not.toHaveBeenCalled();
+          expect(stderr.output()).not.toContain(
+            "Expected-target stop unavailable"
+          );
+        }
+      } finally {
+        stderr.restore();
+      }
+    }
+  );
 
   it("maps the global verbose option to orchestrator verbose logs", async () => {
     const configDir = await createConfigFixture({

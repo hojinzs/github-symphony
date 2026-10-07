@@ -70,6 +70,11 @@ import {
   releaseProjectStartLocks,
   type ProjectStartLocks,
 } from "../project-start-lock.js";
+import {
+  installExpectedStopProcessIdentity,
+  startExpectedStopServer,
+} from "../expected-stop.js";
+import type { Server as LocalStopServer } from "node:net";
 
 const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
 
@@ -1131,6 +1136,10 @@ const handler = async (
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
   let projectLocks: ProjectStartLocks | null = null;
+  let expectedStopServer: LocalStopServer | null = null;
+  const restoreProcessIdentity = projectConfig.projectDir
+    ? installExpectedStopProcessIdentity()
+    : () => {};
   try {
     projectLocks = await acquireProjectStartLocks({
       runtimeRoot,
@@ -1206,6 +1215,8 @@ const handler = async (
         return shutdownPromise;
       }
       shuttingDown = true;
+      expectedStopServer?.close();
+      expectedStopServer = null;
       keepHttpAliveResolve?.();
       keepHttpAliveResolve = null;
       const heldLocks = projectLocks;
@@ -1233,6 +1244,26 @@ const handler = async (
     process.on("SIGTERM", handleSigterm);
 
     try {
+      if (
+        projectConfig.projectDir &&
+        (process.platform === "linux" || process.platform === "darwin")
+      ) {
+        try {
+          expectedStopServer = await startExpectedStopServer({
+            configDir: options.configDir,
+            projectId,
+            projectDir: projectConfig.projectDir,
+          });
+        } catch (error) {
+          // Optional local management endpoint: ordinary startup must remain
+          // available. Expected-target stop fails closed without this endpoint.
+          const message =
+            error instanceof Error ? error.message : String(error);
+          process.stderr.write(
+            `[start] Expected-target stop unavailable: ${message}\n`
+          );
+        }
+      }
       const trackerStateToken = randomBytes(32).toString("hex");
       workerHttpServer = await startHttpServer({
         runtimeRoot,
@@ -1363,6 +1394,7 @@ const handler = async (
         }
       }
     } finally {
+      expectedStopServer?.close();
       process.off("SIGINT", handleSigint);
       process.off("SIGTERM", handleSigterm);
       if (shutdownPromise) {
@@ -1370,7 +1402,11 @@ const handler = async (
       }
     }
   } finally {
-    await releaseProjectStartLocks(projectLocks);
+    try {
+      await releaseProjectStartLocks(projectLocks);
+    } finally {
+      restoreProcessIdentity();
+    }
   }
 };
 
