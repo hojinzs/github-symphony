@@ -8,3 +8,28 @@ export function assertOtlpProductionCapability(enabled: boolean): void {
     );
   }
 }
+
+/** Internal injection is explicit, never inferred from YAML or environment.
+ * Disabled owners keep the entire SDK/transport graph unevaluated.
+ */
+export async function initializeLogs(
+  enabled: boolean,
+  injected?: {
+    identity: import("./log-provider.js").ProjectResourceIdentity;
+    destination: import("./transport.js").LogDestination;
+    options?: Parameters<
+      typeof import("./log-pipeline.js").createLogPipeline
+    >[2];
+  }
+): Promise<
+  ReturnType<typeof import("./log-pipeline.js").createLogPipeline> | undefined
+> {
+  if (!enabled) return undefined;
+  if (!injected) assertOtlpProductionCapability(enabled);
+  const { createLogPipeline } = await import("./log-pipeline.js");
+  return createLogPipeline(
+    injected!.identity,
+    injected!.destination,
+    injected!.options
+  );
+}

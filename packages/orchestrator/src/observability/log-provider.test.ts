@@ -25,6 +25,24 @@ function capture() {
 }
 
 describe("isolated Logs ownership", () => {
+  it("accepts matching reserved identity without consuming the custom-key allowance", async () => {
+    const owner = createOwnedLogProvider(
+      {
+        ...identity,
+        attributes: {
+          ...Object.fromEntries(
+            Array.from({ length: 16 }, (_, i) => [`deployment${i}`, i])
+          ),
+          "service.name": "gh-symphony",
+          "symphony.project.id": "folder-id",
+        },
+      },
+      capture().processor
+    );
+    expect(owner.resource.attributes["service.name"]).toBe("gh-symphony");
+    expect(owner.resource.attributes["deployment15"]).toBe(15);
+    await owner.provider.shutdown();
+  });
   it("retains explicit event times, severity, attributes and project resource", async () => {
     const { records, processor } = capture();
     const owner = createOwnedLogProvider(

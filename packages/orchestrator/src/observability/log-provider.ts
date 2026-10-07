@@ -31,12 +31,16 @@ export function createOwnedLogProvider(
     "symphony.tracker.kind": identity.trackerKind,
   };
   const custom = identity.attributes ?? {};
-  if (Object.keys(custom).length > 16) {
+  if (
+    Object.keys(custom).filter((key) => !Object.hasOwn(reserved, key)).length >
+    16
+  ) {
     throw new Error("OTLP resource permits at most 16 custom attributes");
   }
   for (const [key, value] of Object.entries(custom)) {
     if (
-      Object.hasOwn(reserved, key) ||
+      (Object.hasOwn(reserved, key) &&
+        reserved[key as keyof typeof reserved] !== value) ||
       /(?:^|\.)(?:issue|run|session|turn)(?:\.|$)/i.test(key) ||
       !["string", "number", "boolean"].includes(typeof value) ||
       (typeof value === "number" && !Number.isFinite(value))
