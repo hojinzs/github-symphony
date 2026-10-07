@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { logs } from "@opentelemetry/api-logs";
 import type {
   LogRecordProcessor,
   ReadableLogRecord,
@@ -25,6 +26,14 @@ function capture() {
 }
 
 describe("isolated Logs ownership", () => {
+  it("does not register its provider globally", async () => {
+    const ambient = logs.getLoggerProvider();
+    const owner = createOwnedLogProvider(identity, capture().processor);
+    expect(logs.getLoggerProvider()).toBe(ambient);
+    expect(owner.provider).not.toBe(ambient);
+    await owner.provider.shutdown();
+    expect(logs.getLoggerProvider()).toBe(ambient);
+  });
   it("accepts matching reserved identity without consuming the custom-key allowance", async () => {
     const owner = createOwnedLogProvider(
       {

@@ -28,7 +28,8 @@ export async function exportLogBatch(
   count: number,
   signal: AbortSignal,
   request: LogRequest = requestProtobuf,
-  random: () => number = Math.random
+  random: () => number = Math.random,
+  onTransientFailure?: () => void
 ): Promise<BatchResult> {
   const expires = Date.now() + 10_000;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -70,6 +71,11 @@ export async function exportLogBatch(
     }
     if (response && ![429, 502, 503, 504].includes(response.status)) {
       return { reason: "permanent", rejected: count };
+    }
+    try {
+      onTransientFailure?.();
+    } catch {
+      /* diagnostics never alter retry behavior */
     }
     if (attempt === 2) {
       return { reason: "timeout", rejected: count };

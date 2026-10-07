@@ -800,9 +800,12 @@ values from leaking into new runs.
 
 The optional `observability.otlp` mapping is parsed structurally by the shared
 workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
-enable export. This contract slice does not install an SDK or activate an
-exporter. The SDK-free owner resolver is available as a separate helper; exporter
-activation remains pending. Shared loading never calls this helper. Optional
+enable export. The orchestrator contains a pinned official Logs SDK and bounded
+HTTP/protobuf adapter available only through internal injection. Production
+activation remains pending until the complete pipeline and packaged audits pass;
+the internal initializer rejects enabled production policy before loading the SDK.
+The SDK-free owner resolver remains a separate helper; shared loading never calls
+it. Optional
 SDK-free post-persistence publication hooks default to no-op and add no CLI
 flags or environment variables; they do not enable network export.
 

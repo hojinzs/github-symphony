@@ -2,7 +2,7 @@ import http from "node:http";
 import { once } from "node:events";
 import { describe, expect, it } from "vitest";
 import { createLogPipeline } from "./log-pipeline.js";
-import { requestProtobuf } from "./transport.js";
+import { requestProtobuf, exportLogBatch } from "./transport.js";
 
 // Independent protobuf wire decoder for the schema field IDs in official proto
 // v1.9.0: collector/logs/v1/logs_service.proto, logs/v1/logs.proto, common/v1/common.proto.
@@ -70,6 +70,27 @@ const attributes = (f: Field[], id: number) =>
   );
 
 describe("OT-01 real HTTP/protobuf Logs wire", () => {
+  it("bounds real connection-refused failures without exposing endpoint errors", async () => {
+    const server = http.createServer();
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const port = (server.address() as { port: number }).port;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    let attempts = 0;
+    const result = await exportLogBatch(
+      { endpoint: `http://127.0.0.1:${port}/v1/logs`, headers: {} },
+      new Uint8Array(),
+      1,
+      new AbortController().signal,
+      async (...args) => {
+        attempts++;
+        return requestProtobuf(...args);
+      },
+      () => 0
+    );
+    expect(attempts).toBe(3);
+    expect(result).toEqual({ reason: "timeout", rejected: 1 });
+  });
   it("sends auth, resource, scope, explicit timestamps and severities in bounded batches", async () => {
     const received: {
       bytes: Buffer;

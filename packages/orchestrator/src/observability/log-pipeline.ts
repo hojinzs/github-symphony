@@ -58,7 +58,10 @@ class BoundedLogProcessor implements LogRecordProcessor {
     mapping: 0,
     partial: 0,
   };
-  private readonly episodes = new Map<Category, number>();
+  private readonly episodes = new Map<
+    Category,
+    { at: number; pending: number }
+  >();
 
   constructor(
     private readonly destination: LogDestination,
@@ -125,10 +128,24 @@ class BoundedLogProcessor implements LogRecordProcessor {
   }
 
   private warn(category: Category, lost: number): void {
-    const previous = this.episodes.get(category);
-    if (previous === undefined || Date.now() - previous >= 60_000) {
-      this.episodes.set(category, Date.now());
+    let episode = this.episodes.get(category);
+    if (!episode) {
+      episode = { at: Date.now(), pending: 0 };
+      this.episodes.set(category, episode);
       this.notify({ signal: "logs", category, state: "failure", lost });
+      return;
+    }
+    episode.pending += lost;
+    if (Date.now() - episode.at >= 60_000) {
+      const summary = episode.pending;
+      episode.pending = 0;
+      episode.at = Date.now();
+      this.notify({
+        signal: "logs",
+        category,
+        state: "failure",
+        lost: summary,
+      });
     }
   }
 
@@ -195,7 +212,9 @@ class BoundedLogProcessor implements LogRecordProcessor {
               body,
               count,
               this.controller.signal,
-              this.request
+              this.request,
+              undefined,
+              () => this.warn("transport", 0)
             );
           } catch {
             result = { reason: "permanent", rejected: count };
@@ -293,6 +312,7 @@ export function createLogPipeline(
       })
   );
   let closed = false;
+  let shutdownPromise: Promise<void> | undefined;
   return {
     offerEvent(
       event: Readonly<ExportableEvent | OrchestratorEvent>,
@@ -312,10 +332,14 @@ export function createLogPipeline(
     },
     status: () => processor!.status(),
     flush: (deadline: number) => processor!.flush(deadline),
-    async shutdown(deadline: number): Promise<void> {
+    shutdown(deadline: number): Promise<void> {
+      if (shutdownPromise) return shutdownPromise;
       closed = true;
-      await processor!.close(deadline);
-      await owner.provider.shutdown();
+      shutdownPromise = (async () => {
+        await processor.close(deadline);
+        await owner.provider.shutdown();
+      })();
+      return shutdownPromise;
     },
   };
 }

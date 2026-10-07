@@ -16,6 +16,101 @@ const event = {
 const context = { observedAt: "2026-10-07T00:00:01Z", runId: "r" };
 afterEach(() => vi.useRealTimers());
 describe("bounded Logs pipeline", () => {
+  it("warns on the first failed attempt before retry and reports recovery without loss", async () => {
+    vi.useFakeTimers();
+    const notices: unknown[] = [];
+    let attempts = 0;
+    const pipeline = createLogPipeline(
+      identity,
+      { endpoint: "http://receiver/v1/logs", headers: {} },
+      {
+        request: async () => ({
+          status: ++attempts === 1 ? 503 : 200,
+          retryAfter: null,
+          body: new Uint8Array(),
+        }),
+        diagnostic: (notice) => notices.push(notice),
+      }
+    );
+    pipeline.offerEvent(event, context);
+    const flush = pipeline.flush(Date.now() + 5000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notices).toEqual([
+      { signal: "logs", category: "transport", state: "failure", lost: 0 },
+    ]);
+    await vi.advanceTimersByTimeAsync(1000);
+    await flush;
+    expect(notices).toHaveLength(2);
+    expect(notices[1]).toMatchObject({
+      category: "transport",
+      state: "recovery",
+    });
+    expect(pipeline.status().dropped.timeout).toBe(0);
+    await pipeline.shutdown(Date.now() + 5000);
+  });
+  it("summarizes suppressed episode losses after sixty seconds", async () => {
+    vi.useFakeTimers();
+    const notices: { state: string; lost: number }[] = [];
+    const pipeline = createLogPipeline(
+      identity,
+      { endpoint: "http://receiver/v1/logs", headers: {} },
+      {
+        request: async () => ({
+          status: 401,
+          retryAfter: null,
+          body: new Uint8Array(),
+        }),
+        diagnostic: (notice) => notices.push(notice),
+      }
+    );
+    for (let i = 0; i < 2; i++) {
+      pipeline.offerEvent(event, context);
+      await pipeline.flush(Date.now() + 5000);
+    }
+    expect(notices).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60000);
+    pipeline.offerEvent(event, context);
+    await pipeline.flush(Date.now() + 5000);
+    expect(notices).toHaveLength(2);
+    expect(notices[1]!.lost).toBe(2);
+    await pipeline.shutdown(Date.now() + 5000);
+  });
+  it("shares shutdown completion across callers without a second drain deadline", async () => {
+    vi.useFakeTimers();
+    const pipeline = createLogPipeline(
+      identity,
+      { endpoint: "http://receiver/v1/logs", headers: {} },
+      {
+        request: async (_target, _body, signal) =>
+          new Promise((_resolve, reject) =>
+            signal.addEventListener("abort", () => reject(new Error("abort")), {
+              once: true,
+            })
+          ),
+        diagnostic: () => {},
+      }
+    );
+    pipeline.offerEvent(event, context);
+    let firstDone = false,
+      secondDone = false;
+    const first = pipeline.shutdown(Date.now() + 5000).then(() => {
+      firstDone = true;
+    });
+    const second = pipeline.shutdown(Date.now() + 5000).then(() => {
+      secondDone = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect([firstDone, secondDone]).toEqual([false, false]);
+    await vi.advanceTimersByTimeAsync(5000);
+    await Promise.all([first, second]);
+    expect(pipeline.status()).toMatchObject({
+      records: 0,
+      bytes: 0,
+      dropped: { shutdown: 1 },
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("bounds large encoded batches and drains every admitted record once", async () => {
     vi.useFakeTimers();
     const bodies: Uint8Array[] = [];
@@ -97,7 +192,7 @@ describe("bounded Logs pipeline", () => {
     pipeline.offerEvent(event, context);
     await pipeline.shutdown(Date.now() + 20);
     expect(bodies).toHaveLength(1);
-    expect(notices).toHaveLength(1);
+    expect(notices).toHaveLength(2);
     expect(JSON.stringify(notices)).not.toContain("secret");
     expect(pipeline.status()).toMatchObject({
       records: 0,
