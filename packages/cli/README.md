@@ -415,6 +415,40 @@ gh-symphony project start --project-dir <path> --daemon          # Start in back
 gh-symphony project stop --project-dir <path>                    # Stop the daemon
 ```
 
+Automation can stop a persisted, verified target with:
+
+```bash
+gh-symphony --json project stop --project-dir <path> \
+  --expected-pid <pid> --expected-process-identity "<identity>"
+```
+
+Both expected-target options must be supplied together, and cannot be combined
+with `--force`. The identity is the exact OS process identity recorded in the
+project's PID/lock record, passed as one argument. This mode compares the PID,
+identity, canonical folder and both project locks without the legacy recovery
+fallback. It never deletes PID or lock records. JSON output contains `outcome`
+and `pid`: `superseded_target` and `process_unverified` exit 1; `signal_sent` and
+`already_stopped` exit 0. Invalid arguments exit 2.
+
+The CLI uses a private local Unix socket, and only the matching target signals
+itself with SIGTERM. This prevents PID reuse between caller verification and
+signal delivery from stopping a replacement process. The endpoint starts while
+the project locks are held, before daemon readiness, and closes on shutdown.
+Older daemons without this endpoint fail with `process_unverified`; restart
+them with the new CLI before using expected-target mode. Folder-only stop keeps
+its existing behavior.
+Expected-target stop supports Linux/macOS daemons, or foreground processes
+started from the selected project folder. Foreground starts from another CWD
+with `--project-dir` fail closed in this mode. If endpoint setup fails, ordinary
+startup continues with a warning and expected-target stop returns
+`process_unverified`. Ordinary startup on other platforms skips the endpoint.
+
+`signal_sent` is a delivery acknowledgment, not proof of exit. The management
+adapter must verify exit, lock release, and absence of a replacement within its
+completion deadline. `already_stopped` requires exit and released locks; a stale
+PID record belonging to that same exited target may remain. No SIGKILL escalation
+occurs in expected-target mode. A broken or removed workflow does not block stop.
+
 Run `doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. Add `--port [port]` to enable the JSON status API; `--http [port]` remains an alias, and `server.port` in `WORKFLOW.md` applies when neither CLI option is present.
 
 ### Monitor

@@ -186,6 +186,25 @@ the tracker adapter:
 
 ### 4. Execution — worker and agent subprocess
 
+The CLI owns expected-target local project shutdown in
+`packages/cli/src/expected-stop.ts`, with lifecycle wiring in `commands/start.ts`
+and `commands/stop.ts`. This Execution/Integration boundary is the explicit
+repository-local management extension approved for Epic #983, C02 (#1006), not
+an upstream Symphony scheduler change. Strict PID/OS identity, canonical-folder
+and current PID/project/folder-lock checks reject replacements without effects.
+The command router binds expected stop to the caller-selected folder and runtime
+ID; cached project metadata cannot redirect it to a different process.
+A private Unix socket binds the request to the live target; the server repeats
+ownership checks and sends SIGTERM to itself through the existing graceful
+shutdown handler. This avoids a caller-side check/kill PID reuse race.
+New process titles carry a lifetime UUID before lock acquisition, making the
+recorded OS identity unique even with second-resolution `ps` start timestamps.
+Older daemons lacking the endpoint fail closed. Caller-side expected stop does not
+remove records or declare remote completion after signaling; exit/lock-release
+and replacement observation remain the future management adapter's ownership.
+No management protocol, tracker policy, or fleet behavior is added to
+`packages/control-plane` or orchestration core.
+
 - Single-issue execution, approval workflow, hooks: `packages/worker`. The
   control-plane routes, including `/api/v1/state`, are served by
   `packages/cli/src/commands/start.ts` through `packages/control-plane`.
