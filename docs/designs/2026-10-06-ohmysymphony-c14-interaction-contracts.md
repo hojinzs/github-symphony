@@ -17,15 +17,18 @@ tracker adapters, per-project scheduling and execution retain their ownership.
 existing prepared projects; no UI provisioning or global scheduler is added.
 
 Slice-owned artifacts are this contract, a dated prototype/evidence manifest
-under `docs/designs/`, annotations/reactions on the existing Graphite Figma pages,
+under `docs/designs/`, annotations/reactions on the unified C14 Figma page,
 related design verification fixtures, the documentation index and a CLI patch
 changeset. No runtime package or protocol is implemented here. In particular,
 `packages/control-plane` remains the shipped per-project web server. New fleet
 UI implementation belongs to #1019–#1022 and must preserve the approved service
 and protocol boundaries rather than treating this design as a runtime API.
 
-Use existing screen roots on pages `23:379`–`23:383`, dialog/feedback components
-on `23:375`, and responsive rules on `23:372` in
+The authoritative interaction graph is the
+[C14 unified page `99:5948`](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e?node-id=99-5948),
+with 72 same-page screen copies because Figma rejects cross-page NAVIGATE actions.
+Original pages `23:379`–`23:383` remain the visual/component mapping reference,
+with dialog/feedback components on `23:375` and responsive rules on `23:372` in
 [the approved file](https://www.figma.com/design/vUCdtVjmYMNWv7YYLRdo3e).
 Preserve Graphite foundations and component/widget mapping. Reactions and
 annotations are substantive C14 additions; the prior C22 approval does not
@@ -83,7 +86,14 @@ are separate controls. Commands contain no token argument: use the approved
 hidden prompt or token-stdin contract. Design fixtures contain synthetic values
 only, never secrets. Copy success says which item was copied; failure says
 “Could not copy” and offers accessible manual selection in the current issuance
-session. Failure does not announce success, dismiss the dialog or extend expiry.
+session. The copy-failure composition includes a native read-only field named
+“Enrollment token (read only)” with a clearly synthetic example value and
+associated selection hint. In the browser, Tab reaches the field and
+Ctrl+A / Command+A selects its value; pointer selection also works. Keep it
+focusable rather than disabled. Announce the failure and selection guidance,
+never the token value, through the error/status region. The prototype shows
+this surface but does not execute native selection. Failure does not announce
+success, dismiss the dialog or extend expiry.
 
 Closing discards the displayed token. Reopen shows the saved environment and
 regeneration action without fetching or recovering the old token. Expiry disables

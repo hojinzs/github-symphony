@@ -1,7 +1,7 @@
 /** Design-only event fixtures. These are not management-plane protocol types. */
 export type Child = 1019 | 1020 | 1021 | 1022;
 export type PrototypeEvent =
-  | { kind: "click"; label: string }
+  | { kind: "click"; label: string; source?: string }
   | { kind: "key"; code: number }
   | { kind: "timeout" };
 export interface Step {
@@ -14,7 +14,11 @@ export interface WalkthroughFixture {
   case: string;
   steps: Step[];
 }
-const click = (label: string): PrototypeEvent => ({ kind: "click", label });
+const click = (label: string, source?: string): PrototypeEvent => ({
+  kind: "click",
+  label,
+  ...(source ? { source } : {}),
+});
 const key = (code: number): PrototypeEvent => ({ kind: "key", code });
 const timeout: PrototypeEvent = { kind: "timeout" };
 const step = (from: string, event: PrototypeEvent, to: string): Step => ({
@@ -183,7 +187,8 @@ export const walkthroughs: WalkthroughFixture[] = [
       ),
       step(
         "Commands and recovery/reason-error",
-        click(""),
+        // Blank reason input, not another unlabelled control (for example close).
+        click("", "I99:11725;27:515;25:427"),
         "Commands and recovery/reason-filled"
       ),
       step(

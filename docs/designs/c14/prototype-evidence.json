@@ -2312,7 +2312,7 @@
       "name": "Screen/Environments/copy-failure/1440",
       "width": 1440,
       "height": 960,
-      "text": "OhMySymphony\nWORKSPACE\nProjects\nEnvironments\nCommands\nPrivate network\nSingle operator\nWorkspace\nEnvironments\nPrivate workspace\nEnvironments\nManage the hosts that run your projects.\nAdd environment\nEnvironment\nConnection\nHost / agent\nProjects\nLast contact\nstudio-mac\nOnline\nmacOS \u00b7 agent v1\n0 projects\n5 seconds ago\nlab-linux\nOffline\nLinux \u00b7 agent v1\n3 projects\nLast seen 8m ago\nbuild-host\nPending enrollment\nNot reported yet\n\u2014\nNo signal received\nPrivate workspace \u00b7 Single operator\nConnect build-host\nThe saved environment remains available when this panel is closed.\nHost operating system\nLinux  \u25be\ngh-symphony agent setup --server https://symphony.lan\nCopy setup command\nPaste token at the hidden prompt\nSingle use \u00b7 10-minute lifetime \u00b7 expires in 09:42. Available only in this issuance session.\nCopy token\nLinux systemd user service. Boot/logout operation needs linger (loginctl enable-linger); local authorization may be needed. Use trusted HTTPS/private CA and verify host-to-server reachability.\nCould not copy token\nClipboard unavailable. Select the token manually in this issuance session; expiry is unchanged.\nCLI installation guide\nClose and keep environment",
+      "text": "OhMySymphony\nWORKSPACE\nProjects\nEnvironments\nCommands\nPrivate network\nSingle operator\nWorkspace\nEnvironments\nPrivate workspace\nEnvironments\nManage the hosts that run your projects.\nAdd environment\nEnvironment\nConnection\nHost / agent\nProjects\nLast contact\nstudio-mac\nOnline\nmacOS \u00b7 agent v1\n0 projects\n5 seconds ago\nlab-linux\nOffline\nLinux \u00b7 agent v1\n3 projects\nLast seen 8m ago\nbuild-host\nPending enrollment\nNot reported yet\n\u2014\nNo signal received\nPrivate workspace \u00b7 Single operator\nConnect build-host\nThe saved environment remains available when this panel is closed.\nHost operating system\nLinux  \u25be\ngh-symphony agent setup --server https://symphony.lan\nCopy setup command\nPaste token at the hidden prompt\nSingle use \u00b7 10-minute lifetime \u00b7 expires in 09:42. Available only in this issuance session.\nCopy token\nLinux systemd user service. Boot/logout operation needs linger (loginctl enable-linger); local authorization may be needed. Use trusted HTTPS/private CA and verify host-to-server reachability.\nCould not copy token\nClipboard unavailable. Select the token in the read-only field below; expiry is unchanged.\nEnrollment token (read only)\nDEMO-C14-NOT-A-REAL-TOKEN\nSynthetic example. Tab to the field; Ctrl+A / Command+A selects its value.\nCLI installation guide\nClose and keep environment",
       "controls": [
         {
           "id": "I99:9542;65:380",
@@ -2361,6 +2361,12 @@
           "name": "Component/Button",
           "width": 662,
           "height": 44
+        },
+        {
+          "id": "107:6057",
+          "name": "Component/Field/EnrollmentTokenReadonly",
+          "width": 662,
+          "height": 94
         },
         {
           "id": "99:9568",
@@ -2510,7 +2516,25 @@
           "labelMarkdown": ""
         }
       ],
-      "source": "97:2271"
+      "source": "97:2271",
+      "recoveryField": {
+        "id": "107:6057",
+        "name": "Component/Field/EnrollmentTokenReadonly",
+        "width": 662,
+        "height": 94,
+        "text": "Enrollment token (read only) | DEMO-C14-NOT-A-REAL-TOKEN | Synthetic example. Tab to the field; Ctrl+A / Command+A selects its value.",
+        "annotations": [
+          {
+            "label": "C14 synthetic prototype. Implement a native readonly text input named Enrollment token (read only), associated with this hint, focusable and selectable with keyboard/pointer. Keep selection within the current issuance session. Do not announce the token value in live regions. Remove value from visual/accessibility trees on close, expiry or enrollment; never recover on reopen. Figma text is a static illustration, not browser text selection evidence.",
+            "labelMarkdown": ""
+          }
+        ]
+      },
+      "recapturedAt": "2026-10-07T00:28:19Z",
+      "boundsAudit": {
+        "checked": 97,
+        "overflow": []
+      }
     },
     {
       "id": "99:9691",

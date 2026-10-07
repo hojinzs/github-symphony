@@ -19,8 +19,16 @@ interface Screen {
   width: number;
   text: string;
   edges: Edge[];
-  controls: { width: number; height: number }[];
+  controls: { id: string; width: number; height: number }[];
   annotations: { label: string }[];
+  recoveryField?: {
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+    text: string;
+    annotations: { label: string }[];
+  };
 }
 const manifest = JSON.parse(
   readFileSync(new URL("./prototype-evidence.json", import.meta.url), "utf8")
@@ -33,7 +41,11 @@ const screen = (key: string): Screen => {
 };
 const matches = (edge: Edge, event: PrototypeEvent): boolean => {
   if (event.kind === "click") {
-    return edge.trigger.type === "ON_CLICK" && edge.label === event.label;
+    return (
+      edge.trigger.type === "ON_CLICK" &&
+      edge.label === event.label &&
+      (!event.source || edge.source === event.source)
+    );
   }
   if (event.kind === "key") {
     return (
@@ -151,4 +163,34 @@ test("token absence, zero-project success, disabled safety and retained unknown 
     screen("Commands and recovery/start-succeeded").text,
     /running verified/
   );
+});
+
+// Checks actual Figma readback; browser selection/readonly semantics remain a UI gate.
+test("clipboard failure has a labelled synthetic manual token selection surface", () => {
+  const failure = screen("Environments/copy-failure");
+  const field = failure.recoveryField;
+  assert.ok(field, "copy failure must render a token recovery field");
+  assert.equal(field.name, "Component/Field/EnrollmentTokenReadonly");
+  assert.ok(
+    failure.controls.some((control) => control.id === field.id),
+    "recovery field must be present in exported visible controls"
+  );
+  assert.match(failure.text, /Enrollment token \(read only\)/);
+  assert.match(failure.text, /DEMO-C14-NOT-A-REAL-TOKEN/);
+  assert.match(field.text, /Ctrl\+A \/ Command\+A selects its value/);
+  assert.ok(field.width > 0 && field.height >= 24);
+  assert.match(
+    field.annotations.map((a) => a.label).join(" "),
+    /native readonly text input.*focusable and selectable with keyboard\/pointer/
+  );
+  for (const other of screens.filter((s) => s.id !== failure.id)) {
+    assert.ok(
+      !other.text.includes("DEMO-C14-NOT-A-REAL-TOKEN"),
+      `issuance value must not leak into ${other.name}`
+    );
+    assert.ok(
+      !other.recoveryField,
+      `recovery field must not persist in ${other.name}`
+    );
+  }
 });
