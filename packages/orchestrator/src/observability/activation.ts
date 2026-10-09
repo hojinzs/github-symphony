@@ -36,3 +36,30 @@ export async function initializeLogs(
     injected.options
   );
 }
+
+/** Metrics retain the same explicit injection-only production gate as Logs. */
+export async function initializeMetrics(
+  enabled: boolean,
+  injected?: {
+    identity: import("./resource.js").ProjectResourceIdentity;
+    destination: import("./transport.js").LogDestination;
+    options?: Parameters<
+      typeof import("./metric-pipeline.js").createMetricPipeline
+    >[2];
+  }
+): Promise<
+  | ReturnType<typeof import("./metric-pipeline.js").createMetricPipeline>
+  | undefined
+> {
+  if (!enabled) return undefined;
+  if (!injected) {
+    assertOtlpProductionCapability(enabled);
+    return undefined;
+  }
+  const { createMetricPipeline } = await import("./metric-pipeline.js");
+  return createMetricPipeline(
+    injected.identity,
+    injected.destination,
+    injected.options
+  );
+}
