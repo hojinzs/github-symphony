@@ -12,6 +12,7 @@ import {
 import {
   CliProcess,
   LocalLifecycleAdapter,
+  LocalReadAdapter,
   projectEnvironment,
   type AgentRegistry,
   type CliProcessOptions,
@@ -22,7 +23,7 @@ import {
 } from "@gh-symphony/management-agent";
 import { LIMITS } from "@gh-symphony/management-protocol";
 import { inspectExpectedStopTarget } from "./expected-stop.js";
-import { daemonPidPath } from "./config.js";
+import { daemonPidPath, projectConfigDir } from "./config.js";
 import { resolveCanonicalRuntime } from "./local-project-runtime.js";
 export { AgentRegistry } from "@gh-symphony/management-agent";
 export type {
@@ -310,4 +311,25 @@ export function createLocalManagementAdapter(
     adapter: new LocalLifecycleAdapter(registry, reader, options),
     reader,
   };
+}
+
+/** Separate on-demand read lane; canonical runtime ownership stays in the CLI. */
+export function createLocalReadAdapter(
+  registry: AgentRegistry,
+  configDir: string
+): LocalReadAdapter {
+  return new LocalReadAdapter(registry, async (project) => {
+    const runtime = await resolveCanonicalRuntime(
+      configDir,
+      project.canonicalPath
+    );
+    if (!runtime) return null;
+    return {
+      projectDirectory: projectConfigDir(
+        await realpath(runtime.configDir),
+        runtime.runtimeProjectId
+      ),
+      runtimeProjectId: runtime.runtimeProjectId,
+    };
+  });
 }

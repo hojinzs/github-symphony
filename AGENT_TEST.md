@@ -442,6 +442,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry                                            |
 | `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                                                              |
 | `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe                         |
+| `e2e/scenarios/28-bounded-local-reads.md`               | C09 CP-12/15: contained known-run streams, bounded history/text, append/EOF/reset, unavailable/expired/revoked reads, safe metadata and five assertion probes       |
 | `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                          |
 | `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                    |
@@ -548,3 +549,13 @@ six forbidden-condition assertion probes. Run `node e2e/management-agent-contrac
 after `pnpm build` to report actual host OS evidence separately. See
 [TC-27](e2e/scenarios/27-local-management-agent.md) for scope and assertions.
 Native service installation/isolation remains outside this local adapter slice.
+
+### Bounded management read cases (C09)
+
+Run `./e2e/run-bounded-read-e2e.sh` for isolated Linux Docker evidence and five
+forbidden-result probes with named assertion readback. Run
+`node e2e/bounded-read-contract.mjs` after `pnpm build` for actual host OS evidence
+separately. [TC-28](e2e/scenarios/28-bounded-local-reads.md) covers CP-12/15 and
+applicable U04/U07 retained history and log follow/reset paths through the bundled
+CLI factory, an actual daemon and independently persisted store records. Native
+service isolation and offline HTTP/UI behavior are outside this slice.
