@@ -31,6 +31,8 @@ try {
   const packagedFiles = new Set(packOutput[0].files.map(({ path }) => path));
 
   for (const requiredFile of [
+    "dist/management-local.js",
+    "dist/management-local.d.ts",
     "dist/mcp-server.js",
     "dist/git-credential-helper.js",
   ]) {
@@ -40,6 +42,12 @@ try {
   }
 
   const packageRoot = process.cwd();
+  run(process.execPath, [
+    "--input-type=module",
+    "-e",
+    'import {pathToFileURL} from "node:url"; const module = await import(pathToFileURL(process.argv[1]).href); if(typeof module.AgentRegistry !== "function" || typeof module.createLocalManagementAdapter !== "function") throw new Error("Local management module exports unavailable");',
+    join(packageRoot, "dist/management-local.js"),
+  ]);
   const initializeRequest = `${JSON.stringify({
     jsonrpc: "2.0",
     id: 1,

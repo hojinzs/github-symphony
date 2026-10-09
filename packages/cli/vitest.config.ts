@@ -10,6 +10,14 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@gh-symphony/management-agent": resolve(
+        packageRoot,
+        "../management-agent/src/index.ts"
+      ),
+      "@gh-symphony/management-protocol": resolve(
+        packageRoot,
+        "../management-protocol/src/index.ts"
+      ),
       "@gh-symphony/control-plane": resolve(
         packageRoot,
         "../control-plane/src/index.ts"

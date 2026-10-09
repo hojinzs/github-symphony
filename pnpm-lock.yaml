@@ -63,6 +63,12 @@ importers:
       '@gh-symphony/dashboard':
         specifier: workspace:*
         version: link:../dashboard
+      '@gh-symphony/management-agent':
+        specifier: workspace:*
+        version: link:../management-agent
+      '@gh-symphony/management-protocol':
+        specifier: workspace:*
+        version: link:../management-protocol
       '@gh-symphony/orchestrator':
         specifier: workspace:*
         version: link:../orchestrator
@@ -169,6 +175,15 @@ importers:
       '@gh-symphony/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/management-agent:
+    dependencies:
+      '@gh-symphony/management-protocol':
+        specifier: workspace:*
+        version: link:../management-protocol
+      '@gh-symphony/orchestrator':
+        specifier: workspace:*
+        version: link:../orchestrator
 
   packages/management-protocol: {}
 
@@ -2390,6 +2405,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'

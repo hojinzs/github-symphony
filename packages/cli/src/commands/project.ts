@@ -22,6 +22,7 @@ import {
   type CliProjectConfig,
   withConfigLock,
 } from "../config.js";
+import { resolveCanonicalRuntime } from "../local-project-runtime.js";
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
 import { standaloneProjectId } from "../standalone-project.js";
 import { resolveFileTrackerIssuesPath } from "../file-tracker-path.js";
@@ -455,6 +456,23 @@ const handler = async (
     let projectId = standaloneProjectId(resolvedProjectDir);
     let runtimeConfigDir = options.configDir;
     let project = await loadProjectConfig(runtimeConfigDir, projectId);
+    try {
+      const canonicalRuntime = await resolveCanonicalRuntime(
+        options.configDir,
+        resolvedProjectDir
+      );
+      if (canonicalRuntime) {
+        project = canonicalRuntime.project;
+        projectId = canonicalRuntime.runtimeProjectId;
+        runtimeConfigDir = canonicalRuntime.configDir;
+      }
+    } catch (error) {
+      process.stderr.write(
+        `Unable to resolve project runtime: ${error instanceof Error ? error.message : String(error)}\n`
+      );
+      process.exitCode = 1;
+      return;
+    }
     if (!project && subcommand === "stop") {
       const legacyConfigDir = join(resolvedProjectDir, REPO_RUNTIME_DIR);
       const legacyProject = await loadProjectConfig(

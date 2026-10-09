@@ -864,3 +864,28 @@ The internal [management protocol](../packages/management-protocol/README.md)
 package exports fixed v1 wire/capacity contracts. It introduces no runtime
 configuration or environment variables. Agent allowlists and fleet service
 configuration remain owned by their separate implementation slices.
+
+### Local management registry and adapter (C03)
+
+The internal [management agent](../packages/management-agent/README.md) accepts
+an explicit user-owned data directory through `AgentRegistry.open`. It stores
+`registry.json` at mode `0600` in a canonical mode `0700` directory and holds
+`agent.lock` while open. Enrollment identity and the explicit project allowlist
+are preserved across restarts. The server must be an HTTPS origin. There is no
+new environment variable or user-facing agent command in this slice. Removing
+a project registration does not stop its existing orchestrator. Keep backups
+private because the registry contains the environment-scoped credential.
+
+The bundled `@gh-symphony/cli/management-local` factory accepts trusted local
+`configDir`, an absolute `executable`, optional `argumentPrefix`, and an explicit
+`launchContext`. Foreground launch uses the existing noninteractive daemon command.
+A native-service context requires `launchIsolatedProject`; OS-specific service
+packaging must independently verify that agent service stop/restart/uninstall
+preserves orchestrators. The default effect/observation deadline is 60 seconds.
+Management/broker variables beginning `GH_SYMPHONY_MANAGEMENT_`,
+`GH_SYMPHONY_AGENT_`, `GH_SYMPHONY_CONTROL_PLANE_`, or `SYMPHONY_ORCHESTRATOR_`
+are excluded from CLI subprocess environments. Any variable whose value contains
+the persisted or explicitly supplied management credential is also excluded.
+Project/runtime credentials continue to resolve locally; prompt and environment
+contents are never included in inventory. CLI/protocol versions stay distinct;
+inventory adds only a workflow digest and normalized non-secret tracker scope.

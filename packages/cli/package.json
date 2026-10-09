@@ -15,6 +15,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./management-local": {
+      "types": "./dist/management-local.d.ts",
+      "import": "./dist/management-local.js"
     }
   },
   "files": [
@@ -57,6 +61,8 @@
     "@gh-symphony/tool-github-graphql": "workspace:*",
     "@gh-symphony/tool-linear-graphql": "workspace:*",
     "@gh-symphony/worker": "workspace:*",
-    "tsup": "^8.5.1"
+    "tsup": "^8.5.1",
+    "@gh-symphony/management-agent": "workspace:*",
+    "@gh-symphony/management-protocol": "workspace:*"
   }
 }
