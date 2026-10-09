@@ -41,6 +41,12 @@ try {
   const cases = [
     [
       "commands",
+      "updated.completedAt = receivedAt;",
+      "updated.completedAt = new Date(now().getTime() + 1000).toISOString();",
+      "CP10 skewed result uses authoritative receipt time",
+    ],
+    [
+      "commands",
       "if (!target.online)",
       "if (false)",
       "CP06 offline submission rejected",
@@ -176,7 +182,7 @@ try {
     }
   }
   console.log(
-    `C07 black-box forbidden-condition probes passed (17 assertions; ${process.platform})`
+    `C07 black-box forbidden-condition probes passed (18 assertions; ${process.platform})`
   );
 } finally {
   rmSync(dir, { recursive: true, force: true });

@@ -144,9 +144,11 @@ results may transfer ownership for acknowledgment after a lost response.
 It never invokes a local operation or promises exactly-once effects.
 
 Agent results reconcile executing/unknown records and identical terminal replay
-is acknowledged without rewriting evidence. Results cannot precede the claim,
-come from the future, conflict with a terminal outcome or rewrite an explicitly
-closed unknown. Closure requires acknowledgment and a bounded nonempty reason;
+is acknowledged without rewriting evidence or first completion time. Agent
+`observedAt` is evidence only and may precede the claim or be in the future due
+to clock skew; terminal `completedAt` uses the Control Plane receipt time.
+Results cannot conflict with a terminal outcome or rewrite an explicitly closed
+unknown. Closure requires acknowledgment and a bounded nonempty reason;
 it atomically audits local-owner/time/reason while preserving unknown state.
 A fresh command gets a new identity and fresh target checks.
 

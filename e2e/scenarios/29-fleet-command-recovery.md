@@ -28,21 +28,22 @@ future agent implementation.
 | CP-19 marker              | Repeat journal effect attempt                                                 | Durable compare/update permits one fixture invocation                                        |
 | CP-07 lost result         | Journal stores result, no upload, both sides reopen                           | Ledger becomes unknown; original durable result reconciles original ID                       |
 | CP-07 lost acknowledgment | Result commits, response ignored, Control Plane restarts                      | Identical terminal replay acknowledged                                                       |
+| CP-10 clock skew          | Agent observations behind/ahead; result replay after receipt time advances    | Skew accepted; first Control Plane completion time preserved                                 |
 | CP-09 interrupted         | Unknown record then replacement click                                         | Project remains fenced; no replacement queue                                                 |
 | CP-09 explicit closure    | Acknowledgment and reason                                                     | State remains unknown, actor/reason/time audited; fresh ID allowed                           |
 | CP-19 reconnect           | Old and new untransferred sessions replay                                     | Stale session rejected; new session requires same-agent transfer                             |
 | CP-19 transfer            | Transfer interrupted execution                                                | Original claim retained; unknown permits reconciliation only                                 |
 | CP-09 history             | Query after explicit closure                                                  | Closed unknown remains visible                                                               |
 
-The positive script prints `reached:` before each of 17 assertions.
+The positive script prints `reached:` before each of 18 assertions.
 The forbidden-condition runner copies compiled artifacts into an isolated
-temporary directory, restores each mutation, and proves all 17 assertions fail
+temporary directory, restores each mutation, and proves all 18 assertions fail
 with their matching reached marker and an AssertionError. Two probes plant
 forbidden conditions in the independent peer/journal boundary (effect marker
 and fresh identity); the other probes alter compiled ledger behavior.
 
 Unit coverage complements these probes with actor-scoped key conflicts,
-invalid/unmanaged/unsupported targets, capacity, result evidence/time conflicts,
+invalid/unmanaged/unsupported targets, capacity, result evidence conflicts and clock-skew reconciliation,
 terminal reconnect, revocation/audit rollback, bounded project-bound cursors,
 90-day pruning, indefinite unresolved retention and late-result receipt retention.
 

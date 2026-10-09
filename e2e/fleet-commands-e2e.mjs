@@ -143,7 +143,7 @@ try {
     kind: "command",
     commandId: accepted.commandId,
     state: "succeeded",
-    observedAt: new Date(time).toISOString(),
+    observedAt: new Date(time - 300_000).toISOString(),
     evidence: { ready: true },
   };
   journal
@@ -171,6 +171,8 @@ try {
   acknowledgmentSchema.parse(
     (await api.call("result", identity, upload)).value
   );
+  time += 1_000;
+  upload.result.observedAt = new Date(time + 300_000).toISOString();
   await api.stop();
   api = await peer();
   const acknowledged = await api.call("result", identity, upload);
@@ -178,6 +180,11 @@ try {
     !acknowledged.error &&
       (await api.call("get", accepted.commandId)).value.state === "succeeded",
     "CP07 durable result reconciled and lost acknowledgment replayed"
+  );
+  check(
+    (await api.call("get", accepted.commandId)).value.completedAt ===
+      new Date(time - 1_000).toISOString(),
+    "CP10 skewed result uses authoritative receipt time"
   );
 
   accepted = (await submit("unresolved", "stop")).value;

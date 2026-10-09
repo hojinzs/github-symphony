@@ -544,23 +544,14 @@ export function createCommandService(
             "command_conflict",
             "Explicitly closed outcome cannot be rewritten"
           );
-        const observed = Date.parse(result.observedAt);
-        if (
-          observed < Date.parse(command.claimedAt!) ||
-          observed > now().getTime()
-        )
-          throw new FleetError(
-            "invalid_input",
-            "Result observation is outside execution lifetime"
-          );
+        // Agent observation time is evidence only; authoritative time is local receipt.
+        const receivedAt = now().toISOString();
         const same =
           command.state === result.state &&
           command.evidence !== undefined &&
           json(command.evidence) === json(result.evidence) &&
           JSON.stringify(command.diagnostic ?? null) ===
-            JSON.stringify(result.diagnostic ?? null) &&
-          (command.completedAt === undefined ||
-            command.completedAt === new Date(observed).toISOString());
+            JSON.stringify(result.diagnostic ?? null);
         if (command.state === "succeeded" || command.state === "failed") {
           if (!same)
             throw new FleetError(
@@ -575,8 +566,7 @@ export function createCommandService(
           };
           if (result.diagnostic) updated.diagnostic = result.diagnostic;
           else delete updated.diagnostic;
-          if (result.state !== "unknown")
-            updated.completedAt = new Date(observed).toISOString();
+          if (result.state !== "unknown") updated.completedAt = receivedAt;
           save(updated);
           audit(
             updated,
@@ -590,7 +580,7 @@ export function createCommandService(
           environmentId: request.environmentId,
           sessionId: request.sessionId,
           requestId: request.requestId,
-          receivedAt: now().toISOString(),
+          receivedAt,
         };
       });
     },

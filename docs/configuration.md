@@ -915,6 +915,10 @@ permissive CORS; forwarded headers cannot authorize a different origin.
 
 `createCommandService(store, { peers, now? })` requires synchronous project and
 authenticated-current-session readers on the shared SQLite connection.
+Agent result `observedAt` is evidence only: clock skew does not reject a claimed
+result, and terminal `completedAt` uses the first Control Plane receipt time.
+Replayed results compare outcome/evidence/diagnostic and preserve that receipt time.
+
 `now` is an internal clock injection, not a CLI flag or environment variable.
 C01 defines the fixed 30-second claim deadline, 60-second execution observation
 timeout, four-command per-agent capacity and 90-day terminal retention.

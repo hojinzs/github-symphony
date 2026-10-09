@@ -42,8 +42,14 @@ effects. Execution timeout is 60 seconds from the original claim. The agent's
 durable effect marker and actual process checks belong to agent/adapter slices;
 C07 must not claim exactly-once effects.
 
+Explicit repository-local divergence from the approved management design:
+transfer immediately converts executing → unknown while preserving the original
+claim time. It grants reconciliation only, and late results still reconcile.
+
 Terminal results reconcile unknown commands without replacement IDs and are
-idempotently acknowledged. Unknown closure requires explicit acknowledgment
+idempotently acknowledged. Agent `observedAt` never controls acceptance or
+completion time; terminal completion uses the first Control Plane receipt time.
+Unknown closure requires explicit acknowledgment
 and a nonempty reason, is audited atomically, and preserves unknown state.
 Open unresolved records cannot be pruned or bypassed. Closed records retain
 actor/time/reason and use fresh IDs for subsequent commands.

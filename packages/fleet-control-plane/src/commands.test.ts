@@ -232,7 +232,7 @@ it("reconciles a durable lost result after restart and acknowledges identical te
   const final = await reopened.getCommand(c.commandId);
   expect(final).toMatchObject({
     state: "succeeded",
-    completedAt: "2026-10-09T12:00:05.000Z",
+    completedAt: f.now().toISOString(),
     evidence: { ready: true },
   });
   await reopened.publishResult(f.identity, {
@@ -256,35 +256,40 @@ it("reconciles a durable lost result after restart and acknowledges identical te
   ).rejects.toMatchObject({ code: "command_conflict" });
 });
 
-it("requires claimed results and rejects future or pre-claim evidence", async () => {
+it("requires claimed results and reconciles clock-skewed evidence using receipt time", async () => {
   const f = await setup();
   const api = f.service();
-  const c = await api.submitCommand(f.project(), "result-invalid", {
-    operation: "start",
-  });
-  const result = {
-    kind: "command" as const,
-    commandId: c.commandId,
-    state: "failed" as const,
-    observedAt: f.now().toISOString(),
-    evidence: null,
-  };
-  await expect(
-    api.publishResult(f.identity, { ...f.envelope(), result })
-  ).rejects.toMatchObject({ code: "claim_owner_conflict" });
-  await api.claim(f.identity, { ...f.envelope(), commandId: c.commandId });
   for (const observedAt of [
-    "2026-10-09T11:59:59.000Z",
-    "2026-10-09T12:00:01.000Z",
+    "2026-10-09T11:59:55.000Z",
+    "2026-10-09T12:05:00.000Z",
   ]) {
+    const c = await api.submitCommand(f.project(), observedAt, {
+      operation: "start",
+    });
+    const result = {
+      kind: "command" as const,
+      commandId: c.commandId,
+      state: "succeeded" as const,
+      observedAt,
+      evidence: { ready: true },
+    };
     await expect(
-      api.publishResult(f.identity, {
-        ...f.envelope(),
-        result: { ...result, observedAt },
-      })
-    ).rejects.toMatchObject({ code: "invalid_input" });
+      api.publishResult(f.identity, { ...f.envelope(), result })
+    ).rejects.toMatchObject({ code: "claim_owner_conflict" });
+    await api.claim(f.identity, { ...f.envelope(), commandId: c.commandId });
+    f.advance(60_000);
+    api.recover();
+    const receipt = f.now().toISOString();
+    await api.publishResult(f.identity, { ...f.envelope(), result });
+    expect((await api.getCommand(c.commandId)).completedAt).toBe(receipt);
+    f.advance(1_000);
+    await api.publishResult(f.identity, {
+      ...f.envelope(),
+      result: { ...result, observedAt: "2020-01-01T00:00:00.000Z" },
+    });
+    expect((await api.getCommand(c.commandId)).completedAt).toBe(receipt);
+    expect((await api.getCommand(c.commandId)).state).toBe("succeeded");
   }
-  expect((await api.getCommand(c.commandId)).state).toBe("executing");
 });
 
 it("audits explicit unknown closure without inventing success or allowing late replacement results", async () => {

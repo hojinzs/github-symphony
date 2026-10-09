@@ -74,7 +74,7 @@ export const FLEET_MIGRATIONS: readonly Migration[] = [
       CREATE UNIQUE INDEX lifecycle_project_fence ON lifecycle_commands(project_id)
         WHERE state IN ('accepted', 'executing') OR (state = 'unknown' AND closed_at IS NULL);
       CREATE INDEX lifecycle_environment_state ON lifecycle_commands(environment_id, state);
-      CREATE INDEX lifecycle_project_history ON lifecycle_commands(project_id, submitted_at, command_id);
+      CREATE INDEX lifecycle_project_history ON lifecycle_commands(project_id);
     `,
   },
 ];

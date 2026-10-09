@@ -565,7 +565,8 @@ service isolation and offline HTTP/UI behavior are outside this slice.
 
 `pnpm --filter @gh-symphony/fleet-control-plane test` includes real enrolled
 credentials, independent typed project/session fixtures, reopen, invalid inputs,
-capacity, deadline/replay, explicit closure, history, result conflicts, audit
+capacity, deadline/replay, explicit closure, history, result conflicts, CP-10
+clock-skew reconciliation with authoritative receipt time, audit
 rollback and retention (including 90 days after late result receipt).
 [TC-29](e2e/scenarios/29-fleet-command-recovery.md) defines CP-06/07/09/18/19.
 After `pnpm build`, run `node e2e/fleet-commands-e2e.mjs` and
@@ -573,7 +574,7 @@ After `pnpm build`, run `node e2e/fleet-commands-e2e.mjs` and
 `./e2e/run-fleet-commands-e2e.sh` for isolated Linux Docker.
 Separate processes/SQLite connections race authoritative expiry and claim;
 an independent durable agent-journal fixture supplies receipt/effect/result
-boundaries. Every assertion prints its reached marker; 17 isolated mutations
+boundaries. Every assertion prints its reached marker; 18 isolated mutations
 prove forbidden conditions fail. Report macOS tests and Linux container tests
 separately. These are ledger/protocol integration checks, not native OS
 orchestrator lifecycle or production agent-journal acceptance.
