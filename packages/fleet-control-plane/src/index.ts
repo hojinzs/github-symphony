@@ -28,3 +28,10 @@ export {
   type BrowserRequest,
   type BrowserSession,
 } from "./browser-security.js";
+export {
+  createCommandService,
+  type CommandService,
+  type CommandOptions,
+  type CommandPeers,
+  type CommandTarget,
+} from "./commands.js";

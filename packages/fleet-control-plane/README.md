@@ -101,12 +101,66 @@ runs both in Linux Docker. The independent HTTP/session/command fixture is test
 infrastructure, not a shipped fleet server. These checks do not validate native
 service isolation or management of actual orchestrator processes.
 
-## Command ledger schema (C07)
+## Lifecycle command ledger (C07)
 
-Schema version 2 adds `lifecycle_commands`. It retains submission identity,
-ownership, claim/completion timestamps, result evidence and explicit unknown
-closure metadata. SQLite enforces actor-scoped idempotency and one outstanding
-command per project, including unresolved unknown records. An explicit closure
-releases that fence while preserving the unknown outcome. This storage slice
-does not yet expose a lifecycle service or HTTP routes; see the
-[C07 implementation plan](../../docs/designs/2026-10-09-control-plane-c07-plan.md).
+`createCommandService(store, { peers, now? })` implements trusted library APIs
+for `submitCommand`, `getCommand`, `listCommands`, `closeUnresolved`, agent
+`claim` and `publishResult`. HTTP routing remains consumer-owned; browser
+mutations require local-owner resolution and CSRF checks before calling them.
+Agent methods take an authenticated credential identity separately from the
+validated C01 envelope.
+
+`CommandPeers.resolveTarget(database, projectId)` synchronously reads the
+peer-owned project/session projection on the supplied transaction connection.
+It returns stable project/environment/local identities, enrolled agent/current
+session and managed/online/valid/supported flags. Missing projects are rejected.
+`verifyAgent(database, identity)` must check both the C04 enrollment credential
+and the exclusive current session. Never implement it as an unconditional
+success or only a session-ID comparison. Both hooks must be synchronous and
+must not open a nested transaction or perform network work.
+
+Actor/key deduplication happens before availability checks. A replay returns the
+original acceptance receipt (command ID and `accepted`), even if the durable
+command has since completed; `getCommand` supplies its current outcome.
+Different project/operation reuse conflicts. Fresh submissions reject offline,
+unmanaged, invalid, unsupported and revoked targets, outstanding project work
+and more than four active/unresolved commands per environment.
+
+Schema v2 enforces one outstanding command per project, including unresolved
+unknown records. A first claim and the 30-second expiry race in one immediate
+transaction. At the exact deadline, expiry commits before a claim conflict is
+returned. Same-owner replay preserves original ownership and claim time; after
+60 seconds without a result, executing becomes unknown. Accepted records only
+expire, including removal or revocation. Terminal/unknown replay conveys no new
+execution permission; agent-owned journal effect markers remain required.
+
+`recover()` sweeps expired accepted and overdue executing records. The hosting
+service must call it on startup and periodically, and mark its peer-owned
+environments offline on restart. Reads/claims also check relevant deadlines.
+`transferOwnership(identity, commandId)` accepts only the same enrolled agent's
+current authenticated session. It preserves original claim time, fences the old
+session and changes executing to unknown for reconciliation only. Terminal
+results may transfer ownership for acknowledgment after a lost response.
+It never invokes a local operation or promises exactly-once effects.
+
+Agent results reconcile executing/unknown records and identical terminal replay
+is acknowledged without rewriting evidence. Results cannot precede the claim,
+come from the future, conflict with a terminal outcome or rewrite an explicitly
+closed unknown. Closure requires acknowledgment and a bounded nonempty reason;
+it atomically audits local-owner/time/reason while preserving unknown state.
+A fresh command gets a new identity and fresh target checks.
+
+Call `invalidateEnvironment(database, environmentId)` inside C04's
+`invalidateManagementAccess` callback on the same connection/transaction; it
+expires unclaimed commands and writes audits with revocation. Combine it with
+peer session invalidation. `invalidateProject(projectId)` expires unclaimed
+removed-project work. Claimed work remains recoverable.
+
+`prune()` applies the protocol default 90-day retention to completed, expired
+or explicitly closed unknown records. Unresolved command records and their
+audits remain fenced and retained. History is newest-first with bounded pages
+and project-bound command-ID cursors. Pruned cursors are rejected explicitly.
+No new fleet listener or CLI command is shipped by this library slice.
+
+The [C07 implementation plan](../../docs/designs/2026-10-09-control-plane-c07-plan.md)
+records the package boundaries and remaining black-box verification.
