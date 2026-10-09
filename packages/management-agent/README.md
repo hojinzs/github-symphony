@@ -173,3 +173,12 @@ the signal to their own client and snapshot/delivery operations too.
 This slice provides the foreground runtime library. Guided setup, fleet HTTP
 route assembly, inventory projection, delivery handlers and native service
 packaging retain their sibling ownership; no existing project/web command changes.
+
+The CLI ships these exports as `@gh-symphony/cli/management-agent` with TypeScript
+declarations; internal packages stay private. Malformed persisted JSON reports a
+fixed diagnostic without including rejected credential bytes.
+
+[TC-29](../../e2e/scenarios/29-agent-outbound-transport.md) tests actual bundled
+foreground/TLS/SQLite boundaries and a real local orchestrator. Host macOS and
+Linux Docker runs are separate OS evidence; native-service CP-22/23 remain out
+of scope.

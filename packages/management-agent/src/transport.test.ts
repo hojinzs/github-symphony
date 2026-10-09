@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:https";
 import {
   mkdtemp,
   readFile,
+  writeFile,
   realpath,
   rm,
   chmod,
@@ -226,4 +227,27 @@ it("rejects insecure origins and unsafe credential paths without repairing permi
   await expect(AgentRegistry.open(join(root, "agent"))).rejects.toThrow(
     "user-owned"
   );
+});
+
+it("suppresses credential bytes from malformed persisted JSON diagnostics", async () => {
+  await registry.close();
+  await writeFile(
+    join(root, "agent", "registry.json"),
+    "fixture-only-private-value",
+    { mode: 0o600 }
+  );
+  await expect(AgentRegistry.open(join(root, "agent"))).rejects.toThrow(
+    /^Invalid agent registry$/
+  );
+});
+
+it("rejects an untrusted TLS peer before sending its bearer credential", async () => {
+  await registry.saveIdentity(origin, enrollment);
+  await expect(
+    createAgentTransport({
+      serverOrigin: origin,
+      identity: () => registry.identity,
+    }).poll(envelope())
+  ).rejects.toThrow("network_failure");
+  expect(requests).toEqual([]);
 });

@@ -335,7 +335,12 @@ function validateIdentity(identity: AgentIdentity): void {
     throw new Error("Invalid agent server origin");
 }
 function parseState(raw: string): RegistryState {
-  const value = JSON.parse(raw) as RegistryState;
+  let value: RegistryState;
+  try {
+    value = JSON.parse(raw) as RegistryState;
+  } catch {
+    throw new Error("Invalid agent registry");
+  }
   if (
     value.version !== 1 ||
     !Array.isArray(value.projects) ||
