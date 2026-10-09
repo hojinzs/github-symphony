@@ -25,11 +25,14 @@ export async function initializeLogs(
   ReturnType<typeof import("./log-pipeline.js").createLogPipeline> | undefined
 > {
   if (!enabled) return undefined;
-  if (!injected) assertOtlpProductionCapability(enabled);
+  if (!injected) {
+    assertOtlpProductionCapability(enabled);
+    return undefined;
+  }
   const { createLogPipeline } = await import("./log-pipeline.js");
   return createLogPipeline(
-    injected!.identity,
-    injected!.destination,
-    injected!.options
+    injected.identity,
+    injected.destination,
+    injected.options
   );
 }

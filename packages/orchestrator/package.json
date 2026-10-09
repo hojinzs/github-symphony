@@ -51,7 +51,6 @@
     "@gh-symphony/worker": "workspace:*",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/api-logs": "0.223.0",
-    "@opentelemetry/exporter-logs-otlp-proto": "0.223.0",
     "@opentelemetry/otlp-transformer": "0.223.0",
     "@opentelemetry/resources": "2.12.0",
     "@opentelemetry/sdk-logs": "0.223.0"
