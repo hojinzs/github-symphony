@@ -45,11 +45,12 @@ async function fixture() {
   };
   const update = async (
     enabled: boolean,
-    endpoint = "https://collector.example"
+    endpoint = "https://collector.example",
+    resourceYaml = ""
   ) =>
     writeFile(
       workflow,
-      `---\ntracker:\n  kind: file\n  provider:\n    path: ${issues}\nworkspace:\n  root: ${project.workspaceDir}\nobservability:\n  otlp:\n    enabled: ${enabled}\n    endpoint: ${endpoint}\n    headers:\n      Authorization: $H_COLLECTOR_AUTH\n---\nWork on {{issue.identifier}}.\n`
+      `---\ntracker:\n  kind: file\n  provider:\n    path: ${issues}\nworkspace:\n  root: ${project.workspaceDir}\nobservability:\n  otlp:\n    enabled: ${enabled}\n    endpoint: ${endpoint}${enabled ? "\n    headers:\n      Authorization: $H_COLLECTOR_AUTH" : ""}${resourceYaml}\n---\nWork on {{issue.identifier}}.\n`
     );
   vi.stubEnv("H_COLLECTOR_AUTH", "Bearer secret-h");
   const store = new OrchestratorFsStore(join(root, "runtime"));
@@ -139,6 +140,22 @@ it("OT-10/12: committed service status preserves applied, invalid reload, revert
     H_COLLECTOR_AUTH: "Bearer secret-h",
   });
   expect(child).not.toHaveProperty("H_COLLECTOR_AUTH");
+  await f.update(
+    false,
+    "https://collector.example",
+    "\nruntime:\n  kind: custom\n  command: echo test\n  auth:\n    env: H_COLLECTOR_AUTH"
+  );
+  const sharedName = (await service.runOnce()) as typeof first & {
+    telemetry: TelemetryStatus;
+  };
+  expect(sharedName.workflow).toMatchObject({
+    isValid: false,
+    usedLastKnownGood: true,
+  });
+  expect(sharedName.lastError).toContain(
+    "conflicts with agent/tracker authentication"
+  );
+  expect(sharedName.telemetry).toEqual(status.telemetry);
   await f.update(true, "https://user:secret-invalid@collector.example");
   const invalid = (await service.runOnce()) as typeof first & {
     telemetry: TelemetryStatus;
@@ -148,6 +165,19 @@ it("OT-10/12: committed service status preserves applied, invalid reload, revert
     usedLastKnownGood: true,
   });
   expect(invalid.telemetry).toEqual(status.telemetry);
+  await f.update(
+    true,
+    "https://collector.example",
+    "\n    resource_attributes:\n      service.name: invalid-service"
+  );
+  const invalidResource = (await service.runOnce()) as typeof first & {
+    telemetry: TelemetryStatus;
+  };
+  expect(invalidResource.workflow).toMatchObject({
+    isValid: false,
+    usedLastKnownGood: true,
+  });
+  expect(invalidResource.telemetry).toEqual(status.telemetry);
   await f.update(true);
   await service.runOnce();
   expect(((await service.status()) as typeof status).telemetry).toMatchObject({

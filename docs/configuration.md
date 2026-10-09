@@ -834,6 +834,8 @@ concurrently with one shared deadline of at most five seconds. Expired requests
 are aborted and remaining telemetry discarded. Nothing replays persisted events
 or historical decisions after restart. Applied and pending exporter credential
 names remain excluded from workers/hooks for the lifetime of the project owner.
+Reload cannot repurpose an applied exporter name as agent/tracker authentication
+until restart; such a conflict follows the invalid-workflow reload path.
 
 Supported fields are `enabled` (boolean), `endpoint` (non-empty string),
 `protocol` (`http/protobuf`), `headers`, `resource_attributes`, and signal
@@ -881,7 +883,8 @@ references and ignores invalid ambient transport settings. Resources merge
 `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, then YAML; secret-bearing
 resources are rejected by the existing redactor, with only the offending key
 named in the error. Reserved identity key conflict validation and the 16 custom-key
-limit are enforced by orchestrator-owned providers (see the
+limit are validated by the SDK-free owner before last-known-good persistence and
+rechecked by orchestrator-owned providers (see the
 [design’s Resource identity section](designs/2026-10-04-otlp-export-design.md#resource-identity)).
 Safe diagnostics contain only
 endpoint, protocol, header names, resource metadata, auth-reference names and

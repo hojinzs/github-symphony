@@ -19,10 +19,12 @@ afterEach(() => vi.useRealTimers());
 
 describe("OTLP lifecycle", () => {
   it("OT-03: disabled startup constructs nothing; production enable defaults off", async () => {
+    vi.useFakeTimers();
     const createPipeline = vi.fn();
     const owner = await createTelemetryLifecycle(config(false), {
       createPipeline,
     });
+    expect(vi.getTimerCount()).toBe(0);
     owner.publication.offerSnapshot?.({} as never);
     await owner.shutdown();
     expect(createPipeline).not.toHaveBeenCalled();

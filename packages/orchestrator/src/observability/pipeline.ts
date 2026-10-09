@@ -18,7 +18,7 @@ export function createProjectPipeline(
 ): TelemetryPipeline {
   const resourceIdentity = {
     ...identity,
-    instanceId: randomUUID(),
+    instanceId: identity.instanceId ?? randomUUID(),
     attributes: { ...config.resourceAttributes },
   };
   const logs = createLogPipeline(resourceIdentity, config.logs!, options.logs);

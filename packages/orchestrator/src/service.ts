@@ -3,6 +3,7 @@ import {
   type TelemetryStartup,
   type TelemetryStatus,
 } from "./observability/lifecycle.js";
+import { resolveProjectResourceAttributes } from "./observability/resource-validation.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -3076,6 +3077,7 @@ export class OrchestratorService {
                 return createProjectPipeline(
                   {
                     version: startup.version!,
+                    instanceId: this.publicationInstanceId,
                     projectId: this.projectConfig.projectId,
                     projectSlug: this.projectConfig.slug,
                     trackerKind: this.projectConfig.tracker.adapter,
@@ -3123,13 +3125,23 @@ export class OrchestratorService {
         // Validate ownership before resolving values, and before persisting LKG.
         validateExporterCredentialNames(
           resolution.workflow,
-          resolveTrackerSecretEnvironmentNames(trackerAdapter)
+          resolveTrackerSecretEnvironmentNames(trackerAdapter),
+          this.telemetryCredentialNames
         );
         // Owner-only validation; resolved credentials never enter workflow caches.
-        resolveOtlpConfiguration(
+        const config = resolveOtlpConfiguration(
           resolution.workflow.observability?.otlp,
           environment
         );
+        if (config.enabled)
+          resolveProjectResourceAttributes({
+            version: this.dependencies.telemetry?.version ?? "unknown",
+            instanceId: this.publicationInstanceId,
+            projectId: tenant.projectId,
+            projectSlug: tenant.slug,
+            trackerKind: tenant.tracker.adapter,
+            attributes: config.resourceAttributes,
+          });
       } catch (error) {
         validatedResolution = {
           ...resolution,
