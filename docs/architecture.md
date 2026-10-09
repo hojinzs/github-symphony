@@ -267,6 +267,8 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 6. Observability — events and status surfaces
 
+- Internal lifecycle owner: `packages/orchestrator/src/observability/lifecycle.ts` freezes startup transport settings, compares validated reload candidates privately (including header values), and exposes safe applied/pending descriptors. Disable edits retain the active startup provider until restart; revert clears pending state. Publication and shutdown failures remain isolated from coordination health. Shutdown stops offers and gives the owned pipeline one five-second deadline. This SDK-free module is injection-only until service composition is completed; production activation defaults off.
+
 <<<<<<< HEAD
 
 - # Bounded local management reads: `packages/management-agent/src/local-read.ts` (C09, #1013) projects run metadata and reads fixed contained streams through a trusted canonical-runtime resolver, with signed generation/byte cursors and a 256 KiB wire limit. This Integration/Observability management extension does not alter orchestration or the upstream specification.
