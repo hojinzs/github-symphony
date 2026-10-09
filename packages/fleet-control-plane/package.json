@@ -1,0 +1,29 @@
+{
+  "name": "@gh-symphony/fleet-control-plane",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Private fleet configuration, SQLite persistence and enrollment services",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.typecheck.json"
+  },
+  "dependencies": {
+    "@gh-symphony/management-protocol": "workspace:*"
+  }
+}
