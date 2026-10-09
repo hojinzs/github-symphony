@@ -190,7 +190,11 @@ export function createOwnedMetricProvider(identity: ProjectResourceIdentity) {
         "recovered",
         "skipped",
       ] as const)
-        outcomes.add(latest.tickOutcomes[outcome], { outcome }, ROOT_CONTEXT);
+        if (
+          Number.isSafeInteger(latest.tickOutcomes[outcome]) &&
+          latest.tickOutcomes[outcome] >= 0
+        )
+          outcomes.add(latest.tickOutcomes[outcome], { outcome }, ROOT_CONTEXT);
     },
     observeTick(measurement: TickMeasurement): void {
       if (

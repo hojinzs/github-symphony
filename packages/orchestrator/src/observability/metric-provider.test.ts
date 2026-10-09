@@ -350,3 +350,35 @@ it("OT-06/08 consumes authoritative recovered session deltas and omits Claude hi
     )!.value
   ).toBe(0);
 });
+
+it("rejects invalid outcome counts without poisoning cumulative streams", async () => {
+  const p = owner();
+  p.offerSnapshot(snapshot());
+  const invalid = snapshot(2);
+  invalid.projection.tickOutcomes = {
+    dispatched: -5,
+    suppressed: NaN,
+    recovered: 0.5,
+    skipped: Number.MAX_SAFE_INTEGER + 1,
+  };
+  p.offerSnapshot(invalid);
+  expect(values((await metrics(p))[METRIC_CATALOG.outcomes.name]!)).toEqual([
+    2, 1, 3, 4,
+  ]);
+  const nonfinite = snapshot(3);
+  nonfinite.projection.tickOutcomes = {
+    dispatched: Infinity,
+    suppressed: -Infinity,
+    recovered: 0,
+    skipped: 0,
+  };
+  p.offerSnapshot(nonfinite);
+  expect(values((await metrics(p))[METRIC_CATALOG.outcomes.name]!)).toEqual([
+    2, 1, 3, 4,
+  ]);
+  p.offerSnapshot(snapshot(4));
+  expect(values((await metrics(p))[METRIC_CATALOG.outcomes.name]!)).toEqual([
+    4, 2, 6, 8,
+  ]);
+  expect(p.status().sequence).toBe(4);
+});
