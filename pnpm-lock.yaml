@@ -176,6 +176,12 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/fleet-control-plane:
+    dependencies:
+      '@gh-symphony/management-protocol':
+        specifier: workspace:*
+        version: link:../management-protocol
+
   packages/management-agent:
     dependencies:
       '@gh-symphony/management-protocol':
