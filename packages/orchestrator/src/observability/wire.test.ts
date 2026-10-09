@@ -203,7 +203,9 @@ describe("OT-01 real HTTP/protobuf Logs wire", () => {
     }
   });
   it("rejects oversized response echoes without exposing their contents", async () => {
+    let attempts = 0;
     const server = http.createServer((_req, res) => {
+      attempts++;
       res.writeHead(200);
       res.end("secret".repeat(20000));
     });
@@ -218,6 +220,15 @@ describe("OT-01 real HTTP/protobuf Logs wire", () => {
           new AbortController().signal
         )
       ).rejects.toThrow("exceeds limit");
+      attempts = 0;
+      const result = await exportLogBatch(
+        { endpoint: `http://127.0.0.1:${port}/v1/logs`, headers: {} },
+        new Uint8Array(),
+        3,
+        new AbortController().signal
+      );
+      expect(result).toEqual({ reason: "permanent", rejected: 3 });
+      expect(attempts).toBe(1);
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

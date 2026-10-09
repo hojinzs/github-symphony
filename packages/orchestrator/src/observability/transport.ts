@@ -21,6 +21,8 @@ export type BatchResult = {
   reason?: "timeout" | "permanent" | "partial" | "shutdown";
 };
 
+class PermanentLogRequestError extends Error {}
+
 /** Single adapter retry owner: no SDK exporter retry loop underneath it. */
 export async function exportLogBatch(
   destination: LogDestination,
@@ -43,7 +45,9 @@ export async function exportLogBatch(
     let response: HttpResult | undefined;
     try {
       response = await request(destination, body, controller.signal);
-    } catch {
+    } catch (error) {
+      if (error instanceof PermanentLogRequestError)
+        return { reason: "permanent", rejected: count };
       // Transport errors are classified locally; never expose messages/URLs.
     } finally {
       clearTimeout(timer);
@@ -121,7 +125,7 @@ export const requestProtobuf: LogRequest = (destination, body, signal) =>
       url.username ||
       url.password
     ) {
-      reject(new Error("Invalid OTLP destination"));
+      reject(new PermanentLogRequestError("Invalid OTLP destination"));
       return;
     }
     const client = url.protocol === "https:" ? https : http;
@@ -143,7 +147,9 @@ export const requestProtobuf: LogRequest = (destination, body, signal) =>
         response.on("data", (chunk: Buffer) => {
           bytes += chunk.length;
           if (bytes > 64 * 1024) {
-            response.destroy(new Error("OTLP response exceeds limit"));
+            response.destroy(
+              new PermanentLogRequestError("OTLP response exceeds limit")
+            );
             request.destroy();
             return;
           }

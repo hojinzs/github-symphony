@@ -16,6 +16,60 @@ const event = {
 const context = { observedAt: "2026-10-07T00:00:01Z", runId: "r" };
 afterEach(() => vi.useRealTimers());
 describe("bounded Logs pipeline", () => {
+  it("recovers after an expired flush and summarizes its losses once on shutdown", async () => {
+    vi.useFakeTimers();
+    const notices: unknown[] = [];
+    let healthy = false;
+    let accepted = 0;
+    const pipeline = createLogPipeline(
+      identity,
+      { endpoint: "http://receiver/v1/logs", headers: {} },
+      {
+        request: async (_target, _body, signal) => {
+          if (!healthy)
+            return new Promise((_resolve, reject) => {
+              signal.addEventListener(
+                "abort",
+                () => reject(new Error("abort")),
+                { once: true }
+              );
+            });
+          accepted++;
+          return { status: 200, retryAfter: null, body: new Uint8Array() };
+        },
+        diagnostic: (notice) => notices.push(notice),
+      }
+    );
+    pipeline.offerEvent(event, context);
+    const expired = pipeline.flush(Date.now() + 20);
+    await vi.advanceTimersByTimeAsync(20);
+    await expired;
+    expect(pipeline.status()).toMatchObject({
+      records: 0,
+      bytes: 0,
+      dropped: { shutdown: 1 },
+    });
+    healthy = true;
+    pipeline.offerEvent(event, context);
+    pipeline.offerEvent(event, context);
+    expect(pipeline.status().records).toBe(2);
+    await pipeline.flush(Date.now() + 5000);
+    expect(accepted).toBe(1);
+    expect(pipeline.status()).toMatchObject({
+      records: 0,
+      bytes: 0,
+      dropped: { shutdown: 1 },
+    });
+    await pipeline.shutdown(Date.now() + 5000);
+    await pipeline.shutdown(Date.now() + 5000);
+    expect(
+      notices.filter((n) => (n as { category: string }).category === "shutdown")
+    ).toEqual([
+      { signal: "logs", category: "shutdown", state: "failure", lost: 1 },
+    ]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("warns on the first failed attempt before retry and reports recovery without loss", async () => {
     vi.useFakeTimers();
     const notices: unknown[] = [];

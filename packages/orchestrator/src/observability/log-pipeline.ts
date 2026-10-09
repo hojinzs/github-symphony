@@ -46,6 +46,7 @@ class BoundedLogProcessor implements LogRecordProcessor {
   private records = 0;
   private bytes = 0;
   private stopped = false;
+  private reportedShutdownLosses = 0;
   private drainPromise: Promise<void> | undefined;
   private active: Batch | undefined;
   private controller = new AbortController();
@@ -174,7 +175,8 @@ class BoundedLogProcessor implements LogRecordProcessor {
     if (this.drainPromise) return this.drainPromise;
     this.drainPromise = Promise.resolve()
       .then(async () => {
-        while (this.queue.length && !this.controller.signal.aborted) {
+        const controller = this.controller;
+        while (this.queue.length && !controller.signal.aborted) {
           const entries: Entry[] = [];
           let bytes = 0;
           while (entries.length < 256 && this.queue.length) {
@@ -211,7 +213,7 @@ class BoundedLogProcessor implements LogRecordProcessor {
               this.destination,
               body,
               count,
-              this.controller.signal,
+              controller.signal,
               this.request,
               undefined,
               () => this.warn("transport", 0)
@@ -237,9 +239,9 @@ class BoundedLogProcessor implements LogRecordProcessor {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
       const expire = () => {
-        this.stopped = true;
-        clearInterval(this.interval);
         this.controller.abort();
+        // A flush deadline discards pending work, but only close stops admission.
+        this.controller = new AbortController();
         if (this.active)
           this.release(this.active, {
             reason: "shutdown",
@@ -255,7 +257,14 @@ class BoundedLogProcessor implements LogRecordProcessor {
       else timer = setTimeout(expire, deadline - Date.now());
     });
     try {
-      await Promise.race([this.drain(), timeout]);
+      await Promise.race([
+        (async () => {
+          do {
+            await this.drain();
+          } while (this.queue.length);
+        })(),
+        timeout,
+      ]);
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -269,8 +278,9 @@ class BoundedLogProcessor implements LogRecordProcessor {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.interval);
-    const previous = this.losses.shutdown;
+    const previous = this.reportedShutdownLosses;
     await this.flush(deadline);
+    this.reportedShutdownLosses = this.losses.shutdown;
     if (this.losses.shutdown > previous)
       this.notify({
         signal: "logs",
