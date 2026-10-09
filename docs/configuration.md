@@ -868,6 +868,49 @@ package exports fixed v1 wire/capacity contracts. It introduces no runtime
 configuration or environment variables. Agent allowlists and fleet service
 configuration remain owned by their separate implementation slices.
 
+## Fleet service configuration and enrollment (C04)
+
+The internal [fleet package](../packages/fleet-control-plane/README.md) accepts
+typed `dataDir` (absolute canonical user-owned path), `publicOrigin` (HTTPS
+origin, without credentials/path/query/fragment), and optional `bindAddress`
+(default `127.0.0.1`). A private remote interface must be selected explicitly.
+No environment variables or CLI flags are added by this foundation.
+
+Storage is `<dataDir>/fleet.sqlite`. The service user owns the directory (0700),
+database (0600) and any SQLite sidecars. Unsafe existing permissions, foreign
+ownership, symlinks and hardlinked database files fail closed. Backup only a
+closed database or a SQLite-consistent snapshot. This management metadata is
+separate from project runtime state and remote workspaces. Use a realpath-resolved
+absolute data path: symlinked parents such as macOS `/var`/`/tmp` or some Linux
+`/home` paths must be resolved before opening storage.
+
+Enrollment tokens expire after ten minutes. Environment names are trimmed and
+limited to 256 UTF-8 bytes. Regeneration preserves environment ID and invalidates
+old tokens; replacing an enrolled identity requires explicit revocation.
+Exchange creates an agent ID and returns a credential once, keeping the
+environment awaiting its first authenticated signal. The SQLite store persists
+only SHA-256 secret verifiers.
+
+The consuming session/command service must supply a synchronous transactional
+revocation invalidator and a current-session verifier for first-signal updates.
+These are internal typed interfaces, not configuration/environment variables.
+Neither enrollment nor revocation controls local orchestrator processes. Operator
+mutation audits store NULL request IDs when no request identity is available;
+enrollment exchange retains its supplied request ID.
+
+Browser access uses `createBrowserSecurity(config, options?)`. The default session
+lifetime is eight hours and maximum registry size is 256; typed overrides permit
+one second through seven days and 1 through 10,000 sessions. These are internal
+options, with no new CLI flags or environment variables. Origins reject whitespace
+and paths even when URL normalization would remove them. Mutations require exact
+Origin, a unique Secure/HttpOnly/SameSite=Strict `__Host-` session cookie and its
+CSRF token. Sessions expire at the deadline, can be revoked, and disappear on
+restart. At capacity, issuance evicts the oldest live session, which becomes
+unauthenticated. Consumers should control or rate-limit issuance to prevent
+repeated requests from invalidating the operator session. Consumers own TLS,
+private read access, no-store responses and no
+permissive CORS; forwarded headers cannot authorize a different origin.
+
 ### Local management registry and adapter (C03)
 
 The internal [management agent](../packages/management-agent/README.md) accepts
@@ -892,3 +935,22 @@ the persisted or explicitly supplied management credential is also excluded.
 Project/runtime credentials continue to resolve locally; prompt and environment
 contents are never included in inventory. CLI/protocol versions stay distinct;
 inventory adds only a workflow digest and normalized non-secret tracker scope.
+
+### Bounded management reads (C09)
+
+`createLocalReadAdapter(registry, configDir)` from the bundled management-local
+module accepts the existing local registry and trusted CLI configuration root.
+It resolves canonical runtime ownership using the same cached alias records as
+local lifecycle operations. No new environment variable, HTTP port or CLI command
+is required. Remote requests select a registered local project ID, known run ID
+and fixed stream; arbitrary filesystem paths are not a wire input.
+
+History returns the latest requested window (1–100 summaries); cursor pagination
+is not supported for this bounded window. Run detail projects only run identity,
+status and timestamps. Log requests accept 1–262144 bytes; UTF-8 boundaries may
+produce shorter chunks, and a limit too small for the next character reports
+unavailable. Signed cursors expire when the adapter instance restarts: retry
+without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
+Symlinked runtime/read targets are rejected. Missing runtime/history/log data
+reports unavailable rather than false empty success. The first-release raw-log
+trust boundary applies; metadata projection does not redact arbitrary log text.

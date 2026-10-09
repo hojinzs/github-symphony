@@ -631,6 +631,12 @@ The internal [management protocol](../management-protocol/README.md) package def
 transport boundary for the planned management extension. It adds no CLI commands;
 existing project commands and the per-project web server retain their behavior.
 
+The internal [fleet services](../fleet-control-plane/README.md) adds private SQLite migrations
+and typed HTTPS-origin configuration for C04 (#1008). Its enrollment service
+provides atomic one-use tokens, scoped credential verifiers and transactional
+revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and HTTP routing belong to later consumers;
+per-project `--web` retains its existing behavior.
+
 The internal [local management adapter](../management-agent/README.md) adds canonical folder allowlists,
 private enrollment persistence and typed lifecycle operations (C03, #1007).
 `project status` and `project stop` resolve a folder's existing alias-started
@@ -642,3 +648,12 @@ visible and does not prevent verified expected-target stop. The bundled
 `@gh-symphony/cli/management-local` module supplies the local driver; this does
 not add an `agent` command or change the per-project `--web` server into a fleet
 service. Native service launchers remain a separate implementation boundary.
+
+The bundled `@gh-symphony/cli/management-local` module also exports
+`createLocalReadAdapter(registry, configDir)` (C09, #1013). It resolves the
+registered folder's existing runtime and returns bounded recent run history,
+projected run detail and fixed `orchestrator`/`worker`/`events` log streams.
+Responses contain at most 256 KiB of UTF-8 log text with a scoped byte cursor;
+rotation/truncation reports reset, and missing or escaping selections report
+unavailable. Read access survives invalid workflow and has no process effects.
+Raw logs may contain sensitive text and are restricted to trusted operator access.

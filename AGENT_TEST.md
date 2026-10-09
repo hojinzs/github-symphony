@@ -442,8 +442,10 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry                                            |
 | `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                                                              |
 | `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe                         |
+| `e2e/scenarios/28-bounded-local-reads.md`               | C09 CP-12/15: contained known-run streams, bounded history/text, append/EOF/reset, unavailable/expired/revoked reads, safe metadata and five assertion probes       |
 | `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                          |
+| `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                    |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution                                       |
 
 ## TC Writing Guide
@@ -495,6 +497,51 @@ separates protocol evidence from future CP-01–CP-23 runtime/OS validation.
 
 C01 protocol rework regressions: `pnpm --filter @gh-symphony/management-protocol test` covers foreign/absent claim ownership (CP-19), revoked offline state (CP-20), required terminal evidence, chronological command/read intervals, and the strict submit-read response fixture. These are wire-boundary tests; no runtime or native-service validation is claimed.
 
+### Fleet storage foundation cases (C04)
+
+Run `pnpm --filter @gh-symphony/fleet-control-plane test` (also included in
+`pnpm test`). The initial foundation adds no HTTP listener, worker lifecycle,
+tracker integration or CLI runtime command. The HTTPS fixture below exercises
+the library boundary through a real listener and process restart.
+
+| Case                      | Automated coverage                                                                                                                                                                       | Runtime/OS scope                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| HTTPS configuration       | `foundation.test.ts`: loopback default, canonical HTTPS origin, rejection of insecure/non-origin/relative inputs                                                                         | Pure typed configuration                           |
+| User-owned persistence    | Real temporary SQLite files: 0700/0600, symlink and unsafe sidecar rejection, durable reopen; foreign-owner check uses a deliberately mismatched expected UID against real file metadata | Host filesystem only; not native service isolation |
+| Migration recovery        | Real SQLite: transactional rollback, contiguous migration ordering, idempotent reopen and future-schema rejection                                                                        | Host SQLite                                        |
+| Peer transaction boundary | Real SQLite: commit, failure rollback, asynchronous-work rejection                                                                                                                       | Synchronous peer database ownership contract       |
+
+### Fleet enrollment contract cases (C04)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes these cases.
+Peer tables belong only to an independent typed fixture; C04 knows neither their
+schema nor their command/session algorithms. No native-process preservation
+claim is made from fixture rows. The concurrent case runs actual C04 and C01
+sources compiled into a temporary package on two independent SQLite connections
+in separate worker threads. It does not require stale repository build output.
+
+| Case                                          | Automated coverage                                                                                                                                                                 | Runtime/OS scope                                                      |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| CP-11 one-use exchange and scoped identity    | Reuse (including same request ID), concurrent exchange, wrong environment/agent/credential, verifier-only persistence                                                              | Real SQLite and actual protocol schemas                               |
+| CP-11 transactional revocation                | Independent peer session fencing/unclaimed-command expiry; executing rows retained; rollback on peer failure and rejected asynchronous hook                                        | Library/peer database contract; no native-service claim               |
+| CP-20 pending/expiry/regeneration/replacement | Reopen pending state without secret recovery, exact ten-minute expiry, old-token fencing, explicit revoke before replacement, fresh agent identity, awaiting-signal after exchange | Real SQLite                                                           |
+| First authenticated signal                    | Current session-owner verification required; wrong/stale session rejected; zero-project environment can become online                                                              | Independent session fixture; session negotiation belongs to its owner |
+| Invalid/recovery inputs                       | Invalid name/protocol/UUID/token, unknown environment, malformed credential verifier/token expiry; audit-write failure rolls back exchange and original token permits retry        | Deterministic fault injection on actual database                      |
+| Durable audit                                 | Create/regenerate/revoke local-owner identity and exchange agent/request identity, mutation and audit commit together                                                              | Actual audit table; no raw secrets                                    |
+
+### Fleet HTTPS access and restart cases (C04)
+
+`browser-security.test.ts` covers canonical HTTPS configuration, private cookie
+attributes, exact origins, malformed/duplicate cookies, cross-session CSRF,
+expiry/revocation and bounded registry capacity. [TC-28](e2e/scenarios/28-fleet-enrollment-security.md)
+uses a real TLS client with an ephemeral trusted certificate, actual SQLite and
+an independent typed session/command fixture. Run `pnpm build`, then
+`node e2e/fleet-enrollment-e2e.mjs` and `node e2e/fleet-enrollment-mutations.mjs`,
+or `./e2e/run-fleet-enrollment-e2e.sh` for Linux Docker. Every assertion prints a
+reached marker; eight copied-artifact mutations must fail their reached assertion.
+Native macOS runs and Linux container runs are distinct evidence. Neither claims
+native systemd/launchd isolation or preservation of actual managed processes.
+
 ### Local management adapter contract cases (C03)
 
 Run `./e2e/run-management-agent-e2e.sh` for the isolated Linux Docker contract and
@@ -502,3 +549,13 @@ six forbidden-condition assertion probes. Run `node e2e/management-agent-contrac
 after `pnpm build` to report actual host OS evidence separately. See
 [TC-27](e2e/scenarios/27-local-management-agent.md) for scope and assertions.
 Native service installation/isolation remains outside this local adapter slice.
+
+### Bounded management read cases (C09)
+
+Run `./e2e/run-bounded-read-e2e.sh` for isolated Linux Docker evidence and five
+forbidden-result probes with named assertion readback. Run
+`node e2e/bounded-read-contract.mjs` after `pnpm build` for actual host OS evidence
+separately. [TC-28](e2e/scenarios/28-bounded-local-reads.md) covers CP-12/15 and
+applicable U04/U07 retained history and log follow/reset paths through the bundled
+CLI factory, an actual daemon and independently persisted store records. Native
+service isolation and offline HTTP/UI behavior are outside this slice.

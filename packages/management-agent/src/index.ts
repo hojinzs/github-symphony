@@ -18,3 +18,8 @@ export type {
 } from "./lifecycle.js";
 export { CliProcess, projectEnvironment } from "./cli-process.js";
 export type { CliInvocation, CliProcessOptions } from "./cli-process.js";
+export { LocalReadAdapter } from "./local-read.js";
+export type {
+  LocalReadRuntime,
+  LocalReadRuntimeResolver,
+} from "./local-read.js";
