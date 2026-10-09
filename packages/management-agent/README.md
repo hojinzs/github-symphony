@@ -83,3 +83,25 @@ missing cached alias is excluded, so launch falls back to the canonical folder.
 Missing or inaccessible allowlisted folders return a sanitized `project_unmanaged`
 error. CLI status/stop report ambiguous or unreadable runtime lookup failures with
 a diagnostic and exit code 1.
+
+### C05 outbound enrollment boundary
+
+`createAgentTransport({ serverOrigin, identity, ca?, signal?, timeoutMs? })`
+implements the v1 typed client over verified HTTPS. The identity callback reads the
+saved registry at request time. Poll uses GET; credentials travel only in the
+Authorization header. Requests and responses are schema validated and correlated
+by request/environment/session identity. Redirects are rejected, bodies are bounded
+to 4 MiB, and the default absolute deadline is 30 seconds (25-second poll plus
+network margin). Private CA trust can be supplied; TLS verification stays enabled.
+Errors expose stable codes rather than peer messages or network errors.
+
+`enrollAgent(registry, client, serverOrigin, token)` exchanges a token once and
+durably saves identity. Retrying with saved identity requires no token and keeps
+the allowlist. A different origin is rejected. Existing registry directories and
+credential files must be owned by the current Unix user with exact 0700/0600
+permissions; symlinked directories and symlinked/hard-linked files fail closed.
+Unsafe permissions are rejected rather than repaired.
+
+These are internal library entry points while the foreground command is being
+implemented. The TLS tests use an ephemeral certificate and an independent HTTPS
+peer; they validate transport and persistence, not native service isolation.

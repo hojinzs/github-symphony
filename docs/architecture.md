@@ -344,3 +344,10 @@ to npm.
 
 Appendix A's SSH worker transport is not implemented and is out of scope for
 this repository at present; local worker execution is the supported model.
+
+C05 (#1009) adds the outbound v1 HTTPS client in
+`packages/management-agent/src/transport.ts` (Integration) and strengthens the
+existing private identity persistence in `registry.ts` (Configuration). Enrollment
+resumes saved identity without another token. The client validates the protocol,
+bounds input/output and verifies response ownership. This is a repository-local
+management extension; Symphony orchestration and tracker boundaries are unchanged.

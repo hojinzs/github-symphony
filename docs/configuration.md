@@ -935,3 +935,11 @@ the persisted or explicitly supplied management credential is also excluded.
 Project/runtime credentials continue to resolve locally; prompt and environment
 contents are never included in inventory. CLI/protocol versions stay distinct;
 inventory adds only a workflow digest and normalized non-secret tracker scope.
+
+C05 outbound transport accepts a canonical HTTPS origin, optional private CA trust,
+an AbortSignal and an absolute request deadline (default 30 seconds). It reads the
+saved credential from the management registry at request time, sends it only as
+an Authorization bearer header, and rejects redirects. The registry requires
+current-user ownership and exact 0700/0600 directory/file permissions; unsafe
+existing paths fail closed. No enrollment token is retained after exchange.
+See the [management agent boundary](../packages/management-agent/README.md#c05-outbound-enrollment-boundary).

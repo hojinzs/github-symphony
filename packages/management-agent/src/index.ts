@@ -18,3 +18,10 @@ export type {
 } from "./lifecycle.js";
 export { CliProcess, projectEnvironment } from "./cli-process.js";
 export type { CliInvocation, CliProcessOptions } from "./cli-process.js";
+export {
+  createAgentTransport,
+  AgentTransportError,
+  agentServerOrigin,
+  enrollAgent,
+} from "./transport.js";
+export type { TransportOptions } from "./transport.js";
