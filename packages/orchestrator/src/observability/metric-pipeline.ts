@@ -40,7 +40,10 @@ export function createMetricPipeline(
   let closing = false;
   let controller = new AbortController();
   let shutdownPromise: Promise<void> | undefined;
-  let episode: number | undefined;
+  const episodes = new Map<
+    MetricDiagnostic["reason"],
+    { at: number; pending: number }
+  >();
   const diagnostic =
     options.diagnostic ??
     ((notice) => {
@@ -52,10 +55,38 @@ export function createMetricPipeline(
     offerBestEffort(() => diagnostic(Object.freeze(notice)));
   const warn = (reason: MetricDiagnostic["reason"], lost: number) => {
     const now = Date.now();
-    if (episode === undefined || now - episode >= 60_000) {
-      episode = now;
+    const episode = episodes.get(reason);
+    if (!episode) {
+      episodes.set(reason, { at: now, pending: 0 });
       notify({ signal: "metrics", state: "failure", reason, lost });
+      return;
     }
+    episode.pending += lost;
+    if (now - episode.at >= 60_000) {
+      const summary = episode.pending;
+      episode.pending = 0;
+      episode.at = now;
+      notify({ signal: "metrics", state: "failure", reason, lost: summary });
+    }
+  };
+  const summarizePending = () => {
+    for (const [reason, episode] of episodes) {
+      if (!episode.pending) continue;
+      notify({
+        signal: "metrics",
+        state: "failure",
+        reason,
+        lost: episode.pending,
+      });
+      episode.pending = 0;
+    }
+  };
+  const recover = () => {
+    // Final episode summaries preserve losses suppressed by the warning interval.
+    summarizePending();
+    for (const reason of episodes.keys())
+      notify({ signal: "metrics", state: "recovery", reason, lost: 0 });
+    episodes.clear();
   };
   const interval = setInterval(() => {
     void collect();
@@ -102,14 +133,8 @@ export function createMetricPipeline(
             // Diagnostics do not trigger another collection, including a dropped
             // diagnostic point: the next regular collection sees the counter.
             warn(result.reason, result.rejected);
-          } else if (episode !== undefined) {
-            episode = undefined;
-            notify({
-              signal: "metrics",
-              state: "recovery",
-              reason: "transport",
-              lost: 0,
-            });
+          } else {
+            recover();
           }
         } catch {
           owned.recordLoss("metrics", "mapping", Math.max(count, 1));
@@ -150,6 +175,8 @@ export function createMetricPipeline(
     clearInterval(interval);
     shutdownPromise = (async () => {
       await flush(deadline);
+      summarizePending();
+      episodes.clear();
       stopped = true;
       pending = false;
       controller.abort();

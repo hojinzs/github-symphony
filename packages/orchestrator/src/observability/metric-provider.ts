@@ -156,6 +156,7 @@ export function createOwnedMetricProvider(identity: ProjectResourceIdentity) {
       const p = snapshot.projection;
       // Copy only catalog fields; callers cannot mutate or inject metric labels.
       latest = Object.freeze({
+        // Retain projection metadata; SDK observation time supplies wire timestamps.
         sourceTime: p.sourceTime,
         activeRuns: p.activeRuns,
         retryingRuns: p.retryingRuns,
@@ -171,6 +172,8 @@ export function createOwnedMetricProvider(identity: ProjectResourceIdentity) {
           recovered: p.tickOutcomes.recovered,
           skipped: p.tickOutcomes.skipped,
         }),
+        // Provider owns this release's fixed capability catalog, independently
+        // of caller input; Claude token support is intentionally unavailable.
         tokensSupported: Object.freeze({ codex: 1, claude: 0 }),
         tokenTotals:
           p.tokenTotals === null

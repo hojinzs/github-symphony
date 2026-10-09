@@ -131,3 +131,84 @@ it("aborts a held flush by the shared deadline and shares shutdown completion", 
   expect(attempts).toBe(1);
   expect(p.status().sequence).toBe(1);
 });
+
+it("separates failure reasons and summarizes suppressed losses on recovery and shutdown", async () => {
+  vi.useFakeTimers();
+  const request = vi.fn(async () => ({ ...ok, status: 400 }));
+  const diagnostic = vi.fn();
+  const p = createMetricPipeline(identity, destination, {
+    request,
+    diagnostic,
+  });
+  try {
+    p.offerSnapshot(snapshot(1));
+    await p.collect();
+    expect(diagnostic.mock.calls.map(([n]) => n.reason)).toEqual(["permanent"]);
+    request.mockResolvedValue({ ...ok, body: new Uint8Array([10, 2, 8, 2]) });
+    await p.collect();
+    expect(diagnostic.mock.calls.map(([n]) => n.reason)).toEqual([
+      "permanent",
+      "partial",
+    ]);
+    await p.collect();
+    expect(diagnostic).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(Date.now() + 60000);
+    await p.collect();
+    expect(diagnostic).toHaveBeenLastCalledWith({
+      signal: "metrics",
+      state: "failure",
+      reason: "partial",
+      lost: 4,
+    });
+    await p.collect();
+    request.mockResolvedValue(ok);
+    await p.collect();
+    expect(diagnostic.mock.calls.slice(-3).map(([n]) => n)).toEqual([
+      { signal: "metrics", state: "failure", reason: "partial", lost: 2 },
+      { signal: "metrics", state: "recovery", reason: "permanent", lost: 0 },
+      { signal: "metrics", state: "recovery", reason: "partial", lost: 0 },
+    ]);
+    request.mockResolvedValue({ ...ok, body: new Uint8Array([10, 2, 8, 2]) });
+    await p.collect();
+    await p.collect();
+    await p.shutdown(Date.now() + 5000);
+    expect(diagnostic).toHaveBeenLastCalledWith({
+      signal: "metrics",
+      state: "failure",
+      reason: "partial",
+      lost: 4,
+    });
+  } finally {
+    await p.shutdown(Date.now() + 5000);
+  }
+});
+
+it("reports suppressed shutdown losses at close without waiting for the warning interval", async () => {
+  vi.useFakeTimers();
+  const diagnostic = vi.fn();
+  const p = createMetricPipeline(identity, destination, {
+    diagnostic,
+    request: async (_destination, _body, signal) =>
+      new Promise((_resolve, reject) =>
+        signal.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        })
+      ),
+  });
+  p.offerSnapshot(snapshot(1));
+  const first = p.flush(Date.now() + 100);
+  await vi.advanceTimersByTimeAsync(100);
+  await first;
+  const firstLoss = diagnostic.mock.calls[0]![0].lost;
+  expect(firstLoss).toBeGreaterThan(0);
+  const close = p.shutdown(Date.now() + 100);
+  await vi.advanceTimersByTimeAsync(100);
+  await close;
+  expect(diagnostic).toHaveBeenCalledTimes(2);
+  expect(diagnostic.mock.calls[1]![0]).toMatchObject({
+    signal: "metrics",
+    state: "failure",
+    reason: "shutdown",
+  });
+  expect(diagnostic.mock.calls[1]![0].lost).toBeGreaterThan(0);
+});
