@@ -25,3 +25,9 @@ export {
   enrollAgent,
 } from "./transport.js";
 export type { TransportOptions } from "./transport.js";
+
+export { LocalReadAdapter } from "./local-read.js";
+export type {
+  LocalReadRuntime,
+  LocalReadRuntimeResolver,
+} from "./local-read.js";
