@@ -225,6 +225,9 @@ importers:
       '@opentelemetry/sdk-logs':
         specifier: 0.223.0
         version: 0.223.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-metrics':
+        specifier: 2.12.0
+        version: 2.12.0(@opentelemetry/api@1.9.1)
     devDependencies:
       tsx:
         specifier: ^4.21.0

@@ -1,6 +1,9 @@
 import http from "node:http";
 import https from "node:https";
-import { ProtobufLogsSerializer } from "@opentelemetry/otlp-transformer";
+import {
+  ProtobufLogsSerializer,
+  ProtobufMetricsSerializer,
+} from "@opentelemetry/otlp-transformer";
 
 export type LogDestination = {
   endpoint: string;
@@ -33,6 +36,50 @@ export async function exportLogBatch(
   random: () => number = Math.random,
   onTransientFailure?: () => void
 ): Promise<BatchResult> {
+  return exportBatch(
+    destination,
+    body,
+    count,
+    signal,
+    "logs",
+    request,
+    random,
+    onTransientFailure
+  );
+}
+
+/** Metric retries retain the original serialized points and timestamps. */
+export async function exportMetricBatch(
+  destination: LogDestination,
+  body: Uint8Array,
+  count: number,
+  signal: AbortSignal,
+  request: LogRequest = requestProtobuf,
+  random: () => number = Math.random,
+  onTransientFailure?: () => void
+): Promise<BatchResult> {
+  return exportBatch(
+    destination,
+    body,
+    count,
+    signal,
+    "metrics",
+    request,
+    random,
+    onTransientFailure
+  );
+}
+
+async function exportBatch(
+  destination: LogDestination,
+  body: Uint8Array,
+  count: number,
+  signal: AbortSignal,
+  kind: "logs" | "metrics",
+  request: LogRequest,
+  random: () => number,
+  onTransientFailure?: () => void
+): Promise<BatchResult> {
   const expires = Date.now() + 10_000;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (signal.aborted) return { reason: "shutdown", rejected: count };
@@ -57,10 +104,12 @@ export async function exportLogBatch(
     if (controller.signal.aborted) response = undefined;
     if (response?.status === 200) {
       try {
-        const decoded = ProtobufLogsSerializer.deserializeResponse(
-          response.body
-        );
-        const rejected = decoded?.partialSuccess?.rejectedLogRecords ?? 0;
+        const rejected =
+          kind === "logs"
+            ? (ProtobufLogsSerializer.deserializeResponse(response.body)
+                ?.partialSuccess?.rejectedLogRecords ?? 0)
+            : (ProtobufMetricsSerializer.deserializeResponse(response.body)
+                ?.partialSuccess?.rejectedDataPoints ?? 0);
         if (
           !Number.isSafeInteger(rejected) ||
           rejected < 0 ||
