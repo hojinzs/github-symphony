@@ -85,7 +85,7 @@ describe("user-owned SQLite", () => {
       reopened.database.prepare("SELECT name FROM environments").get()
     ).toEqual({ name: "Host" });
     expect(reopened.database.prepare("PRAGMA user_version").get()).toEqual({
-      user_version: 1,
+      user_version: 2,
     });
     reopened.close();
   });
@@ -199,7 +199,7 @@ describe("migrations", () => {
       ).toBeUndefined();
       applyMigrations(db);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 1,
+        user_version: 2,
       });
     } finally {
       db.close();

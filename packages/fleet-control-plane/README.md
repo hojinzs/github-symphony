@@ -100,3 +100,13 @@ checks and eight forbidden-condition probes. `./e2e/run-fleet-enrollment-e2e.sh`
 runs both in Linux Docker. The independent HTTP/session/command fixture is test
 infrastructure, not a shipped fleet server. These checks do not validate native
 service isolation or management of actual orchestrator processes.
+
+## Command ledger schema (C07)
+
+Schema version 2 adds `lifecycle_commands`. It retains submission identity,
+ownership, claim/completion timestamps, result evidence and explicit unknown
+closure metadata. SQLite enforces actor-scoped idempotency and one outstanding
+command per project, including unresolved unknown records. An explicit closure
+releases that fence while preserving the unknown outcome. This storage slice
+does not yet expose a lifecycle service or HTTP routes; see the
+[C07 implementation plan](../../docs/designs/2026-10-09-control-plane-c07-plan.md).
