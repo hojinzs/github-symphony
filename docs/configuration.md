@@ -947,3 +947,22 @@ the persisted or explicitly supplied management credential is also excluded.
 Project/runtime credentials continue to resolve locally; prompt and environment
 contents are never included in inventory. CLI/protocol versions stay distinct;
 inventory adds only a workflow digest and normalized non-secret tracker scope.
+
+### Bounded management reads (C09)
+
+`createLocalReadAdapter(registry, configDir)` from the bundled management-local
+module accepts the existing local registry and trusted CLI configuration root.
+It resolves canonical runtime ownership using the same cached alias records as
+local lifecycle operations. No new environment variable, HTTP port or CLI command
+is required. Remote requests select a registered local project ID, known run ID
+and fixed stream; arbitrary filesystem paths are not a wire input.
+
+History returns the latest requested window (1–100 summaries); cursor pagination
+is not supported for this bounded window. Run detail projects only run identity,
+status and timestamps. Log requests accept 1–262144 bytes; UTF-8 boundaries may
+produce shorter chunks, and a limit too small for the next character reports
+unavailable. Signed cursors expire when the adapter instance restarts: retry
+without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
+Symlinked runtime/read targets are rejected. Missing runtime/history/log data
+reports unavailable rather than false empty success. The first-release raw-log
+trust boundary applies; metadata projection does not redact arbitrary log text.

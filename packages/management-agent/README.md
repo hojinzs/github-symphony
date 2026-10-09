@@ -83,3 +83,42 @@ missing cached alias is excluded, so launch falls back to the canonical folder.
 Missing or inaccessible allowlisted folders return a sanitized `project_unmanaged`
 error. CLI status/stop report ambiguous or unreadable runtime lookup failures with
 a diagnostic and exit code 1.
+
+## Bounded local reads (C09)
+
+`LocalReadAdapter` accepts the management protocol's typed read request and a
+trusted `LocalReadRuntimeResolver` supplied by the CLI. The bundled
+`@gh-symphony/cli/management-local` module provides
+`createLocalReadAdapter(registry, configDir)` using existing canonical-runtime
+ownership records. Each request revalidates
+the registered project. The resolver supplies the existing project's canonical
+runtime directory and runtime project ID; callers cannot request filenames.
+
+History returns a sorted recent window of at most 100 run summaries. Detail
+currently projects the same safe run identity, status and timestamps; it never
+uploads raw run records, prompts, errors, workflow text or credentials. The
+adapter reads only records whose project and run identities match. Missing
+runtime/history directories and missing logs return explicit unavailable results.
+History scans retained records to select this window; buffers use each record's
+measured size plus one growth-detection byte, rather than the full log chunk cap.
+Scan time still grows with retained run count; this adapter does not add retention
+or an index.
+
+Fixed `worker`, `events` and `orchestrator` streams return at most 256 KiB of
+UTF-8 text. Signed cursors bind the local project/run/stream, opaque file
+generation and byte offset. Replacement, observed truncation or changed cursor
+anchor resets to the beginning with `reset: true`. Invalid/foreign cursors are
+unavailable; malformed UTF-8 is replaced once across successive chunks. Callers
+restart with no cursor after an adapter restart. Symlinked
+files and intermediate directories are rejected. Raw log text may contain
+sensitive content and belongs only inside the trusted operator access boundary.
+No read acquires the lifecycle command slot or persists/uploads logs continuously.
+
+Verification: `pnpm --filter @gh-symphony/management-agent test` covers typed
+protocol requests against independent real filesystem fixtures, including
+UTF-8/invalid-byte boundaries and cursor replay. CLI tests persist a typed
+`OrchestratorRunRecord` through the actual state store before reading it through
+the canonical alias resolver. [TC-28](../../e2e/scenarios/28-bounded-local-reads.md)
+exercises the bundled factory with a real CLI daemon and five fault probes.
+CP-12/15 and applicable U04/U07 reads are owned here; offline transport, read-lane
+scheduling, UI follow/disconnect and server retention are separate slices.
