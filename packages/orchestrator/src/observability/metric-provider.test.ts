@@ -4,7 +4,12 @@ import {
   DataPointType,
   type MetricData,
 } from "@opentelemetry/sdk-metrics";
-import type { CommittedMetricSnapshot } from "@gh-symphony/core";
+import {
+  buildProjectSnapshot,
+  buildProjectMetricProjection,
+  type CommittedMetricSnapshot,
+  type OrchestratorRunRecord,
+} from "@gh-symphony/core";
 import {
   createOwnedMetricProvider,
   METRIC_CATALOG,
@@ -230,4 +235,118 @@ it("exports cumulative success/failure duration and bounded nonrecursive loss in
     [{ signal: "logs", reason: "queue_full" }, 2],
     [{ signal: "metrics", reason: "partial" }, 1],
   ]);
+});
+
+it("OT-06/08 consumes authoritative recovered session deltas and omits Claude history", async () => {
+  const repository = {
+    owner: "owner",
+    name: "repo",
+    cloneUrl: "https://github.com/owner/repo.git",
+  };
+  const base: OrchestratorRunRecord = {
+    runId: "session-1",
+    projectId: "folder",
+    projectSlug: "owner/repo",
+    issueId: "private-issue",
+    issueSubjectId: "subject",
+    issueIdentifier: "owner/repo#42",
+    issueState: "Done",
+    repository,
+    status: "succeeded",
+    attempt: 1,
+    processId: null,
+    port: null,
+    workingDirectory: "/tmp/work",
+    workspaceRuntimeDir: "/tmp/runtime",
+    workflowPath: "WORKFLOW.md",
+    retryKind: null,
+    createdAt: "2026-10-09T00:00:00Z",
+    updatedAt: "2026-10-09T00:00:01Z",
+    startedAt: null,
+    completedAt: null,
+    lastError: null,
+    nextRetryAt: null,
+    runtimeKind: "codex-app-server",
+    tokenUsageMeasured: true,
+    tokenUsage: {
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      cumulativeTotalTokens: 999,
+    },
+    runtimeLifecycleId: "recovered-lifecycle",
+    cumulativeRuntimeMs: 1000,
+  };
+  const claude: OrchestratorRunRecord = {
+    ...base,
+    runId: "claude",
+    issueId: "claude-issue",
+    runtimeKind: "claude-print",
+    runtimeLifecycleId: "claude-lifecycle",
+    cumulativeRuntimeMs: 10000,
+  };
+  const runs = [
+    base,
+    {
+      ...base,
+      runId: "session-2",
+      updatedAt: "2026-10-09T00:00:02Z",
+      cumulativeRuntimeMs: 4000,
+      tokenUsage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+    },
+    claude,
+    {
+      ...base,
+      runId: "legacy",
+      issueId: "legacy-issue",
+      runtimeKind: undefined,
+      tokenUsageMeasured: undefined,
+      runtimeLifecycleId: "legacy-lifecycle",
+      cumulativeRuntimeMs: 0,
+    },
+  ];
+  const project = {
+    projectId: "folder",
+    slug: "owner/repo",
+    workspaceDir: "/tmp/runtime",
+    repository,
+    tracker: { adapter: "file" as const, bindingId: "fixture" },
+  };
+  const input = {
+    project,
+    activeRuns: [],
+    allRuns: runs,
+    summary: { dispatched: 0, suppressed: 0, recovered: 1 },
+    lastTickAt: "2026-10-09T00:00:03Z",
+    lastError: null,
+  };
+  const status = buildProjectSnapshot(input);
+  const original = JSON.stringify(status);
+  const p = owner();
+  p.offerSnapshot({
+    ...snapshot(),
+    projection: buildProjectMetricProjection(status, runs),
+  });
+  // The consumer's collection must not access history, even after it is changed.
+  runs.splice(0);
+  let all = await metrics(p);
+  expect(values(all[METRIC_CATALOG.tokens.name]!)).toEqual([12, 6, 18]);
+  expect(values(all[METRIC_CATALOG.runtime.name]!)).toEqual([14]);
+  expect(values(all[METRIC_CATALOG.outcomes.name]!)).toEqual([0, 0, 1, 0]);
+  all = await metrics(p);
+  expect(values(all[METRIC_CATALOG.tokens.name]!)).toEqual([12, 6, 18]);
+  expect(JSON.stringify(status)).toBe(original);
+  const claudeStatus = buildProjectSnapshot({ ...input, allRuns: [claude] });
+  p.offerSnapshot({
+    ...snapshot(2),
+    projection: buildProjectMetricProjection(claudeStatus, [claude]),
+  });
+  all = await metrics(p);
+  expect(all[METRIC_CATALOG.tokens.name]).toBeUndefined();
+  expect(values(all[METRIC_CATALOG.runtime.name]!)).toEqual([10]);
+  expect(
+    all[METRIC_CATALOG.supported.name]!.dataPoints.find(
+      (point) => point.attributes.runtime === "claude"
+    )!.value
+  ).toBe(0);
 });
