@@ -1,4 +1,4 @@
-# TC-27: Fleet HTTPS enrollment and browser security
+# TC-28: Fleet HTTPS enrollment and browser security
 
 ## Setup
 

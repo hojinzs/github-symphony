@@ -419,32 +419,33 @@ idle → [inject issue + refresh]
 
 ### Predefined Scenario Documents
 
-| File                                                    | Scenario                                                                                                                                    |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `e2e/scenarios/01-happy-path.md`                        | Issue dispatch → worker completion → lifecycle observation                                                                                  |
-| `e2e/scenarios/02-multi-issue.md`                       | Verify concurrency limit                                                                                                                    |
-| `e2e/scenarios/03-stall-detection.md`                   | stall → SIGTERM → retry                                                                                                                     |
-| `e2e/scenarios/04-fail-retry.md`                        | Failure → retry scheduling                                                                                                                  |
-| `e2e/scenarios/05-before-remove-hook-failure.md`        | Verify a `before_remove` hook failure does not block workspace cleanup                                                                      |
-| `e2e/scenarios/06-retry-title-preservation.md`          | Issue title preservation during retry/recovery                                                                                              |
-| `e2e/scenarios/07-release-missing-retry.md`             | Release a missing retry queue instead of restarting                                                                                         |
-| `e2e/scenarios/09-linear-sandbox.md`                    | Verify Linear sandbox lifecycle, confirmed per-turn state reads, dirty-workspace recovery, and reconciliation edge cases                    |
-| `e2e/scenarios/10-http-auth-hardening.md`               | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                                              |
-| `e2e/scenarios/10-orchestrator-tracker-state.md`        | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                                  |
-| `e2e/scenarios/12-transition-comment-race.md`           | Verify transition intent changes tracker state without orchestrator-authored comment metadata                                               |
-| `e2e/scenarios/13-api-progress-convergence.md`          | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                                            |
-| `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, workspace, and branch isolation) — `pnpm e2e:standalone-project`                  |
-| `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                                              |
-| `e2e/scenarios/15-terminal-candidate-reconciliation.md` | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                                  |
-| `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                                  |
-| `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                                        |
-| `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication                                |
-| `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry                    |
-| `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                                      |
-| `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe |
-| `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                  |
-| `e2e/scenarios/27-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                            |
-| `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution               |
+| File                                                    | Scenario                                                                                                                                                            |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `e2e/scenarios/01-happy-path.md`                        | Issue dispatch → worker completion → lifecycle observation                                                                                                          |
+| `e2e/scenarios/02-multi-issue.md`                       | Verify concurrency limit                                                                                                                                            |
+| `e2e/scenarios/03-stall-detection.md`                   | stall → SIGTERM → retry                                                                                                                                             |
+| `e2e/scenarios/04-fail-retry.md`                        | Failure → retry scheduling                                                                                                                                          |
+| `e2e/scenarios/05-before-remove-hook-failure.md`        | Verify a `before_remove` hook failure does not block workspace cleanup                                                                                              |
+| `e2e/scenarios/06-retry-title-preservation.md`          | Issue title preservation during retry/recovery                                                                                                                      |
+| `e2e/scenarios/07-release-missing-retry.md`             | Release a missing retry queue instead of restarting                                                                                                                 |
+| `e2e/scenarios/09-linear-sandbox.md`                    | Verify Linear sandbox lifecycle, confirmed per-turn state reads, dirty-workspace recovery, and reconciliation edge cases                                            |
+| `e2e/scenarios/10-http-auth-hardening.md`               | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                                                                      |
+| `e2e/scenarios/10-orchestrator-tracker-state.md`        | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                                                          |
+| `e2e/scenarios/12-transition-comment-race.md`           | Verify transition intent changes tracker state without orchestrator-authored comment metadata                                                                       |
+| `e2e/scenarios/13-api-progress-convergence.md`          | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                                                                    |
+| `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, workspace, and branch isolation) — `pnpm e2e:standalone-project`                                          |
+| `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                                                                      |
+| `e2e/scenarios/15-terminal-candidate-reconciliation.md` | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                                                          |
+| `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                                                          |
+| `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                                                                |
+| `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication                                                        |
+| `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry                                            |
+| `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                                                              |
+| `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe                         |
+| `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes |
+| `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                          |
+| `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                    |
+| `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution                                       |
 
 ## TC Writing Guide
 
@@ -531,7 +532,7 @@ in separate worker threads. It does not require stale repository build output.
 
 `browser-security.test.ts` covers canonical HTTPS configuration, private cookie
 attributes, exact origins, malformed/duplicate cookies, cross-session CSRF,
-expiry/revocation and bounded registry capacity. [TC-27](e2e/scenarios/27-fleet-enrollment-security.md)
+expiry/revocation and bounded registry capacity. [TC-28](e2e/scenarios/28-fleet-enrollment-security.md)
 uses a real TLS client with an ephemeral trusted certificate, actual SQLite and
 an independent typed session/command fixture. Run `pnpm build`, then
 `node e2e/fleet-enrollment-e2e.mjs` and `node e2e/fleet-enrollment-mutations.mjs`,
@@ -539,3 +540,11 @@ or `./e2e/run-fleet-enrollment-e2e.sh` for Linux Docker. Every assertion prints 
 reached marker; eight copied-artifact mutations must fail their reached assertion.
 Native macOS runs and Linux container runs are distinct evidence. Neither claims
 native systemd/launchd isolation or preservation of actual managed processes.
+
+### Local management adapter contract cases (C03)
+
+Run `./e2e/run-management-agent-e2e.sh` for the isolated Linux Docker contract and
+six forbidden-condition assertion probes. Run `node e2e/management-agent-contract.mjs`
+after `pnpm build` to report actual host OS evidence separately. See
+[TC-27](e2e/scenarios/27-local-management-agent.md) for scope and assertions.
+Native service installation/isolation remains outside this local adapter slice.
