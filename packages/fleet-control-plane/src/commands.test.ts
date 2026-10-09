@@ -539,3 +539,28 @@ it("rolls back revocation plus ledger expiry on audit failure and expires on suc
   expect((await api.getCommand(c.commandId)).state).toBe("expired");
   expect(() => enrollment.authenticate(f.identity)).toThrow();
 });
+
+it("retains a late reconciled result for ninety days after receipt", async () => {
+  const f = await setup();
+  const api = f.service();
+  const c = await api.submitCommand(f.project(), "late-result", {
+    operation: "start",
+  });
+  await api.claim(f.identity, { ...f.envelope(), commandId: c.commandId });
+  f.advance(91 * 24 * 60 * 60_000);
+  api.recover();
+  await api.publishResult(f.identity, {
+    ...f.envelope(),
+    result: {
+      kind: "command",
+      commandId: c.commandId,
+      state: "succeeded",
+      observedAt: "2026-10-09T12:00:05.000Z",
+      evidence: { ready: true },
+    },
+  });
+  expect(api.prune().commands).toBe(0);
+  expect((await api.getCommand(c.commandId)).state).toBe("succeeded");
+  f.advance(90 * 24 * 60 * 60_000);
+  expect(api.prune().commands).toBe(1);
+});

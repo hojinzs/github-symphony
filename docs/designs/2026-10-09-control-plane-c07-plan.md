@@ -1,6 +1,6 @@
 # C07 lifecycle command ledger implementation plan
 
-**Status:** Draft
+**Status:** Implemented — verification in TC-29; awaiting review
 **Symphony Layers:** Coordination, Integration, Observability
 **Delivery:** #1011, child of Epic #983; prerequisite C04 #1008 / merged #1031
 

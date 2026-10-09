@@ -119,6 +119,11 @@ the tracker adapter:
 
 ### 3. Coordination — the orchestrator
 
+- Fleet management command coordination is a separate repository extension:
+  `packages/fleet-control-plane/src/commands.ts` (C07, #1011) coordinates
+  lifecycle submission, atomic claims/expiry, per-project fencing and recovery.
+  It neither schedules issue work nor enters the orchestrator dispatch loop.
+
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`.
   The effect-owning façade delegates bounded finalization and retry-record
   calculations to the pure, explicitly typed decisions in
@@ -234,6 +239,12 @@ No management protocol, tracker policy, or fleet behavior is added to
 - Runtime-neutral GraphQL implementations: `packages/tool-github-graphql`, `packages/tool-linear-graphql`
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
+
+- Fleet lifecycle command integration: `CommandPeers` supplies synchronous
+  project identity/readiness and authenticated current-session checks on C04's
+  shared SQLite transaction. C07 composes unclaimed command invalidation with
+  enrollment revocation; HTTP routing, inventory and agent journal/process
+  effects remain consumer-owned.
 
 - Fleet SQLite schema migrations, private filesystem checks and transaction boundaries: `packages/fleet-control-plane` (C04, #1008). Atomic one-use enrollment, credential authentication and revocation invoke peer-owned session/command writes in the same SQLite transaction. First-signal updates require the current session owner's verifier. HTTP consumers remain separate; this package does not dispatch workers or stop orchestrators.
 - `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. The local `packages/management-agent` registry adds canonical allowlist inventory and typed lifecycle/reader boundaries. `packages/cli/src/management-local.ts` implements the concrete local driver and `createLocalReadAdapter` canonical-runtime read factory; `local-project-runtime.ts` resolves canonical folders through existing cached aliases and runtime ownership evidence. The CLI bundles this driver under the `management-local` module entry. Transport and fleet services remain separate delivery slices. Native-service consumers must provide a separately verified isolated project launcher; C03 rejects a service launch context without that boundary.

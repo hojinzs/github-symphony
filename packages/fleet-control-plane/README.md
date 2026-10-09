@@ -157,10 +157,17 @@ peer session invalidation. `invalidateProject(projectId)` expires unclaimed
 removed-project work. Claimed work remains recoverable.
 
 `prune()` applies the protocol default 90-day retention to completed, expired
-or explicitly closed unknown records. Unresolved command records and their
+or explicitly closed unknown records. A late reconciled result is retained for
+at least 90 days after its receipt audit, even when its observation is older.
+Unresolved command records and their
 audits remain fenced and retained. History is newest-first with bounded pages
 and project-bound command-ID cursors. Pruned cursors are rejected explicitly.
 No new fleet listener or CLI command is shipped by this library slice.
 
 The [C07 implementation plan](../../docs/designs/2026-10-09-control-plane-c07-plan.md)
-records the package boundaries and remaining black-box verification.
+records the package boundaries. After `pnpm build`, run
+`node e2e/fleet-commands-e2e.mjs` and
+`node e2e/fleet-commands-mutations.mjs`, or
+`./e2e/run-fleet-commands-e2e.sh` for isolated Linux Docker.
+[TC-29](../../e2e/scenarios/29-fleet-command-recovery.md) distinguishes
+ledger/journal-fixture integration evidence from native OS lifecycle validation.

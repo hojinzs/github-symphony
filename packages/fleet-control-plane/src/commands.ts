@@ -661,12 +661,14 @@ export function createCommandService(
           .run(cutoff).changes;
         const commands = db
           .prepare(
-            `DELETE FROM lifecycle_commands WHERE
+            `DELETE FROM lifecycle_commands WHERE (
           (state IN ('succeeded','failed') AND completed_at<=?)
           OR (state='expired' AND expires_at<=?)
-          OR (state='unknown' AND closed_at IS NOT NULL AND closed_at<=?)`
+          OR (state='unknown' AND closed_at IS NOT NULL AND closed_at<=?))
+          AND NOT EXISTS (SELECT 1 FROM audit_records a WHERE
+            a.target=lifecycle_commands.command_id AND a.occurred_at>?)`
           )
-          .run(cutoff, cutoff, cutoff).changes;
+          .run(cutoff, cutoff, cutoff, cutoff).changes;
         return { commands: Number(commands), audits: Number(audits) };
       });
     },
