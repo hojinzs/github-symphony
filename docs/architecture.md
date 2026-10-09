@@ -356,3 +356,12 @@ existing private identity persistence in `registry.ts` (Configuration). Enrollme
 resumes saved identity without another token. The client validates the protocol,
 bounds input/output and verifies response ownership. This is a repository-local
 management extension; Symphony orchestration and tracker boundaries are unchanged.
+
+The C05 foreground runtime in `management-agent/src/foreground.ts` holds the
+local exclusive registry lock, publishes current bounded observations and runs
+one independent outbound poll. Inventory UUID/projection and delivery execution
+are typed sibling ports. `fleet-control-plane/src/sessions.ts` owns durable
+exclusive sessions, receipt-based renewal and sequence fencing on the C04
+transaction boundary; its synchronous observation hook belongs to C06.
+Startup recovery fences sessions without touching project processes. Migration 2
+and environment host/version metadata preserve the same shared fleet store.

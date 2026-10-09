@@ -100,3 +100,34 @@ checks and eight forbidden-condition probes. `./e2e/run-fleet-enrollment-e2e.sh`
 runs both in Linux Docker. The independent HTTP/session/command fixture is test
 infrastructure, not a shipped fleet server. These checks do not validate native
 service isolation or management of actual orchestrator processes.
+
+## C05 exclusive sessions and authenticated first signal
+
+Migration 2 adds `agent_sessions` to the same SQLite connection. Construct
+`createSessionService(store, enrollment, { receiveObservation, now? })` with the
+same C04 store/enrollment connection. Session negotiation authenticates the
+environment/agent credential, validates v1, and atomically rejects another live
+session. A session expires after 30 seconds without observations; a replacement
+gets a new opaque UUID and resets sequence. Host/version metadata is projected
+through environment listing. Negotiation alone stays awaiting first signal
+(or offline for previously connected environments).
+
+`observe(identity, request)` calls C04's authenticated-signal transaction.
+Current session ownership is required even for zero projects. Freshness and
+expiry use server receipt time, never agent clocks. Increasing sequence invokes
+the required synchronous `receiveObservation(database, request)` sibling projection
+hook; duplicate/older sequences acknowledge contact without replacing inventory.
+Projection failure or an asynchronous/non-undefined hook rolls back sequence,
+session renewal and connection state together.
+
+Call `authenticateSession` before poll/claim/result work. Poll does not renew
+heartbeat freshness. Call `expire()` on the consuming fleet liveness tick and
+`recoverAfterRestart()` once before serving requests after process restart;
+persisted sessions are fenced and enrolled environments become offline until a
+new authenticated observation. Enrollment/credentials survive this recovery.
+
+C04's revocation hook must compose `sessions.invalidate(database, environmentId)`
+with the command/projection owners' invalidation on that same transaction.
+Session invalidation makes no local process calls. TLS listener routing and the
+atomic inventory/query projection remain sibling-owned. Tests use real C04
+enrollment, migrations and SQLite plus an independent typed projection table.

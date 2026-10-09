@@ -31,3 +31,9 @@ export type {
   LocalReadRuntime,
   LocalReadRuntimeResolver,
 } from "./local-read.js";
+export {
+  runForegroundAgent,
+  reconnectDelay,
+  observationPages,
+} from "./foreground.js";
+export type { ForegroundOptions } from "./foreground.js";

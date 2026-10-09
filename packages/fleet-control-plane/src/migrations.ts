@@ -36,6 +36,21 @@ export const FLEET_MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE agent_sessions (
+        environment_id TEXT PRIMARY KEY REFERENCES environments(id),
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        sequence INTEGER NOT NULL DEFAULT -1,
+        agent_version TEXT NOT NULL,
+        hostname TEXT NOT NULL,
+        os TEXT NOT NULL CHECK (os IN ('linux', 'darwin'))
+      );
+    `,
+  },
 ];
 
 /** A whole migration batch and its schema version commit together. */

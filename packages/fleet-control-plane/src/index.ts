@@ -28,3 +28,9 @@ export {
   type BrowserRequest,
   type BrowserSession,
 } from "./browser-security.js";
+export {
+  createSessionService,
+  SESSION_LIFETIME_MS,
+  type SessionService,
+  type SessionOptions,
+} from "./sessions.js";

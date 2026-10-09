@@ -176,7 +176,7 @@ export function createEnrollmentService(
     async listEnvironments() {
       return database
         .prepare(
-          "SELECT id, name, enrollment, connection, last_contact_at FROM environments ORDER BY rowid"
+          "SELECT e.id, e.name, e.enrollment, e.connection, e.last_contact_at, s.agent_version, s.hostname, s.os FROM environments e LEFT JOIN agent_sessions s ON s.environment_id = e.id ORDER BY e.rowid"
         )
         .all()
         .map((row) => ({
@@ -184,6 +184,15 @@ export function createEnrollmentService(
           name: String(row.name),
           enrollment: row.enrollment as EnvironmentRecord["enrollment"],
           connection: row.connection as EnvironmentRecord["connection"],
+          ...(row.agent_version
+            ? {
+                agentVersion: String(row.agent_version),
+                host: {
+                  hostname: String(row.hostname),
+                  os: row.os as "linux" | "darwin",
+                },
+              }
+            : {}),
           ...(row.last_contact_at
             ? { lastContactAt: String(row.last_contact_at) }
             : {}),

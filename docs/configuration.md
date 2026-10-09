@@ -962,3 +962,11 @@ without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
 Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
+
+C05 foreground consumers provide a private registry directory, agent version,
+AbortSignal, HTTPS client factory and typed current-inventory/delivery adapters.
+The fixed default heartbeat is five seconds, poll maximum 25 seconds, receipt-based
+session lifetime 30 seconds, fast-poll pacing one second and reconnect ceiling
+30 seconds with exponential jitter. No environment variables are added.
+Fleet consumers call the C05 session expiry tick and startup recovery before
+serving requests; restart fences saved sessions but preserves enrollment.
