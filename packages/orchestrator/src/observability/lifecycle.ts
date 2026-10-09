@@ -6,6 +6,15 @@ import type {
 import { freezeEvent, offerBestEffort } from "../publication.js";
 import { assertOtlpProductionCapability } from "./activation.js";
 
+export type SignalStatus = {
+  state: "healthy" | "degraded";
+  lastSuccessfulExportAt: string | null;
+  dropped: Record<
+    "queue_full" | "timeout" | "permanent" | "shutdown" | "mapping" | "partial",
+    number
+  >;
+};
+
 /** Owner-local extension: no SDK or new core status contract. */
 export type TelemetryStatus = {
   enabled: boolean;
@@ -14,10 +23,12 @@ export type TelemetryStatus = {
   applied: OtlpSafeDescriptor;
   pending: OtlpSafeDescriptor | null;
   restartRequired: boolean;
+  signals: Partial<Record<"logs" | "metrics", SignalStatus>>;
 };
 
 export type TelemetryPipeline = ObservabilityPublication & {
   shutdown(deadline: number): Promise<void>;
+  diagnostics?: () => Partial<Record<"logs" | "metrics", SignalStatus>>;
 };
 
 export type TelemetryStartup = {
@@ -112,17 +123,55 @@ export async function createTelemetryLifecycle(
       degraded = state === "degraded";
     },
     status(): TelemetryStatus {
+      const signals: TelemetryStatus["signals"] = {};
+      try {
+        const raw = pipeline?.diagnostics?.() ?? {};
+        for (const signal of ["logs", "metrics"] as const) {
+          const value = raw[signal];
+          if (!value) continue;
+          const dropped = {} as SignalStatus["dropped"];
+          for (const reason of [
+            "queue_full",
+            "timeout",
+            "permanent",
+            "shutdown",
+            "mapping",
+            "partial",
+          ] as const) {
+            const count = value.dropped[reason];
+            dropped[reason] =
+              Number.isSafeInteger(count) && count >= 0 ? count : 0;
+          }
+          signals[signal] = {
+            state: value.state === "degraded" ? "degraded" : "healthy",
+            lastSuccessfulExportAt:
+              typeof value.lastSuccessfulExportAt === "string" &&
+              /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+                value.lastSuccessfulExportAt
+              )
+                ? value.lastSuccessfulExportAt
+                : null,
+            dropped,
+          };
+        }
+      } catch {
+        degraded = true;
+      }
       return {
         enabled: applied.enabled,
         state: !applied.enabled
           ? "disabled"
-          : degraded
+          : degraded ||
+              Object.values(signals).some(
+                (signal) => signal.state === "degraded"
+              )
             ? "degraded"
             : "healthy",
         supportedSignals: ["logs", "metrics"],
         applied: structuredClone(applied.diagnostics),
         pending: pending ? structuredClone(pending) : null,
         restartRequired: pending !== null,
+        signals: structuredClone(signals),
       };
     },
     shutdown(): Promise<void> {

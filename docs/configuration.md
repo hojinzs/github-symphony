@@ -801,13 +801,39 @@ values from leaking into new runs.
 The optional `observability.otlp` mapping is parsed structurally by the shared
 workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
 enable export. The orchestrator contains a pinned official Logs SDK and bounded
-HTTP/protobuf adapter available only through internal injection. Production
-activation remains pending until the complete pipeline and packaged audits pass;
-the internal initializer rejects enabled production policy before loading the SDK.
+HTTP/protobuf Logs and Metrics pipelines. Production activation remains gated
+until packaged/performance audits pass: independently deployed H rejects enabled
+startup with an explicit unsupported-capability error before loading the SDK.
+An internal startup capability defaults off; there is no user-facing flag or
+environment override. Tests can inject providers without enabling production.
 The SDK-free owner resolver remains a separate helper; shared loading never calls
 it. Optional
 SDK-free post-persistence publication hooks default to no-op and add no CLI
 flags or environment variables; they do not enable network export.
+
+The project owner freezes resolved transport, credentials and resource settings
+at startup. Valid reloads continue applying reloadable workflow policy but stage
+changed OTLP settings as pending restart. Applied providers, resources and
+destinations remain unchanged, including when disabling export. The warning
+explicitly says the applied destination remains active until restart. Repeated
+identical candidates suppress warnings; reverting to applied settings clears
+pending state. Credential value changes participate in private memory comparison;
+no secret comparison digest is persisted or published. Invalid reloads keep the
+last-known-good workflow and leave applied/pending exporter settings unchanged.
+
+Committed project status and `/api/v1/state` have an additive `telemetry` field:
+`enabled`, `state`, `supportedSignals`, safe `applied`/`pending` descriptors,
+`restartRequired`, and per-signal `state`, `lastSuccessfulExportAt`, and bounded
+`dropped` counts. Endpoint/protocol/header names and validated resource metadata
+are visible; header values and remote error bodies are excluded. Exporter health
+never changes coordination `lastError`. Existing CLI JSON status preserves the
+extension; formatted CLI diagnostics and activation audits are delivered in I.
+
+Shutdown closes offers and stops both signal timers, flushing providers
+concurrently with one shared deadline of at most five seconds. Expired requests
+are aborted and remaining telemetry discarded. Nothing replays persisted events
+or historical decisions after restart. Applied and pending exporter credential
+names remain excluded from workers/hooks for the lifetime of the project owner.
 
 Supported fields are `enabled` (boolean), `endpoint` (non-empty string),
 `protocol` (`http/protobuf`), `headers`, `resource_attributes`, and signal
@@ -855,7 +881,7 @@ references and ignores invalid ambient transport settings. Resources merge
 `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, then YAML; secret-bearing
 resources are rejected by the existing redactor, with only the offending key
 named in the error. Reserved identity key conflict validation and the 16 custom-key
-limit are pending orchestrator-owned identity integration in slice D (see the
+limit are enforced by orchestrator-owned providers (see the
 [design’s Resource identity section](designs/2026-10-04-otlp-export-design.md#resource-identity)).
 Safe diagnostics contain only
 endpoint, protocol, header names, resource metadata, auth-reference names and

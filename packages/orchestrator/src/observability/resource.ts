@@ -3,6 +3,8 @@ import { resourceFromAttributes } from "@opentelemetry/resources";
 
 export type ProjectResourceIdentity = {
   version: string;
+  /** Shared across the two providers belonging to one project startup. */
+  instanceId?: string;
   projectId: string;
   projectSlug: string;
   trackerKind: string;
@@ -14,7 +16,7 @@ export function createProjectResource(identity: ProjectResourceIdentity) {
   const reserved = {
     "service.name": "gh-symphony",
     "service.version": identity.version,
-    "service.instance.id": randomUUID(),
+    "service.instance.id": identity.instanceId ?? randomUUID(),
     "symphony.project.id": identity.projectId,
     "symphony.project.slug": identity.projectSlug,
     "symphony.tracker.kind": identity.trackerKind,

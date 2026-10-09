@@ -41,6 +41,9 @@ COPY --from=build --chown=node:node /app/e2e/management-agent-contract.mjs /app/
 
 COPY --from=build --chown=node:node /app/e2e/bounded-read-contract.mjs /app/e2e/bounded-read-contract.mjs
 
+# OTLP lifecycle contract uses built service/providers, not Vitest mocks.
+COPY --from=build --chown=node:node /app/e2e/otlp-lifecycle-contract.mjs /app/e2e/otlp-lifecycle-contract.mjs
+
 # Copy seed data
 COPY --chown=node:node e2e/seed /e2e/seed
 
