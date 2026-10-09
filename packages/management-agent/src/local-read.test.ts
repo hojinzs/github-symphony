@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   rename,
+  stat,
   realpath,
   rm,
   symlink,
@@ -11,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readResultSchema,
   type ReadRequest,
@@ -87,11 +88,36 @@ beforeEach(async () => {
   }));
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await registry.close();
   await rm(directory, { recursive: true, force: true });
 });
 
 describe("bounded local read protocol with real filesystem records", () => {
+  it("allocates history buffers by record size rather than the chunk limit", async () => {
+    const size = (await stat(join(root, "runs", runId, "run.json"))).size;
+    const allocation = vi.spyOn(Buffer, "alloc");
+    const result = await adapter.read(request({ kind: "runs", limit: 100 }));
+    expect(result.state).toBe("completed");
+    expect(allocation.mock.calls.map(([bytes]) => bytes)).toEqual([size + 1]);
+  });
+  it("emits malformed UTF-8 bytes once across cursor boundaries", async () => {
+    const bytes = Buffer.concat([
+      Buffer.from("abcd"),
+      Buffer.from([0xe0, 0x80, 0xff, 0xff]),
+      Buffer.from("z"),
+    ]);
+    await writeFile(join(root, "runs", runId, "worker.log"), bytes);
+    let result = await chunk(log(undefined, 10));
+    let text = result.text;
+    for (let attempts = 0; !result.eof && attempts < 10; attempts++) {
+      result = await chunk(log(result.cursor, 10));
+      expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(10);
+      text += result.text;
+    }
+    expect(result.eof).toBe(true);
+    expect(text).toBe(new TextDecoder().decode(bytes));
+  });
   it("projects history/detail, orders a bounded window and excludes secret-bearing fields", async () => {
     await record("run-2", "2026-10-09T01:00:00Z");
     const result = await adapter.read(request({ kind: "runs", limit: 1 }));

@@ -202,7 +202,17 @@ export class LocalReadAdapter {
                       : byte >= 0xc2 && byte <= 0xdf
                         ? 2
                         : 1;
-                if (consumed - start < width) consumed = start;
+                if (consumed - start < width) {
+                  consumed = start;
+                  // Rollback can also remove malformed bytes already emitted
+                  // as replacements; text must match the committed byte offset.
+                  text = new TextDecoder().decode(
+                    buffer.subarray(0, consumed),
+                    {
+                      stream: true,
+                    }
+                  );
+                }
               }
             }
             if (bytesRead > 0 && consumed === 0)
@@ -260,11 +270,13 @@ export class LocalReadAdapter {
   ): Promise<RunSummary> {
     const handle = await this.file(root, join(root, "runs", runId, "run.json"));
     try {
-      if ((await handle.stat()).size > LIMITS.logChunkBytes)
-        throw new Error("Oversized record");
-      const buffer = Buffer.alloc(LIMITS.logChunkBytes + 1);
+      const size = (await handle.stat()).size;
+      if (size > LIMITS.logChunkBytes) throw new Error("Oversized record");
+      // One extra byte detects concurrent growth without allocating a full
+      // 256 KiB chunk for every small history record.
+      const buffer = Buffer.alloc(size + 1);
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      if (bytesRead > LIMITS.logChunkBytes) throw new Error("Oversized record");
+      if (bytesRead > size) throw new Error("Record changed during read");
       const record = JSON.parse(
         buffer.subarray(0, bytesRead).toString("utf8")
       ) as Record<string, unknown>;

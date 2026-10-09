@@ -99,12 +99,17 @@ currently projects the same safe run identity, status and timestamps; it never
 uploads raw run records, prompts, errors, workflow text or credentials. The
 adapter reads only records whose project and run identities match. Missing
 runtime/history directories and missing logs return explicit unavailable results.
+History scans retained records to select this window; buffers use each record's
+measured size plus one growth-detection byte, rather than the full log chunk cap.
+Scan time still grows with retained run count; this adapter does not add retention
+or an index.
 
 Fixed `worker`, `events` and `orchestrator` streams return at most 256 KiB of
 UTF-8 text. Signed cursors bind the local project/run/stream, opaque file
 generation and byte offset. Replacement, observed truncation or changed cursor
 anchor resets to the beginning with `reset: true`. Invalid/foreign cursors are
-unavailable; callers restart with no cursor after an adapter restart. Symlinked
+unavailable; malformed UTF-8 is replaced once across successive chunks. Callers
+restart with no cursor after an adapter restart. Symlinked
 files and intermediate directories are rejected. Raw log text may contain
 sensitive content and belongs only inside the trusted operator access boundary.
 No read acquires the lifecycle command slot or persists/uploads logs continuously.
