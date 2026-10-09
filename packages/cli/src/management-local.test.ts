@@ -12,11 +12,18 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { AgentRegistry } from "@gh-symphony/management-agent";
-import { getProcessIdentity } from "@gh-symphony/orchestrator";
+import { randomUUID } from "node:crypto";
+import type { OrchestratorRunRecord } from "@gh-symphony/core";
+import {
+  readResultSchema,
+  type ReadRequest,
+} from "@gh-symphony/management-protocol";
+import { createStore, getProcessIdentity } from "@gh-symphony/orchestrator";
 import { saveProjectConfig, type CliProjectConfig } from "./config.js";
 import { standaloneProjectId } from "./standalone-project.js";
 import {
   inspectLocalProject,
+  createLocalReadAdapter,
   resolveCanonicalRuntime,
 } from "./management-local.js";
 let root: string;
@@ -319,4 +326,96 @@ it("reports runtime lookup failures for status and stop without throwing", async
     stderr.mockRestore();
     process.exitCode = undefined;
   }
+});
+
+it("reads alias-owned store records through the canonical resolver even with an invalid workflow", async () => {
+  const { runtimeId } = await installAliasRuntime();
+  const project = await registry.add(folder);
+  const store = createStore(configDir);
+  const timestamp = new Date().toISOString();
+  const record: OrchestratorRunRecord = {
+    runId: "fixture-run",
+    projectId: runtimeId,
+    projectSlug: "fixture",
+    issueId: "fixture-issue",
+    issueSubjectId: "fixture-issue",
+    issueIdentifier: "fixture/project#1",
+    issueState: "Ready",
+    repository: { owner: "fixture", name: "project", cloneUrl: "unused" },
+    status: "succeeded",
+    attempt: 1,
+    processId: null,
+    port: null,
+    workingDirectory: folder,
+    issueWorkspaceKey: null,
+    workspaceRuntimeDir: folder,
+    workflowPath: join(folder, "WORKFLOW.md"),
+    retryKind: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    startedAt: null,
+    completedAt: timestamp,
+    lastError: "PRIVATE_ERROR_CANARY",
+    nextRetryAt: null,
+  };
+  await store.saveRun(record);
+  const logPath = join(
+    configDir,
+    "projects",
+    runtimeId,
+    "runs",
+    record.runId,
+    "worker.log"
+  );
+  await writeFile(logPath, "fixture log");
+  await writeFile(join(folder, "WORKFLOW.md"), "invalid workflow");
+  const adapter = createLocalReadAdapter(registry, configDir);
+  const request: ReadRequest = {
+    readId: randomUUID(),
+    projectId: randomUUID(),
+    sessionId: randomUUID(),
+    localProjectId: project.localProjectId,
+    submittedAt: timestamp,
+    expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    selection: { kind: "runs", limit: 100 },
+  };
+  const history = readResultSchema.parse(await adapter.read(request));
+  expect(history).toMatchObject({
+    state: "completed",
+    payload: {
+      kind: "runs",
+      runs: [{ runId: record.runId, startedAt: timestamp }],
+    },
+  });
+  expect(JSON.stringify(history)).not.toContain("CANARY");
+  request.selection = {
+    kind: "log-chunk",
+    runId: record.runId,
+    stream: "worker",
+    maxBytes: 256 * 1024,
+  };
+  expect(await adapter.read(request)).toMatchObject({
+    state: "completed",
+    payload: { text: "fixture log" },
+  });
+});
+
+it("reports uncached runtime reads unavailable without provisioning a project", async () => {
+  const project = await registry.add(folder);
+  const timestamp = new Date().toISOString();
+  const adapter = createLocalReadAdapter(registry, configDir);
+  expect(
+    await adapter.read({
+      readId: randomUUID(),
+      projectId: randomUUID(),
+      sessionId: randomUUID(),
+      localProjectId: project.localProjectId,
+      submittedAt: timestamp,
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      selection: { kind: "runs", limit: 100 },
+    })
+  ).toMatchObject({
+    state: "unavailable",
+    diagnostic: { code: "log_unavailable" },
+  });
 });

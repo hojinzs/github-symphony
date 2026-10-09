@@ -87,7 +87,10 @@ a diagnostic and exit code 1.
 ## Bounded local reads (C09)
 
 `LocalReadAdapter` accepts the management protocol's typed read request and a
-trusted `LocalReadRuntimeResolver` supplied by the CLI. Each request revalidates
+trusted `LocalReadRuntimeResolver` supplied by the CLI. The bundled
+`@gh-symphony/cli/management-local` module provides
+`createLocalReadAdapter(registry, configDir)` using existing canonical-runtime
+ownership records. Each request revalidates
 the registered project. The resolver supplies the existing project's canonical
 runtime directory and runtime project ID; callers cannot request filenames.
 
@@ -105,3 +108,12 @@ unavailable; callers restart with no cursor after an adapter restart. Symlinked
 files and intermediate directories are rejected. Raw log text may contain
 sensitive content and belongs only inside the trusted operator access boundary.
 No read acquires the lifecycle command slot or persists/uploads logs continuously.
+
+Verification: `pnpm --filter @gh-symphony/management-agent test` covers typed
+protocol requests against independent real filesystem fixtures, including
+UTF-8/invalid-byte boundaries and cursor replay. CLI tests persist a typed
+`OrchestratorRunRecord` through the actual state store before reading it through
+the canonical alias resolver. [TC-28](../../e2e/scenarios/28-bounded-local-reads.md)
+exercises the bundled factory with a real CLI daemon and five fault probes.
+CP-12/15 and applicable U04/U07 reads are owned here; offline transport, read-lane
+scheduling, UI follow/disconnect and server retention are separate slices.

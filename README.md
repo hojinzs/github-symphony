@@ -1105,3 +1105,12 @@ visible and does not prevent verified expected-target stop. The bundled
 `@gh-symphony/cli/management-local` module supplies the local driver; this does
 not add an `agent` command or change the per-project `--web` server into a fleet
 service. Native service launchers remain a separate implementation boundary.
+
+The bundled `@gh-symphony/cli/management-local` module also exports
+`createLocalReadAdapter(registry, configDir)` (C09, #1013). It resolves the
+registered folder's existing runtime and returns bounded recent run history,
+projected run detail and fixed `orchestrator`/`worker`/`events` log streams.
+Responses contain at most 256 KiB of UTF-8 log text with a scoped byte cursor;
+rotation/truncation reports reset, and missing or escaping selections report
+unavailable. Read access survives invalid workflow and has no process effects.
+Raw logs may contain sensitive text and are restricted to trusted operator access.
