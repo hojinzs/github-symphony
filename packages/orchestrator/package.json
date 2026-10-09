@@ -45,10 +45,15 @@
     "@gh-symphony/core": "workspace:*",
     "@gh-symphony/runtime-claude": "workspace:*",
     "@gh-symphony/runtime-codex": "workspace:*",
-    "@gh-symphony/worker": "workspace:*",
     "@gh-symphony/tracker-file": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",
-    "@gh-symphony/tracker-linear": "workspace:*"
+    "@gh-symphony/tracker-linear": "workspace:*",
+    "@gh-symphony/worker": "workspace:*",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/api-logs": "0.223.0",
+    "@opentelemetry/otlp-transformer": "0.223.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-logs": "0.223.0"
   },
   "devDependencies": {
     "tsx": "^4.21.0"
