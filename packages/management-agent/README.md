@@ -83,3 +83,25 @@ missing cached alias is excluded, so launch falls back to the canonical folder.
 Missing or inaccessible allowlisted folders return a sanitized `project_unmanaged`
 error. CLI status/stop report ambiguous or unreadable runtime lookup failures with
 a diagnostic and exit code 1.
+
+## Bounded local reads (C09)
+
+`LocalReadAdapter` accepts the management protocol's typed read request and a
+trusted `LocalReadRuntimeResolver` supplied by the CLI. Each request revalidates
+the registered project. The resolver supplies the existing project's canonical
+runtime directory and runtime project ID; callers cannot request filenames.
+
+History returns a sorted recent window of at most 100 run summaries. Detail
+currently projects the same safe run identity, status and timestamps; it never
+uploads raw run records, prompts, errors, workflow text or credentials. The
+adapter reads only records whose project and run identities match. Missing
+runtime/history directories and missing logs return explicit unavailable results.
+
+Fixed `worker`, `events` and `orchestrator` streams return at most 256 KiB of
+UTF-8 text. Signed cursors bind the local project/run/stream, opaque file
+generation and byte offset. Replacement, observed truncation or changed cursor
+anchor resets to the beginning with `reset: true`. Invalid/foreign cursors are
+unavailable; callers restart with no cursor after an adapter restart. Symlinked
+files and intermediate directories are rejected. Raw log text may contain
+sensitive content and belongs only inside the trusted operator access boundary.
+No read acquires the lifecycle command slot or persists/uploads logs continuously.
