@@ -50,6 +50,9 @@ jobs:
       - name: Run package-aware tests with coverage
         run: pnpm test:coverage
 
+      - name: C14 Figma interaction contract tests
+        run: node --experimental-strip-types --test docs/designs/c14/interaction-contracts.test.ts
+
       - name: Compose project helper test
         run: pnpm e2e:compose-project-test
 

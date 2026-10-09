@@ -79,6 +79,7 @@ the tracker adapter:
 
 ### 2. Configuration — typed parsing and validation
 
+- Local management allowlist and enrollment persistence: `packages/management-agent` (C03, #1007), with canonical folder IDs and a user-only registry; the CLI remains responsible for workflow validation.
 - Management v1 identity, capacity, wire contracts and strict runtime schemas: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
@@ -186,6 +187,14 @@ the tracker adapter:
 
 ### 4. Execution — worker and agent subprocess
 
+The local `packages/management-agent` registry holds a process-identity heartbeat
+lock for its canonical data directory, reusing the orchestrator lock contract.
+Configuration removal does not signal or delete project processes or runtimes.
+`packages/management-agent/src/lifecycle.ts` serializes per-project operations,
+requires consumer-owned durable stop-target persistence and independently verifies
+readiness/exit/lock release through the CLI driver. `cli-process.ts` bounds calls
+and strips management credentials from child environments.
+
 - Exporter credential ownership: `packages/orchestrator/src/exporter-environment.ts`
   uses core OTLP auth-reference provenance to strip final worker/hook environments.
   Name-only conflicts with agent/tracker credentials fail even for disabled OTLP;
@@ -208,7 +217,7 @@ New process titles carry a lifetime UUID before lock acquisition, making the
 recorded OS identity unique even with second-resolution `ps` start timestamps.
 Older daemons lacking the endpoint fail closed. Caller-side expected stop does not
 remove records or declare remote completion after signaling; exit/lock-release
-and replacement observation remain the future management adapter's ownership.
+and replacement observation belong to the C03 local management adapter.
 No management protocol, tracker policy, or fleet behavior is added to
 `packages/control-plane` or orchestration core.
 
@@ -224,7 +233,7 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
-- `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. Agent and fleet service implementations belong to separate delivery slices.
+- `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. The local `packages/management-agent` registry adds canonical allowlist inventory and typed lifecycle/reader boundaries. `packages/cli/src/management-local.ts` implements the concrete local driver; `local-project-runtime.ts` resolves canonical folders through existing cached aliases and runtime ownership evidence. The CLI bundles this driver under the `management-local` module entry. Transport and fleet services remain separate delivery slices. Native-service consumers must provide a separately verified isolated project launcher; C03 rejects a service launch context without that boundary.
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason. State-list filtering preserves the exact malformed-item count and bounded diagnostic samples so startup cleanup remains observable.
 - Tracker adapters expose state reads and mutations to the Coordination layer, but the orchestrator does not author issue comments. Status reports, blocker notices, and other tracker comments are worker-owned operations; GitHub approval-workflow comments remain in `packages/extension-github-workflow`.

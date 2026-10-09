@@ -573,3 +573,7 @@ The CLI patch changeset records this operator-required design/documentation
 delivery. It does not claim new commands have shipped. Shipped CLI usage,
 configuration schemas and package ownership are unchanged, so runtime README,
 configuration and architecture references are not rewritten as feature delivery.
+
+## C14 interaction delivery reference
+
+The [C14 prototype evidence](2026-10-06-ohmysymphony-c14-prototype-evidence.md) records the subsequent #1018 interaction graph, typed consumer fixtures and walkthrough/model checks. It does not amend the dated C22 approval or turn static/prototype evidence into human, browser/assistive-technology or runtime/OS acceptance. Use its unified prototype page for the connected flow review and the original pages for approved component mapping.
