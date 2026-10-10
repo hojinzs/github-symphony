@@ -123,8 +123,10 @@ session renewal and connection state together.
 Call `authenticateSession` before poll/claim/result work. Poll does not renew
 heartbeat freshness. Call `expire()` on the consuming fleet liveness tick and
 `recoverAfterRestart()` once before serving requests after process restart;
-persisted sessions are fenced and enrolled environments become offline until a
-new authenticated observation. Enrollment/credentials survive this recovery.
+persisted sessions are fenced. Previously observed environments become offline
+until a new authenticated observation; environments that have never sent a signal
+remain awaiting-signal through both expiry and restart. Enrollment/credentials
+survive this recovery.
 
 C04's revocation hook must compose `sessions.invalidate(database, environmentId)`
 with the command/projection owners' invalidation on that same transaction.

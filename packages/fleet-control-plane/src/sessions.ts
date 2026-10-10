@@ -100,7 +100,7 @@ export function createSessionService(
     store.transaction(() => {
       database
         .prepare(
-          "UPDATE environments SET connection = 'offline' WHERE enrollment = 'enrolled' AND id IN (SELECT environment_id FROM agent_sessions WHERE expires_at <= ?)"
+          "UPDATE environments SET connection = 'offline' WHERE enrollment = 'enrolled' AND last_contact_at IS NOT NULL AND id IN (SELECT environment_id FROM agent_sessions WHERE expires_at <= ?)"
         )
         .run(now().toISOString());
     });
@@ -215,7 +215,7 @@ export function createSessionService(
           .prepare("UPDATE agent_sessions SET expires_at = ?")
           .run(now().toISOString());
         database.exec(
-          "UPDATE environments SET connection = 'offline' WHERE enrollment = 'enrolled'"
+          "UPDATE environments SET connection = 'offline' WHERE enrollment = 'enrolled' AND last_contact_at IS NOT NULL"
         );
       });
     },

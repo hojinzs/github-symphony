@@ -89,6 +89,35 @@ afterEach(() => {
   store.close();
   rmSync(root, { recursive: true, force: true });
 });
+it("preserves awaiting-signal across restart and expiry before the first observation", async () => {
+  sessions.recoverAfterRestart();
+  expect((await enrollment.listEnvironments())[0].connection).toBe(
+    "awaiting-signal"
+  );
+  const first = await sessions.openSession(identity, request());
+  now = new Date(now.getTime() + SESSION_LIFETIME_MS);
+  sessions.expire();
+  expect((await enrollment.listEnvironments())[0].connection).toBe(
+    "awaiting-signal"
+  );
+  expect(() =>
+    sessions.authenticateSession({ ...identity, sessionId: first.sessionId })
+  ).toThrow("Current");
+  const next = await sessions.openSession(identity, request());
+  store.close();
+  store = openFleetStore(root);
+  create();
+  sessions.recoverAfterRestart();
+  expect((await enrollment.listEnvironments())[0].connection).toBe(
+    "awaiting-signal"
+  );
+  expect(() =>
+    sessions.authenticateSession({ ...identity, sessionId: next.sessionId })
+  ).toThrow("Current");
+  const recovered = await sessions.openSession(identity, request());
+  await sessions.observe(identity, observation(recovered.sessionId));
+  expect((await enrollment.listEnvironments())[0].connection).toBe("online");
+});
 it("atomically rejects a live second session and fences its expired predecessor", async () => {
   const first = await sessions.openSession(identity, request());
   await expect(sessions.openSession(identity, request())).rejects.toThrow(
