@@ -446,7 +446,8 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes    |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                             |
 | `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                       |
-| `e2e/scenarios/29-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes |
+| `e2e/scenarios/29-fleet-command-recovery.md`            | C07 CP-06/07/09/18/19: SQLite claim races, restart/lost-result recovery, ownership fencing, audited closure and 17 reached forbidden-condition probes                  |
+| `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution                                          |
 
 ## TC Writing Guide
@@ -572,10 +573,31 @@ pacing, sequence reset and bounded paging through an independent v1 peer.
 Regression cases also cover restart/expiry before the first authenticated signal
 (remaining awaiting-signal) and transient failures in initial/heartbeat snapshots
 or delivery handlers (sanitized diagnostics, backoff and fresh snapshot recovery).
+The real C05/C07 composition case verifies current-session claim fencing and
+ownership transfer; foundation cases preserve populated v2 lifecycle data on the
+v3 session upgrade and reject reopening it with version-2 migrations.
 
 After `pnpm build`, run `node e2e/agent-transport-e2e.mjs` for host evidence and
-`./e2e/run-agent-transport-e2e.sh` for Linux Docker. TC-29 runs separate foreground
+`./e2e/run-agent-transport-e2e.sh` for Linux Docker. TC-30 runs separate foreground
 and HTTPS peer processes plus a real prepared-project CLI daemon. Six forbidden
 conditions must reach and fail their assertions. Report actual macOS/Linux
 container evidence separately; this is not native systemd/launchd isolation or
 service lifecycle validation.
+
+### Fleet lifecycle command recovery cases (C07)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes real enrolled
+credentials, independent typed project/session fixtures, reopen, invalid inputs,
+capacity, deadline/replay, explicit closure, history, result conflicts, CP-10
+clock-skew reconciliation with authoritative receipt time, audit
+rollback and retention (including 90 days after late result receipt).
+[TC-29](e2e/scenarios/29-fleet-command-recovery.md) defines CP-06/07/09/18/19.
+After `pnpm build`, run `node e2e/fleet-commands-e2e.mjs` and
+`node e2e/fleet-commands-mutations.mjs`, or
+`./e2e/run-fleet-commands-e2e.sh` for isolated Linux Docker.
+Separate processes/SQLite connections race authoritative expiry and claim;
+an independent durable agent-journal fixture supplies receipt/effect/result
+boundaries. Every assertion prints its reached marker; 18 isolated mutations
+prove forbidden conditions fail. Report macOS tests and Linux container tests
+separately. These are ledger/protocol integration checks, not native OS
+orchestrator lifecycle or production agent-journal acceptance.

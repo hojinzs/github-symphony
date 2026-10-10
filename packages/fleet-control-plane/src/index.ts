@@ -34,3 +34,10 @@ export {
   type SessionService,
   type SessionOptions,
 } from "./sessions.js";
+export {
+  createCommandService,
+  type CommandService,
+  type CommandOptions,
+  type CommandPeers,
+  type CommandTarget,
+} from "./commands.js";

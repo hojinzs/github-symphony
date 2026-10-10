@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { resolveFleetConfig } from "./config.js";
 import { openFleetStore } from "./store.js";
-import { applyMigrations } from "./migrations.js";
+import { applyMigrations, FLEET_MIGRATIONS } from "./migrations.js";
 import { preparePersistence } from "./persistence.js";
 
 const dirs: string[] = [];
@@ -85,7 +85,7 @@ describe("user-owned SQLite", () => {
       reopened.database.prepare("SELECT name FROM environments").get()
     ).toEqual({ name: "Host" });
     expect(reopened.database.prepare("PRAGMA user_version").get()).toEqual({
-      user_version: 2,
+      user_version: 3,
     });
     reopened.close();
   });
@@ -199,8 +199,40 @@ describe("migrations", () => {
       ).toBeUndefined();
       applyMigrations(db);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 2,
+        user_version: 3,
       });
+    } finally {
+      db.close();
+    }
+  });
+  it("upgrades a populated lifecycle v2 database to session v3 without losing commands", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      applyMigrations(db, FLEET_MIGRATIONS.slice(0, 2));
+      db.exec(`INSERT INTO environments VALUES ('env', 'Host', 'enrolled', 'awaiting-signal', NULL);
+        INSERT INTO lifecycle_commands
+          (command_id, project_id, environment_id, local_project_id, session_id,
+           operation, actor, idempotency_key, submitted_at, expires_at, state)
+        VALUES ('cmd', 'project', 'env', 'local', 'session', 'start', 'local-owner',
+                'click', '2026-10-09T12:00:00Z', '2026-10-09T12:00:30Z', 'accepted');`);
+      applyMigrations(db);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: 3,
+      });
+      expect(
+        db.prepare("SELECT command_id, state FROM lifecycle_commands").get()
+      ).toEqual({
+        command_id: "cmd",
+        state: "accepted",
+      });
+      expect(db.prepare("SELECT * FROM agent_sessions").all()).toEqual([]);
+      expect(() => applyMigrations(db, FLEET_MIGRATIONS.slice(0, 2))).toThrow(
+        "newer"
+      );
+      applyMigrations(db);
+      expect(
+        db.prepare("SELECT count(*) AS n FROM lifecycle_commands").get()
+      ).toEqual({ n: 1 });
     } finally {
       db.close();
     }

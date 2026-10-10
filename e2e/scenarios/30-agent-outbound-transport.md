@@ -1,4 +1,4 @@
-# TC-29: C05 foreground enrollment, sessions and outbound transport
+# TC-30: C05 foreground enrollment, sessions and outbound transport
 
 ## Setup
 

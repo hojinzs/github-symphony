@@ -8,6 +8,7 @@ import type {
   ObservationRequest,
   SessionRequest,
 } from "@gh-symphony/management-protocol";
+import { createCommandService } from "./commands.js";
 import { openFleetStore, type FleetStore } from "./store.js";
 import {
   createEnrollmentService,
@@ -219,4 +220,92 @@ it("fences persisted sessions on explicit service restart without deleting enrol
   const next = await sessions.openSession(identity, request());
   await sessions.observe(identity, observation(next.sessionId));
   expect((await enrollment.listEnvironments())[0].connection).toBe("online");
+});
+
+it("composes lifecycle claims with authenticated exclusive current sessions", async () => {
+  const first = await sessions.openSession(identity, request());
+  await sessions.observe(identity, observation(first.sessionId));
+  const projectId = randomUUID();
+  const localProjectId = randomUUID();
+  const commands = createCommandService(store, {
+    now: () => now,
+    peers: {
+      resolveTarget(database, candidate) {
+        expect(database).toBe(store.database);
+        if (candidate !== projectId) return undefined;
+        const current = database
+          .prepare(
+            "SELECT agent_id, session_id FROM agent_sessions WHERE environment_id = ?"
+          )
+          .get(identity.environmentId)!;
+        return {
+          projectId,
+          localProjectId,
+          environmentId: identity.environmentId,
+          agentId: String(current.agent_id),
+          sessionId: String(current.session_id),
+          managed: true,
+          online: true,
+          valid: true,
+          supported: true,
+        };
+      },
+      verifyAgent(database, candidate) {
+        expect(database).toBe(store.database);
+        sessions.authenticateSession(candidate);
+        return true;
+      },
+    },
+  });
+  const accepted = await commands.submitCommand(projectId, "current-session", {
+    operation: "start",
+  });
+  const firstIdentity = { ...identity, sessionId: first.sessionId };
+  const claim = (sessionId: string) => ({
+    protocolVersion: 1 as const,
+    requestId: randomUUID(),
+    environmentId: identity.environmentId,
+    sessionId,
+    commandId: accepted.commandId,
+  });
+  await expect(
+    commands.claim(
+      { ...firstIdentity, credential: "wrong" },
+      claim(first.sessionId)
+    )
+  ).rejects.toThrow("credential");
+  const claimed = await commands.claim(firstIdentity, claim(first.sessionId));
+  expect(claimed.command).toMatchObject({
+    sessionId: first.sessionId,
+    state: "executing",
+    owner: { agentId: identity.agentId, sessionId: first.sessionId },
+  });
+  now = new Date(now.getTime() + SESSION_LIFETIME_MS);
+  await expect(
+    commands.claim(firstIdentity, claim(first.sessionId))
+  ).rejects.toThrow("Current");
+  const next = await sessions.openSession(identity, request());
+  await expect(
+    commands.claim(firstIdentity, claim(first.sessionId))
+  ).rejects.toThrow("Current");
+  const nextIdentity = { ...identity, sessionId: next.sessionId };
+  const transferred = commands.transferOwnership(
+    nextIdentity,
+    accepted.commandId
+  );
+  expect(transferred).toMatchObject({
+    state: "unknown",
+    sessionId: first.sessionId,
+    owner: { agentId: identity.agentId, sessionId: next.sessionId },
+    claimedAt: claimed.command.claimedAt,
+  });
+  await expect(
+    commands.claim(nextIdentity, claim(next.sessionId))
+  ).resolves.toMatchObject({
+    command: { state: "unknown", owner: { sessionId: next.sessionId } },
+  });
+  await enrollment.revoke(identity.environmentId);
+  await expect(
+    commands.claim(nextIdentity, claim(next.sessionId))
+  ).rejects.toThrow("credential");
 });
