@@ -1381,24 +1381,22 @@ const handler = async (
             await shutdown();
             return;
           }
-          if (parsed.once) {
-            process.exitCode = 1;
-            await Promise.all(
-              [...new Set([httpServer?.server, workerHttpServer?.server])]
-                .filter((server): server is Server => Boolean(server))
-                .map((server) => closeHttpServer(server))
-            ).catch((closeError) => {
-              logLine(
-                yellow("\u26A0"),
-                `Failed to stop HTTP server: ${
-                  closeError instanceof Error
-                    ? closeError.message
-                    : "Unknown error"
-                }`
-              );
-            });
-            return;
-          }
+          process.exitCode = 1;
+          await Promise.all(
+            [...new Set([httpServer?.server, workerHttpServer?.server])]
+              .filter((server): server is Server => Boolean(server))
+              .map((server) => closeHttpServer(server))
+          ).catch((closeError) => {
+            logLine(
+              yellow("\u26A0"),
+              `Failed to stop HTTP server: ${
+                closeError instanceof Error
+                  ? closeError.message
+                  : "Unknown error"
+              }`
+            );
+          });
+          return;
         }
       }
     } finally {

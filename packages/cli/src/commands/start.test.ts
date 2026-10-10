@@ -1916,6 +1916,33 @@ Handle {{issue.identifier}}.\n`,
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
+  it("closes the HTTP status API when a one-shot startup fails", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    run.mockRejectedValueOnce(new Error("startup store unavailable"));
+    const stdout = captureWrites(process.stdout);
+    try {
+      await startModule.default(["--once", "--http"], baseOptions(configDir));
+      const url = await waitForHttpUrl(stdout.output);
+      expect(stdout.output()).toContain(
+        "One-shot run failed: startup store unavailable"
+      );
+      expect(process.exitCode).toBe(1);
+      expect(run).toHaveBeenCalledTimes(1);
+      await expect(fetch(`${url}/api/v1/state`)).rejects.toThrow();
+    } finally {
+      stdout.restore();
+    }
+  });
+
   it("keeps the HTTP status API available after a one-shot tick until interrupted", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
