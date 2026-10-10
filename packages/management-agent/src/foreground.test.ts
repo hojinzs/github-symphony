@@ -274,3 +274,76 @@ it("increases capped reconnect waits across failed negotiations without deleting
   expect(registry.identity?.credential).toBe(identity.credential);
   await registry.close();
 });
+
+for (const failureAt of [1, 2]) {
+  it(`recovers a transient snapshot failure on collection ${failureAt}`, async () => {
+    let collections = 0;
+    const diagnostics: string[] = [];
+    const originalPoll = peer.poll;
+    peer.poll = async (request) => {
+      if (collections < failureAt + 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return { ...request, commands: [], reads: [] };
+      }
+      return originalPoll(request);
+    };
+    const input = options();
+    await runForegroundAgent({
+      ...input,
+      snapshot: async () => {
+        if (++collections === failureAt) throw new Error(identity.credential);
+        return [];
+      },
+      onConnection: (_state, code) => {
+        if (code) diagnostics.push(code);
+      },
+      wait: async (ms, signal) => {
+        if (ms === 5_000 && collections < failureAt) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        } else await input.wait(ms, signal);
+      },
+    });
+    expect(collections).toBe(failureAt + 1);
+    expect(opens).toBe(1);
+    expect(observations).toHaveLength(failureAt);
+    expect(diagnostics).toEqual(["local_port_failure"]);
+    expect(waits).toContain(500);
+  });
+}
+it("retries a transient delivery handler failure with a fresh snapshot", async () => {
+  let deliveries = 0;
+  const diagnostics: string[] = [];
+  peer.poll = async (request) => ({
+    ...request,
+    commands: [],
+    reads: [
+      {
+        readId: randomUUID(),
+        projectId: randomUUID(),
+        localProjectId: "fixture-project",
+        sessionId: request.sessionId,
+        submittedAt: "2026-10-09T00:00:00Z",
+        expiresAt: "2026-10-09T00:00:30Z",
+        selection: { kind: "runs", limit: 1 },
+      },
+    ],
+  });
+  await runForegroundAgent({
+    ...options(),
+    handlePoll: async () => {
+      if (++deliveries === 1) throw new Error(identity.credential);
+      controller.abort();
+    },
+    onConnection: (_state, code) => {
+      if (code) diagnostics.push(code);
+    },
+  });
+  expect(deliveries).toBe(2);
+  expect(opens).toBe(1);
+  expect(observations).toHaveLength(2);
+  expect(observations[1].inventory.revisionId).not.toBe(
+    observations[0].inventory.revisionId
+  );
+  expect(diagnostics).toEqual(["local_port_failure"]);
+  expect(waits).toContain(500);
+});

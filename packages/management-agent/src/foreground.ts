@@ -25,12 +25,12 @@ export interface ForegroundOptions {
     identity: AgentIdentity,
     signal: AbortSignal
   ) => Pick<AgentControlPlaneClient, "openSession" | "observe" | "poll">;
-  /** Sibling inventory adapter supplies server-assigned global IDs and redacted current state. */
+  /** Supplies redacted current state. Exceptions retry with backoff; partial errors belong in observations. */
   snapshot: (
     registry: AgentRegistry,
     signal: AbortSignal
   ) => Promise<ProjectObservation[]>;
-  /** Sibling journal/read owners handle validated deliveries; this loop never invokes lifecycle effects. */
+  /** Handles validated deliveries. Exceptions retry; the sibling journal must fence repeated effects. */
   handlePoll?: (response: PollResponse, signal: AbortSignal) => Promise<void>;
   onConnection?: (state: "online" | "retrying", code?: string) => void;
   random?: () => number;
@@ -170,7 +170,12 @@ export async function runForegroundAgent(
           requestId: randomUUID(),
         });
         async function observe() {
-          const projects = await options.snapshot(registry, signal);
+          let projects: ProjectObservation[];
+          try {
+            projects = await options.snapshot(registry, signal);
+          } catch {
+            throw new AgentTransportError("local_port_failure", true);
+          }
           for (const request of observationPages(
             envelope(),
             projects,
@@ -205,7 +210,11 @@ export async function runForegroundAgent(
                     "delivery_handler_required",
                     false
                   );
-                await options.handlePoll(response, signal);
+                try {
+                  await options.handlePoll(response, signal);
+                } catch {
+                  throw new AgentTransportError("local_port_failure", true);
+                }
               }
               // A successful poll proves recovery and resets consecutive failure backoff.
               attempt = 0;

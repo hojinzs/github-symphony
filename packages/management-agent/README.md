@@ -182,3 +182,13 @@ fixed diagnostic without including rejected credential bytes.
 foreground/TLS/SQLite boundaries and a real local orchestrator. Host macOS and
 Linux Docker runs are separate OS evidence; native-service CP-22/23 remain out
 of scope.
+
+Snapshot and delivery-handler exceptions report the sanitized `local_port_failure`
+code and reconnect with capped backoff, retaining the owned session until the
+server rejects it. Each retry collects a fresh snapshot. Partial project failures
+should be represented in observations; the sibling command journal must fence
+repeated effects after a failed delivery handler. Peer schema/identity errors and
+invalid inventory remain fatal.
+
+If a session-negotiation response is lost after the server commits it, exclusivity
+can delay recovery until the 30-second session expiry plus reconnect backoff.

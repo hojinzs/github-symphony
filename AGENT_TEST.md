@@ -569,6 +569,9 @@ Run `pnpm --filter @gh-symphony/management-agent test` and
 C04 enrollment, real SQLite and an independent typed projection table.
 `foreground.test.ts` verifies receipt-independent reconnect, concurrent heartbeats,
 pacing, sequence reset and bounded paging through an independent v1 peer.
+Regression cases also cover restart/expiry before the first authenticated signal
+(remaining awaiting-signal) and transient failures in initial/heartbeat snapshots
+or delivery handlers (sanitized diagnostics, backoff and fresh snapshot recovery).
 
 After `pnpm build`, run `node e2e/agent-transport-e2e.mjs` for host evidence and
 `./e2e/run-agent-transport-e2e.sh` for Linux Docker. TC-29 runs separate foreground
