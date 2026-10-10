@@ -1,5 +1,38 @@
 # @gh-symphony/cli
 
+## 3.0.1
+
+### Patch Changes
+
+- [#1035](https://github.com/hojinzs/github-symphony/pull/1035) [`fc50fa4`](https://github.com/hojinzs/github-symphony/commit/fc50fa40937b181651e2cb553e5fc48a19d96353) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add the orchestrator's internal structured Logs OTLP/protobuf pipeline with bounded queues, retries and shutdown, isolated resource identity, and safe local loss diagnostics ([#993](https://github.com/hojinzs/github-symphony/issues/993)). Production OTLP activation remains gated until the complete pipeline passes packaged audits.
+
+- [#1032](https://github.com/hojinzs/github-symphony/pull/1032) [`eb8dbe5`](https://github.com/hojinzs/github-symphony/commit/eb8dbe57cbd23cb261934571d3728ba0177f046a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Document the Graphite operator interaction and accessibility handoff with connected Figma prototypes and review evidence ([#1018](https://github.com/hojinzs/github-symphony/issues/1018), Epic [#983](https://github.com/hojinzs/github-symphony/issues/983)). This design delivery does not add CLI commands or ship the fleet management runtime.
+
+- [#1038](https://github.com/hojinzs/github-symphony/pull/1038) [`f1d89f1`](https://github.com/hojinzs/github-symphony/commit/f1d89f19d94910b718d739daa12431a54d2bb9a9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add the internal fleet lifecycle command ledger and recovery API with durable idempotency, transactional claims, project fencing, audited unknown closure and retained results for Control Plane integrations ([#1011](https://github.com/hojinzs/github-symphony/issues/1011), Epic [#983](https://github.com/hojinzs/github-symphony/issues/983)).
+
+- [#1004](https://github.com/hojinzs/github-symphony/pull/1004) [`e189b56`](https://github.com/hojinzs/github-symphony/commit/e189b565d6b5e1ab179a63c67a8a688a3bd0df47) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep durable local events and committed status authoritative while offering optional telemetry callbacks without awaiting export or changing tick health. Preserve supplied token measurement provenance during recovery ([#992](https://github.com/hojinzs/github-symphony/issues/992)).
+
+- [#1028](https://github.com/hojinzs/github-symphony/pull/1028) [`095b866`](https://github.com/hojinzs/github-symphony/commit/095b866a0f1c0cad449787f8b5bfb54e0f6e9613) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add expected-target project stop arguments that reject replaced or unverified processes without signals or record deletion, and use a private local shutdown endpoint to prevent PID reuse from redirecting graceful stop. Restart existing daemons with the new CLI before using this mode. Implements [#1006](https://github.com/hojinzs/github-symphony/issues/1006) (Epic [#983](https://github.com/hojinzs/github-symphony/issues/983)).
+
+- [#1031](https://github.com/hojinzs/github-symphony/pull/1031) [`06aed3b`](https://github.com/hojinzs/github-symphony/commit/06aed3bd18ad1bf3020f899fa700c83e5df0849b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add internal Fleet Control Plane configuration, private SQLite persistence, atomic one-use enrollment and transactional credential revocation and same-origin browser session/CSRF validation for [#1008](https://github.com/hojinzs/github-symphony/issues/1008) (Epic [#983](https://github.com/hojinzs/github-symphony/issues/983)), preserving existing per-project commands.
+
+- [#1034](https://github.com/hojinzs/github-symphony/pull/1034) [`95ec557`](https://github.com/hojinzs/github-symphony/commit/95ec5577cd1fe057b35f35770d1d4e359d2087b0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add the bundled local management adapter with a private canonical project allowlist, persistent agent identity, verified start/stop recovery, and management credential filtering. Preserve existing alias runtime IDs and canonical project stop/status routing ([#1007](https://github.com/hojinzs/github-symphony/issues/1007), Epic [#983](https://github.com/hojinzs/github-symphony/issues/983)).
+
+- [#1002](https://github.com/hojinzs/github-symphony/pull/1002) [`b4eee4d`](https://github.com/hojinzs/github-symphony/commit/b4eee4d630fd0a39387be95363c2a76b1f3247f0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Carry runtime kind and measured token provenance in worker updates, distinguishing valid measured zero from initialized counters while preserving session deltas. Workers can start with enabled OTLP and unresolved exporter references without inheriting exporter secrets ([#990](https://github.com/hojinzs/github-symphony/issues/990)).
+
+- [#1029](https://github.com/hojinzs/github-symphony/pull/1029) [`df3a230`](https://github.com/hojinzs/github-symphony/commit/df3a230a3523bb5e6491b7eac9a1d2da5ded192b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Document the OhMySymphony visual system and operator screen redesign, including
+  shared Figma foundations, reusable components and widgets, state contracts and
+  handoff evidence for Control Plane UI implementation. This design delivery does
+  not add runtime commands or change orchestration behavior.
+
+- [#1033](https://github.com/hojinzs/github-symphony/pull/1033) [`657416e`](https://github.com/hojinzs/github-symphony/commit/657416ef4a1a93488a5efd5fac2e786c90f3aabb) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Protect OTLP exporter credentials at orchestrator worker and hook boundaries, rejecting shared agent/tracker auth names even when export is disabled ([#991](https://github.com/hojinzs/github-symphony/issues/991)).
+
+- [#1037](https://github.com/hojinzs/github-symphony/pull/1037) [`06e514f`](https://github.com/hojinzs/github-symphony/commit/06e514f77e2aecbc0034fc2a4d2a2c2dc349f8cc) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prepare snapshot Metrics export with cumulative process outcomes and duration, absolute retained-history gauges, and measured Codex token omission rules ([#994](https://github.com/hojinzs/github-symphony/issues/994)). Production activation remains gated pending the complete pipeline and packaged audits.
+
+- [#1027](https://github.com/hojinzs/github-symphony/pull/1027) [`c35d59d`](https://github.com/hojinzs/github-symphony/commit/c35d59d8154d10cbfe96aad7fb5459ec76075133) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add validated v1 management protocol contracts for future CLI agent and fleet integrations ([#1005](https://github.com/hojinzs/github-symphony/issues/1005), Epic [#983](https://github.com/hojinzs/github-symphony/issues/983)). Preserve existing project commands and the per-project web server.
+
+- [#1036](https://github.com/hojinzs/github-symphony/pull/1036) [`f59bf06`](https://github.com/hojinzs/github-symphony/commit/f59bf06f26f4426a5126f0d26882b693da629d30) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add the local management agent's contained, bounded run history and log read adapter with secret-safe metadata and rotation/reset cursors ([#1013](https://github.com/hojinzs/github-symphony/issues/1013), Epic [#983](https://github.com/hojinzs/github-symphony/issues/983)).
+
 ## 3.0.0
 
 ### Major Changes
