@@ -804,6 +804,8 @@ enable export. The orchestrator contains a pinned official Logs SDK and bounded
 HTTP/protobuf Logs and Metrics pipelines. Production activation remains gated
 until packaged/performance audits pass: independently deployed H rejects enabled
 startup with an explicit unsupported-capability error before loading the SDK.
+The CLI reports this failure once, drains the service, releases its locks and
+exits with code 1; it does not retry rejected startup.
 An internal startup capability defaults off; there is no user-facing flag or
 environment override. Tests can inject providers without enabling production.
 The SDK-free owner resolver remains a separate helper; shared loading never calls
@@ -812,7 +814,13 @@ SDK-free post-persistence publication hooks default to no-op and add no CLI
 flags or environment variables; they do not enable network export.
 
 The project owner freezes resolved transport, credentials and resource settings
-at startup. Valid reloads continue applying reloadable workflow policy but stage
+at the first usable workflow resolution. Normally this is startup; if the
+initial workflow is invalid and there is no last-known-good workflow, exporter
+initialization is deferred until a tick loads a usable workflow. Construction
+or capability failures are retained and never retried by that service instance.
+This preserves the repository's existing invalid-workflow recovery behavior
+(a local choice relative to the upstream startup-validation rule).
+Valid reloads continue applying reloadable workflow policy but stage
 changed OTLP settings as pending restart. Applied providers, resources and
 destinations remain unchanged, including when disabling export. The warning
 explicitly says the applied destination remains active until restart. Repeated

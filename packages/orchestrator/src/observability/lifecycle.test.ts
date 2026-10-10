@@ -95,10 +95,6 @@ describe("OTLP lifecycle", () => {
     expect(owner.status().applied.signals.logs!.headerNames).toEqual([
       "Authorization",
     ]);
-    owner.health("degraded");
-    expect(owner.status().state).toBe("degraded");
-    owner.health("healthy");
-    expect(owner.status().state).toBe("healthy");
     await owner.shutdown();
   });
 

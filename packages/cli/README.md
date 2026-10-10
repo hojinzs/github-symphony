@@ -527,7 +527,9 @@ exporter credentials from workers and hooks. Exporter auth references must use
 separate names from agent/tracker credentials, even when OTLP is disabled.
 Durable local events and committed status remain authoritative; publication
 failures cannot fail a tick or mark coordination unhealthy. Production enablement
-is explicitly unsupported until packaged audits pass. Valid OTLP edits require
+is explicitly unsupported until packaged audits pass. Rejected startup reports
+the error once and exits with code 1, releasing locks and stopping the service.
+Valid OTLP edits require
 restart; additive JSON status reports applied versus pending settings and safe
 exporter health separately from coordination errors. See the
 [OTLP configuration contract](../../docs/configuration.md#otlp-workflow-policy-exporter-support-pending).

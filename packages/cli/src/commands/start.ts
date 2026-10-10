@@ -1373,6 +1373,14 @@ const handler = async (
               }`
             )
           );
+          // Continuous tick failures are retried by service.run itself. An
+          // escaping error is a startup failure, so restarting here would
+          // hot-spin on an unsupported capability or failed construction.
+          if (!parsed.once) {
+            process.exitCode = 1;
+            await shutdown();
+            return;
+          }
           if (parsed.once) {
             process.exitCode = 1;
             await Promise.all(

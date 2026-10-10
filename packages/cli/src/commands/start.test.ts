@@ -1361,6 +1361,47 @@ Handle {{issue.identifier}}.\n`,
     expect(exitSpy).not.toHaveBeenCalledWith(1);
   });
 
+  it("exits once on unsupported OTLP startup instead of retrying service.run", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    // A second invocation resolves so removing the fatal-startup branch fails
+    // assertions rather than hanging the test in the original hot-spin.
+    run
+      .mockRejectedValueOnce(
+        new Error(
+          "OTLP production activation is unsupported until packaged audits"
+        )
+      )
+      .mockResolvedValue(undefined);
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+    }
+    expect(
+      stdout.output().match(/OTLP production activation is unsupported/g)
+    ).toHaveLength(1);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
   it("shuts down cleanly when service.run throws a GitHub scope error", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -1442,7 +1483,7 @@ Handle {{issue.identifier}}.\n`,
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-  it("does not classify an untyped status 401 message as an auth error", async () => {
+  it("exits on an escaping startup error without misclassifying untyped status 401 as auth", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1492,13 +1533,13 @@ Handle {{issue.identifier}}.\n`,
       stderr.restore();
     }
 
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(1);
     expect(stderr.output()).not.toContain(
       "Stopping project start because GitHub authentication can no longer be validated."
     );
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
     expect(shutdown).toHaveBeenCalledTimes(1);
-    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it("serves status API routes and refresh over HTTP when --http is enabled", async () => {

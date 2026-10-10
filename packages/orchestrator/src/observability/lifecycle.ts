@@ -84,6 +84,8 @@ export async function createTelemetryLifecycle(
   const appliedSettings = settings(applied);
   let pending: OtlpSafeDescriptor | null = null;
   let pendingSettings: string | null = null;
+  // Owner diagnostic/shutdown failures are sticky for this process lifetime;
+  // per-signal export health is read live and can recover independently.
   let degraded = false;
   let closing = false;
   let shutdownPromise: Promise<void> | undefined;
@@ -117,10 +119,6 @@ export async function createTelemetryLifecycle(
             : "OTLP settings are pending restart; applied settings remain unchanged"
         )
       );
-    },
-    /** Accept bounded health state only, never an error or remote response. */
-    health(state: "healthy" | "degraded"): void {
-      degraded = state === "degraded";
     },
     status(): TelemetryStatus {
       const signals: TelemetryStatus["signals"] = {};

@@ -194,3 +194,121 @@ it("OT-10/12: committed service status preserves applied, invalid reload, revert
   await service.shutdown();
   expect(shutdown).toHaveBeenCalledTimes(1);
 });
+
+it("retains provider startup failure without reconstructing or rereading policy", async () => {
+  const f = await fixture();
+  await f.update(true);
+  const createPipeline = vi.fn(async () => {
+    throw new Error("provider construction failed");
+  });
+  const service = new OrchestratorService(f.store, f.project, {
+    telemetry: { createPipeline },
+  });
+  await expect(service.runOnce()).rejects.toThrow(
+    "provider construction failed"
+  );
+  // Changing the workflow cannot convert a failed startup into disabled success.
+  await f.update(false);
+  await expect(service.runOnce()).rejects.toThrow(
+    "provider construction failed"
+  );
+  expect(createPipeline).toHaveBeenCalledTimes(1);
+  await service.shutdown();
+});
+
+it("defers an unusable initial workflow and freezes the first usable settings", async () => {
+  const f = await fixture();
+  await writeFile(
+    f.project.workflowSource!.path,
+    "---\ntracker: [\n---\ninvalid"
+  );
+  const createPipeline = vi.fn(async () => ({ shutdown: async () => {} }));
+  const service = new OrchestratorService(f.store, f.project, {
+    telemetry: { createPipeline },
+  });
+  const invalid = await service.runOnce();
+  expect(invalid.workflow.isValid).toBe(false);
+  expect(createPipeline).not.toHaveBeenCalled();
+  await f.update(true, "https://first-valid.example");
+  const initialized = (await service.runOnce()) as typeof invalid & {
+    telemetry: TelemetryStatus;
+  };
+  expect(initialized.telemetry).toMatchObject({ enabled: true, pending: null });
+  expect(createPipeline).toHaveBeenCalledTimes(1);
+  await f.update(false);
+  const pending = (await service.runOnce()) as typeof initialized;
+  expect(pending.telemetry).toMatchObject({
+    enabled: true,
+    pending: { enabled: false },
+    restartRequired: true,
+  });
+  expect(createPipeline).toHaveBeenCalledTimes(1);
+  await service.shutdown();
+});
+
+it("validates reserved resource identity consistently at startup and reload", async () => {
+  const f = await fixture();
+  const version = "1.2.3-audited";
+  const attributes =
+    "\n    resource_attributes:\n      service.version: " + version;
+  await f.update(true, "https://collector.example", attributes);
+  const createPipeline = vi.fn(async () => ({ shutdown: async () => {} }));
+  const service = new OrchestratorService(f.store, f.project, {
+    telemetry: { version, createPipeline },
+  });
+  const first = (await service.runOnce()) as Awaited<
+    ReturnType<typeof service.runOnce>
+  > & { telemetry: TelemetryStatus };
+  expect(first.workflow.isValid).toBe(true);
+  expect(first.telemetry.enabled).toBe(true);
+  expect(createPipeline).toHaveBeenCalledTimes(1);
+  await f.update(true, "https://next.example", attributes);
+  const valid = (await service.runOnce()) as typeof first;
+  expect(valid.workflow.isValid).toBe(true);
+  expect(valid.telemetry.restartRequired).toBe(true);
+  await f.update(
+    true,
+    "https://invalid.example",
+    "\n    resource_attributes:\n      service.version: unknown"
+  );
+  const invalid = (await service.runOnce()) as typeof first;
+  expect(invalid.workflow).toMatchObject({
+    isValid: false,
+    usedLastKnownGood: true,
+  });
+  expect(invalid.telemetry).toEqual(valid.telemetry);
+  await service.shutdown();
+});
+
+it("rejects continuous run when deferred telemetry construction fails", async () => {
+  const f = await fixture();
+  await writeFile(
+    f.project.workflowSource!.path,
+    "---\ntracker: [\n---\ninvalid"
+  );
+  const createPipeline = vi.fn(async () => {
+    throw new Error("deferred provider construction failed");
+  });
+  const onTick = vi.fn(async () => {
+    await f.update(true);
+    service.requestReconcile();
+  });
+  // If failure is swallowed as an ordinary tick failure, stop on the next wait;
+  // the run then resolves and the rejection assertion fails without hanging.
+  const waitImpl = vi.fn(async () => {
+    await service.shutdown();
+  });
+  const service = new OrchestratorService(f.store, f.project, {
+    telemetry: { createPipeline },
+    onTick,
+    waitImpl,
+    stderr: { write: vi.fn() },
+  });
+  await expect(service.run()).rejects.toThrow(
+    "deferred provider construction failed"
+  );
+  expect(onTick).toHaveBeenCalledTimes(1);
+  expect(createPipeline).toHaveBeenCalledTimes(1);
+  expect(waitImpl).not.toHaveBeenCalled();
+  await service.shutdown();
+});

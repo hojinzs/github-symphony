@@ -3,6 +3,7 @@ import {
   type TelemetryStartup,
   type TelemetryStatus,
 } from "./observability/lifecycle.js";
+import type { ProjectResourceIdentity } from "./observability/resource.js";
 import { resolveProjectResourceAttributes } from "./observability/resource-validation.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
@@ -480,6 +481,11 @@ export class OrchestratorService {
     | Awaited<ReturnType<typeof createTelemetryLifecycle>>
     | undefined;
   private telemetryInitialization: Promise<void> | undefined;
+  private telemetryInitializationState:
+    | "uninitialized"
+    | "deferred"
+    | "initialized"
+    | "failed" = "uninitialized";
   private running = true;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | null = null;
@@ -1164,7 +1170,7 @@ export class OrchestratorService {
         );
         await this.notifyTick(snapshot);
       } catch (error) {
-        if (options.once) {
+        if (options.once || this.telemetryInitializationState === "failed") {
           throw error;
         }
 
@@ -3040,15 +3046,32 @@ export class OrchestratorService {
     return this.loadProjectWorkflowUncached(tenant, repository);
   }
 
+  private telemetryResourceIdentity(
+    project: OrchestratorProjectConfig
+  ): ProjectResourceIdentity {
+    return {
+      version: this.dependencies.telemetry?.version ?? "unknown",
+      instanceId: this.publicationInstanceId,
+      projectId: project.projectId,
+      projectSlug: project.slug,
+      trackerKind: project.tracker.adapter,
+    };
+  }
+
   private async initializeTelemetry(): Promise<void> {
-    if (this.telemetry) return;
+    if (this.telemetryInitializationState === "initialized") return;
     if (this.telemetryInitialization) return this.telemetryInitialization;
     this.telemetryInitialization = (async () => {
       const resolution = await this.loadProjectWorkflow(
         this.projectConfig,
         this.projectConfig.repository
       );
-      if (!isUsableWorkflowResolution(resolution)) return;
+      if (!isUsableWorkflowResolution(resolution)) {
+        // Only an unusable initial workflow permits initialization on a later
+        // tick. Provider/capability failures are terminal for this service.
+        this.telemetryInitializationState = "deferred";
+        return;
+      }
       const config = resolveOtlpConfiguration(
         resolution.workflow.observability?.otlp,
         this.resolveProjectEnvironment(this.projectConfig)
@@ -3075,13 +3098,7 @@ export class OrchestratorService {
                 const { createProjectPipeline } =
                   await import("./observability/pipeline.js");
                 return createProjectPipeline(
-                  {
-                    version: startup.version!,
-                    instanceId: this.publicationInstanceId,
-                    projectId: this.projectConfig.projectId,
-                    projectSlug: this.projectConfig.slug,
-                    trackerKind: this.projectConfig.tracker.adapter,
-                  },
+                  this.telemetryResourceIdentity(this.projectConfig),
                   applied
                 );
               }
@@ -3089,9 +3106,18 @@ export class OrchestratorService {
       });
       if (this.store instanceof OrchestratorFsStore)
         this.store.setEventPublication(this.telemetry.publication);
-    })().finally(() => {
-      this.telemetryInitialization = undefined;
-    });
+      this.telemetryInitializationState = "initialized";
+    })()
+      .catch((error: unknown) => {
+        this.telemetryInitializationState = "failed";
+        throw error;
+      })
+      .finally(() => {
+        // Retain a failed promise so subsequent calls cannot retry provider
+        // construction or turn a rejected startup into a different policy.
+        if (this.telemetryInitializationState === "deferred")
+          this.telemetryInitialization = undefined;
+      });
     return this.telemetryInitialization;
   }
 
@@ -3135,11 +3161,7 @@ export class OrchestratorService {
         );
         if (config.enabled)
           resolveProjectResourceAttributes({
-            version: this.dependencies.telemetry?.version ?? "unknown",
-            instanceId: this.publicationInstanceId,
-            projectId: tenant.projectId,
-            projectSlug: tenant.slug,
-            trackerKind: tenant.tracker.adapter,
+            ...this.telemetryResourceIdentity(tenant),
             attributes: config.resourceAttributes,
           });
       } catch (error) {
