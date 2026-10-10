@@ -1095,7 +1095,11 @@ transport boundary for the planned management extension. It adds no CLI commands
 existing project commands and the per-project web server retain their behavior.
 
 The internal [fleet services](packages/fleet-control-plane/README.md) adds private SQLite migrations
-and typed HTTPS-origin configuration for C04 (#1008). Its enrollment service
+and typed HTTPS-origin configuration for C04 (#1008). C07 (#1011) adds the
+internal lifecycle command ledger and recovery library: durable idempotency,
+claim deadlines, project fences, result reconciliation and audited unknown
+closure. Consumers supply authenticated session/project peers; fleet HTTP
+routing and new CLI commands remain separate. Its enrollment service
 provides atomic one-use tokens, scoped credential verifiers and transactional
 revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and HTTP routing belong to later consumers;
 per-project `--web` retains its existing behavior.
