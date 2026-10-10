@@ -19,6 +19,10 @@
     "./management-local": {
       "types": "./dist/management-local.d.ts",
       "import": "./dist/management-local.js"
+    },
+    "./management-agent": {
+      "types": "./dist/management-agent.d.ts",
+      "import": "./dist/management-agent.js"
     }
   },
   "files": [

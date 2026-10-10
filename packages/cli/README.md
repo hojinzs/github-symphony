@@ -661,3 +661,25 @@ Responses contain at most 256 KiB of UTF-8 log text with a scoped byte cursor;
 rotation/truncation reports reset, and missing or escaping selections report
 unavailable. Read access survives invalid workflow and has no process effects.
 Raw logs may contain sensitive text and are restricted to trusted operator access.
+
+The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
+and foreground outbound HTTPS transport for application/service composition:
+
+```ts
+import {
+  AgentRegistry,
+  createAgentTransport,
+  enrollAgent,
+  runForegroundAgent,
+} from "@gh-symphony/cli/management-agent";
+```
+
+Enrollment persists a user-only identity and resumes without another token.
+Foreground consumers supply an AbortSignal and typed inventory/delivery adapters;
+heartbeats and polling run independently with bounded reconnect backoff.
+Transient inventory/delivery adapter failures retry with sanitized diagnostics and
+fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
+until its first authenticated observation.
+This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
+command delivery and native service packaging retain their sibling boundaries.
+Existing `gh-symphony project` and per-project `--web` commands keep their behavior.

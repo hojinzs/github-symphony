@@ -952,6 +952,28 @@ Project/runtime credentials continue to resolve locally; prompt and environment
 contents are never included in inventory. CLI/protocol versions stay distinct;
 inventory adds only a workflow digest and normalized non-secret tracker scope.
 
+### Agent outbound sessions (C05)
+
+C05 outbound transport accepts a canonical HTTPS origin, optional private CA trust,
+an AbortSignal and an absolute request deadline (default 30 seconds). It reads the
+saved credential from the management registry at request time, sends it only as
+an Authorization bearer header, and rejects redirects. The registry requires
+current-user ownership and exact 0700/0600 directory/file permissions; unsafe
+existing paths fail closed. No enrollment token is retained after exchange.
+See the [management agent boundary](../packages/management-agent/README.md#c05-outbound-enrollment-boundary).
+
+C05 foreground consumers provide a private registry directory, agent version,
+AbortSignal, HTTPS client factory and typed current-inventory/delivery adapters.
+The fixed default heartbeat is five seconds, poll maximum 25 seconds, receipt-based
+session lifetime 30 seconds, fast-poll pacing one second and reconnect ceiling
+30 seconds with exponential jitter. No environment variables are added.
+Fleet consumers call the C05 session expiry tick and startup recovery before
+serving requests; restart fences saved sessions but preserves enrollment.
+
+The CLI ships the runtime as `@gh-symphony/cli/management-agent`; C13 owns user
+command routing. Malformed registry JSON reports a fixed diagnostic without
+echoing credential bytes. Private CA trust never disables certificate verification.
+
 ### Bounded management reads (C09)
 
 `createLocalReadAdapter(registry, configDir)` from the bundled management-local
