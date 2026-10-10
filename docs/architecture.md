@@ -119,6 +119,11 @@ the tracker adapter:
 
 ### 3. Coordination — the orchestrator
 
+- Fleet management command coordination is a separate repository extension:
+  `packages/fleet-control-plane/src/commands.ts` (C07, #1011) coordinates
+  lifecycle submission, atomic claims/expiry, per-project fencing and recovery.
+  It neither schedules issue work nor enters the orchestrator dispatch loop.
+
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`.
   The effect-owning façade delegates bounded finalization and retry-record
   calculations to the pure, explicitly typed decisions in
@@ -235,6 +240,12 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
+- Fleet lifecycle command integration: `CommandPeers` supplies synchronous
+  project identity/readiness and authenticated current-session checks on C04's
+  shared SQLite transaction. C07 composes unclaimed command invalidation with
+  enrollment revocation; HTTP routing, inventory and agent journal/process
+  effects remain consumer-owned.
+
 - Fleet SQLite schema migrations, private filesystem checks and transaction boundaries: `packages/fleet-control-plane` (C04, #1008). Atomic one-use enrollment, credential authentication and revocation invoke peer-owned session/command writes in the same SQLite transaction. First-signal updates require the current session owner's verifier. HTTP consumers remain separate; this package does not dispatch workers or stop orchestrators.
 - `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. The local `packages/management-agent` registry adds canonical allowlist inventory and typed lifecycle/reader boundaries. `packages/cli/src/management-local.ts` implements the concrete local driver and `createLocalReadAdapter` canonical-runtime read factory; `local-project-runtime.ts` resolves canonical folders through existing cached aliases and runtime ownership evidence. The CLI bundles this driver under the `management-local` module entry. Transport and fleet services remain separate delivery slices. Native-service consumers must provide a separately verified isolated project launcher; C03 rejects a service launch context without that boundary.
 
@@ -267,12 +278,8 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 6. Observability — events and status surfaces
 
-<<<<<<< HEAD
-
-- # Bounded local management reads: `packages/management-agent/src/local-read.ts` (C09, #1013) projects run metadata and reads fixed contained streams through a trusted canonical-runtime resolver, with signed generation/byte cursors and a 256 KiB wire limit. This Integration/Observability management extension does not alter orchestration or the upstream specification.
-- Fleet durable audit schema: `packages/fleet-control-plane/src/migrations.ts`. `src/enrollment.ts` commits create/regenerate/revoke local-owner audits and agent exchange audits with their mutations. `src/browser-security.ts` resolves local-owner browser mutations only after exact HTTPS Origin and session-bound CSRF validation. HTTP/TLS routing remains consumer-owned.
-
-> > > > > > > 06aed3bd18ad1bf3020f899fa700c83e5df0849b
+- Bounded local management reads: `packages/management-agent/src/local-read.ts` (C09, #1013) projects run metadata and reads fixed contained streams through a trusted canonical-runtime resolver, with signed generation/byte cursors and a 256 KiB wire limit. This Integration/Observability management extension does not alter orchestration or the upstream specification.
+- Fleet durable audit schema: `packages/fleet-control-plane/src/migrations.ts`. C07 (#1011) adds lifecycle command storage with actor-scoped idempotency, a project fence covering unresolved unknown outcomes, claim/result timestamps and explicit closure metadata. `src/commands.ts` owns management-only command submission, claims, deadline recovery, same-agent ownership transfer, unknown closure, history and retention with transactional audits. Typed synchronous peer hooks supply project/session truth; agent journals and HTTP routing stay with their consumers. `src/enrollment.ts` commits create/regenerate/revoke local-owner audits and agent exchange audits with their mutations. `src/browser-security.ts` resolves local-owner browser mutations only after exact HTTPS Origin and session-bound CSRF validation. HTTP/TLS routing remains consumer-owned.
 
 - Internal Logs SDK ownership: `packages/orchestrator/src/observability/log-provider.ts` creates an isolated official `LoggerProvider` with an injected processor and explicit resource identity. Each owner generates a process UUID; no global provider, resource detector, ambient trace context or SDK batch queue is installed. Resource identity carries release version, stable project-folder ID, repository slug and tracker kind. At most 16 custom scalar attributes are permitted; conflicting reserved identity and issue/run/session/turn resource keys are rejected with value-free errors. The SDK-free activation guard rejects production partial enablement. These modules are internal and absent from normal startup composition until the complete pipeline and packaged audits pass.
 - Bounded internal Logs pipeline: `observability/log-pipeline.ts` implements the post-append offer without awaiting transport. Core normalization feeds the owned SDK provider and a single custom processor; singleton requests from the official protobuf serializer are joined as repeated `resource_logs` fields. Queue reservation includes retries/in-flight records: at most 2,048 records and 8 MiB encoded bytes, dropping newest once. One drain sends up to 256 records / 1 MiB per batch, triggered after the offer stack at threshold or every second; no second SDK queue is installed. Each record repeats its full Resource and Scope on the wire to preserve exact pre-admission byte accounting; this increases payload size and ResourceLogs count compared with grouping. This trade-off is a rollout transport-review item, with wire validity verified by an independent decoder.

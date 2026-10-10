@@ -446,6 +446,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                          |
 | `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                    |
+| `e2e/scenarios/29-fleet-command-recovery.md`            | C07 CP-06/07/09/18/19: SQLite claim races, restart/lost-result recovery, ownership fencing, audited closure and 17 reached forbidden-condition probes               |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution                                       |
 
 ## TC Writing Guide
@@ -559,3 +560,21 @@ separately. [TC-28](e2e/scenarios/28-bounded-local-reads.md) covers CP-12/15 and
 applicable U04/U07 retained history and log follow/reset paths through the bundled
 CLI factory, an actual daemon and independently persisted store records. Native
 service isolation and offline HTTP/UI behavior are outside this slice.
+
+### Fleet lifecycle command recovery cases (C07)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes real enrolled
+credentials, independent typed project/session fixtures, reopen, invalid inputs,
+capacity, deadline/replay, explicit closure, history, result conflicts, CP-10
+clock-skew reconciliation with authoritative receipt time, audit
+rollback and retention (including 90 days after late result receipt).
+[TC-29](e2e/scenarios/29-fleet-command-recovery.md) defines CP-06/07/09/18/19.
+After `pnpm build`, run `node e2e/fleet-commands-e2e.mjs` and
+`node e2e/fleet-commands-mutations.mjs`, or
+`./e2e/run-fleet-commands-e2e.sh` for isolated Linux Docker.
+Separate processes/SQLite connections race authoritative expiry and claim;
+an independent durable agent-journal fixture supplies receipt/effect/result
+boundaries. Every assertion prints its reached marker; 18 isolated mutations
+prove forbidden conditions fail. Report macOS tests and Linux container tests
+separately. These are ledger/protocol integration checks, not native OS
+orchestrator lifecycle or production agent-journal acceptance.

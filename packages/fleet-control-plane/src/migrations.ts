@@ -36,6 +36,47 @@ export const FLEET_MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE lifecycle_commands (
+        command_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        environment_id TEXT NOT NULL REFERENCES environments(id),
+        local_project_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        operation TEXT NOT NULL CHECK (operation IN ('start', 'stop')),
+        actor TEXT NOT NULL CHECK (actor = 'local-owner'),
+        idempotency_key TEXT NOT NULL,
+        submitted_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('accepted', 'executing', 'succeeded', 'failed', 'expired', 'unknown')),
+        claimed_at TEXT,
+        owner_agent_id TEXT,
+        owner_session_id TEXT,
+        completed_at TEXT,
+        evidence TEXT,
+        diagnostic TEXT,
+        closed_at TEXT,
+        closed_actor TEXT,
+        closed_reason TEXT,
+        UNIQUE (actor, idempotency_key),
+        CHECK (
+          (state IN ('accepted', 'expired') AND claimed_at IS NULL AND owner_agent_id IS NULL AND owner_session_id IS NULL)
+          OR (state IN ('executing', 'succeeded', 'failed', 'unknown') AND claimed_at IS NOT NULL AND owner_agent_id IS NOT NULL AND owner_session_id IS NOT NULL)
+        ),
+        CHECK ((state IN ('succeeded', 'failed')) = (completed_at IS NOT NULL)),
+        CHECK (
+          (closed_at IS NULL AND closed_actor IS NULL AND closed_reason IS NULL)
+          OR (state = 'unknown' AND closed_at IS NOT NULL AND closed_actor = 'local-owner' AND length(trim(closed_reason)) > 0)
+        )
+      );
+      CREATE UNIQUE INDEX lifecycle_project_fence ON lifecycle_commands(project_id)
+        WHERE state IN ('accepted', 'executing') OR (state = 'unknown' AND closed_at IS NULL);
+      CREATE INDEX lifecycle_environment_state ON lifecycle_commands(environment_id, state);
+      CREATE INDEX lifecycle_project_history ON lifecycle_commands(project_id);
+    `,
+  },
 ];
 
 /** A whole migration batch and its schema version commit together. */
