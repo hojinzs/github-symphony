@@ -1136,6 +1136,9 @@ import {
 Enrollment persists a user-only identity and resumes without another token.
 Foreground consumers supply an AbortSignal and typed inventory/delivery adapters;
 heartbeats and polling run independently with bounded reconnect backoff.
+Transient inventory/delivery adapter failures retry with sanitized diagnostics and
+fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
+until its first authenticated observation.
 This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
 command delivery and native service packaging retain their sibling boundaries.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
