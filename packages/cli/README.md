@@ -526,8 +526,12 @@ The orchestrator validates enabled transport settings before dispatch and exclud
 exporter credentials from workers and hooks. Exporter auth references must use
 separate names from agent/tracker credentials, even when OTLP is disabled.
 Durable local events and committed status remain authoritative; publication
-failures cannot fail a tick or mark coordination unhealthy. Network exporter
-support and activation are pending; see the
+failures cannot fail a tick or mark coordination unhealthy. Production enablement
+is explicitly unsupported until packaged audits pass. Rejected startup reports
+the error once and exits with code 1, releasing locks and stopping the service.
+Valid OTLP edits require
+restart; additive JSON status reports applied versus pending settings and safe
+exporter health separately from coordination errors. See the
 [OTLP configuration contract](../../docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
 
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony project start --project-dir <path> --once`: it resolves the active managed project, reads a target issue through the configured tracker integration, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker. GitHub projects retain the GitHub Project read path and require `owner/repo#number` for explicit issues; Linear projects read through the Linear adapter, use identifiers such as `DEV-54`, and do not require a GitHub Project binding.

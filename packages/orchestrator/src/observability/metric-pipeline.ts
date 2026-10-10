@@ -31,9 +31,28 @@ export function createMetricPipeline(
   options: {
     request?: LogRequest;
     diagnostic?: (notice: MetricDiagnostic) => void;
+    logsStatus?: () => { dropped: Record<string, number> };
   } = {}
 ) {
   const owned = createOwnedMetricProvider(identity);
+  let lastSuccessfulExportAt: string | null = null;
+  let degraded = false;
+  const dropped = {
+    queue_full: 0,
+    timeout: 0,
+    permanent: 0,
+    shutdown: 0,
+    mapping: 0,
+    partial: 0,
+  };
+  const previousLogLosses: Record<string, number> = {};
+  const recordLoss: typeof owned.recordLoss = (signal, reason, count) => {
+    owned.recordLoss(signal, reason, count);
+    if (signal === "metrics" && count > 0) {
+      dropped[reason] += count;
+      degraded = true;
+    }
+  };
   let active: Promise<void> | undefined;
   let pending = false;
   let stopped = false;
@@ -54,6 +73,7 @@ export function createMetricPipeline(
   const notify = (notice: MetricDiagnostic) =>
     offerBestEffort(() => diagnostic(Object.freeze(notice)));
   const warn = (reason: MetricDiagnostic["reason"], lost: number) => {
+    degraded = true;
     const now = Date.now();
     const episode = episodes.get(reason);
     if (!episode) {
@@ -104,6 +124,14 @@ export function createMetricPipeline(
         const signal = controller.signal;
         let count = 0;
         try {
+          const logs = options.logsStatus?.();
+          if (logs)
+            for (const [reason, count] of Object.entries(logs.dropped)) {
+              const delta = count - (previousLogLosses[reason] ?? 0);
+              if (delta > 0)
+                recordLoss("logs", reason as keyof typeof dropped, delta);
+              previousLogLosses[reason] = count;
+            }
           const { resourceMetrics, errors } = await owned.reader.collect();
           if (errors.length) throw new Error("Metric collection failed");
           count = resourceMetrics.scopeMetrics.reduce(
@@ -129,15 +157,17 @@ export function createMetricPipeline(
             () => warn("transport", 0)
           );
           if (result.reason) {
-            owned.recordLoss("metrics", result.reason, result.rejected);
+            recordLoss("metrics", result.reason, result.rejected);
             // Diagnostics do not trigger another collection, including a dropped
             // diagnostic point: the next regular collection sees the counter.
             warn(result.reason, result.rejected);
           } else {
+            lastSuccessfulExportAt = new Date().toISOString();
+            degraded = false;
             recover();
           }
         } catch {
-          owned.recordLoss("metrics", "mapping", Math.max(count, 1));
+          recordLoss("metrics", "mapping", Math.max(count, 1));
           warn("mapping", Math.max(count, 1));
         }
       }
@@ -193,12 +223,19 @@ export function createMetricPipeline(
     observeTick(measurement: Parameters<typeof owned.observeTick>[0]): void {
       if (!closing) owned.observeTick(measurement);
     },
-    recordLoss: owned.recordLoss,
+    recordLoss,
     collect,
     flush,
     shutdown,
     status() {
-      return { ...owned.status(), inFlight: active !== undefined, pending };
+      return {
+        ...owned.status(),
+        inFlight: active !== undefined,
+        pending,
+        state: degraded ? ("degraded" as const) : ("healthy" as const),
+        lastSuccessfulExportAt,
+        dropped: { ...dropped },
+      };
     },
   };
 }

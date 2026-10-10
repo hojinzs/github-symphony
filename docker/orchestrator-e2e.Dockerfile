@@ -41,6 +41,8 @@ COPY --from=build --chown=node:node /app/e2e/management-agent-contract.mjs /app/
 
 COPY --from=build --chown=node:node /app/e2e/bounded-read-contract.mjs /app/e2e/bounded-read-contract.mjs
 
+# OTLP lifecycle contract uses built service/providers, not Vitest mocks.
+COPY --from=build --chown=node:node /app/e2e/otlp-lifecycle-contract.mjs /app/e2e/otlp-lifecycle-contract.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-peer.mjs /app/e2e/fleet-commands-peer.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-e2e.mjs /app/e2e/fleet-commands-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-mutations.mjs /app/e2e/fleet-commands-mutations.mjs

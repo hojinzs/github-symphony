@@ -1,3 +1,10 @@
+import {
+  createTelemetryLifecycle,
+  type TelemetryStartup,
+  type TelemetryStatus,
+} from "./observability/lifecycle.js";
+import type { ProjectResourceIdentity } from "./observability/resource.js";
+import { resolveProjectResourceAttributes } from "./observability/resource-validation.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -469,6 +476,16 @@ export class OrchestratorService {
   > | null = null;
   private readonly publicationInstanceId = randomUUID();
   private committedTickSequence = 0;
+  private readonly telemetryCredentialNames = new Set<string>();
+  private telemetry:
+    | Awaited<ReturnType<typeof createTelemetryLifecycle>>
+    | undefined;
+  private telemetryInitialization: Promise<void> | undefined;
+  private telemetryInitializationState:
+    | "uninitialized"
+    | "deferred"
+    | "initialized"
+    | "failed" = "uninitialized";
   private running = true;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | null = null;
@@ -488,6 +505,8 @@ export class OrchestratorService {
     readonly store: OrchestratorStateStore,
     readonly projectConfig: OrchestratorProjectConfig,
     readonly dependencies: {
+      /** Internal startup capability; no user-facing enable flag. */
+      telemetry?: TelemetryStartup & { version?: string };
       fetchImpl?: typeof fetch;
       spawnImpl?: SpawnLike;
       now?: () => Date;
@@ -1138,9 +1157,10 @@ export class OrchestratorService {
     } = {}
   ): Promise<void> {
     this.running = true;
-    await this.runSerialized(() =>
-      this.performStartupCleanup(this.createTrackerDependencies())
-    );
+    await this.runSerialized(async () => {
+      await this.performStartupCleanup(this.createTrackerDependencies());
+      await this.initializeTelemetry();
+    });
 
     while (this.running) {
       try {
@@ -1150,7 +1170,7 @@ export class OrchestratorService {
         );
         await this.notifyTick(snapshot);
       } catch (error) {
-        if (options.once) {
+        if (options.once || this.telemetryInitializationState === "failed") {
           throw error;
         }
 
@@ -1308,6 +1328,10 @@ export class OrchestratorService {
     }
 
     this.shuttingDown = true;
+    const telemetryShutdown = (async () => {
+      await this.telemetryInitialization?.catch(() => {});
+      await this.telemetry?.shutdown();
+    })();
     this.shutdownPromise = (async () => {
       this.running = false;
       this.cancelPendingSleep();
@@ -1350,7 +1374,7 @@ export class OrchestratorService {
         this.sendSignal(pid, "SIGKILL");
         this.retireWorkerPid(pid);
       }
-    })();
+    })().finally(() => telemetryShutdown);
 
     return this.shutdownPromise;
   }
@@ -2403,31 +2427,33 @@ export class OrchestratorService {
       issueWorkspaces,
       allTenantRuns
     );
-    const status = buildProjectSnapshot({
-      project: tenant,
-      activeRuns: latestRuns,
-      allRuns: allTenantRuns,
-      summary: { dispatched, suppressed, recovered, skipped },
-      lastTickAt: now.toISOString(),
-      lastError,
-      rateLimits,
-      effectivePollIntervalMs,
-      dispatchSuppressedUntil: resolveDispatchSuppressedUntil(
-        trackerError,
-        dispatchRateLimits
-      ),
-      issueWorkspaces,
-      warnings: [
-        ...this.resolveWorkflowWarnings(workflowSourceIdentity),
-        ...(await this.resolveRetainedWorkspaceWarnings(
-          tenant,
-          issueWorkspaces
-        )),
-        ...dispatchWarnings,
-      ],
-      workflowResolution,
-      workflowSourceIdentity: workflowSourceIdentity ?? undefined,
-    });
+    const status: ProjectStatusSnapshot & { telemetry?: TelemetryStatus } =
+      buildProjectSnapshot({
+        project: tenant,
+        activeRuns: latestRuns,
+        allRuns: allTenantRuns,
+        summary: { dispatched, suppressed, recovered, skipped },
+        lastTickAt: now.toISOString(),
+        lastError,
+        rateLimits,
+        effectivePollIntervalMs,
+        dispatchSuppressedUntil: resolveDispatchSuppressedUntil(
+          trackerError,
+          dispatchRateLimits
+        ),
+        issueWorkspaces,
+        warnings: [
+          ...this.resolveWorkflowWarnings(workflowSourceIdentity),
+          ...(await this.resolveRetainedWorkspaceWarnings(
+            tenant,
+            issueWorkspaces
+          )),
+          ...dispatchWarnings,
+        ],
+        workflowResolution,
+        workflowSourceIdentity: workflowSourceIdentity ?? undefined,
+      });
+    if (this.telemetry) status.telemetry = this.telemetry.status();
     await this.store.saveProjectStatus({
       ...status,
       projectId: tenant.projectId,
@@ -2445,6 +2471,16 @@ export class OrchestratorService {
         )
       );
     }
+    offerBestEffort(() =>
+      this.telemetry?.publication.offerSnapshot?.(
+        Object.freeze({
+          projectId: tenant.projectId,
+          instanceId: this.publicationInstanceId,
+          sequence,
+          projection: buildProjectMetricProjection(status, allTenantRuns),
+        })
+      )
+    );
     return status;
   }
 
@@ -2741,6 +2777,7 @@ export class OrchestratorService {
       const started = monotonicNow();
       let outcome: "success" | "failure" = "failure";
       try {
+        await this.initializeTelemetry();
         const snapshot = await this.reconcileProject(
           this.projectConfig,
           issueIdentifier,
@@ -2752,6 +2789,11 @@ export class OrchestratorService {
         const durationSeconds = Math.max(0, monotonicNow() - started) / 1000;
         offerBestEffort(() =>
           this.dependencies.publication?.observeTick?.(
+            Object.freeze({ durationSeconds, outcome })
+          )
+        );
+        offerBestEffort(() =>
+          this.telemetry?.publication.observeTick?.(
             Object.freeze({ durationSeconds, outcome })
           )
         );
@@ -3004,6 +3046,81 @@ export class OrchestratorService {
     return this.loadProjectWorkflowUncached(tenant, repository);
   }
 
+  private telemetryResourceIdentity(
+    project: OrchestratorProjectConfig
+  ): ProjectResourceIdentity {
+    return {
+      version: this.dependencies.telemetry?.version ?? "unknown",
+      instanceId: this.publicationInstanceId,
+      projectId: project.projectId,
+      projectSlug: project.slug,
+      trackerKind: project.tracker.adapter,
+    };
+  }
+
+  private async initializeTelemetry(): Promise<void> {
+    if (this.telemetryInitializationState === "initialized") return;
+    if (this.telemetryInitialization) return this.telemetryInitialization;
+    this.telemetryInitialization = (async () => {
+      const resolution = await this.loadProjectWorkflow(
+        this.projectConfig,
+        this.projectConfig.repository
+      );
+      if (!isUsableWorkflowResolution(resolution)) {
+        // Only an unusable initial workflow permits initialization on a later
+        // tick. Provider/capability failures are terminal for this service.
+        this.telemetryInitializationState = "deferred";
+        return;
+      }
+      const config = resolveOtlpConfiguration(
+        resolution.workflow.observability?.otlp,
+        this.resolveProjectEnvironment(this.projectConfig)
+      );
+      for (const name of config.diagnostics.authReferenceNames)
+        this.telemetryCredentialNames.add(name);
+      const startup = this.dependencies.telemetry ?? {};
+      if (
+        config.enabled &&
+        startup.productionCapability &&
+        !startup.createPipeline &&
+        !startup.version
+      )
+        throw new Error(
+          "OTLP capability requires the audited CLI release version"
+        );
+      this.telemetry = await createTelemetryLifecycle(config, {
+        ...startup,
+        warning: (message) => this.writeStderr(`[orchestrator] ${message}`),
+        createPipeline:
+          startup.createPipeline ??
+          (startup.productionCapability
+            ? async (applied) => {
+                const { createProjectPipeline } =
+                  await import("./observability/pipeline.js");
+                return createProjectPipeline(
+                  this.telemetryResourceIdentity(this.projectConfig),
+                  applied
+                );
+              }
+            : undefined),
+      });
+      if (this.store instanceof OrchestratorFsStore)
+        this.store.setEventPublication(this.telemetry.publication);
+      this.telemetryInitializationState = "initialized";
+    })()
+      .catch((error: unknown) => {
+        this.telemetryInitializationState = "failed";
+        throw error;
+      })
+      .finally(() => {
+        // Retain a failed promise so subsequent calls cannot retry provider
+        // construction or turn a rejected startup into a different policy.
+        if (this.telemetryInitializationState === "deferred")
+          this.telemetryInitialization = undefined;
+      });
+    return this.telemetryInitialization;
+  }
+
   private async loadProjectWorkflowUncached(
     tenant: OrchestratorProjectConfig,
     repository: RepositoryRef
@@ -3034,13 +3151,19 @@ export class OrchestratorService {
         // Validate ownership before resolving values, and before persisting LKG.
         validateExporterCredentialNames(
           resolution.workflow,
-          resolveTrackerSecretEnvironmentNames(trackerAdapter)
+          resolveTrackerSecretEnvironmentNames(trackerAdapter),
+          this.telemetryCredentialNames
         );
         // Owner-only validation; resolved credentials never enter workflow caches.
-        resolveOtlpConfiguration(
+        const config = resolveOtlpConfiguration(
           resolution.workflow.observability?.otlp,
           environment
         );
+        if (config.enabled)
+          resolveProjectResourceAttributes({
+            ...this.telemetryResourceIdentity(tenant),
+            attributes: config.resourceAttributes,
+          });
       } catch (error) {
         validatedResolution = {
           ...resolution,
@@ -3048,6 +3171,18 @@ export class OrchestratorService {
           validationError: this.formatErrorMessage(error),
         };
       }
+    }
+    if (validatedResolution.isValid)
+      for (const name of validatedResolution.workflow.observability?.otlp
+        ?.authReferenceNames ?? [])
+        this.telemetryCredentialNames.add(name);
+    if (validatedResolution.isValid && this.telemetry) {
+      this.telemetry.reload(
+        resolveOtlpConfiguration(
+          validatedResolution.workflow.observability?.otlp,
+          environment
+        )
+      );
     }
     return this.resolveWorkflowResolution(
       repository,
@@ -5272,12 +5407,15 @@ export class OrchestratorService {
             : projectHookEnv;
         const hookEnv = stripExporterCredentials(
           hostHookEnv,
-          validateExporterCredentialNames(
-            workflowResolution.workflow,
-            resolveTrackerSecretEnvironmentNames(
-              resolveTrackerAdapter(tenant.tracker)
-            )
-          )
+          new Set([
+            ...this.telemetryCredentialNames,
+            ...validateExporterCredentialNames(
+              workflowResolution.workflow,
+              resolveTrackerSecretEnvironmentNames(
+                resolveTrackerAdapter(tenant.tracker)
+              )
+            ),
+          ])
         );
         const configuredHookCommand = resolveHookCommand(
           workflowResolution.workflow.hooks,
@@ -5494,14 +5632,17 @@ export class OrchestratorService {
         ...inheritedEnv,
         ...explicitEnv,
       },
-      workflow
-        ? validateExporterCredentialNames(
-            workflow,
-            resolveTrackerSecretEnvironmentNames(
-              resolveTrackerAdapter(tenant.tracker)
+      new Set([
+        ...this.telemetryCredentialNames,
+        ...(workflow
+          ? validateExporterCredentialNames(
+              workflow,
+              resolveTrackerSecretEnvironmentNames(
+                resolveTrackerAdapter(tenant.tracker)
+              )
             )
-          )
-        : undefined
+          : []),
+      ])
     );
   }
 

@@ -48,7 +48,7 @@ export async function observeRunRecordReads<T>(
 }
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
-  private readonly publication: Pick<ObservabilityPublication, "offerEvent">;
+  private publication: Pick<ObservabilityPublication, "offerEvent">;
   private readonly resolvedRuntimeRoot: string;
   private readonly resolvedEventsMirrorRoot: string | null;
 
@@ -64,6 +64,19 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     this.resolvedEventsMirrorRoot = options.eventsMirrorRoot
       ? resolve(options.eventsMirrorRoot)
       : null;
+  }
+
+  /** Owner-local wiring, installed before dispatch; no core store contract. */
+  setEventPublication(
+    publication: Pick<ObservabilityPublication, "offerEvent">
+  ): void {
+    const prior = this.publication;
+    this.publication = {
+      offerEvent: (event, context) => {
+        offerBestEffort(() => prior.offerEvent?.(event, context));
+        offerBestEffort(() => publication.offerEvent?.(event, context));
+      },
+    };
   }
 
   projectDir(projectId?: string): string {
