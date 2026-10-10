@@ -113,8 +113,14 @@ try {
   });
   await new Promise((resolve) => setTimeout(resolve, 1200));
   await update(false);
-  if (probe === "pending-disable") service.telemetry = undefined;
   await service.runOnce();
+  if (probe === "pending-disable") {
+    // Plant an incorrect committed projection through the same persistence and
+    // HTTP boundary, independent of private initialization state.
+    const status = await service.status();
+    status.telemetry.enabled = false;
+    await store.saveProjectStatus({ ...status, projectId: "p" });
+  }
   const pending = await readStatus();
   reached("pending disable");
   assert.equal(pending.telemetry.enabled, true);
