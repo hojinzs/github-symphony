@@ -55,7 +55,7 @@ agent:
   max_turns: 1
 observability:
   otlp:
-    enabled: true
+    enabled: false
     endpoint: http://localhost:4318
     headers:
       Authorization: \$E2E_PROJECT_EXPORT_AUTH
@@ -94,6 +94,24 @@ git -C /e2e/repos/test-owner/test-repo add WORKFLOW.md
 git -C /e2e/repos/test-owner/test-repo commit -m "Update committed workflow policy" >/dev/null
 git -C /e2e/repos/test-owner/test-repo config uploadpack.allowFilter true
 printf "[]\n" > "$FIXTURE"
+
+# TC-26 also checks the packaged, continuous CLI production gate. A rejected
+# startup must exit once rather than retrying without backoff.
+sed -i "s/enabled: false/enabled: true/" "$PROJECT_ROOT/project-beta/WORKFLOW.md"
+set +e
+(cd "$PROJECT_ROOT/project-beta" &&
+  GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
+  timeout 20s node /app/packages/cli/dist/index.js --config "$CONFIG_DIR-otlp-gate" project start \
+    > /tmp/otlp-production-gate.log 2>&1)
+gate_status=$?
+set -e
+echo "reached: production gate exit assertions"
+test "$gate_status" -eq 1
+test "$(grep -c "OTLP production activation is unsupported" /tmp/otlp-production-gate.log)" -eq 1
+gate_lock=$(find "$CONFIG_DIR-otlp-gate" -name .lock -type f -print)
+test -z "$gate_lock"
+sed -i "s/enabled: true/enabled: false/" "$PROJECT_ROOT/project-beta/WORKFLOW.md"
+
 (cd "$policy_project" && \
   GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
   node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project start --once)

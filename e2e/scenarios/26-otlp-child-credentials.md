@@ -7,18 +7,22 @@ Use the packaged standalone project runner with Docker available:
 
 ## Steps
 
-1. Start the two fixture projects with enabled structural OTLP policy and arbitrary
+1. Temporarily enable OTLP in one fixture and start the continuous CLI under a
+   20-second timeout. Require exit code 1, exactly one unsupported-capability
+   message and no remaining project lock. Restore disabled policy.
+2. Start the two fixture projects with disabled structural OTLP policy and arbitrary
    header references from project `.env` and daemon process environment.
-2. Dispatch file-tracker issues to the captured stub workers.
-3. Require the `otlp_credentials=isolated` worker log marker before completion.
-4. Verify both normal project dispatches and clean shutdown still succeed.
+3. Dispatch file-tracker issues to the captured stub workers.
+4. Require the `otlp_credentials=isolated` worker log marker before completion.
+5. Verify both normal project dispatches and clean shutdown still succeed.
 
 ## Expected
 
 Workers receive neither arbitrary exporter auth reference nor reserved OTLP
 headers. The stub checks the actual process environment before printing its
 marker; a forbidden credential causes a nonzero exit. Endpoint references remain
-structural in the workflow; no SDK or Collector connection is activated.
+structural in the workflow. Disabled policy still owns credential names, and
+production enablement remains gated; no SDK or Collector connection is activated.
 
 Service tests also capture hook environments and actual Claude/custom spawn
 options plus the prepared Codex launch environment, preserving provider auth and

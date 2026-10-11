@@ -1373,24 +1373,30 @@ const handler = async (
               }`
             )
           );
-          if (parsed.once) {
+          // Continuous tick failures are retried by service.run itself. An
+          // escaping error is a startup failure, so restarting here would
+          // hot-spin on an unsupported capability or failed construction.
+          if (!parsed.once) {
             process.exitCode = 1;
-            await Promise.all(
-              [...new Set([httpServer?.server, workerHttpServer?.server])]
-                .filter((server): server is Server => Boolean(server))
-                .map((server) => closeHttpServer(server))
-            ).catch((closeError) => {
-              logLine(
-                yellow("\u26A0"),
-                `Failed to stop HTTP server: ${
-                  closeError instanceof Error
-                    ? closeError.message
-                    : "Unknown error"
-                }`
-              );
-            });
+            await shutdown();
             return;
           }
+          process.exitCode = 1;
+          await Promise.all(
+            [...new Set([httpServer?.server, workerHttpServer?.server])]
+              .filter((server): server is Server => Boolean(server))
+              .map((server) => closeHttpServer(server))
+          ).catch((closeError) => {
+            logLine(
+              yellow("\u26A0"),
+              `Failed to stop HTTP server: ${
+                closeError instanceof Error
+                  ? closeError.message
+                  : "Unknown error"
+              }`
+            );
+          });
+          return;
         }
       }
     } finally {
