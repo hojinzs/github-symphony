@@ -46,6 +46,8 @@ class BoundedLogProcessor implements LogRecordProcessor {
   private records = 0;
   private bytes = 0;
   private stopped = false;
+  private lastSuccessfulExportAt: string | null = null;
+  private degraded = false;
   private reportedShutdownLosses = 0;
   private drainPromise: Promise<void> | undefined;
   private active: Batch | undefined;
@@ -104,6 +106,8 @@ class BoundedLogProcessor implements LogRecordProcessor {
 
   status() {
     return {
+      state: this.degraded ? ("degraded" as const) : ("healthy" as const),
+      lastSuccessfulExportAt: this.lastSuccessfulExportAt,
       records: this.records,
       bytes: this.bytes,
       dropped: { ...this.losses },
@@ -113,6 +117,7 @@ class BoundedLogProcessor implements LogRecordProcessor {
   loss(reason: Loss, count: number): void {
     if (count <= 0) return;
     this.losses[reason] += count;
+    this.degraded = true;
     const category =
       reason === "queue_full"
         ? "queue"
@@ -129,6 +134,7 @@ class BoundedLogProcessor implements LogRecordProcessor {
   }
 
   private warn(category: Category, lost: number): void {
+    this.degraded = true;
     let episode = this.episodes.get(category);
     if (!episode) {
       episode = { at: Date.now(), pending: 0 };
@@ -220,6 +226,10 @@ class BoundedLogProcessor implements LogRecordProcessor {
             );
           } catch {
             result = { reason: "permanent", rejected: count };
+          }
+          if (!result.reason) {
+            this.lastSuccessfulExportAt = new Date().toISOString();
+            this.degraded = false;
           }
           this.release(batch, result);
           this.active = undefined;

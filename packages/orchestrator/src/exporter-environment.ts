@@ -7,9 +7,13 @@ import {
 /** Validate name-only ownership, then return exporter references for stripping. */
 export function validateExporterCredentialNames(
   workflow: WorkflowDefinition,
-  trackerSecretNames: readonly string[]
+  trackerSecretNames: readonly string[],
+  retainedNames: ReadonlySet<string> = new Set()
 ): ReadonlySet<string> {
-  const names = new Set(workflow.observability?.otlp?.authReferenceNames ?? []);
+  const names = new Set([
+    ...(workflow.observability?.otlp?.authReferenceNames ?? []),
+    ...retainedNames,
+  ]);
   const required = new Set([
     ...trackerSecretNames,
     "OPENAI_API_KEY",

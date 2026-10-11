@@ -11027,7 +11027,9 @@ Prefer focused changes.
       service as never,
       "loadProjectWorkflow"
     );
+    // Startup now reads the immutable exporter policy before reconciliation.
     loadProjectWorkflowSpy
+      .mockImplementationOnce(originalLoadProjectWorkflow as never)
       .mockRejectedValueOnce(new Error("workflow unavailable"))
       .mockImplementation(originalLoadProjectWorkflow as never);
 
@@ -18435,6 +18437,10 @@ Prompt`,
           .fn()
           .mockReturnValue({ pid: 4306, unref: vi.fn() });
         const service = new OrchestratorService(store, projectConfig, {
+          // Credential isolation runs with explicit injection; production activation stays gated.
+          telemetry: {
+            createPipeline: async () => ({ shutdown: async () => {} }),
+          },
           fetchImpl: vi
             .fn()
             .mockResolvedValue(createTrackerResponse(repository)),
