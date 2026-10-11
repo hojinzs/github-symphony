@@ -57,6 +57,8 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 | [2026-10-06-ohmysymphony-c14-interaction-contracts.md](designs/2026-10-06-ohmysymphony-c14-interaction-contracts.md)         | Configuration, Integration, Observability                                  | C14 interaction contract; human/browser review pending    |
 | [2026-10-06-ohmysymphony-c14-prototype-evidence.md](designs/2026-10-06-ohmysymphony-c14-prototype-evidence.md)               | Configuration, Integration, Observability                                  | C14 prototype/model evidence; human/runtime gates pending |
 | [2026-10-06-fleet-control-plane-c04-plan.md](designs/2026-10-06-fleet-control-plane-c04-plan.md)                             | Configuration, Integration, Observability                                  | Implemented, pending review (#1008)                       |
+| [2026-10-11-supervised-project-lifecycle-design.md](designs/2026-10-11-supervised-project-lifecycle-design.md)               | Configuration, Coordination, Observability, Execution                      | Draft                                                     |
+| [2026-10-11-supervised-project-lifecycle-issues.md](designs/2026-10-11-supervised-project-lifecycle-issues.md)               | Configuration, Coordination, Observability, Execution                      | Draft (plan; no issues created)                           |
 
 ## reports/
 
