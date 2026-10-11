@@ -681,3 +681,13 @@ whether a restart is required. The applied exporter remains active until restart
 even when the pending policy disables export. JSON status retains the additive
 `telemetry` projection. Existing `logs --level` filters retain their severity
 mapping. Production YAML activation remains gated pending the packaged audit.
+
+### Clean package boundary check
+
+Run `pnpm --filter @gh-symphony/cli test:package` to build and install the npm
+tarball into a temporary production-only installation. The check resolves the
+bundled lazy OpenTelemetry SDK chunks, rejects SDK evaluation by the CLI version
+command and idle worker entry, and executes the installed management, MCP and
+credential-helper entries. It reports tarball bytes separately from runtime
+performance. Startup/RSS/offer benchmarks remain separate production activation
+gates; this smoke check alone does not enable YAML export.

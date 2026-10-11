@@ -1026,6 +1026,8 @@ Before shipping a change:
 ```bash
 pnpm lint
 pnpm test
+# Clean production tarball, lazy SDK chunks and worker boundary
+pnpm --filter @gh-symphony/cli test:package
 pnpm typecheck
 pnpm build
 ```

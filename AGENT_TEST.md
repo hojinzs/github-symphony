@@ -579,3 +579,14 @@ boundaries. Every assertion prints its reached marker; 18 isolated mutations
 prove forbidden conditions fail. Report macOS tests and Linux container tests
 separately. These are ledger/protocol integration checks, not native OS
 orchestrator lifecycle or production agent-journal acceptance.
+
+### Clean OTLP package boundary cases (OT-03/OT-13)
+
+`pnpm --filter @gh-symphony/cli test:package` installs the built tarball outside
+the checkout with `npm install --omit=dev --ignore-scripts`. It imports the lazy
+SDK chunks in fresh processes, then uses an ESM loader to reject SDK evaluation
+by `--version` and the idle worker entry. Ambient OTLP endpoint configuration is
+present; run identity variables are removed from the worker probe. Existing MCP,
+management and credential-helper checks execute from that same installation.
+This is a package reachability test; disabled project startup, doctor network
+silence, reload status and performance measurements need their own coverage.

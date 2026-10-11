@@ -1,9 +1,19 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
-const temporaryDirectory = mkdtempSync(join(tmpdir(), "gh-symphony-pack-"));
+const temporaryDirectory = realpathSync(
+  mkdtempSync(join(tmpdir(), "gh-symphony-pack-"))
+);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -41,7 +51,103 @@ try {
     }
   }
 
-  const packageRoot = process.cwd();
+  // Execute only the installed tarball: workspace hoisting must not mask missing
+  // production dependencies or omitted lazy chunks.
+  writeFileSync(join(temporaryDirectory, "package.json"), '{"private":true}');
+  run(
+    "npm",
+    [
+      "install",
+      "--omit=dev",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      join(temporaryDirectory, packOutput[0].filename),
+    ],
+    { cwd: temporaryDirectory }
+  );
+  const packageRoot = join(temporaryDirectory, "node_modules/@gh-symphony/cli");
+  const dist = join(packageRoot, "dist");
+  const sdkChunks = readdirSync(dist).filter(
+    (name) =>
+      name.endsWith(".js") &&
+      readFileSync(join(dist, name), "utf8").includes("@opentelemetry+sdk-")
+  );
+  if (sdkChunks.length === 0)
+    throw new Error("No packaged lazy SDK chunks found");
+  for (const chunk of sdkChunks) {
+    run(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        "await import(process.argv[1])",
+        pathToFileURL(join(dist, chunk)).href,
+      ],
+      { cwd: temporaryDirectory }
+    );
+  }
+  // The loader records actual evaluation, rather than merely searching imports.
+  const loader = join(temporaryDirectory, "sdk-boundary-loader.mjs");
+  writeFileSync(
+    loader,
+    `
+    export async function load(url, context, next) {
+      const result = await next(url, context);
+      const source = String(result.source ?? "");
+      if (url.includes("@opentelemetry") || source.includes("@opentelemetry+")) {
+        throw new Error("FORBIDDEN_SDK_EVALUATION");
+      }
+      return result;
+    }
+  `
+  );
+  const isolatedEnv = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) =>
+          !name.startsWith("SYMPHONY_") && name !== "WORKING_DIRECTORY"
+      )
+    ),
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:1",
+  };
+  run(
+    process.execPath,
+    [
+      "--experimental-loader",
+      pathToFileURL(loader).href,
+      join(dist, "index.js"),
+      "--version",
+    ],
+    { cwd: temporaryDirectory, env: isolatedEnv }
+  );
+  const worker = spawnSync(
+    process.execPath,
+    [
+      "--experimental-loader",
+      pathToFileURL(loader).href,
+      join(dist, "worker-entry.js"),
+    ],
+    {
+      cwd: temporaryDirectory,
+      env: isolatedEnv,
+      encoding: "utf8",
+      timeout: 10000,
+    }
+  );
+  if (
+    worker.error ||
+    worker.signal ||
+    worker.status !== 0 ||
+    worker.stderr.includes("FORBIDDEN_SDK_EVALUATION")
+  ) {
+    throw new Error(
+      `Packaged worker boundary failed: ${worker.error ?? worker.stderr}`
+    );
+  }
+  process.stdout.write(
+    `Clean packed install: ${packOutput[0].size} tarball bytes; ${sdkChunks.length} SDK chunks resolved; disabled CLI and worker SDK boundary passed.\n`
+  );
   run(process.execPath, [
     "--input-type=module",
     "-e",
