@@ -665,3 +665,19 @@ Responses contain at most 256 KiB of UTF-8 log text with a scoped byte cursor;
 rotation/truncation reports reset, and missing or escaping selections report
 unavailable. Read access survives invalid workflow and has no process effects.
 Raw logs may contain sensitive text and are restricted to trusted operator access.
+
+### OTLP diagnostics
+
+`gh-symphony doctor` validates the project's `observability.otlp` settings using
+its effective environment without loading an OpenTelemetry SDK or contacting the
+Collector. `doctor --otlp-probe` explicitly sends an empty protobuf export request
+for each enabled signal, with a three-second budget per signal. Disabled policy
+and `OTEL_SDK_DISABLED=true` skip all OTLP connections. Reports include safe
+endpoints, header names and HTTP outcomes; they omit credentials and remote
+response bodies. HTTP success alone does not prove telemetry receipt.
+
+`gh-symphony project status` displays applied and pending exporter settings and
+whether a restart is required. The applied exporter remains active until restart,
+even when the pending policy disables export. JSON status retains the additive
+`telemetry` projection. Existing `logs --level` filters retain their severity
+mapping. Production YAML activation remains gated pending the packaged audit.

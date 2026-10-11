@@ -1007,3 +1007,12 @@ without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
 Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
+
+OTLP CLI validation uses the managed project's effective environment with the
+same resolver as startup. `doctor --otlp-probe` connects only when
+`observability.otlp.enabled` is true and `OTEL_SDK_DISABLED` does not veto it;
+plain `doctor` validates without OTLP connections. Probe requests have a 3s budget
+per signal and report HTTP outcomes, never credentials or Collector response
+bodies. Pending settings reported by `project status` require restart; the
+applied exporter continues until then. Production activation remains gated until
+the CLI packaged audit is complete.

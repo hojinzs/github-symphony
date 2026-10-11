@@ -1,3 +1,4 @@
+import { inspectOtlp } from "../otlp-diagnostics.js";
 import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
@@ -84,6 +85,7 @@ type DoctorStatus = "pass" | "warn" | "fail";
 type DoctorRemediationStatus = "applied" | "skipped" | "manual";
 
 type DoctorCheckId =
+  | "otlp"
   | "node_runtime"
   | "git_installation"
   | "gh_installation"
@@ -165,6 +167,7 @@ export type DoctorReport = {
 
 type ParsedDoctorArgs = {
   projectId?: string;
+  otlpProbe?: boolean;
   fix: boolean;
   smoke: boolean;
   bundle: boolean;
@@ -269,7 +272,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
 const MINIMUM_NODE_MAJOR = 24;
 const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
 const DOCTOR_USAGE =
-  "Usage: gh-symphony doctor [--project-id <project-id>] [--project-dir <path>] [--fix] [--smoke] [--issue <owner/repo#number|TEAM-123>] [--bundle [path]]";
+  "Usage: gh-symphony doctor [--project-id <project-id>] [--project-dir <path>] [--fix] [--otlp-probe] [--smoke] [--issue <owner/repo#number|TEAM-123>] [--bundle [path]]";
 
 type GitInstallationState =
   | {
@@ -307,6 +310,11 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
       // identifier is derived from the path.
       parsed.projectId = standaloneProjectId(value);
       i += 1;
+      continue;
+    }
+
+    if (arg === "--otlp-probe") {
+      parsed.otlpProbe = true;
       continue;
     }
 
@@ -2278,6 +2286,49 @@ export async function runDoctorDiagnostics(
   }
 
   if (workflow.status === "pass") {
+    try {
+      const details = await inspectOtlp(
+        workflow.workflow.observability?.otlp,
+        resolvedProjectConfig.kind === "resolved"
+          ? resolveManagedProjectEnvironment(
+              resolvedProjectConfig.projectConfig,
+              runtimeRoot
+            )
+          : process.env,
+        parsedArgs.otlpProbe,
+        deps.fetchImpl
+      );
+      const failed = Object.values(details.probe).some(
+        (value) => !/^HTTP 2\d\d$/.test(value)
+      );
+      checks.push(
+        failed
+          ? warnCheck(
+              "otlp",
+              "OTLP configuration",
+              "Configuration valid; connectivity probe did not succeed. HTTP success does not prove Collector receipt.",
+              undefined,
+              details
+            )
+          : passCheck(
+              "otlp",
+              "OTLP configuration",
+              details.configuration.enabled
+                ? "Enabled configuration valid. Probe HTTP success does not prove Collector receipt."
+                : "Disabled; no OTLP connection attempted.",
+              details
+            )
+      );
+    } catch {
+      checks.push(
+        failCheck(
+          "otlp",
+          "OTLP configuration",
+          "OTLP configuration is invalid.",
+          "Check observability.otlp and its referenced environment variables; credentials are not displayed."
+        )
+      );
+    }
     checks.push(
       ...(await buildHookChecks(
         dirname(workflow.workflowPath),

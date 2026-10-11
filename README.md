@@ -1128,3 +1128,9 @@ Responses contain at most 256 KiB of UTF-8 log text with a scoped byte cursor;
 rotation/truncation reports reset, and missing or escaping selections report
 unavailable. Read access survives invalid workflow and has no process effects.
 Raw logs may contain sensitive text and are restricted to trusted operator access.
+
+OTLP operational diagnostics are available through `gh-symphony doctor` and
+`gh-symphony doctor --otlp-probe` (explicit, bounded enabled connectivity check).
+`gh-symphony project status` shows applied versus pending exporter settings.
+See [CLI OTLP diagnostics](packages/cli/README.md#otlp-diagnostics) for credential
+safety, restart semantics and the production activation gate.
