@@ -302,7 +302,9 @@ it("isolates environment identities and normalizes only reported scope sets", as
       },
     ])
   );
-  expect((await observations.getProject(a.projectId)).warnings).toEqual([]);
+  expect((await observations.getProject(a.projectId)).warnings).toEqual([
+    { state: "unverified", projectIds: [a.projectId] },
+  ]);
   await sessions.observe(identity, request([{ ...b, snapshot: {} }]));
   expect((await observations.getProject(a.projectId)).warnings).toEqual([
     { state: "unverified", projectIds: [a.projectId] },
@@ -379,4 +381,149 @@ it("revokes moved folders immediately and supplies safe command targets without 
   expect(() =>
     observations.receiveObservation(store.database, request([]))
   ).toThrow("transaction");
+});
+
+it("expires actual C07 commands on complete removal in the projection transaction and rolls back peer faults", async () => {
+  const { createCommandService } = await import("./commands.js");
+  const enrollment = compose();
+  let fault = false;
+  const commands = createCommandService(store, {
+    now: () => clock,
+    peers: {
+      resolveTarget: (db, id) => observations.resolveTarget(db, id),
+      verifyAgent: (_db, candidate) => {
+        sessions.authenticateSession(candidate);
+        return true;
+      },
+    },
+  });
+  observations = createObservationService(store, {
+    now: () => clock,
+    invalidateProject: (db, id) => {
+      commands.invalidateProject(id, db);
+      if (fault) throw new Error("invalidation fault");
+      return undefined;
+    },
+  });
+  sessions = createSessionService(store, enrollment, {
+    now: () => clock,
+    receiveObservation: observations.receiveObservation,
+  });
+  const a = project();
+  await sessions.observe(identity, request([a]));
+  const accepted = await commands.submitCommand(a.projectId, "start", {
+    operation: "start",
+  });
+  fault = true;
+  const before = store.database
+    .prepare("SELECT sequence,expires_at FROM agent_sessions")
+    .get();
+  await expect(sessions.observe(identity, request([]))).rejects.toThrow(
+    "invalidation fault"
+  );
+  expect((await commands.getCommand(accepted.commandId)).state).toBe(
+    "accepted"
+  );
+  expect((await observations.getProject(a.projectId)).managed).toBe(true);
+  expect(
+    store.database
+      .prepare("SELECT sequence,expires_at FROM agent_sessions")
+      .get()
+  ).toEqual(before);
+  fault = false;
+  await sessions.observe(identity, request([]));
+  expect((await commands.getCommand(accepted.commandId)).state).toBe("expired");
+  expect((await observations.getProject(a.projectId)).managed).toBe(false);
+});
+
+it("stores bounded run summaries newest first while preserving local times and statuses", async () => {
+  const a = project();
+  const runs = [
+    {
+      runId: "old",
+      status: "retrying",
+      startedAt: "2026-10-01T00:00:00Z",
+      updatedAt: "2026-10-02T00:00:00Z",
+    },
+    {
+      runId: "new",
+      status: "running",
+      startedAt: "2026-10-03T00:00:00Z",
+      updatedAt: "2026-10-04T00:00:00Z",
+    },
+  ];
+  await sessions.observe(identity, request([{ ...a, runs }]));
+  expect((await observations.getProject(a.projectId)).observation.runs).toEqual(
+    [runs[1], runs[0]]
+  );
+});
+
+it("rejects more than 100 projects across pages and accepts a later bounded recovery revision", async () => {
+  const existing = project();
+  await sessions.observe(identity, request([existing]));
+  const projects = Array.from({ length: 101 }, (_, i) =>
+    project(`capacity-${i}`)
+  );
+  const revision = randomUUID();
+  await sessions.observe(
+    identity,
+    request(projects.slice(0, 100), revision, 0, 2)
+  );
+  await expect(
+    sessions.observe(identity, request(projects.slice(100), revision, 1, 2))
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  expect((await observations.getProject(existing.projectId)).managed).toBe(
+    true
+  );
+  await sessions.observe(identity, request(projects.slice(0, 100)));
+  expect(observations.summary().freshRunning).toBe(100);
+});
+
+it("retains an unverified overlap warning alongside an identical known pair", async () => {
+  const a = project();
+  await sessions.observe(identity, request([a]));
+  const second = await enrolled("Second");
+  identity = second.credential;
+  sessionId = second.session.sessionId;
+  sequence = 0;
+  const b = project();
+  await sessions.observe(identity, request([b]));
+  const third = await enrolled("Third");
+  identity = third.credential;
+  sessionId = third.session.sessionId;
+  sequence = 0;
+  const c = project();
+  await sessions.observe(identity, request([{ ...c, snapshot: {} }]));
+  expect((await observations.getProject(a.projectId)).warnings).toEqual([
+    { state: "identical", projectIds: [a.projectId, b.projectId].sort() },
+    { state: "unverified", projectIds: [a.projectId] },
+  ]);
+});
+
+it("reports revoked enrollment before validating absent active-session IDs in a retained command target", async () => {
+  const { createCommandService } = await import("./commands.js");
+  const enrollment = compose();
+  const commands = createCommandService(store, {
+    now: () => clock,
+    peers: {
+      resolveTarget: observations.resolveTarget,
+      verifyAgent: (_db, candidate) => {
+        sessions.authenticateSession(candidate);
+        return true;
+      },
+    },
+  });
+  const a = project();
+  await sessions.observe(identity, request([a]));
+  await enrollment.revoke(identity.environmentId);
+  expect(await observations.getProject(a.projectId)).toMatchObject({
+    connection: "offline",
+    observation: { process: { state: "running" } },
+  });
+  await expect(
+    commands.submitCommand(a.projectId, "after-revoke", { operation: "start" })
+  ).rejects.toMatchObject({ code: "access_revoked" });
+  expect(
+    store.database.prepare("SELECT count(*) AS n FROM lifecycle_commands").get()
+  ).toEqual({ n: 0 });
 });

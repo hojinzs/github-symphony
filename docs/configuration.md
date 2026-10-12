@@ -1029,3 +1029,16 @@ without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
 Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
+
+### Fleet cached observation query defaults (C06)
+
+The independent fleet observation library uses the C05 authenticated receipt and
+30-second exclusive-session timeout, never the agent's wall clock, for connection
+and project freshness. Project queries default to 25 rows and reject limits above
+100; cursors are tied to environment, process and connection filters. Complete
+inventory revisions contain at most 100 projects per agent; the publisher splits
+requests below the v1 4 MiB limit. A partial revision cannot remove unseen projects.
+These are v1 protocol defaults, not workflow policy or new environment variables.
+The existing per-project CLI/web configuration is unchanged. Consumer composition
+must authenticate server UUID allocation and share the SQLite transaction for
+observation acceptance and unclaimed-command invalidation.

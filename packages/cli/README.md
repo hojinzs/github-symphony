@@ -694,3 +694,8 @@ tracker-scope warnings. Complete uploads change membership atomically; partial
 uploads retain unseen projects. These library boundaries are separate from the
 existing `gh-symphony project` commands and per-project `--web` server; fleet HTTP
 and UI assembly remains a consumer integration.
+
+The bundled `@gh-symphony/cli/management-agent` module exports
+`createInventorySnapshot` for the foreground runner and its authenticated
+`ProjectIdentityResolver` composition port. It publishes current redacted
+allowlist data after recovery; it does not buffer old inventory across outages.

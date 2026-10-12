@@ -240,7 +240,7 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
-- C05 outbound runtime: `packages/management-agent/src/transport.ts` validates verified HTTPS messages, bounds bodies and correlates identity; `foreground.ts` holds the local registry lock and runs independent observation/poll loops with capped reconnect jitter. The published `@gh-symphony/cli/management-agent` entry is built from `packages/cli/src/management-agent.ts`. C06 inventory publication consumes a typed server UUID resolver; command/read delivery remains a sibling port.
+- C05 outbound runtime: `packages/management-agent/src/transport.ts` validates verified HTTPS messages, bounds bodies and correlates identity; `foreground.ts` holds the local registry lock and runs independent observation/poll loops with capped reconnect jitter. The published `@gh-symphony/cli/management-agent` entry is built from `packages/cli/src/management-agent.ts`. C06 `management-agent/src/inventory.ts` supplies the redacted current registry snapshot and consumes a typed server UUID resolver; command/read delivery remains a sibling port.
 - C05 fleet session owner: `packages/fleet-control-plane/src/sessions.ts` owns exclusive sessions, receipt-based renewal, sequence fencing and migration 3 on the C04 transaction boundary. Startup recovery fences persisted sessions without project process effects; its synchronous observation hook belongs to C06.
 
 - Fleet lifecycle command integration: `CommandPeers` supplies synchronous

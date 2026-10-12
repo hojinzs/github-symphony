@@ -10,16 +10,14 @@ import {
   type Page,
   type ProjectFilter,
   type ProjectObservation,
+  type ScopeWarning,
 } from "@gh-symphony/management-protocol";
 import { FleetError } from "./enrollment.js";
 import type { CommandTarget } from "./commands.js";
 import type { FleetStore } from "./store.js";
 import { SESSION_LIFETIME_MS } from "./sessions.js";
 
-export interface ScopeWarning {
-  state: "identical" | "unverified";
-  projectIds: string[];
-}
+export type { ScopeWarning } from "@gh-symphony/management-protocol";
 export interface ObservedProject extends AggregateProject {
   /** Receipt time, never the agent's wall clock, controls freshness. */
   fresh: boolean;
@@ -208,17 +206,20 @@ export function createObservationService(
           state: "identical",
           projectIds: [
             item.projectId,
-            ...matches.map((p) => p.projectId),
+            ...matches
+              .map((p) => p.projectId)
+              .sort()
+              .slice(0, LIMITS.maximumPageSize - 1),
           ].sort(),
         });
-      else if (
+      if (
         items.some(
           (other) =>
             other.managed &&
             other.environmentId !== item.environmentId &&
             (!other.fresh ||
               other.snapshotStale ||
-              !scopeKey(other.observation))
+              scopeKey(other.observation) !== key)
         )
       )
         item.warnings.push({
@@ -264,6 +265,12 @@ export function createObservationService(
     receiveObservation(database, input) {
       shared(database);
       const request = observationRequestSchema.parse(input);
+      for (const observation of request.inventory.projects)
+        observation.runs.sort(
+          (a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt) ||
+            a.runId.localeCompare(b.runId)
+        );
       const { environmentId, sessionId, inventory } = request;
       const current = db
         .prepare("SELECT * FROM inventory_revisions WHERE environment_id=?")

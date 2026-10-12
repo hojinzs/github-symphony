@@ -192,3 +192,21 @@ invalid inventory remain fatal.
 
 If a session-negotiation response is lost after the server commits it, exclusivity
 can delay recovery until the 30-second session expiry plus reconnect backoff.
+
+## C06 inventory publisher
+
+`createInventorySnapshot({ reader, cliVersion, resolveIdentities })` is directly
+compatible with `ForegroundOptions.snapshot`. It reads the current canonical
+registry on every call, preserves its explicit redaction, and joins server-issued
+UUIDs by local ID regardless of response order. Its `ProjectIdentityResolver`
+typed port must authenticate the enrolled environment and return one unique
+`ProjectIdentity` per requested local ID. Missing, foreign, duplicate or malformed
+bindings reject the whole publication with `invalid_inventory_identity`.
+
+The resolver is a consumer-owned transport/composition boundary; the publisher
+does not invent an allocation HTTP endpoint, infer global IDs from paths, or store
+previous inventory for later replay. Resolver outages propagate to C05 backoff;
+recovery publishes the current allowlist, including empty inventory after removal.
+The bundled `@gh-symphony/cli/management-agent` entry exports this factory and port.
+The existing `observationPages` helper splits its output into bounded complete
+revisions. Native-service launch isolation remains C03/C13 ownership.

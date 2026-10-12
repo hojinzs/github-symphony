@@ -245,10 +245,32 @@ Missing snapshots retain the last successful snapshot and its original timestamp
 with an explicit stale diagnostic. Missing snapshots and empty run summaries never
 imply a stopped process. Normalized reported tracker metadata compares adapter,
 binding and repository plus sorted/deduplicated state and label sets across
-environments. Unknown, stale or failed scope observations produce `unverified`
+environments. Differing, missing, stale or failed scope observations produce `unverified`
 warnings; identical known scopes produce `identical` warnings. This does not
 reimplement provider eligibility, prevent starts, or provide global scheduling.
 
 `observations.test.ts` composes real C04 enrollment/C05 sessions with SQLite and
 typed independent project observations for CP-01/03/05/10/14/17/21. The management
 plane remains a repository-local extension; `docs/symphony-spec.md` is unchanged.
+
+The query projection fields are validated by the additive v1 aggregate protocol
+schema. An identical known pair and unverified comparisons can coexist. Related
+UUID lists are bounded to 100 per warning; they are examples of reported matches,
+not an exhaustive global ownership guarantee. Different reported scopes never
+establish disjoint eligibility. Cached run summaries retain local times/statuses
+and sort newest first. Default query pages include retained unmanaged history;
+`summary` counts only current managed projects.
+
+Wire the required invalidation peer as
+`(database, id) => commands.invalidateProject(id, database)`; C07 accepts the
+shared active transaction without nesting `BEGIN`. A peer failure rolls back
+command expiry, projection writes, authenticated sequence and contact together.
+Use `resolveTarget` as the C07 project peer on that same database.
+
+[TC-31](../../e2e/scenarios/31-fleet-observations.md) exercises real C04/C05/C06/C07
+composition, TLS transport and the bundled publisher. Production route/UI
+composition and native OS service acceptance are not supplied by these fixtures.
+
+Retained revoked projects return `access_revoked` for new command submissions.
+Enrollment and offline preconditions are checked before active-session UUIDs,
+since revocation intentionally deletes the session without deleting observations.
