@@ -641,7 +641,12 @@ else {
     }
     check(rejected, "cumulative unpublished identity cap rejects overflow");
     await send([], replacementRevision, 1, 2);
-    const released = await identities(identity.environmentId, ["overflow"]);
+    let released = [];
+    try {
+      released = await identities(identity.environmentId, ["overflow"]);
+    } catch {
+      /* Assert recovery below, including unexpected capacity rejection. */
+    }
     check(
       released.length === 1 && (await rpc("get", replacement.projectId)).fresh,
       "complete replacement inventory releases unpublished capacity"

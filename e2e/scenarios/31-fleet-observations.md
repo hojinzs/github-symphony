@@ -58,7 +58,7 @@ in #1050; CP-03 evidence here covers visible invalid inventory, not stop executi
 
 ## Results and fault sensitivity
 
-The scenario reaches 24 assertions. Twenty-one isolated mutations in compiled
+The scenario reaches 24 assertions. Twenty-two isolated mutations in compiled
 fleet/session/enrollment/command/store artifacts and bundled agent artifacts prove
 first signal, partial/complete membership, duplicate rejection, rollback,
 invalidation, snapshot retention, page splitting, normalized scope warning,

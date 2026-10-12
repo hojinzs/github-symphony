@@ -59,6 +59,12 @@ try {
   const cases = [
     [
       fleet + "observations.js",
+      "outstanding >= LIMITS.managedProjectsPerAgent",
+      '(outstanding >= LIMITS.managedProjectsPerAgent || (id === "overflow" && outstanding === 99))',
+      "complete replacement inventory releases unpublished capacity",
+    ],
+    [
+      fleet + "observations.js",
       "WHERE environment_id=? AND agent_id=? AND local_project_id=?",
       "WHERE environment_id=? AND ? IS NOT NULL AND local_project_id=?",
       "replacement enrollment allocates distinct project UUID",
