@@ -1029,3 +1029,49 @@ without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
 Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
+
+### macOS agent service configuration (C12)
+
+The bundled `MacOSAgentService` accepts trusted absolute `nodePath`, `entrypoint`,
+`configPath`, `dataDirectory`, `home` and the current `uid`. `entrypoint` runs
+foreground and consumes `--config <configPath>`; command routing/setup is C13's
+boundary. Resolve the login user's home with `node:os.userInfo().homedir`, since
+worker `HOME` can be overridden. Alternate staging homes disable the reported
+login auto-start capability. Data directories require exact 0700 ownership;
+plist files are 0600 in `home/Library/LaunchAgents`. Existing symlinks/conflicting
+content fail closed. The default label is `com.github-symphony.management-agent`;
+a trusted local label override supports isolated embedding/OS fixtures.
+
+No new environment variables or project HTTP defaults are added. The plist
+contains only executable/config paths, logs to `agent.stdout.log` and
+`agent.stderr.log` in the private data directory, restarts unsuccessful exits
+with a ten-second throttle and allows twenty seconds for exit. Unload polls for
+removal within a twenty-five-second window; in-flight launchctl queries have
+their own ten-second command timeout. Embedders supply private CA/client/snapshot
+and journal ports to the existing foreground runtime. Uninstall retains all
+agent data; rotation and credential revocation are separate owner actions.
+
+Service actions require `gui/<uid>` login-session support. Auto-start covers
+user login, not pre-login boot or persistence after logout. Foreground execution
+is the supported alternative without a GUI session. Native C03 composition uses
+`launchIsolatedProject: launchMacOSProject`; Linux isolation remains C11-owned.
+
+A Node upgrade or moved CLI entrypoint can leave a conflicting saved definition.
+All adapter actions fail closed on that conflict, including stop and uninstall.
+To repair explicitly, use the current user's GUI session and first inspect the
+saved plist with `plutil -p "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`
+and `launchctl print "gui/$(id -u)/com.github-symphony.management-agent"`.
+Confirm the label and loaded path match your agent, and that the plist is a
+regular, non-symlink file owned by your UID with mode 0600. Use the real login
+home if `HOME` is overridden; substitute the configured label for an override.
+Do not remove or unload a foreign or unsafe definition.
+
+Run `launchctl bootout "gui/$(id -u)/com.github-symphony.management-agent"`
+if the job is loaded. Wait until `launchctl print` for that exact target reports
+that the service could not be found; a missing GUI domain or another command
+error does not confirm removal. Only then remove the inspected plist with
+`rm "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`.
+Call `install()` and `start()` with the updated absolute executable and
+entrypoint paths. Keep the existing config and private data directory: this
+repair preserves enrollment, allowlist and journal data and does not stop
+managed project orchestrators. Installation requires an executable `nodePath`.
