@@ -1,3 +1,4 @@
+import { submitReadResponseSchema } from "@gh-symphony/management-protocol";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,9 +38,9 @@ it("routes read acceptance and details with CSRF and structured errors", async (
     const accepted = await handle(request);
     expect(accepted).toMatchObject({
       status: 202,
-      body: { state: "pending", readId: expect.any(String) },
+      body: { readId: expect.any(String) },
     });
-    const readId = (accepted!.body as { readId: string }).readId;
+    const { readId } = submitReadResponseSchema.parse(accepted!.body);
     expect(
       await handle({ method: "GET", pathname: `/api/v1/reads/${readId}` })
     ).toMatchObject({

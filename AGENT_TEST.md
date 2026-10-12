@@ -609,12 +609,13 @@ orchestrator lifecycle or production agent-journal acceptance.
 `pnpm --filter @gh-symphony/fleet-control-plane test` covers independent read
 capacity alongside an actual lifecycle command, exact expiry, receipt-time
 completion, detail/run matching, UTF-8 request limits, reset preservation,
-completed replay, offline/restart outcomes, retained-registry admission and
+canonical nested JSON replay (array order preserved), serialized log metadata
+bounds, detached detail methods, offline/restart outcomes, retained-registry admission and
 fail-closed synchronous authentication. `read-routes.test.ts` exercises actual
 C04 CSRF sessions with independent SQLite project/session tables and structured
 202/200/400/401/409 responses. No native service isolation claim follows from
 these tests. [TC-31](e2e/scenarios/31-fleet-bounded-reads.md) adds actual C09
-filesystem composition through trusted HTTPS plus nineteen copied-artifact probes.
+filesystem composition through trusted HTTPS plus twenty copied-artifact probes.
 Run `node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs`
 after `pnpm build`; `./e2e/run-fleet-reads-e2e.sh` supplies isolated Linux Docker.
 Report native host and container evidence separately.

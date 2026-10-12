@@ -29,7 +29,10 @@ import {
   AgentRegistry,
   LocalReadAdapter,
 } from "../packages/management-agent/dist/index.js";
-import { readResultSchema } from "../packages/management-protocol/dist/index.js";
+import {
+  submitReadResponseSchema,
+  readResultSchema,
+} from "../packages/management-protocol/dist/index.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "c10-blackbox-")));
 let store,
@@ -260,6 +263,13 @@ try {
       selection
     );
     assert.equal(accepted.status, 202);
+    let validReceipt = true;
+    try {
+      submitReadResponseSchema.parse(accepted.body);
+    } catch {
+      validReceipt = false;
+    }
+    check(validReceipt, "submission matches strict protocol");
     const request = reads
       .poll(identity)
       .find((item) => item.readId === accepted.body.readId);

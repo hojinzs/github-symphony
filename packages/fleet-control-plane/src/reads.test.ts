@@ -54,7 +54,7 @@ it("bounds reads independently of lifecycle commands and expires at the deadline
   expect(f.api.poll(f.identity)).toHaveLength(0);
   await expect(
     f.api.submitRead(projects[4], { kind: "runs", limit: 10 })
-  ).resolves.toMatchObject({ state: "pending" });
+  ).resolves.toEqual({ readId: expect.any(String) });
 });
 it("validates detail identity and holds receipt-timestamped results only for 60 seconds", async () => {
   const f = await setup();
@@ -135,7 +135,7 @@ it("rejects admission when retained results fill the configured registry", async
   f.advance(60_000);
   await expect(
     api.submitRead(f.project(), { kind: "runs", limit: 1 })
-  ).resolves.toMatchObject({ state: "pending" });
+  ).resolves.toEqual({ readId: expect.any(String) });
 });
 
 it("does not accept asynchronous truthy authentication peers", async () => {
@@ -434,4 +434,115 @@ it("scopes identical local project IDs to their enrolled environments", async ()
       },
     })
   ).rejects.toMatchObject({ code: "claim_owner_conflict" });
+});
+
+it("allows detached detail methods", async () => {
+  const f = await setup();
+  const read = await f.api.submitRead(f.project(), { kind: "runs", limit: 1 });
+  const { getRead, getReadView } = f.api;
+  expect(await getRead(read.readId)).toEqual({
+    readId: read.readId,
+    state: "pending",
+  });
+  expect(getReadView(read.readId).historical).toBe(false);
+});
+
+it("bounds serialized log metadata and accepts the exact payload boundary", async () => {
+  const f = await setup();
+  const read = await f.api.submitRead(f.project(), {
+    kind: "log-chunk",
+    runId: "r1",
+    stream: "worker",
+    maxBytes: 4,
+  });
+  const payload = {
+    kind: "log-chunk" as const,
+    runId: "r1",
+    stream: "worker" as const,
+    text: "éé",
+    cursor: "",
+    reset: false,
+    eof: true,
+  };
+  const limit = 256 * 1024 + 1024;
+  payload.cursor = "x".repeat(
+    limit - Buffer.byteLength(JSON.stringify(payload))
+  );
+  const request = {
+    protocolVersion: 1 as const,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+    requestId: randomUUID(),
+    result: {
+      kind: "read" as const,
+      result: {
+        readId: read.readId,
+        state: "completed" as const,
+        completedAt: f.now().toISOString(),
+        payload,
+      },
+    },
+  };
+  payload.cursor += "x";
+  await expect(f.api.publishResult(f.identity, request)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
+  expect(await f.api.getRead(read.readId)).toMatchObject({ state: "pending" });
+  payload.cursor = payload.cursor.slice(0, -1);
+  await f.api.publishResult(f.identity, request);
+  expect(await f.api.getRead(read.readId)).toMatchObject({
+    state: "completed",
+    payload,
+  });
+});
+
+it("accepts reordered nested JSON replays but rejects changed array order and values", async () => {
+  const f = await setup();
+  const read = await f.api.submitRead(f.project(), {
+    kind: "run-detail",
+    runId: "r1",
+  });
+  const request = {
+    protocolVersion: 1 as const,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+    requestId: randomUUID(),
+    result: {
+      kind: "read" as const,
+      result: {
+        readId: read.readId,
+        state: "completed" as const,
+        completedAt: f.now().toISOString(),
+        payload: {
+          kind: "run-detail" as const,
+          runId: "r1",
+          detail: {
+            status: "done",
+            nested: { a: 1, b: 2 },
+            items: [{ x: 1, y: 2 }, 3],
+          },
+        },
+      },
+    },
+  };
+  await f.api.publishResult(f.identity, request);
+  f.advance(1);
+  request.result.result.payload.detail = {
+    items: [{ y: 2, x: 1 }, 3],
+    nested: { b: 2, a: 1 },
+    status: "done",
+  };
+  await f.api.publishResult(f.identity, request);
+  expect(await f.api.getRead(read.readId)).toMatchObject({
+    completedAt: new Date(f.now().getTime() - 1).toISOString(),
+  });
+  request.result.result.payload.detail.items.reverse();
+  await expect(f.api.publishResult(f.identity, request)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
+  request.result.result.payload.detail.items.reverse();
+  request.result.result.payload.detail.nested.a = 9;
+  await expect(f.api.publishResult(f.identity, request)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
 });

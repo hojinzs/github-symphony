@@ -19,7 +19,7 @@ The actual C09 AgentRegistry/LocalReadAdapter reads real run metadata and files.
 No read implementation is mocked. The optional C06 projection hook persists
 only validated summaries in an independent fixture table.
 
-Every acceptance assertion prints a `reached:` marker. The nineteen forbidden
+Every acceptance assertion prints a `reached:` marker. The twenty forbidden
 condition probes copy compiled artifacts outside the checkout, alter one
 condition, and require both a reached marker and the named assertion failure.
 Every listed acceptance assertion has a matching forbidden-condition probe.
@@ -47,3 +47,8 @@ simulation and runs the same contract and probes. Neither is native
 systemd/launchd isolation or managed-process lifecycle evidence. Fleet listener
 installation, shared agent transport wiring and C06 production projection are
 separately owned; this scenario validates their typed composition boundaries.
+
+Review regression: successful read submission receipts must validate against the
+strict v1 `submitReadResponseSchema`; a planted extra `state` field must reach
+and fail that assertion. Unit cases additionally bound serialized log metadata
+and compare nested JSON replays canonically while preserving array order.

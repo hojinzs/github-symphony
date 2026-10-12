@@ -1,3 +1,4 @@
+import { json } from "./json.js";
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import {
@@ -79,6 +80,20 @@ export function createReadService(
       agent?.agent_id === target.agentId
     );
   }
+  function targetChanged(
+    entry: Entry,
+    current: CommandTarget | undefined
+  ): boolean {
+    return (
+      !current?.online ||
+      !current.managed ||
+      !enrolled(current) ||
+      current.sessionId !== entry.target.sessionId ||
+      current.agentId !== entry.target.agentId ||
+      current.environmentId !== entry.target.environmentId ||
+      current.localProjectId !== entry.target.localProjectId
+    );
+  }
   function unavailable(
     entry: Entry,
     code: "agent_offline" | "log_unavailable"
@@ -113,15 +128,7 @@ export function createReadService(
             db,
             entry.request.projectId
           );
-          if (
-            !current?.online ||
-            !current.managed ||
-            !enrolled(current) ||
-            current.sessionId !== entry.target.sessionId ||
-            current.agentId !== entry.target.agentId ||
-            current.environmentId !== entry.target.environmentId ||
-            current.localProjectId !== entry.target.localProjectId
-          )
+          if (targetChanged(entry, current))
             unavailable(entry, "agent_offline");
         }
       }
@@ -135,6 +142,32 @@ export function createReadService(
         "claim_owner_conflict",
         "Current authenticated session required"
       );
+  }
+  function getReadView(id: UUID): ReturnType<ReadService["getReadView"]> {
+    try {
+      uuidSchema.parse(id);
+    } catch {
+      throw new FleetError("invalid_input", "Invalid read identity");
+    }
+    sweep();
+    const entry = entries.get(id);
+    if (!entry)
+      return {
+        historical: true,
+        result: {
+          readId: id,
+          state: "unavailable",
+          diagnostic: {
+            code: "log_unavailable",
+            message: "Read is unknown, restarted or no longer retained",
+          },
+        },
+      };
+    const current = options.peers.resolveTarget(db, entry.request.projectId);
+    return {
+      result: structuredClone(entry.result),
+      historical: targetChanged(entry, current),
+    };
   }
   return {
     async submitRead(projectId, input) {
@@ -196,44 +229,12 @@ export function createReadService(
         target: structuredClone(target),
         result: { readId: request.readId, state: "pending" },
       });
-      return { readId: request.readId, state: "pending" };
+      return { readId: request.readId };
     },
     async getRead(id) {
-      return this.getReadView(id).result;
+      return getReadView(id).result;
     },
-    getReadView(id) {
-      try {
-        uuidSchema.parse(id);
-      } catch {
-        throw new FleetError("invalid_input", "Invalid read identity");
-      }
-      sweep();
-      const entry = entries.get(id);
-      if (!entry)
-        return {
-          historical: true,
-          result: {
-            readId: id,
-            state: "unavailable",
-            diagnostic: {
-              code: "log_unavailable",
-              message: "Read is unknown, restarted or no longer retained",
-            },
-          },
-        };
-      const current = options.peers.resolveTarget(db, entry.request.projectId);
-      return {
-        result: structuredClone(entry.result),
-        historical:
-          !current?.online ||
-          !current.managed ||
-          !enrolled(current) ||
-          current.sessionId !== entry.target.sessionId ||
-          current.agentId !== entry.target.agentId ||
-          current.environmentId !== entry.target.environmentId ||
-          current.localProjectId !== entry.target.localProjectId,
-      };
-    },
+    getReadView,
     poll(identity) {
       verify(identity);
       sweep();
@@ -285,9 +286,8 @@ export function createReadService(
         const selection = entry.request.selection;
         const payload = result.payload;
         if (
-          payload.kind !== "log-chunk" &&
           Buffer.byteLength(JSON.stringify(payload), "utf8") >
-            LIMITS.logChunkBytes
+          LIMITS.logChunkBytes + (payload.kind === "log-chunk" ? 1024 : 0)
         )
           throw new FleetError(
             "invalid_input",
@@ -343,8 +343,7 @@ export function createReadService(
       } else if (entry.result.state === "completed") {
         if (
           result.state !== "completed" ||
-          JSON.stringify(entry.result.payload) !==
-            JSON.stringify(result.payload)
+          json(entry.result.payload) !== json(result.payload)
         )
           throw new FleetError("invalid_input", "Conflicting read result");
       }

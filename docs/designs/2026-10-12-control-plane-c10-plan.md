@@ -31,7 +31,7 @@ bodies. The optional transactional `receiveRunSummaries` boundary leaves C06
 merge/pruning ownership intact. TC-31 composes actual C04/C05/C09 with HTTPS;
 its independent project/history tables are typed sibling fixtures. Run full repository
 lint/test/typecheck/build. Require reached forbidden-condition probes and
-mutation evidence for each added test. Refresh PR #1046 and the cycle-1 workpad,
+mutation evidence for each added test. Refresh PR #1046 and the current-cycle workpad,
 publish all commits and hand off only when the Completion Bar passes.
 
 ## Boundaries
@@ -65,3 +65,14 @@ service installation, fleet UI or per-project web-server conversion is included.
   isolation claim is made. CP-02/03/04/06–09/13/14/16/18–23 lifecycle, inventory,
   provisioning and native-service concerns remain owned by sibling slices;
   C10 neither changes them nor asserts their completion.
+
+## Review regression boundaries
+
+Successful submission returns only the v1 schema-defined read ID. Log retention
+bounds the entire serialized payload at 256 KiB plus 1 KiB metadata overhead,
+alongside the requested UTF-8 text limit. Shared canonical JSON comparison
+preserves command evidence behavior and treats reordered nested objects as the
+same completion while preserving array order and values. Detached detail methods
+and a shared target fence keep unavailable and historical decisions consistent.
+The route retains parsing to satisfy the typed protocol service boundary. These changes retain
+Integration/Observability ownership and the existing CLI patch changeset.

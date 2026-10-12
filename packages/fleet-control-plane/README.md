@@ -248,7 +248,10 @@ current project/session/connection projection. The detail dispatcher preserves
 the v1 JSON result and supplies `X-Symphony-Historical: true|false` and
 `Cache-Control: no-store`; mounting listeners must forward those headers.
 Completed results keep their first receipt timestamp. Non-log payload JSON is
-limited to 256 KiB before retention, in addition to the log-text byte limit.
+limited to 256 KiB before retention. Serialized log payloads, including cursors,
+are limited to 256 KiB plus 1 KiB of metadata overhead, in addition to the
+request-specific UTF-8 text limit. Read submission receipts contain only `readId`;
+completed JSON replays ignore object key order while preserving array order.
 
 Optional `receiveRunSummaries(database, projectId, runs, receivedAt)` hands
 validated completed summaries to C06 on the shared transaction connection,

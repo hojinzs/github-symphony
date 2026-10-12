@@ -49,6 +49,12 @@ try {
   );
   const cases = [
     [
+      "reads",
+      "return { readId: request.readId };",
+      'return { readId: request.readId, state: "pending" };',
+      "submission matches strict protocol",
+    ],
+    [
       "read-routes",
       "browser.resolveActor(request);",
       "/* forbidden CSRF bypass */",
@@ -124,8 +130,8 @@ try {
     ],
     [
       "reads",
-      'historical: true,\n                    result: {\n                        readId: id,\n                        state: "unavailable",',
-      'historical: true,\n                    result: {\n                        readId: id,\n                        state: c10Instances > 1 ? "expired" : "unavailable",',
+      'historical: true,\n                result: {\n                    readId: id,\n                    state: "unavailable",',
+      'historical: true,\n                result: {\n                    readId: id,\n                    state: c10Instances > 1 ? "expired" : "unavailable",',
       "restart makes unknown reads unavailable",
       "restart",
     ],
