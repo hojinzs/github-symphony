@@ -585,6 +585,15 @@ conditions must reach and fail their assertions. Report actual macOS/Linux
 container evidence separately; this is not native systemd/launchd isolation or
 service lifecycle validation.
 
+### Agent durable journal foundation cases (C08)
+
+`pnpm --filter @gh-symphony/management-agent test` covers real private journal
+files, restart of the registry owner, concurrent effect-marker writes, immutable
+claim/target/result boundaries, foreign identity and unsafe/corrupted files.
+These tests establish durable replay fencing; executor, transport composition
+and process-reconciliation black-box acceptance are still pending in C08.
+No native service lifecycle or Linux-container validation is claimed by them.
+
 ### Fleet lifecycle command recovery cases (C07)
 
 `pnpm --filter @gh-symphony/fleet-control-plane test` includes real enrolled

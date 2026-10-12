@@ -4,6 +4,24 @@
 extension (C03, #1007; Epic #983). It is separate from the shipped per-project
 control-plane server and does not schedule or provision projects.
 
+### C08 durable command journal
+
+`CommandJournal.open(registry)` shares the registry's exclusive owner lock. The
+user-owned `commands.json` file has mode `0600`; atomic replacement syncs both
+the file and parent directory before acknowledging a write. Receipt, original
+claim, effect marker, expected stop target, result and upload acknowledgment
+survive reopening. The journal rejects conflicting command IDs, foreign enrolled
+owners, changed claim timestamps and replacement stop targets. Raw process
+identities stay local; management credentials are never copied into this file.
+
+`beginEffect(commandId)` requires a durable executing claim and returns true only
+once. A marker without a result deliberately prevents replay after a crash,
+including a crash before the actual invocation. Consumers must reconcile evidence
+and persist the result before publishing it. This journal foundation does not yet
+execute commands or assemble transport handlers; those C08 boundaries follow in
+the same delivery. Journal tests use real private files and close/reopen the
+registry rather than mocking persistence.
+
 `AgentRegistry.open(dataDirectory)` owns a canonical mode `0700` directory and
 uses the existing process-identity heartbeat lock. Call `close()` during shutdown;
 a second live instance is rejected. Enrollment and the allowlist are written

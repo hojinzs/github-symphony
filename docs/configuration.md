@@ -997,6 +997,12 @@ saved credential from the management registry at request time, sends it only as
 an Authorization bearer header, and rejects redirects. The registry requires
 current-user ownership and exact 0700/0600 directory/file permissions; unsafe
 existing paths fail closed. No enrollment token is retained after exchange.
+The C08 command journal stores `commands.json` in the same private agent data
+directory as `registry.json`, with exact mode `0600`. Keep journal backups private:
+they include canonical paths and raw expected process identities, but no copied
+management credential. A malformed or unsafe journal fails closed; do not delete
+effect markers to retry an unresolved operation.
+
 See the [management agent boundary](../packages/management-agent/README.md#c05-outbound-enrollment-boundary).
 
 C05 foreground consumers provide a private registry directory, agent version,

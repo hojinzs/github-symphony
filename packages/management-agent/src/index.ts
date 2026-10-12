@@ -1,4 +1,6 @@
 export { AgentRegistry, localProjectId } from "./registry.js";
+export { CommandJournal } from "./journal.js";
+export type { JournalEntry, CommandResult } from "./journal.js";
 export type {
   AgentIdentity,
   RegisteredProject,
