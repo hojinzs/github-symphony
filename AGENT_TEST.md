@@ -609,10 +609,14 @@ orchestrator lifecycle or production agent-journal acceptance.
 Run `pnpm --filter @gh-symphony/management-agent test`; the root `pnpm test`
 includes these cases. `linux-service.test.ts` verifies absolute paths and
 systemd quoting, linger/user-manager diagnosis, failed-install retry, foreign
-unit rejection, lifecycle targeting and preserved data. `linux-launcher.test.ts`
+unit rejection, vendor type-wide drop-in acceptance versus targeted/user override
+rejection, XDG and legacy/hybrid cgroup diagnosis, lifecycle targeting and preserved data. `linux-launcher.test.ts`
 uses an independent typed OS-command peer to exercise retained oneshot startup,
 cgroup separation, failed execution, deadlines, credential filtering and unique
-unit names. The subprocess test runs real Node children for bounded output,
+unit names. Real filesystem cgroup-event fixtures additionally verify empty
+retained-unit reclamation, populated/replaced/uncertain unit preservation and
+cleanup failure isolation. TC-31 simulation adds two reached cleanup assertions
+and matching forbidden-condition probes. The subprocess test runs real Node children for bounded output,
 timeout and failed-spawn behavior. These are filesystem/process/OS-contract
 simulations on the host; they do not claim native systemd acceptance.
 

@@ -80,3 +80,19 @@ gracefully stop only its prepared project and remove its temporary directory.
 Native cleanup addresses only the known fixture project unit after explicit
 project stop and an empty-cgroup check; it never stops unrelated project units.
 The Docker runner removes its isolated Compose resources/image.
+
+## Review regression cases
+
+The typed OS fixtures cover manager XDG configuration rejection before unit
+creation, legacy/hybrid/unavailable cgroup evidence, vendor type-wide defaults
+and targeted/user override conflicts. Launcher tests use actual cgroup-event
+fixture files and check repeated invocation observations: empty transient units
+are reclaimed, populated/replaced/foreign/uncertain units remain untouched, and
+cleanup failures leave requested launch outcomes intact.
+
+Simulation seeds independent empty and populated retained units before the real
+C03/C05 project start. The assertions `C11 empty retained-unit reclamation` and
+`C11 populated retained-unit preservation` are reached after startup; `cleanup`
+and `cleanup-live` probes plant the forbidden states and must fail at those
+assertions. These two additional assertions are explicitly simulation evidence,
+separate from native OS lifecycle acceptance.

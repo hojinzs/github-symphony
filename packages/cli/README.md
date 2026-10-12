@@ -691,7 +691,9 @@ Existing `gh-symphony project` and per-project `--web` commands keep their behav
 The same bundled module exports C11 `LinuxAgentService` and
 `createLinuxProjectLaunchContext` for trusted Linux service composition. Install,
 start/restart/stop/status/uninstall manage only the user-owned agent unit; project
-daemons launch in separate retained systemd units. Linux requires systemd 254+,
+daemons launch in separate retained systemd units. Before launch, empty retained
+units are reclaimed with identity/cgroup checks; live units remain untouched.
+Diagnosis rejects non-default manager XDG configuration and legacy/hybrid cgroups. Linux requires systemd 254+,
 a reachable user manager and cgroup v2 for isolated launch. Missing linger limits
 boot/logout startup; diagnosis explains `loginctl enable-linger` without changing
 privileges. See the [Linux adapter contract](../management-agent/README.md#linux-user-service-packaging-c11)

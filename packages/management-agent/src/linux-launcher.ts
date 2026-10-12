@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { projectEnvironment } from "./cli-process.js";
 import { LINUX_AGENT_UNIT } from "./linux-service.js";
 import {
@@ -23,6 +24,8 @@ export interface LinuxProjectLauncherOptions {
   systemctlPath?: string;
   systemdRunPath?: string;
   currentControlGroup?: () => Promise<string>;
+  /** OS filesystem fixture root; production uses the actual unified hierarchy. */
+  cgroupRoot?: string;
 }
 function properties(result: SystemdResult): Map<string, string> {
   if (result.exitCode !== 0) throw new Error("systemd observation unavailable");
@@ -54,6 +57,103 @@ async function currentGroup(): Promise<string> {
   // v2 required: a single unified hierarchy supplies unambiguous ownership evidence.
   return group(lines.find((line) => line.startsWith("0::"))?.slice(3));
 }
+async function cleanupEmptyUnits(
+  runner: SystemdRunner,
+  systemctl: string,
+  agentGroup: string,
+  cgroupRoot: string,
+  deadline: number
+): Promise<void> {
+  // Reclamation gets a small independent budget and cannot prevent launch.
+  const until = Math.min(deadline, Date.now() + 1000);
+  const invoke = (args: string[]) => {
+    const timeoutMs = until - Date.now();
+    if (timeoutMs <= 0) throw new Error("Cleanup budget exhausted");
+    return runner({
+      executable: systemctl,
+      args: ["--user", ...args],
+      timeoutMs,
+    });
+  };
+  try {
+    const listed = await invoke([
+      "list-units",
+      "gh-symphony-project-*.service",
+      "--type=service",
+      "--state=active",
+      "--no-legend",
+      "--plain",
+      "--no-pager",
+    ]);
+    if (listed.exitCode !== 0) return;
+    const units = listed.stdout
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/)[0]!)
+      .filter((unit) =>
+        /^gh-symphony-project-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.service$/.test(
+          unit
+        )
+      );
+    for (const unit of [...new Set(units)].slice(0, 8)) {
+      try {
+        const observe = async () =>
+          properties(
+            await invoke([
+              "show",
+              unit,
+              "--property=Transient",
+              "--property=Type",
+              "--property=RemainAfterExit",
+              "--property=ActiveState",
+              "--property=SubState",
+              "--property=ControlGroup",
+              "--property=InvocationID",
+            ])
+          );
+        const initial = await observe();
+        const controlGroup = group(initial.get("ControlGroup"));
+        const eligible = (state: Map<string, string>) =>
+          state.get("Transient") === "yes" &&
+          state.get("Type") === "oneshot" &&
+          state.get("RemainAfterExit") === "yes" &&
+          state.get("ActiveState") === "active" &&
+          state.get("SubState") === "exited" &&
+          /^[a-f0-9]{32}$/.test(state.get("InvocationID") ?? "");
+        if (
+          !eligible(initial) ||
+          !controlGroup.endsWith(`/${unit}`) ||
+          controlGroup === agentGroup ||
+          controlGroup.startsWith(`${agentGroup}/`) ||
+          agentGroup.startsWith(`${controlGroup}/`)
+        )
+          continue;
+        const empty = async () =>
+          /^populated 0$/m.test(
+            await readFile(
+              join(cgroupRoot, controlGroup, "cgroup.events"),
+              "utf8"
+            )
+          );
+        if (!(await empty())) continue;
+        const fresh = await observe();
+        if (
+          !eligible(fresh) ||
+          fresh.get("InvocationID") !== initial.get("InvocationID") ||
+          fresh.get("ControlGroup") !== controlGroup ||
+          !(await empty())
+        )
+          continue;
+        // UUID units are never reused by this adapter. Live descendants (including
+        // replacement daemons) keep populated=1 and must never be stopped here.
+        await invoke(["stop", unit]);
+      } catch {
+        // Unknown ownership or failed reclamation leaves this unit untouched.
+      }
+    }
+  } catch {
+    // Manager/listing failure is unrelated to the requested launch.
+  }
+}
 export function createLinuxProjectLaunchContext(
   options: LinuxProjectLauncherOptions
 ): {
@@ -68,6 +168,7 @@ export function createLinuxProjectLaunchContext(
     options.systemdRunPath ?? "/usr/bin/systemd-run"
   );
   const credentials = [...options.managementCredentials];
+  const cgroupRoot = absolutePath(options.cgroupRoot ?? "/sys/fs/cgroup");
   return {
     kind: "native-service",
     launchIsolatedProject: async (request) => {
@@ -112,6 +213,13 @@ export function createLinuxProjectLaunchContext(
           (ownGroup !== agentGroup && !ownGroup.startsWith(`${agentGroup}/`))
         )
           return { exitCode: null };
+        await cleanupEmptyUnits(
+          runner,
+          systemctl,
+          agentGroup,
+          cgroupRoot,
+          request.deadline
+        );
         const environment = projectEnvironment(
           request.environment,
           credentials

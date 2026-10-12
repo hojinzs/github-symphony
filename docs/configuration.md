@@ -1042,7 +1042,12 @@ configuration. Installation resumes saved identity and never reenrolls.
 
 `LinuxAgentService` defaults to absolute `/usr/bin/systemctl` and
 `/usr/bin/loginctl`; alternative absolute tool paths are trusted local options.
-Systemd 254+ and a reachable user manager are required. Disabled/unknown linger
+Systemd 254+, a reachable user manager and unified cgroup v2 are required.
+Diagnosis rejects legacy/hybrid or unreadable hierarchy evidence and a manager
+`XDG_CONFIG_HOME` differing from `homeDirectory/.config`; unset/empty values
+use the default. Unsupported hosts use foreground recovery before unit creation.
+Entry/config paths must be regular files; pass `realpath` results for symlinked
+global CLI installations. Disabled/unknown linger
 limits startup after boot/logout; enabling linger is an explicit operator action.
 The agent unit uses five-second failure restart delay and five-start/minute limits.
 
@@ -1058,6 +1063,17 @@ actual host defaults. Uninstall preserves all agent and project runtime data.
 The Linux agent unit uses raw `WorkingDirectory=/` so the native parser receives
 an absolute path; configured entry/data/config paths remain absolute arguments.
 Lifecycle effects additionally require the manager's loaded `FragmentPath` to
-match the owned definition, `Transient=no`, and no `DropInPaths`. Same-name
+match the owned definition, `Transient=no`, and only OS-vendor type-wide
+`service.d/*.conf` drop-ins under `/usr/lib/systemd/user` or `/lib/systemd/user`.
+These OS-vendor directories are trusted; user and unit-specific overrides fail
+closed. Same-name
 transient units, alternative fragments and overrides are configuration conflicts
 requiring local repair, even when the filesystem definition is unchanged.
+
+Before a project launch, the Linux launcher attempts empty retained-unit
+reclamation within one second, inspecting at most eight UUID-named units.
+Transient oneshot/exited metadata, invocation identity, separated cgroup path
+and `populated 0` are required and rechecked before stop; uncertain or live units
+remain untouched. Cleanup failure does not change the requested launch result.
+The cgroup filesystem root and self-cgroup reader are trusted OS fixture seams;
+production uses `/sys/fs/cgroup` and `/proc/self/cgroup`.

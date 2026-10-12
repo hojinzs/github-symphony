@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import {
   createLinuxProjectLaunchContext,
@@ -70,7 +73,7 @@ function fixture(
     runner,
     currentControlGroup: async () => options.current ?? agentGroup,
   });
-  return { calls, context };
+  return { calls, context, runner };
 }
 it("launches through an independent retained oneshot unit without credential or argument expansion", async () => {
   const { calls, context } = fixture();
@@ -178,4 +181,135 @@ it("uses unique project units across launches without stopping previous units", 
     )
   ).toBe(true);
   expect(calls.some((c) => c.args.includes("stop"))).toBe(false);
+});
+
+const retainedUnit =
+  "gh-symphony-project-12345678-1234-1234-1234-123456789abc.service";
+async function cleanupFixture(
+  options: {
+    populated?: string;
+    observation?: Record<string, string>;
+    replaced?: boolean;
+    failure?: "list" | "show" | "stop";
+    eventsMissing?: boolean;
+  } = {}
+) {
+  const root = await mkdtemp(join(tmpdir(), "linux-cleanup-"));
+  const base = fixture();
+  const calls: SystemdCommand[] = [];
+  let observations = 0;
+  const controlGroup = `/user.slice/app.slice/${retainedUnit}`;
+  await mkdir(join(root, controlGroup), { recursive: true });
+  if (!options.eventsMissing)
+    await writeFile(
+      join(root, controlGroup, "cgroup.events"),
+      `populated ${options.populated ?? "0"}\nfrozen 0\n`
+    );
+  const runner: SystemdRunner = async (command) => {
+    calls.push(command);
+    if (command.args.includes("list-units"))
+      return {
+        exitCode: options.failure === "list" ? 1 : 0,
+        stdout: `${retainedUnit} loaded active exited Fixture\nforeign.service loaded active exited Foreign\n`,
+      };
+    if (command.args.includes(retainedUnit) && command.args.includes("show")) {
+      observations++;
+      const record = {
+        ActiveState: "active",
+        SubState: "exited",
+        Transient: "yes",
+        Type: "oneshot",
+        RemainAfterExit: "yes",
+        ControlGroup: controlGroup,
+        InvocationID: "a".repeat(32),
+        ...options.observation,
+        ...(options.replaced && observations > 1
+          ? { InvocationID: "b".repeat(32) }
+          : {}),
+      };
+      return {
+        exitCode: options.failure === "show" ? 1 : 0,
+        stdout: Object.entries(record)
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n"),
+      };
+    }
+    if (command.args.includes("stop"))
+      return { exitCode: options.failure === "stop" ? 1 : 0, stdout: "" };
+    return base.runner(command);
+  };
+  const context = createLinuxProjectLaunchContext({
+    runner,
+    managementCredentials: [],
+    currentControlGroup: async () => agentGroup,
+    cgroupRoot: root,
+  });
+  return { context, calls, root, controlGroup };
+}
+it("reclaims only empty retained transient project units before launch", async () => {
+  const f = await cleanupFixture();
+  try {
+    expect(await f.context.launchIsolatedProject(request())).toEqual({
+      exitCode: 0,
+    });
+    expect(
+      f.calls.filter((c) => c.args.includes("stop")).map((c) => c.args)
+    ).toEqual([["--user", "stop", retainedUnit]]);
+    expect(f.calls.findIndex((c) => c.args.includes("stop"))).toBeLessThan(
+      f.calls.findIndex(
+        (c) =>
+          c.executable === "/usr/bin/systemd-run" && c.args.includes("--user")
+      )
+    );
+    expect(
+      f.calls.filter(
+        (c) => c.args.includes(retainedUnit) && c.args.includes("show")
+      )
+    ).toHaveLength(2);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+it("preserves populated uncertain foreign shared and replaced retained units", async () => {
+  const cases: NonNullable<Parameters<typeof cleanupFixture>[0]>[] = [
+    { populated: "1" },
+    { populated: "garbage" },
+    { eventsMissing: true },
+    { replaced: true },
+    { observation: { Transient: "no" } },
+    { observation: { Type: "simple" } },
+    { observation: { RemainAfterExit: "no" } },
+    { observation: { ActiveState: "inactive" } },
+    { observation: { SubState: "running" } },
+    { observation: { InvocationID: "" } },
+    { observation: { ControlGroup: agentGroup } },
+    { observation: { ControlGroup: `${agentGroup}/${retainedUnit}` } },
+    { observation: { ControlGroup: "/other.service" } },
+    { observation: { ControlGroup: "/../../escape" } },
+  ];
+  for (const options of cases) {
+    const f = await cleanupFixture(options);
+    try {
+      expect(await f.context.launchIsolatedProject(request())).toEqual({
+        exitCode: 0,
+      });
+      expect(f.calls.some((c) => c.args.includes("stop"))).toBe(false);
+    } finally {
+      await rm(f.root, { recursive: true, force: true });
+    }
+  }
+});
+it("keeps cleanup failure independent from requested launch", async () => {
+  for (const failure of ["list", "show", "stop"] as const) {
+    const f = await cleanupFixture({ failure });
+    try {
+      expect(await f.context.launchIsolatedProject(request())).toEqual({
+        exitCode: 0,
+      });
+      if (failure === "stop")
+        expect(f.calls.some((c) => c.args.includes("stop"))).toBe(true);
+    } finally {
+      await rm(f.root, { recursive: true, force: true });
+    }
+  }
 });

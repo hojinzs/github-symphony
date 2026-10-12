@@ -230,7 +230,8 @@ const launchContext = createLinuxProjectLaunchContext({
 owned definition is `~/.config/systemd/user/gh-symphony-agent.service`, mode 0600.
 Node, entry, configuration and data paths must be absolute; unsafe paths and
 conflicting definitions are rejected. The manager must report the expected
-loaded `FragmentPath`, a non-transient unit and no `DropInPaths` before lifecycle
+loaded `FragmentPath`, a non-transient unit and only vendor type-wide
+`service.d` drop-ins under `/usr/lib/systemd/user` or `/lib/systemd/user` before lifecycle
 effects; conflicting effective definitions require explicit local repair.
 `WorkingDirectory=/` is a raw absolute systemd setting; entry/config/data paths
 are supplied absolutely in the command. Directory components must be user-owned,
@@ -240,11 +241,18 @@ argument environment expansion, escapes percent specifiers and sends local
 stdout/stderr to the user journal. Unexpected exit restarts after five seconds,
 with at most five starts in a minute. No privileged/system-wide service is installed.
 
-`diagnose()` checks Linux, systemd 254+ and the user manager, then queries
+Entry and configuration paths must be regular files, not symlinks. Resolve a
+global CLI entry first, for example `realpath "$(command -v gh-symphony)"`,
+and pass the resulting absolute path.
+
+`diagnose()` checks Linux, systemd 254+, the user manager, its
+`XDG_CONFIG_HOME` and the unified cgroup v2 hierarchy, then queries
 `loginctl show-user` for linger. Missing/unknown linger explicitly limits boot
 startup and persistence after logout. `loginctl enable-linger` may require local
 authorization; the adapter neither elevates nor changes linger. Unsupported
-managers require foreground execution. The isolated launcher requires unified
+managers, legacy/hybrid cgroups, unavailable hierarchy evidence and non-default
+manager `XDG_CONFIG_HOME` require foreground execution. An unset/empty manager
+value or the configured home directory’s `.config` is supported. The isolated launcher requires unified
 cgroup v2 ownership readback. Service status is local OS activation state, not a
 fleet first-signal/online claim.
 
@@ -263,12 +271,15 @@ credentials and aliases are stripped from the supplied environment and inherited
 manager environment. Values are not put in systemd-run arguments. A timeout or
 uncertain OS result returns `exitCode: null`, never success or automatic replay.
 
-Each project start gets a fresh retained unit; an agent restart never reuses or
-stops an old project unit. After explicit project stop, an operator can inspect
-that unit's `ControlGroup` and confirm its `cgroup.events` reports `populated 0`
-before stopping the empty retained unit. Do not stop a populated project unit to
-clean up the agent. Machine shutdown or user-session teardown is outside the
-continuity guarantee.
+Each project start gets a fresh retained unit. Before launch, the adapter makes a
+bounded best-effort attempt to reclaim up to eight empty retained units. It checks
+the UUID name, transient oneshot/exited state, invocation identity, disjoint
+control group and `cgroup.events` `populated 0`, then repeats identity and emptiness
+observations before stopping. Populated, replaced, foreign and uncertain units
+are preserved; cleanup failure does not fail launch. This relies on the trusted
+operator account and never reuses a UUID unit. Agent lifecycle does not reclaim
+project units. Explicit project stop remains a C03 action. Machine shutdown or
+user-session teardown is outside the continuity guarantee.
 
 Run `pnpm --filter @gh-symphony/management-agent test` for configuration,
 installation recovery, subprocess boundaries and independent typed OS-command

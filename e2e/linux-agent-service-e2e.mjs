@@ -141,6 +141,7 @@ export async function agentEntrypoint() {
                     registry.identity.credential
                   ),
                 currentControlGroup: async () => agentGroup,
+                cgroupRoot: cfg.cgroupRoot,
               }
             : {}),
         }),
@@ -313,15 +314,59 @@ Fixture prompt
       { stdio: "ignore" }
     );
     const ca = await readFile(join(root, "cert"));
+    const cgroupRoot = join(root, "fixture-cgroups");
+    const emptyUnit =
+      "gh-symphony-project-11111111-1111-1111-1111-111111111111.service";
+    const liveUnit =
+      "gh-symphony-project-22222222-2222-2222-2222-222222222222.service";
+    if (!native) {
+      for (const [unit, populated] of [
+        [emptyUnit, 0],
+        [liveUnit, 1],
+      ]) {
+        const controlGroup = `/fixture/${unit}`;
+        await mkdir(join(cgroupRoot, controlGroup), { recursive: true });
+        await writeFile(
+          join(cgroupRoot, controlGroup, "cgroup.events"),
+          `populated ${populated}\n`
+        );
+        unitRecords.set(unit, {
+          ActiveState: "active",
+          SubState: "exited",
+          Transient: "yes",
+          Type: "oneshot",
+          RemainAfterExit: "yes",
+          InvocationID: "a".repeat(32),
+          ControlGroup: controlGroup,
+        });
+      }
+    }
     const fixtureRunner = async (command) => {
       const args = command.args;
       if (args.includes("--version"))
         return { exitCode: 0, stdout: "systemd 254\n" };
       if (args.includes("show-user")) return { exitCode: 0, stdout: "no\n" };
+      if (args.includes("list-units"))
+        return {
+          exitCode: 0,
+          stdout: [...unitRecords.keys()]
+            .map((u) => `${u} loaded active exited Fixture`)
+            .join("\n"),
+        };
+      if (
+        args.includes("stop") &&
+        !args.includes("gh-symphony-agent.service")
+      ) {
+        const unit = args.find((a) => a.endsWith(".service"));
+        if (probe !== "cleanup") unitRecords.delete(unit);
+        return { exitCode: 0, stdout: "" };
+      }
       if (args.includes("show-environment"))
         return {
           exitCode: 0,
-          stdout: `GH_SYMPHONY_AGENT_CREDENTIAL=${identity.credential}\nMANAGER_ONLY=${identity.credential}\n`,
+          stdout: args.includes("--output=json")
+            ? "{}"
+            : `GH_SYMPHONY_AGENT_CREDENTIAL=${identity.credential}\nMANAGER_ONLY=${identity.credential}\n`,
         };
       if (command.executable === "/usr/bin/systemd-run") {
         assert.ok(
@@ -522,6 +567,7 @@ const child=spawnSync(process.execPath,[${JSON.stringify(cli)},...process.argv.s
       unitConfig.configPath,
       JSON.stringify({
         simulation: !native,
+        cgroupRoot,
         origin,
         certPath: join(root, "cert"),
         cliConfig,
@@ -536,7 +582,13 @@ const child=spawnSync(process.execPath,[${JSON.stringify(cli)},...process.argv.s
     );
     service = new management.LinuxAgentService(
       unitConfig,
-      native ? {} : { runner: fixtureRunner, platform: "linux" }
+      native
+        ? {}
+        : {
+            runner: fixtureRunner,
+            platform: "linux",
+            readSelfCgroup: async () => "0::/fixture/agent\n",
+          }
     );
     const diagnosis = await service.diagnose();
     if (!diagnosis.supported) {
@@ -674,6 +726,14 @@ const child=spawnSync(process.execPath,[${JSON.stringify(cli)},...process.argv.s
       original.process.state === "running",
       "CP-23 remote start uses actual orchestrator"
     );
+    if (!native) {
+      if (probe === "cleanup-live") unitRecords.delete(liveUnit);
+      check(!unitRecords.has(emptyUnit), "C11 empty retained-unit reclamation");
+      check(
+        unitRecords.has(liveUnit),
+        "C11 populated retained-unit preservation"
+      );
+    }
     const projectEnvironment = JSON.parse(
       await readFile(join(root, "project-environment.json"), "utf8")
     );
@@ -704,7 +764,9 @@ const child=spawnSync(process.execPath,[${JSON.stringify(cli)},...process.argv.s
         }
       : {
           agent: agentGroup,
-          project: [...unitRecords.values()][0]?.ControlGroup,
+          project: [...unitRecords.entries()].find(
+            ([unit]) => unit !== emptyUnit && unit !== liveUnit
+          )?.[1].ControlGroup,
         };
     if (native)
       fixtureProjectUnit = groups.project

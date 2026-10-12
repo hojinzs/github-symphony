@@ -29,12 +29,29 @@ let linger: string;
 let fragmentOverride: string | undefined;
 let dropIns: string;
 let transient: string;
+let managerEnvironment: string;
+let cgroup: string;
 const peer: SystemdRunner = async (command) => {
   calls.push(command);
   if (command.args.includes(fail))
     return { exitCode: 1, stdout: "private peer diagnostic" };
   if (command.args.includes("--version"))
     return { exitCode: 0, stdout: "systemd 254\n" };
+  if (command.args.includes("show-environment"))
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify(
+        Object.fromEntries(
+          managerEnvironment
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => {
+              const i = line.indexOf("=");
+              return [line.slice(0, i), line.slice(i + 1)];
+            })
+        )
+      ),
+    };
   if (command.args.includes("show-user"))
     return { exitCode: 0, stdout: linger };
   if (command.args.includes("show"))
@@ -70,12 +87,18 @@ beforeEach(async () => {
   fragmentOverride = undefined;
   dropIns = "";
   transient = "no";
+  managerEnvironment = "";
+  cgroup = "0::/user.slice/agent.service\n";
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 function service() {
-  return new LinuxAgentService(config, { runner: peer, platform: "linux" });
+  return new LinuxAgentService(config, {
+    runner: peer,
+    platform: "linux",
+    readSelfCgroup: async () => cgroup,
+  });
 }
 
 it("renders user-only absolute invocation without systemd argument expansion", () => {
@@ -91,7 +114,6 @@ it("renders user-only absolute invocation without systemd argument expansion", (
 });
 it("rejects relative and control-character service paths", () => {
   for (const key of [
-    "homeDirectory",
     "nodePath",
     "entryPath",
     "configPath",
@@ -260,5 +282,124 @@ it("rejects foreign fragments, transient units and drop-ins before manager lifec
         )
       )
     ).toBe(false);
+  }
+});
+
+it("rejects unsupported manager configuration before writing a unit", async () => {
+  for (const environment of [
+    "XDG_CONFIG_HOME=/custom/config\n",
+    "XDG_CONFIG_HOME=relative\n",
+  ]) {
+    managerEnvironment = environment;
+    const adapter = service();
+    expect(await adapter.diagnose()).toMatchObject({
+      supported: false,
+      limitations: [expect.stringMatching(/XDG_CONFIG_HOME/)],
+    });
+    await expect(adapter.install()).rejects.toThrow(/XDG_CONFIG_HOME/);
+    await expect(readFile(adapter.unitPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  }
+  for (const environment of [
+    "",
+    "XDG_CONFIG_HOME=\n",
+    `XDG_CONFIG_HOME=${root}/.config\n`,
+  ]) {
+    managerEnvironment = environment;
+    expect((await service().diagnose()).supported).toBe(true);
+  }
+  fail = "show-environment";
+  expect((await service().diagnose()).supported).toBe(false);
+});
+it("rejects legacy hybrid and unavailable cgroup evidence before installation", async () => {
+  for (const evidence of [
+    "1:name=systemd:/user.slice\n",
+    "0::/user.slice\n1:cpu:/user.slice\n",
+    "",
+  ]) {
+    cgroup = evidence;
+    const adapter = service();
+    expect(await adapter.diagnose()).toMatchObject({
+      supported: false,
+      limitations: [expect.stringMatching(/cgroup v2/)],
+    });
+    await expect(adapter.install()).rejects.toThrow(/cgroup v2/);
+    await expect(readFile(adapter.unitPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  }
+  const adapter = new LinuxAgentService(config, {
+    runner: peer,
+    platform: "linux",
+    readSelfCgroup: async () => {
+      throw new Error("unavailable");
+    },
+  });
+  expect((await adapter.diagnose()).supported).toBe(false);
+});
+it("accepts vendor type-wide drop-ins but rejects targeted and user overrides", async () => {
+  let loaded = false;
+  const adapter = new LinuxAgentService(config, {
+    platform: "linux",
+    readSelfCgroup: async () => cgroup,
+    runner: async (command) => {
+      if (command.args.includes("daemon-reload")) loaded = true;
+      if (
+        !loaded &&
+        command.args.includes("gh-symphony-agent.service") &&
+        command.args.includes("show")
+      ) {
+        calls.push(command);
+        return {
+          exitCode: 0,
+          stdout: `LoadState=not-found\nFragmentPath=\nDropInPaths=${dropIns}\nTransient=no\n`,
+        };
+      }
+      return peer(command);
+    },
+  });
+  dropIns =
+    "/usr/lib/systemd/user/service.d/10-timeout-abort.conf /lib/systemd/user/service.d/20-default.conf";
+  await adapter.install();
+  expect(await adapter.status()).toEqual({ installed: true, active: true });
+  await adapter.stop();
+  for (const path of [
+    "/usr/lib/systemd/user/gh-symphony-agent.service.d/override.conf",
+    "/home/operator/.config/systemd/user/service.d/override.conf",
+    "/run/user/1000/systemd/user.control/gh-symphony-agent.service.d/override.conf",
+    "/usr/lib/systemd/user/service.d/../gh-symphony-agent.service.d/override.conf",
+  ]) {
+    dropIns = path;
+    calls = [];
+    await expect(adapter.stop()).rejects.toThrow(/conflict/);
+    expect(calls.some((c) => c.args.includes("stop"))).toBe(false);
+  }
+  dropIns = "/usr/lib/systemd/user/service.d/10-timeout-abort.conf";
+  await adapter.uninstall();
+});
+
+it("validates home directory at construction rather than unit rendering", () => {
+  const relative = { ...config, homeDirectory: "relative" };
+  expect(renderLinuxAgentUnit(relative)).toBe(renderLinuxAgentUnit(config));
+  expect(() => new LinuxAgentService(relative)).toThrow(/absolute/);
+});
+
+it("reads manager XDG paths as JSON without shell quoting", async () => {
+  const unusual = { ...config, homeDirectory: root + " space ' %" };
+  for (const [value, supported] of [
+    [unusual.homeDirectory + "/.config", true],
+    ["/other", false],
+  ] as const) {
+    const runner: SystemdRunner = async (command) =>
+      command.args.includes("show-environment")
+        ? { exitCode: 0, stdout: JSON.stringify({ XDG_CONFIG_HOME: value }) }
+        : peer(command);
+    const adapter = new LinuxAgentService(unusual, {
+      runner,
+      platform: "linux",
+      readSelfCgroup: async () => "0::/user.slice\n",
+    });
+    expect((await adapter.diagnose()).supported).toBe(supported);
   }
 });

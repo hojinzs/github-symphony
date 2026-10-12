@@ -20,7 +20,11 @@ const cases = {
   definition: "CP-23 uninstall removes definition",
   ...(mode === "--native"
     ? { parser: "C11 native systemd parser accepts definition" }
-    : { diagnostics: "CP-23 simulated diagnostics exclude credentials" }),
+    : {
+        diagnostics: "CP-23 simulated diagnostics exclude credentials",
+        cleanup: "C11 empty retained-unit reclamation",
+        "cleanup-live": "C11 populated retained-unit preservation",
+      }),
   package: "C11 packaged typed Linux adapter",
   identity: "CP-22 failed install preserves identity",
   credential: "CP-22 unit excludes credentials",

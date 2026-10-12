@@ -23,6 +23,8 @@ export interface LinuxServiceOptions {
   loginctlPath?: string;
   /** OS-command fixture seam; production defaults to the actual host. */
   platform?: string;
+  /** OS-file fixture seam; production reads the actual unified hierarchy. */
+  readSelfCgroup?: () => Promise<string>;
 }
 export interface LinuxServiceDiagnosis {
   supported: boolean;
@@ -34,7 +36,13 @@ function quoted(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/%/g, "%%")}"`;
 }
 export function renderLinuxAgentUnit(config: LinuxServiceConfig): string {
-  for (const value of Object.values(config)) absolutePath(value);
+  for (const value of [
+    config.nodePath,
+    config.entryPath,
+    config.configPath,
+    config.dataDirectory,
+  ])
+    absolutePath(value);
   const arguments_ = [
     quoted(config.nodePath),
     quoted(config.entryPath),
@@ -49,6 +57,21 @@ export function renderLinuxAgentUnit(config: LinuxServiceConfig): string {
 }
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+function vendorDropIns(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  // Only OS-vendor type defaults are trusted; user and unit-specific overrides
+  // remain configuration conflicts. Reject escaping/ambiguous path encodings.
+  return (
+    value === "" ||
+    value
+      .split(" ")
+      .every((path) =>
+        /^\/(?:usr\/lib|lib)\/systemd\/user\/service\.d\/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.conf$/.test(
+          path
+        )
+      )
+  );
 }
 async function safeDirectory(path: string, create = false): Promise<void> {
   if (create) {
@@ -76,11 +99,13 @@ export class LinuxAgentService {
   private readonly loginctl: string;
   private readonly os: string;
   private readonly unit: string;
+  private readonly readSelfCgroup: () => Promise<string>;
   constructor(
     readonly config: LinuxServiceConfig,
     options: LinuxServiceOptions = {}
   ) {
     this.config = { ...config };
+    absolutePath(this.config.homeDirectory);
     this.unit = renderLinuxAgentUnit(this.config);
     this.unitPath = join(
       config.homeDirectory,
@@ -93,6 +118,8 @@ export class LinuxAgentService {
     );
     this.loginctl = absolutePath(options.loginctlPath ?? "/usr/bin/loginctl");
     this.os = options.platform ?? platform();
+    this.readSelfCgroup =
+      options.readSelfCgroup ?? (() => readFile("/proc/self/cgroup", "utf8"));
   }
   async diagnose(): Promise<LinuxServiceDiagnosis> {
     const unsupported: LinuxServiceDiagnosis = {
@@ -123,6 +150,44 @@ export class LinuxAgentService {
       args: ["--user", "show", "--property=Version", "--value"],
     });
     if (manager.exitCode !== 0) return unsupported;
+    const environment = await this.runner({
+      executable: this.systemctl,
+      args: ["--user", "show-environment", "--output=json"],
+    });
+    if (environment.exitCode !== 0) return unsupported;
+    let xdg: string | undefined;
+    try {
+      const values: unknown = JSON.parse(environment.stdout);
+      if (
+        values !== null &&
+        (typeof values !== "object" || Array.isArray(values))
+      )
+        return unsupported;
+      const value = (values as Record<string, unknown> | null)?.XDG_CONFIG_HOME;
+      if (value !== undefined && typeof value !== "string") return unsupported;
+      xdg = value;
+    } catch {
+      return unsupported;
+    }
+    if (xdg && xdg !== join(this.config.homeDirectory, ".config"))
+      return {
+        ...unsupported,
+        limitations: [
+          "Non-default manager XDG_CONFIG_HOME is unsupported; use foreground mode or configure the manager with the default user configuration directory.",
+        ],
+      };
+    try {
+      const lines = (await this.readSelfCgroup()).trim().split("\n");
+      if (lines.length !== 1 || !/^0::\//.test(lines[0]!))
+        throw new Error("Unified hierarchy unavailable");
+    } catch {
+      return {
+        ...unsupported,
+        limitations: [
+          "Unified cgroup v2 is required for isolated project launch; use foreground mode.",
+        ],
+      };
+    }
     const result = await this.runner({
       executable: this.loginctl,
       args: [
@@ -212,7 +277,8 @@ export class LinuxAgentService {
       allowMissing &&
       properties.get("LoadState") === "not-found" &&
       !properties.get("FragmentPath") &&
-      !properties.get("DropInPaths")
+      vendorDropIns(properties.get("DropInPaths")) &&
+      properties.get("Transient") === "no"
     )
       return properties;
     if (result.exitCode !== 0)
@@ -220,7 +286,7 @@ export class LinuxAgentService {
     if (
       properties.get("LoadState") !== "loaded" ||
       properties.get("FragmentPath") !== this.unitPath ||
-      properties.get("DropInPaths") !== "" ||
+      !vendorDropIns(properties.get("DropInPaths")) ||
       properties.get("Transient") !== "no"
     )
       throw new Error(

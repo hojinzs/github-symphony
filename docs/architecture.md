@@ -81,7 +81,7 @@ the tracker adapter:
 
 - Fleet HTTPS origin, explicit private bind and absolute user-owned persistence configuration: `packages/fleet-control-plane/src/config.ts` (C04, #1008). This is independent of workflow configuration.
 
-- C11 Linux service configuration: `packages/management-agent/src/linux-service.ts` owns absolute paths, user-unit rendering, identity-preserving installation recovery and linger diagnosis. Shared public command routing remains in C13.
+- C11 Linux service configuration: `packages/management-agent/src/linux-service.ts` owns absolute paths, user-unit rendering, identity-preserving installation recovery and linger/XDG/unified-cgroup diagnosis. Shared public command routing remains in C13.
 - Local management allowlist and enrollment persistence: `packages/management-agent` (C03, #1007), with canonical folder IDs and a user-only registry; the CLI remains responsible for workflow validation.
 - Management v1 identity, capacity, wire contracts and strict runtime schemas: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
 
@@ -203,7 +203,8 @@ requires consumer-owned durable stop-target persistence and independently verifi
 readiness/exit/lock release through the CLI driver. `cli-process.ts` bounds calls
 and strips management credentials from child environments.
 C11 `linux-launcher.ts` implements the C03 native-service callback using a separate
-retained systemd oneshot unit, verifies disjoint cgroup v2 ownership and startup
+retained systemd oneshot unit, reclaims empty retained units with invocation/cgroup
+checks before launch, verifies disjoint cgroup v2 ownership and startup
 execution status, and never propagates agent lifecycle operations to project units.
 `linux-systemd.ts` owns bounded local OS subprocess calls.
 
