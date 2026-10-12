@@ -82,6 +82,36 @@ lock must reject a conflicting service or diagnostic foreground process.
 
 ## Verification cases and evidence limits
 
+### Review repair scope (PR #1051)
+
+The review return retains the Configuration, Execution and Integration ownership
+above. Implement these repairs in the existing Linux adapters and fixtures:
+
+- `linux-service.ts`: query the user manager environment and reject a non-default
+  `XDG_CONFIG_HOME` with a foreground recovery limitation before writing a unit.
+  Diagnose unified cgroup v2 from `/proc/self/cgroup`; unavailable, legacy and
+  hybrid hierarchies must not report support. Keep OS-file fixture seams typed.
+- Effective unit ownership: permit only trusted vendor type-wide `service.d`
+  drop-ins; retain rejection of user-writable and unit-specific overrides,
+  transient units and foreign fragments. Test both acceptance and rejection.
+- `linux-launcher.ts`: before launch, attempt bounded best-effort reclamation of
+  locally named retained transient project units. Require expected unit type,
+  retained/exited state, separated control-group identity and `populated 0`
+  immediately before stopping. Never stop a populated, uncertain, foreign or
+  replaced unit; cleanup failure must not fail the requested launch. This is
+  reclamation of empty OS containers, not project stop policy.
+- Clarify the existing regular-file entry/config requirement with a `realpath`
+  example, and move home-directory validation to the service constructor.
+
+Add regression cases for default/non-default manager configuration, unavailable
+and legacy cgroup evidence, vendor/user drop-ins, empty/populated/replaced units
+and cleanup failure. Mutate each guarded condition and record the failing test.
+Extend the independent black-box fixtures as needed, then run the full checks
+and applicable Docker scenario. Reply to every review thread with the concrete
+resolution before re-review. Actual Linux OS acceptance remains separate from
+simulations. No upstream specification divergence is introduced by these repairs;
+the management plane remains the explicit repository-local extension above.
+
 1. Configuration: absolute paths, spaces, percent signs, quotes, invalid/newline
    input, user-only paths, no credential serialization.
 2. CP-22: identical installation retry, conflicting configuration, manager or
