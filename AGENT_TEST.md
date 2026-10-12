@@ -449,6 +449,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/29-fleet-command-recovery.md`            | C07 CP-06/07/09/18/19: SQLite claim races, restart/lost-result recovery, ownership fencing, audited closure and 17 reached forbidden-condition probes                                            |
 | `e2e/scenarios/29-otlp-lifecycle.md`                    | OT-03/10/11/12: gated/disabled startup, applied/pending status through HTTP, invalid reload/revert, health isolation, bounded shutdown and two reached forbidden-condition probes                |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: disabled-policy exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution; enabled production startup exits once with code 1 |
+| `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes                           |
 
 ## TC Writing Guide
 
@@ -561,6 +562,28 @@ separately. [TC-28](e2e/scenarios/28-bounded-local-reads.md) covers CP-12/15 and
 applicable U04/U07 retained history and log follow/reset paths through the bundled
 CLI factory, an actual daemon and independently persisted store records. Native
 service isolation and offline HTTP/UI behavior are outside this slice.
+
+### Agent outbound session cases (C05)
+
+Run `pnpm --filter @gh-symphony/management-agent test` and
+`pnpm --filter @gh-symphony/fleet-control-plane test`, included in `pnpm test`.
+`transport.test.ts` uses a real trusted TLS peer; `sessions.test.ts` uses actual
+C04 enrollment, real SQLite and an independent typed projection table.
+`foreground.test.ts` verifies receipt-independent reconnect, concurrent heartbeats,
+pacing, sequence reset and bounded paging through an independent v1 peer.
+Regression cases also cover restart/expiry before the first authenticated signal
+(remaining awaiting-signal) and transient failures in initial/heartbeat snapshots
+or delivery handlers (sanitized diagnostics, backoff and fresh snapshot recovery).
+The real C05/C07 composition case verifies current-session claim fencing and
+ownership transfer; foundation cases preserve populated v2 lifecycle data on the
+v3 session upgrade and reject reopening it with version-2 migrations.
+
+After `pnpm build`, run `node e2e/agent-transport-e2e.mjs` for host evidence and
+`./e2e/run-agent-transport-e2e.sh` for Linux Docker. TC-30 runs separate foreground
+and HTTPS peer processes plus a real prepared-project CLI daemon. Six forbidden
+conditions must reach and fail their assertions. Report actual macOS/Linux
+container evidence separately; this is not native systemd/launchd isolation or
+service lifecycle validation.
 
 ### Fleet lifecycle command recovery cases (C07)
 
