@@ -1002,6 +1002,10 @@ directory as `registry.json`, with exact mode `0600`. Keep journal backups priva
 they include canonical paths and raw expected process identities, but no copied
 management credential. A malformed or unsafe journal fails closed; do not delete
 effect markers to retry an unresolved operation.
+Acknowledged terminal/retired journal records are eligible for pruning after
+30 days; unresolved entries remain. C08 consumers compose `CommandExecutor`
+through the foreground `createDeliveryHandler` option; a full command client is
+required for claims/results. There are no new environment variables or flags.
 
 See the [management agent boundary](../packages/management-agent/README.md#c05-outbound-enrollment-boundary).
 

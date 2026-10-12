@@ -202,6 +202,15 @@ requires consumer-owned durable stop-target persistence and independently verifi
 readiness/exit/lock release through the CLI driver. `cli-process.ts` bounds calls
 and strips management credentials from child environments.
 
+C08's `management-agent/src/executor.ts` joins the journal to this adapter and
+the typed command client. Receipt precedes claim; a synced marker precedes
+invocation; saved results precede upload. Read-only reconciliation uses readiness,
+the journaled stop target and exit/lock evidence. Per-project serialization keeps
+effects isolated, and registry shutdown retains its lock through durable writes.
+The foreground delivery factory supplies the locked registry/current-session
+client and runs even on empty polls. Core dispatch and workflow policy remain
+outside this management executor.
+
 - Exporter credential ownership: `packages/orchestrator/src/exporter-environment.ts`
   uses core OTLP auth-reference provenance to strip final worker/hook environments.
   Name-only conflicts with agent/tracker credentials fail even for disabled OTLP;

@@ -133,8 +133,8 @@ it("rejects conflicting receipt, foreign claim, changed claim time and non-execu
     journal.receive({ ...command, operation: "start" })
   ).rejects.toThrow("conflicts");
   await expect(
-    journal.receive({ ...command, commandId: randomUUID() })
-  ).rejects.toThrow("unresolved");
+    journal.receive({ ...command, projectId: randomUUID() })
+  ).rejects.toThrow("conflicts");
   await expect(
     journal.recordClaim(command.commandId, {
       ...claim(),
@@ -214,4 +214,23 @@ it("rejects unsafe files, corrupted state and another enrolled owner on reopen",
   await symlink(join(root, "external"), path);
   registry = await AgentRegistry.open(join(root, "agent"));
   await expect(CommandJournal.open(registry)).rejects.toThrow("private");
+});
+
+it("retains acknowledged results for 30 days and never prunes unresolved effects", async () => {
+  await journal.receive(command);
+  await journal.recordClaim(command.commandId, claim());
+  await journal.beginEffect(command.commandId);
+  await journal.prune(new Date(Date.now() + 31 * 86_400_000));
+  expect(journal.get(command.commandId)?.effectStartedAt).toBeTruthy();
+  await journal.saveResult(command.commandId, result());
+  await journal.acknowledge(command.commandId);
+  const acknowledgedAt = journal.get(command.commandId)!.acknowledgedAt!;
+  await journal.prune(
+    new Date(Date.parse(acknowledgedAt) + 30 * 86_400_000 - 1)
+  );
+  expect(journal.get(command.commandId)).toBeDefined();
+  await journal.prune(new Date(Date.parse(acknowledgedAt) + 30 * 86_400_000));
+  expect(journal.get(command.commandId)).toBeUndefined();
+  await reopen();
+  expect(journal.list()).toEqual([]);
 });

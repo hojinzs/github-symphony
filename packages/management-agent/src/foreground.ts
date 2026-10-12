@@ -21,10 +21,7 @@ export interface ForegroundOptions {
   directory: string;
   agentVersion: string;
   signal: AbortSignal;
-  client: (
-    identity: AgentIdentity,
-    signal: AbortSignal
-  ) => Pick<AgentControlPlaneClient, "openSession" | "observe" | "poll">;
+  client: (identity: AgentIdentity, signal: AbortSignal) => ForegroundClient;
   /** Supplies redacted current state. Exceptions retry with backoff; partial errors belong in observations. */
   snapshot: (
     registry: AgentRegistry,
@@ -32,10 +29,22 @@ export interface ForegroundOptions {
   ) => Promise<ProjectObservation[]>;
   /** Handles validated deliveries. Exceptions retry; the sibling journal must fence repeated effects. */
   handlePoll?: (response: PollResponse, signal: AbortSignal) => Promise<void>;
+  /** Composes durable command/read handlers while this runtime owns the registry. */
+  createDeliveryHandler?: (context: {
+    registry: AgentRegistry;
+    client: ForegroundClient;
+    session: SessionResponse;
+    signal: AbortSignal;
+  }) => Promise<(response: PollResponse, signal: AbortSignal) => Promise<void>>;
   onConnection?: (state: "online" | "retrying", code?: string) => void;
   random?: () => number;
   wait?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
+export type ForegroundClient = Pick<
+  AgentControlPlaneClient,
+  "openSession" | "observe" | "poll"
+> &
+  Partial<Pick<AgentControlPlaneClient, "claim" | "publishResult">>;
 async function wait(ms: number, signal: AbortSignal) {
   try {
     await sleep(ms, undefined, { signal });
@@ -189,6 +198,14 @@ export async function runForegroundAgent(
           }
         }
         await observe(); // First signal, including zero projects, precedes command delivery.
+        const delivery = options.createDeliveryHandler
+          ? await options.createDeliveryHandler({
+              registry,
+              client,
+              session: current,
+              signal,
+            })
+          : options.handlePoll;
         options.onConnection?.("online");
         tasks = [
           (async () => {
@@ -204,14 +221,18 @@ export async function runForegroundAgent(
                 pollResponseSchema.parse(await client.poll(request)),
                 request
               );
-              if (response.commands.length || response.reads.length) {
-                if (!options.handlePoll)
+              if (
+                options.createDeliveryHandler ||
+                response.commands.length ||
+                response.reads.length
+              ) {
+                if (!delivery)
                   throw new AgentTransportError(
                     "delivery_handler_required",
                     false
                   );
                 try {
-                  await options.handlePoll(response, signal);
+                  await delivery(response, signal);
                 } catch {
                   throw new AgentTransportError("local_port_failure", true);
                 }

@@ -3,6 +3,7 @@ import { lstat, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   agentResultSchema,
+  LIMITS,
   commandRecordSchema,
   lifecycleCommandSchema,
   type AgentResult,
@@ -22,6 +23,8 @@ export interface JournalEntry {
   stopTarget?: StopTarget;
   result?: CommandResult;
   acknowledged?: boolean;
+  acknowledgedAt?: string;
+  retiredAt?: string;
 }
 interface JournalState {
   version: 1;
@@ -96,13 +99,9 @@ export class CommandJournal {
           throw new Error("Command ID conflicts with durable receipt");
         return;
       }
-      if (
-        entries.some(
-          (entry) =>
-            entry.command.projectId === parsed.projectId && !entry.acknowledged
-        )
-      )
-        throw new Error("Project has an unresolved durable command");
+      // The authoritative ledger owns the per-project command slot. A later
+      // delivery can follow expiry/explicit closure while an older receipt is
+      // still retained locally; the executor serializes all project effects.
       entries.push({
         command: parsed,
         agentId: identity.agentId,
@@ -164,8 +163,12 @@ export class CommandJournal {
       if (
         entry.result &&
         JSON.stringify(entry.result) !== JSON.stringify(result)
-      )
-        throw new Error("Cannot replace durable result");
+      ) {
+        if (entry.result.state !== "unknown" || result.state === "unknown")
+          throw new Error("Cannot replace durable result");
+        delete entry.acknowledged;
+        delete entry.acknowledgedAt;
+      }
       entry.result = result;
     });
   }
@@ -173,6 +176,29 @@ export class CommandJournal {
     await this.change(id, (entry) => {
       if (!entry.result) throw new Error("Cannot acknowledge missing result");
       entry.acknowledged = true;
+      entry.acknowledgedAt ??= new Date().toISOString();
+    });
+  }
+  /** Authoritative expiry/terminal state retires a receipt without fabricating a result. */
+  async retire(id: string): Promise<void> {
+    await this.change(id, (entry) => {
+      entry.retiredAt ??= new Date().toISOString();
+    });
+  }
+  async prune(now = new Date()): Promise<void> {
+    await this.update((entries) => {
+      const cutoff =
+        now.getTime() - LIMITS.journalRetentionAfterAcknowledgmentMs;
+      for (let index = entries.length - 1; index >= 0; index--) {
+        const entry = entries[index];
+        const completedAt =
+          entry.retiredAt ??
+          (entry.result?.state !== "unknown"
+            ? entry.acknowledgedAt
+            : undefined);
+        if (completedAt && Date.parse(completedAt) <= cutoff)
+          entries.splice(index, 1);
+      }
     });
   }
   private change(
@@ -188,36 +214,38 @@ export class CommandJournal {
     });
   }
   private update(action: (entries: JournalEntry[]) => void): Promise<void> {
-    const task = this.writes.then(async () => {
-      this.registry.list();
-      const next = structuredClone(this.state);
-      action(next.entries);
-      parseState(JSON.stringify(next));
-      const path = join(this.registry.directory, "commands.json");
-      const temporary = join(
-        this.registry.directory,
-        `.commands-${randomUUID()}`
-      );
-      try {
-        const handle = await open(temporary, "wx", 0o600);
+    const previous = this.writes;
+    const task = this.registry.whileOwned(() =>
+      previous.then(async () => {
+        const next = structuredClone(this.state);
+        action(next.entries);
+        parseState(JSON.stringify(next));
+        const path = join(this.registry.directory, "commands.json");
+        const temporary = join(
+          this.registry.directory,
+          `.commands-${randomUUID()}`
+        );
         try {
-          await handle.writeFile(JSON.stringify(next) + "\n");
-          await handle.sync();
+          const handle = await open(temporary, "wx", 0o600);
+          try {
+            await handle.writeFile(JSON.stringify(next) + "\n");
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+          await rename(temporary, path);
+          const directory = await open(this.registry.directory, "r");
+          try {
+            await directory.sync();
+          } finally {
+            await directory.close();
+          }
+          this.state = next;
         } finally {
-          await handle.close();
+          await rm(temporary, { force: true });
         }
-        await rename(temporary, path);
-        const directory = await open(this.registry.directory, "r");
-        try {
-          await directory.sync();
-        } finally {
-          await directory.close();
-        }
-        this.state = next;
-      } finally {
-        await rm(temporary, { force: true });
-      }
-    });
+      })
+    );
     this.writes = task.catch(() => {});
     return task;
   }

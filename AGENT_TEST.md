@@ -585,13 +585,17 @@ conditions must reach and fail their assertions. Report actual macOS/Linux
 container evidence separately; this is not native systemd/launchd isolation or
 service lifecycle validation.
 
-### Agent durable journal foundation cases (C08)
+### Agent durable executor cases (C08)
 
 `pnpm --filter @gh-symphony/management-agent test` covers real private journal
 files, restart of the registry owner, concurrent effect-marker writes, immutable
 claim/target/result boundaries, foreign identity and unsafe/corrupted files.
-These tests establish durable replay fencing; executor, transport composition
-and process-reconciliation black-box acceptance are still pending in C08.
+`executor.test.ts` exercises the actual journal and lifecycle adapter against an
+independent typed durable claim/result peer. It covers lost responses, duplicate
+delivery, original deadlines, marker-only crashes, unknown resolution,
+readiness/exit/lock evidence, runtime replacement and same-agent ownership
+transfer. Foreground tests cover locked-registry handler composition and recovery
+on empty polls. The process-reconciliation black-box scenario is pending.
 No native service lifecycle or Linux-container validation is claimed by them.
 
 ### Fleet lifecycle command recovery cases (C07)
