@@ -981,6 +981,12 @@ The bundled `@gh-symphony/cli/management-local` factory accepts trusted local
 A native-service context requires `launchIsolatedProject`; OS-specific service
 packaging must independently verify that agent service stop/restart/uninstall
 preserves orchestrators. The default effect/observation deadline is 60 seconds.
+Fleet execution claim expiry uses the server clock. After an authoritative
+executing claim response, the agent bounds local observation using its own clock,
+without comparing the server's claimedAt to local time. The embedder schedules
+`CommandJournal.prune()` (for example, daily) under the registry owner lock to
+remove eligible acknowledged terminal/retired records after 30 days; unresolved
+effects and unknown outcomes remain retained.
 Management/broker variables beginning `GH_SYMPHONY_MANAGEMENT_`,
 `GH_SYMPHONY_AGENT_`, `GH_SYMPHONY_CONTROL_PLANE_`, or `SYMPHONY_ORCHESTRATOR_`
 are excluded from CLI subprocess environments. Any variable whose value contains

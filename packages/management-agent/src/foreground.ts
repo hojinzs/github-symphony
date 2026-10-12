@@ -27,9 +27,15 @@ export interface ForegroundOptions {
     registry: AgentRegistry,
     signal: AbortSignal
   ) => Promise<ProjectObservation[]>;
-  /** Handles validated deliveries. Exceptions retry; the sibling journal must fence repeated effects. */
+  /**
+   * Handles validated deliveries when createDeliveryHandler is absent.
+   * Exceptions retry; the sibling journal must fence repeated effects.
+   */
   handlePoll?: (response: PollResponse, signal: AbortSignal) => Promise<void>;
-  /** Composes durable command/read handlers while this runtime owns the registry. */
+  /**
+   * Composes durable command/read handlers while this runtime owns the registry.
+   * Takes precedence over handlePoll when both options are supplied.
+   */
   createDeliveryHandler?: (context: {
     registry: AgentRegistry;
     client: ForegroundClient;

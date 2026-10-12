@@ -61,8 +61,8 @@ assembly or a native systemd/launchd service test.
 - All six probes fail at their named assertions. An unrelated exception or
   timeout does not count as mutation evidence.
 - Unit tests separately cover foreign ownership, terminal/unknown replay,
-  readiness absence, held locks, target PID/runtime reuse, original execution
-  deadlines, terminal authority, private malformed files and retention. The
+  readiness absence, held locks, target PID/runtime reuse, authoritative execution
+  expiry and local observation windows with server clocks ±40/65 seconds skewed, terminal authority, private malformed files and retention. The
   foreground factory test covers empty-poll recovery under its owner lock.
 - No native-service isolation, HTTP/browser flow or actual Linux validation is
   inferred from a macOS run or a peer fixture.

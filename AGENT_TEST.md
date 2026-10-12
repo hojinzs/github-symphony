@@ -593,7 +593,8 @@ files, restart of the registry owner, concurrent effect-marker writes, immutable
 claim/target/result boundaries, foreign identity and unsafe/corrupted files.
 `executor.test.ts` exercises the actual journal and lifecycle adapter against an
 independent typed durable claim/result peer. It covers lost responses, duplicate
-delivery, original deadlines, marker-only crashes, unknown resolution,
+delivery, authoritative server expiry, agent/server clock skew in both directions,
+marker-only crashes, unknown resolution,
 readiness/exit/lock evidence, runtime replacement and same-agent ownership
 transfer. Foreground tests cover locked-registry handler composition and recovery
 on empty polls. [TC-31](e2e/scenarios/31-agent-durable-executor.md) runs the

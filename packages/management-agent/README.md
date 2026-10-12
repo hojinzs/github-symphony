@@ -21,6 +21,9 @@ and persist the result before publishing it. A verified result may resolve a
 previous unknown; terminal results remain immutable. Acknowledged terminal and
 retired records can be pruned after 30 days with `journal.prune()`; unresolved
 effects and acknowledged unknown results remain available for reconciliation.
+The embedder must schedule `journal.prune()` periodically (for example, daily)
+while holding the registry owner lock; neither the executor nor foreground loop
+automatically prunes records.
 Journal tests use real private files and close/reopen the registry rather than
 mocking persistence. Registry shutdown drains admitted journal writes before
 releasing the lifetime owner lock.
@@ -38,8 +41,11 @@ Executing claim replay can begin once when no marker exists. Marker-bearing
 entries use `LocalLifecycleAdapter.reconcile` exclusively: readiness proves start;
 persisted stop-target exit, lock release and absence of a replacement prove stop.
 Recovery never spawns or signals. Runtime/PID/identity replacement fails with
-`superseded_target`; missing evidence stays unknown. The original `claimedAt`
-bounds the execution observation deadline; it is never reset by replay.
+`superseded_target`; missing evidence stays unknown. The fleet owns execution
+claim expiry and preserves the original `claimedAt` across replay. An authoritative
+`executing` response grants a local observation window of at most 60 seconds;
+the agent never compares server timestamps with its own clock. A server-expired
+`unknown` replay cannot authorize a new effect.
 
 Results persist before publication and retry unchanged until a correlated
 acknowledgment. Unknown results can later resolve from verified evidence without

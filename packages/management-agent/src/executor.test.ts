@@ -212,9 +212,7 @@ beforeEach(async () => {
         await readFile(join(registry.directory, "commands.json"), "utf8")
       ).entries[0];
       expect(durable.effectStartedAt).toBeTruthy();
-      expect(deadline).toBeLessThanOrEqual(
-        Date.parse(durable.claim.claimedAt) + 60_000
-      );
+      expect(deadline).toBeLessThanOrEqual(Date.now() + 60_000);
       effects.push("start");
       running();
       return { exitCode: 0 };
@@ -242,7 +240,7 @@ it("replays a lost claim response and fences concurrent duplicate deliveries", a
     "network_failure"
   );
   expect(effects).toEqual([]);
-  // Server-owned original time, not a locally renewed claim deadline.
+  // Server-owned original time stays immutable across replay.
   claimed!.claimedAt = new Date(Date.now() - 40_000).toISOString();
   claimed!.submittedAt = new Date(Date.now() - 45_000).toISOString();
   claimed!.expiresAt = new Date(Date.now() - 15_000).toISOString();
@@ -513,13 +511,63 @@ it.each([true, false])(
   }
 );
 
-it("does not reset an elapsed original execution observation deadline", async () => {
+it.each(
+  (["start", "stop"] as const).flatMap((operation) =>
+    [-65_000, -40_000, 40_000, 65_000].map((skew) => ({ operation, skew }))
+  )
+)(
+  "uses a full local observation window for $operation with server skew $skew",
+  async ({ operation, skew }) => {
+    const serverNow = Date.now() + skew;
+    command.operation = operation;
+    command.submittedAt = new Date(serverNow - 1_000).toISOString();
+    command.expiresAt = new Date(serverNow + 29_000).toISOString();
+    claimed = {
+      ...command,
+      state: "executing",
+      claimedAt: new Date(serverNow).toISOString(),
+      owner: { agentId, sessionId: envelope.sessionId },
+    };
+    await writeFile(join(root, "peer-claim.json"), JSON.stringify(claimed));
+    if (operation === "stop") {
+      running();
+      targetAlive = true;
+    }
+    const originalStart = driver.start;
+    const originalStop = driver.stop;
+    let observedDeadline: number | undefined;
+    driver.start = async (project, deadline) => {
+      observedDeadline = deadline;
+      return originalStart(project, deadline);
+    };
+    driver.stop = async (project, expected, deadline) => {
+      observedDeadline = deadline;
+      return originalStop(project, expected, deadline);
+    };
+    executor = new CommandExecutor(
+      registry,
+      journal,
+      new LocalLifecycleAdapter(registry, driver)
+    );
+    const receivedAt = Date.now();
+    await executor.handlePoll(poll(), client);
+    expect(effects).toEqual([operation]);
+    expect(journal.get(command.commandId)?.result?.state).toBe("succeeded");
+    expect(journal.get(command.commandId)?.claim?.claimedAt).toBe(
+      claimed.claimedAt
+    );
+    expect(observedDeadline).toBeGreaterThanOrEqual(receivedAt + 60_000);
+    expect(observedDeadline).toBeLessThanOrEqual(Date.now() + 60_000);
+  }
+);
+
+it("does not execute a replay expired by the authoritative server", async () => {
   command.submittedAt = new Date(Date.now() - 90_000).toISOString();
   command.expiresAt = new Date(Date.now() - 60_000).toISOString();
   await journal.receive(command);
   claimed = {
     ...command,
-    state: "executing",
+    state: "unknown",
     claimedAt: new Date(Date.now() - 70_000).toISOString(),
     owner: { agentId, sessionId: envelope.sessionId },
   };

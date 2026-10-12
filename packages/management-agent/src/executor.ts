@@ -148,12 +148,10 @@ export class CommandExecutor {
         // Unknown/terminal replay never restores permission, even without a marker.
         outcome = unknownOutcome();
       } else {
-        const deadline =
-          Date.parse(claim.command.claimedAt!) +
-          LIMITS.executionObservationTimeoutMs;
-        if (deadline <= Date.now()) {
-          outcome = unknownOutcome();
-        } else if (await this.journal.beginEffect(id)) {
+        // The server owns claim expiry; its timestamps cannot be compared with
+        // this host's clock. An executing response authorizes one local window.
+        const deadline = Date.now() + LIMITS.executionObservationTimeoutMs;
+        if (await this.journal.beginEffect(id)) {
           try {
             outcome =
               entry.command.operation === "start"
