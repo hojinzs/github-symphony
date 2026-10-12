@@ -1136,3 +1136,7 @@ OTLP operational diagnostics are available through `gh-symphony doctor` and
 `gh-symphony project status` shows applied versus pending exporter settings.
 See [CLI OTLP diagnostics](packages/cli/README.md#otlp-diagnostics) for credential
 safety, restart semantics and the production activation gate.
+
+For reproducible clean-install startup/RSS and healthy/slow/down offer measurements,
+see the [packed OTLP performance audit](packages/cli/README.md#packed-otlp-performance-audit).
+Production export remains gated until all packaged runtime acceptance checks pass.

@@ -691,3 +691,30 @@ command and idle worker entry, and executes the installed management, MCP and
 credential-helper entries. It reports tarball bytes separately from runtime
 performance. Startup/RSS/offer benchmarks remain separate production activation
 gates; this smoke check alone does not enable YAML export.
+
+### Packed OTLP performance audit
+
+After `pnpm build`, run from `packages/cli`:
+
+```bash
+node scripts/otlp-package-audit.mjs /absolute/baseline.tgz /tmp/otlp-report.json /absolute/baseline-source <baseline-commit-sha>
+```
+
+Build the baseline from a separate source archive and pack it before running the
+comparison. The audit installs both tarballs with production dependencies only,
+alternates 30 fresh processes on the same empty file-tracker project, and writes
+raw startup/RSS samples, loaded modules, sizes and threshold results to the
+external JSON report. RSS is sampled after the single idle reconciliation, at
+process exit. Healthy, 100ms slow and unavailable transport fixtures each receive
+1,000 bounded synchronous event/tick offers; the audit verifies transport was
+actually exercised. This offer measurement is separate from full reconciliation
+tick-duration measurements.
+
+The audit also rejects SDK evaluation and receiver connections for disabled or
+omitted enable policy and the SDK-disabled veto. Packed doctor checks verify
+validation-only network silence, disabled explicit probes, both enabled signal
+probes, and credential-free output. A failing startup/RSS/offer threshold returns
+a nonzero exit status. Tarball, installed dependency and ESM bytes are reported
+separately, without a size threshold. Passing these checks alone does not remove
+the production activation gate; packed enabled lifecycle/reload and tick-duration
+verification must also be completed.

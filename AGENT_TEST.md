@@ -588,5 +588,12 @@ SDK chunks in fresh processes, then uses an ESM loader to reject SDK evaluation
 by `--version` and the idle worker entry. Ambient OTLP endpoint configuration is
 present; run identity variables are removed from the worker probe. Existing MCP,
 management and credential-helper checks execute from that same installation.
-This is a package reachability test; disabled project startup, doctor network
-silence, reload status and performance measurements need their own coverage.
+This is a package reachability test. The separate
+`packages/cli/scripts/otlp-package-audit.mjs` audit adds 30 alternating clean-install
+startup/RSS samples, healthy/slow/down offer latency, disabled startup SDK and
+connection guards, and packed doctor network/credential checks. See the CLI
+README for arguments and baseline preparation. `package-performance.test.ts`
+guards the review thresholds and `index-otlp.test.ts` guards public probe flag
+forwarding. Enabled lifecycle, reload status and full reconciliation tick-duration
+measurements remain separate acceptance cases; passing the audit does not by
+itself enable production export.
