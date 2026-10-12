@@ -328,6 +328,20 @@ it("resolves an acknowledged unknown from later evidence without replay", async 
   expect(resultUploads).toHaveLength(2);
 });
 
+it("retires a fleet terminal outcome without overwriting it with a cached unknown", async () => {
+  await marker();
+  await executor.handlePoll(poll([]), client);
+  claimed!.state = "succeeded";
+  claimed!.completedAt = now();
+  claimed!.evidence = { verified: true };
+  await writeFile(join(root, "peer-claim.json"), JSON.stringify(claimed));
+  running();
+  await executor.handlePoll(poll([]), client);
+  expect(journal.get(command.commandId)?.retiredAt).toBeTruthy();
+  expect(resultUploads).toHaveLength(1);
+  expect(effects).toEqual([]);
+});
+
 it.each([true, false])(
   "reconciles interrupted start only with verified readiness=%s",
   async (ready) => {

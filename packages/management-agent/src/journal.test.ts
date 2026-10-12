@@ -234,3 +234,32 @@ it("retains acknowledged results for 30 days and never prunes unresolved effects
   await reopen();
   expect(journal.list()).toEqual([]);
 });
+
+it("sanitizes malformed journal JSON without echoing private process evidence", async () => {
+  await journal.receive(command);
+  await registry.close();
+  await writeFile(
+    join(registry.directory, "commands.json"),
+    '{"fixture-private-process-evidence": invalid-json}'
+  );
+  registry = await AgentRegistry.open(join(root, "agent"));
+  await expect(CommandJournal.open(registry)).rejects.toThrow(
+    "Malformed command journal JSON"
+  );
+});
+
+it("never prunes an acknowledged unknown until explicit fleet retirement", async () => {
+  await journal.receive(command);
+  await journal.recordClaim(command.commandId, claim());
+  await journal.beginEffect(command.commandId);
+  await journal.saveResult(command.commandId, {
+    ...result(),
+    state: "unknown",
+  });
+  await journal.acknowledge(command.commandId);
+  await journal.prune(new Date(Date.now() + 31 * 86_400_000));
+  expect(journal.get(command.commandId)?.result?.state).toBe("unknown");
+  await journal.retire(command.commandId);
+  await journal.prune(new Date(Date.now() + 31 * 86_400_000));
+  expect(journal.get(command.commandId)).toBeUndefined();
+});

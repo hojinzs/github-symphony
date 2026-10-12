@@ -48,6 +48,9 @@ fixed unresolved diagnostics rather than uploading exception text. Reconnected
 ownership must already be transferred by the fleet recovery boundary to the same
 enrolled agent; stale/foreign claims cannot authorize invocation or result upload.
 An expired unclaimed receipt is retired without a fabricated unknown result.
+The fleet's terminal/explicitly closed outcome takes precedence over a cached
+unknown; recovery does not overwrite that authoritative outcome. Malformed journal
+JSON reports a fixed diagnostic without echoing private process evidence.
 
 The foreground `createDeliveryHandler({ registry, client, session, signal })`
 factory composes this executor while the foreground runtime owns the registry.
@@ -117,14 +120,15 @@ OS process/CWD and ownership records without mocking those probes.
 
 ### Verification and acceptance scope
 
-| Requirement                                   | Evidence                                                                                                                                                                         |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CP-02 canonical inventory/allowlist           | registry tests; TC-27 real prepared, invalid and aliased folders                                                                                                                 |
-| CP-01/14 identity, agent lock, access removal | two independent enrollment fixtures share a local ID with distinct environment identities; private persistent registry and lock tests; TC-27 close/reopen and process continuity |
-| CP-03 bounded verified lifecycle              | lifecycle mutations and real invalid-workflow stop with durable target journal                                                                                                   |
-| CP-04 local/manual start arbitration          | serialized starts and existing CLI canonical folder lock; TC-27 independent contender                                                                                            |
-| CP-15 non-secret metadata/credentials         | typed protocol peer fixture, inventory projections, executable child environment and TC-27 canaries                                                                              |
-| Applicable CP-08 recovery                     | exact C02 stop identity retained; TC-27 replacement ownership fault probe                                                                                                        |
+| Requirement                                   | Evidence                                                                                                                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| CP-02 canonical inventory/allowlist           | registry tests; TC-27 real prepared, invalid and aliased folders                                                                                                                           |
+| CP-01/14 identity, agent lock, access removal | two independent enrollment fixtures share a local ID with distinct environment identities; private persistent registry and lock tests; TC-27 close/reopen and process continuity           |
+| CP-03 bounded verified lifecycle              | lifecycle mutations and real invalid-workflow stop with durable target journal                                                                                                             |
+| CP-04 local/manual start arbitration          | serialized starts and existing CLI canonical folder lock; TC-27 independent contender                                                                                                      |
+| CP-15 non-secret metadata/credentials         | typed protocol peer fixture, inventory projections, executable child environment and TC-27 canaries                                                                                        |
+| Applicable CP-08 recovery                     | exact C02 stop identity retained; TC-27 replacement ownership fault probe                                                                                                                  |
+| CP-04–09/18/19 durable execution/recovery     | executor tests with actual journal/lifecycle and independent typed durable peer; TC-31 actual C07 ledger and separate CLI/agent processes, 22 reached assertions and five forbidden probes |
 
 TC-27 covers the local portions of operator inventory/start/stop/removal
 walkthroughs. Fleet HTTP routing, read delivery handlers and

@@ -280,7 +280,12 @@ async function privateFile(path: string): Promise<void> {
     );
 }
 function parseState(text: string): JournalState {
-  const state = JSON.parse(text) as JournalState;
+  let state: JournalState;
+  try {
+    state = JSON.parse(text) as JournalState;
+  } catch {
+    throw new Error("Malformed command journal JSON");
+  }
   if (state.version !== 1 || !Array.isArray(state.entries))
     throw new Error("Invalid command journal version");
   const ids = new Set<string>();

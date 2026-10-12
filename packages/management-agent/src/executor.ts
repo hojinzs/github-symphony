@@ -101,7 +101,12 @@ export class CommandExecutor {
       throw new AgentTransportError("claim_owner_conflict", false);
     await this.journal.recordClaim(id, claim.command);
     entry = this.journal.get(id)!;
-    if (claim.command.closure) {
+    if (
+      claim.command.closure ||
+      (entry.result?.state === "unknown" &&
+        (claim.command.state === "succeeded" ||
+          claim.command.state === "failed"))
+    ) {
       await this.journal.retire(id);
       return;
     }
