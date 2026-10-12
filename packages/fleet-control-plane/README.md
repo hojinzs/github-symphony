@@ -210,3 +210,35 @@ records the package boundaries. After `pnpm build`, run
 `./e2e/run-fleet-commands-e2e.sh` for isolated Linux Docker.
 [TC-29](../../e2e/scenarios/29-fleet-command-recovery.md) distinguishes
 ledger/journal-fixture integration evidence from native OS lifecycle validation.
+
+## Bounded read lane (C10)
+
+`createReadService(store, { peers, now?, maximumEntries? })` exposes `submitRead`
+and `getRead` plus agent `poll` and `publishResult`. Supply the same authenticated
+project/session peers as the command ledger. Reads never acquire a lifecycle
+command slot. Admission requires a managed, valid, supported online target;
+four pending reads per agent and one per project are allowed. Requests expire
+at 30 seconds using server time. Terminal results remain in memory for 60 seconds,
+including logs; they never enter SQLite. The result registry defaults to 1024
+entries (configurable from 1 to 10000); full registries reject new reads with
+`read_busy` rather than evicting a result before its retention ends.
+
+Poll and result publication require the current enrolled session. Results must
+match the selected kind/run/stream and requested UTF-8 byte limit. Completion
+uses receipt time, and identical completed replay preserves that first receipt.
+Disconnection, removal or session replacement makes pending work unavailable.
+Expired reads stay expired despite late results. Call `recover()` when restarting
+an in-process service; a newly constructed service has no retained results and
+unknown IDs explicitly return unavailable. Already completed content retains
+its completion timestamp when disconnected; consuming views must display it
+as historical and pause follow. Local C09 adapters own file containment, rotation,
+truncation and cursor generation; the fleet service preserves reset diagnostics.
+
+`createReadRoutes(reads, browserSecurity)` supplies an HTTP-framework-independent
+request dispatcher for `POST /api/v1/projects/:id/reads` (202) and
+`GET /api/v1/reads/:id` (200). Mount it only behind the fleet private listener.
+POST resolves the actual local-owner CSRF session before parsing/admission.
+Errors use the v1 `{ error: { code, message, requestId } }` shape; unmatched routes
+return undefined for the owning server to dispatch. The listener must enforce
+its existing JSON body limit before invoking this dispatcher. Agent poll/results
+remain service composition boundaries shared with lifecycle commands.

@@ -39,8 +39,15 @@ interface Entry {
 /** Trusted API boundary: browser callers must first authenticate local-owner/CSRF. */
 export function createReadService(
   store: FleetStore,
-  options: { peers: CommandPeers; now?: () => Date }
+  options: { peers: CommandPeers; now?: () => Date; maximumEntries?: number }
 ): ReadService {
+  const maximumEntries = options.maximumEntries ?? 1024;
+  if (
+    !Number.isSafeInteger(maximumEntries) ||
+    maximumEntries < 1 ||
+    maximumEntries > 10_000
+  )
+    throw new Error("Invalid read registry capacity");
   const entries = new Map<UUID, Entry>();
   const now = options.now ?? (() => new Date());
   const db = store.database;
@@ -94,7 +101,7 @@ export function createReadService(
     }
   }
   function verify(identity: AgentSessionCredential) {
-    if (!options.peers.verifyAgent(db, identity))
+    if (options.peers.verifyAgent(db, identity) !== true)
       throw new FleetError(
         "claim_owner_conflict",
         "Current authenticated session required"
@@ -125,6 +132,11 @@ export function createReadService(
         throw new FleetError("project_invalid", "Invalid project");
       if (!target.online)
         throw new FleetError("agent_offline", "Agent is offline");
+      if (entries.size >= maximumEntries)
+        throw new FleetError(
+          "read_busy",
+          "Read result registry capacity reached"
+        );
       const pending = [...entries.values()].filter(
         (e) => e.result.state === "pending"
       );

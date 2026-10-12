@@ -116,3 +116,102 @@ it("reports disconnection and restart as unavailable without empty success", asy
     state: "unavailable",
   });
 });
+
+it("rejects admission when retained results fill the configured registry", async () => {
+  const f = await setup();
+  const api = createReadService(f.store, {
+    peers: f.peers,
+    now: f.now,
+    maximumEntries: 1,
+  });
+  const first = await api.submitRead(f.project(), { kind: "runs", limit: 1 });
+  api.recover();
+  await expect(
+    api.submitRead(f.project(), { kind: "runs", limit: 1 })
+  ).rejects.toMatchObject({ code: "read_busy" });
+  expect(await api.getRead(first.readId)).toMatchObject({
+    state: "unavailable",
+  });
+  f.advance(60_000);
+  await expect(
+    api.submitRead(f.project(), { kind: "runs", limit: 1 })
+  ).resolves.toMatchObject({ state: "pending" });
+});
+
+it("does not accept asynchronous truthy authentication peers", async () => {
+  const f = await setup();
+  const api = createReadService(f.store, {
+    peers: {
+      ...f.peers,
+      verifyAgent: (() =>
+        Promise.resolve(false)) as unknown as typeof f.peers.verifyAgent,
+    },
+    now: f.now,
+  });
+  expect(() => api.poll(f.identity)).toThrow(
+    "Current authenticated session required"
+  );
+});
+
+it("fences wrong result sessions, enforces log byte limits and preserves reset", async () => {
+  const f = await setup();
+  const read = await f.api.submitRead(f.project(), {
+    kind: "log-chunk",
+    runId: "run-1",
+    stream: "worker",
+    maxBytes: 4,
+  });
+  const envelope = {
+    protocolVersion: 1 as const,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+    requestId: randomUUID(),
+  };
+  const result = {
+    readId: read.readId,
+    state: "completed" as const,
+    completedAt: f.now().toISOString(),
+    payload: {
+      kind: "log-chunk" as const,
+      runId: "run-1",
+      stream: "worker" as const,
+      text: "ééé",
+      cursor: "generation-offset",
+      reset: true,
+      eof: false,
+    },
+  };
+  await expect(
+    f.api.publishResult(f.identity, {
+      ...envelope,
+      sessionId: randomUUID(),
+      result: { kind: "read", result },
+    })
+  ).rejects.toMatchObject({ code: "claim_owner_conflict" });
+  await expect(
+    f.api.publishResult(f.identity, {
+      ...envelope,
+      result: { kind: "read", result },
+    })
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  result.payload.text = "éé";
+  await f.api.publishResult(f.identity, {
+    ...envelope,
+    result: { kind: "read", result },
+  });
+  await f.api.publishResult(f.identity, {
+    ...envelope,
+    result: { kind: "read", result },
+  });
+  expect(await f.api.getRead(read.readId)).toMatchObject({
+    state: "completed",
+    payload: { text: "éé", reset: true },
+  });
+  result.payload.text = "other";
+  await expect(
+    f.api.publishResult(f.identity, {
+      ...envelope,
+      result: { kind: "read", result },
+    })
+  ).rejects.toMatchObject({ code: "invalid_input" });
+});

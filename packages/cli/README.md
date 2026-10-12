@@ -687,3 +687,7 @@ until its first authenticated observation.
 This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
 command delivery and native service packaging retain their sibling boundaries.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
+
+The [C10 fleet read lane](../fleet-control-plane/README.md#bounded-read-lane-c10) supplies bounded
+run/detail/log requests and route dispatch for a consuming private fleet service.
+It has no new CLI command; existing project and per-project web usage is unchanged.

@@ -602,3 +602,15 @@ boundaries. Every assertion prints its reached marker; 18 isolated mutations
 prove forbidden conditions fail. Report macOS tests and Linux container tests
 separately. These are ledger/protocol integration checks, not native OS
 orchestrator lifecycle or production agent-journal acceptance.
+
+### Fleet bounded read service cases (C10)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` covers independent read
+capacity alongside an actual lifecycle command, exact expiry, receipt-time
+completion, detail/run matching, UTF-8 request limits, reset preservation,
+completed replay, offline/restart outcomes, retained-registry admission and
+fail-closed synchronous authentication. `read-routes.test.ts` exercises actual
+C04 CSRF sessions with independent SQLite project/session tables and structured
+202/200/400/401/409 responses. No native service isolation claim follows from
+these tests; C09 filesystem composition and Docker blackbox remain separate
+delivery gates for #1014.
