@@ -41,3 +41,4 @@ export {
   type CommandPeers,
   type CommandTarget,
 } from "./commands.js";
+export { createReadService, type ReadService } from "./reads.js";
