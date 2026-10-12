@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdtemp,
   mkdir,
   readFile,
@@ -208,4 +209,17 @@ it("rejects a loaded job from a different definition even when local installatio
   await expect(service.stop()).rejects.toThrow(
     "Loaded service configuration conflict"
   );
+});
+
+it("rejects a non-executable Node file before creating a service definition", async () => {
+  const nodePath = join(root, "non-executable-node");
+  await writeFile(nodePath, "not executable");
+  await chmod(nodePath, 0o600);
+  const os = peer();
+  const service = new MacOSAgentService({ ...config, nodePath }, os.runner);
+  await expect(service.install()).rejects.toMatchObject({ code: "EACCES" });
+  await expect(stat(service.plistPath)).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+  expect(os.calls).toHaveLength(0);
 });

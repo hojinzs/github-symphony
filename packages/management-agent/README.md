@@ -230,3 +230,23 @@ Use foreground execution for that environment.
 prepared-project lifecycle with an independently typed C05 delivery fixture.
 Native macOS, portable contracts and Docker evidence are distinct. Login/logout
 remains an explicit manual walkthrough.
+
+A Node upgrade or moved CLI entrypoint can leave a conflicting saved definition.
+All adapter actions fail closed on that conflict, including stop and uninstall.
+To repair explicitly, use the current user's GUI session and first inspect the
+saved plist with `plutil -p "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`
+and `launchctl print "gui/$(id -u)/com.github-symphony.management-agent"`.
+Confirm the label and loaded path match your agent, and that the plist is a
+regular, non-symlink file owned by your UID with mode 0600. Use the real login
+home if `HOME` is overridden; substitute the configured label for an override.
+Do not remove or unload a foreign or unsafe definition.
+
+Run `launchctl bootout "gui/$(id -u)/com.github-symphony.management-agent"`
+if the job is loaded. Wait until `launchctl print` for that exact target reports
+that the service could not be found; a missing GUI domain or another command
+error does not confirm removal. Only then remove the inspected plist with
+`rm "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`.
+Call `install()` and `start()` with the updated absolute executable and
+entrypoint paths. Keep the existing config and private data directory: this
+repair preserves enrollment, allowlist and journal data and does not stop
+managed project orchestrators. Installation requires an executable `nodePath`.

@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, stat, unlink } from "node:fs/promises";
+import { access, lstat, mkdir, open, stat, unlink } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+
+import { CliProcess } from "./cli-process.js";
 
 /** Trusted host configuration. The foreground entrypoint consumes --config <absolute file>. */
 export interface MacOSServiceConfig {
@@ -180,6 +182,7 @@ export class MacOSAgentService {
       if (!(await stat(path)).isFile())
         throw new Error("Service executable/configuration must exist");
     }
+    await access(this.config.nodePath, constants.X_OK);
     const data = await lstat(this.config.dataDirectory);
     if (
       !data.isDirectory() ||
@@ -243,7 +246,7 @@ export class MacOSAgentService {
     if ((await this.runner(["bootout", this.target])).code !== 0)
       throw new Error("launchctl bootout failed; definition retained");
     const deadline = Date.now() + 25_000;
-    for (let attempt = 0; attempt < 100 && Date.now() < deadline; attempt++) {
+    while (Date.now() < deadline) {
       if (!(await this.status()).loaded) return;
       await delay(Math.min(250, Math.max(0, deadline - Date.now())));
     }
@@ -274,7 +277,6 @@ export async function launchMacOSProject(
 ): Promise<{ exitCode: number | null }> {
   if (process.platform !== "darwin")
     throw new Error("macOS project isolation requires macOS");
-  const { CliProcess } = await import("./cli-process.js");
   return new CliProcess({
     executable: request.executable,
     environment: request.environment,
