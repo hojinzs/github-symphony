@@ -450,7 +450,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/29-otlp-lifecycle.md`                    | OT-03/10/11/12: gated/disabled startup, applied/pending status through HTTP, invalid reload/revert, health isolation, bounded shutdown and two reached forbidden-condition probes                                   |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: disabled-policy exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution; enabled production startup exits once with code 1                    |
 | `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes                                              |
-| `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 20 reached assertions and 18 isolated forbidden-condition probes |
+| `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 24 reached assertions and 21 isolated forbidden-condition probes |
 
 ## TC Writing Guide
 
@@ -619,7 +619,7 @@ fields while accepting prior v1 aggregate fixtures.
 walkthrough cases. After `pnpm build`, run `node e2e/fleet-observations-e2e.mjs`
 and `node e2e/fleet-observations-mutations.mjs`, or
 `./e2e/run-fleet-observations-e2e.sh` for isolated Linux Docker. The independent
-TLS peer and actual bundled publisher reach 20 assertions; 18 isolated artifact
+TLS peer and actual bundled publisher reach 24 assertions; 21 isolated artifact
 mutations must reach and fail their intended assertion. Actual macOS evidence
 must be reported separately from Linux/container simulations, production fleet
 HTTP/UI assembly and native-service acceptance.

@@ -393,7 +393,9 @@ this repository at present; local worker execution is the supported model.
 
 `packages/fleet-control-plane/src/observations.ts` projects C05 authenticated
 observations in the same SQLite transaction. Migration 4 owns project identity,
-complete inventory revisions and bounded page staging. Its synchronous
+complete inventory revisions and bounded page staging. Migration 5 scopes UUIDs
+to enrollment generations and preserves unowned v4 history behind a stale fence.
+Identity allocation transactionally caps outstanding unpublished mappings. Its synchronous
 invalidation peer belongs to lifecycle command storage; its command-target reader
 contains no scheduler policy. Operator queries add receipt-based freshness,
 retained snapshots, deterministic filter-scoped paging and normalized non-secret

@@ -172,6 +172,13 @@ async function serve(root) {
       } else if (method === "revoke") {
         await enrollment.revoke(...args);
         value = true;
+      } else if (method === "replace") {
+        const token = await enrollment.regenerateEnrollment(args[0]);
+        value = await enrollment.enroll({
+          protocolVersion: 1,
+          requestId: randomUUID(),
+          token: token.token,
+        });
       } else if (method === "submit")
         value = await commands.submitCommand(...args);
       else if (method === "command") value = await commands.getCommand(...args);
@@ -299,7 +306,12 @@ else {
           res.on("end", () =>
             res.statusCode === 200
               ? resolve(JSON.parse(Buffer.concat(parts).toString()))
-              : reject(new Error("Identity negotiation failed"))
+              : reject(
+                  Object.assign(new Error("Identity negotiation failed"), {
+                    code: JSON.parse(Buffer.concat(parts).toString()).error
+                      ?.code,
+                  })
+                )
           );
         }
       );
@@ -599,6 +611,41 @@ else {
       rejected = error.code === "access_revoked";
     }
     check(rejected, "revoked inventory command reports access_revoked");
+    identity = await rpc("replace", identity.environmentId);
+    await open();
+    const [replacementIdentity] = await identities(identity.environmentId, [
+      entries[0].localProjectId,
+    ]);
+    check(
+      replacementIdentity.projectId !== entries[0].projectId,
+      "replacement enrollment allocates distinct project UUID"
+    );
+    const replacement = {
+      ...entries[0],
+      projectId: replacementIdentity.projectId,
+    };
+    const replacementRevision = randomUUID();
+    await send([replacement], replacementRevision, 0, 2);
+    const retired = await rpc("get", entries[0].projectId);
+    check(
+      !retired.managed && !retired.fresh && retired.snapshotStale,
+      "replacement partial inventory cannot revive old host target"
+    );
+    const pending = Array.from({ length: 99 }, (_, i) => `unpublished-${i}`);
+    await identities(identity.environmentId, pending);
+    rejected = false;
+    try {
+      await identities(identity.environmentId, ["overflow"]);
+    } catch (error) {
+      rejected = error.code === "invalid_input";
+    }
+    check(rejected, "cumulative unpublished identity cap rejects overflow");
+    await send([], replacementRevision, 1, 2);
+    const released = await identities(identity.environmentId, ["overflow"]);
+    check(
+      released.length === 1 && (await rpc("get", replacement.projectId)).fresh,
+      "complete replacement inventory releases unpublished capacity"
+    );
     console.log(
       `C06 PASS: ${reached} reached assertions; actual OS=${process.platform}; no native service or UI acceptance claimed`
     );

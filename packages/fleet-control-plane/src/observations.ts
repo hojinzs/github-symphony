@@ -48,6 +48,7 @@ export interface ObservationService {
   ): CommandTarget | undefined;
 }
 interface ProjectRow {
+  agent_id: string | null;
   project_id: string;
   environment_id: string;
   local_project_id: string;
@@ -62,6 +63,7 @@ interface RevisionRow {
   complete: number;
 }
 interface EnvironmentRow {
+  enrollment_agent_id: string | null;
   enrollment: string;
   connection: string;
   last_contact_at: string | null;
@@ -145,8 +147,9 @@ export function createObservationService(
   function environment(id: string): EnvironmentRow | undefined {
     return db
       .prepare(
-        `SELECT e.enrollment,e.connection,e.last_contact_at,s.agent_id,s.session_id,s.expires_at
-      FROM environments e LEFT JOIN agent_sessions s ON s.environment_id=e.id WHERE e.id=?`
+        `SELECT e.enrollment,e.connection,e.last_contact_at,s.agent_id,s.session_id,s.expires_at,c.agent_id AS enrollment_agent_id
+      FROM environments e LEFT JOIN agent_sessions s ON s.environment_id=e.id
+      LEFT JOIN agent_credentials c ON c.environment_id=e.id WHERE e.id=?`
       )
       .get(id) as unknown as EnvironmentRow | undefined;
   }
@@ -168,6 +171,8 @@ export function createObservationService(
     const connection = online(env) ? "online" : "offline";
     const fresh =
       connection === "online" &&
+      row.agent_id !== null &&
+      row.agent_id === env.agent_id &&
       Date.parse(row.received_at!) + SESSION_LIFETIME_MS > now().getTime();
     return {
       projectId: row.project_id,
@@ -175,6 +180,8 @@ export function createObservationService(
       localProjectId: row.local_project_id,
       managed:
         row.managed === 1 &&
+        row.agent_id !== null &&
+        row.agent_id === env.enrollment_agent_id &&
         !(
           observation.validation.state === "invalid" &&
           observation.validation.diagnostic.code === "project_unmanaged"
@@ -293,22 +300,37 @@ export function createObservationService(
       )
         invalid();
       return store.transaction(() => {
-        if (environment(environmentId)?.enrollment !== "enrolled")
+        const env = environment(environmentId);
+        if (env?.enrollment !== "enrolled" || !env.enrollment_agent_id)
           throw new FleetError(
             "unauthenticated",
             "Enrolled environment required"
           );
+        const agentId = env.enrollment_agent_id;
+        // Abandoned unpublished mappings from retired generations carry no history.
+        db.prepare(
+          "DELETE FROM observed_projects WHERE environment_id=? AND published=0 AND agent_id IS NOT ?"
+        ).run(environmentId, agentId);
+        let outstanding = Number(
+          db
+            .prepare(
+              "SELECT count(*) AS n FROM observed_projects WHERE environment_id=? AND published=0"
+            )
+            .get(environmentId)!.n
+        );
         return ids.map((id) => {
           const existing = db
             .prepare(
-              "SELECT project_id FROM observed_projects WHERE environment_id=? AND local_project_id=?"
+              "SELECT project_id FROM observed_projects WHERE environment_id=? AND agent_id=? AND local_project_id=?"
             )
-            .get(environmentId, id);
+            .get(environmentId, agentId, id);
           if (existing) return String(existing.project_id);
+          if (outstanding >= LIMITS.managedProjectsPerAgent) invalid();
+          outstanding++;
           const projectId = randomUUID();
           db.prepare(
-            "INSERT INTO observed_projects(project_id,environment_id,local_project_id) VALUES (?,?,?)"
-          ).run(projectId, environmentId, id);
+            "INSERT INTO observed_projects(project_id,environment_id,local_project_id,agent_id) VALUES (?,?,?,?)"
+          ).run(projectId, environmentId, id, agentId);
           return projectId;
         });
       });
@@ -373,6 +395,7 @@ export function createObservationService(
         if (
           !row ||
           row.environment_id !== environmentId ||
+          row.agent_id !== environment(environmentId)?.agent_id ||
           row.local_project_id !== observation.localProjectId
         )
           invalid();

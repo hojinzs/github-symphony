@@ -477,9 +477,10 @@ it("stores bounded run summaries newest first while preserving local times and s
 it("rejects more than 100 projects across pages and accepts a later bounded recovery revision", async () => {
   const existing = project();
   await sessions.observe(identity, request([existing]));
-  const projects = Array.from({ length: 101 }, (_, i) =>
+  const projects = Array.from({ length: 100 }, (_, i) =>
     project(`capacity-${i}`)
   );
+  projects.push(existing);
   const revision = randomUUID();
   await sessions.observe(
     identity,
@@ -600,4 +601,112 @@ it("indexes a thousand scopes once and queries each environment once per project
     stringify.mockRestore();
     prepare.mockRestore();
   }
+});
+
+it("fences replacement enrollment identities and cached targets through partial inventory and restart", async () => {
+  const enrollment = compose();
+  const a = project();
+  await sessions.observe(identity, request([a]));
+  await enrollment.revoke(identity.environmentId);
+  const token = await enrollment.regenerateEnrollment(identity.environmentId);
+  identity = await enrollment.enroll({
+    protocolVersion: 1,
+    requestId: randomUUID(),
+    token: token.token,
+  });
+  const opened = await sessions.openSession(identity, {
+    protocolVersion: 1,
+    requestId: randomUUID(),
+    environmentId: identity.environmentId,
+    agentId: identity.agentId,
+    agentVersion: "replacement",
+    host: { hostname: "New host", os: "linux" },
+  });
+  sessionId = opened.sessionId;
+  sequence = 0;
+  const replacement = project();
+  expect(replacement.projectId).not.toBe(a.projectId);
+  const revision = randomUUID();
+  await sessions.observe(identity, request([replacement], revision, 0, 2));
+  expect(await observations.getProject(a.projectId)).toMatchObject({
+    managed: false,
+    fresh: false,
+    snapshotStale: true,
+    observation: { canonicalPath: "/prepared", process: { state: "running" } },
+  });
+  expect(
+    store.transaction(() =>
+      observations.resolveTarget(store.database, a.projectId)
+    )
+  ).toMatchObject({ managed: false, online: false });
+  await expect(
+    sessions.observe(identity, request([a], revision, 1, 2))
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  await sessions.observe(identity, request([], revision, 1, 2));
+  expect(await observations.getProject(replacement.projectId)).toMatchObject({
+    managed: true,
+    fresh: true,
+  });
+  store.close();
+  store = openFleetStore(root);
+  compose();
+  expect(
+    observations.identifyProjects(identity.environmentId, ["prepared"])
+  ).toEqual([replacement.projectId]);
+  expect(await observations.getProject(a.projectId)).toMatchObject({
+    managed: false,
+    fresh: false,
+  });
+  sessions.recoverAfterRestart();
+  const reopened = await sessions.openSession(identity, {
+    protocolVersion: 1,
+    requestId: randomUUID(),
+    environmentId: identity.environmentId,
+    agentId: identity.agentId,
+    agentVersion: "replacement",
+    host: { hostname: "New host", os: "linux" },
+  });
+  sessionId = reopened.sessionId;
+  sequence = 0;
+  await sessions.observe(identity, request([replacement]));
+  expect(
+    observations.identifyProjects(identity.environmentId, ["prepared"])
+  ).toEqual([replacement.projectId]);
+  expect(await observations.getProject(a.projectId)).toMatchObject({
+    managed: false,
+    fresh: false,
+  });
+});
+
+it("caps cumulative unpublished identities atomically while retaining published history", async () => {
+  const published = project("history");
+  await sessions.observe(identity, request([published]));
+  await sessions.observe(identity, request([]));
+  const pending = Array.from({ length: 99 }, (_, i) => `pending-${i}`);
+  const ids = observations.identifyProjects(identity.environmentId, pending);
+  expect(() =>
+    observations.identifyProjects(identity.environmentId, ["last", "overflow"])
+  ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+  expect(
+    observations.identifyProjects(identity.environmentId, pending)
+  ).toEqual(ids);
+  expect(
+    store.database
+      .prepare("SELECT count(*) AS n FROM observed_projects WHERE published=0")
+      .get()
+  ).toEqual({ n: 99 });
+  const last = project("last");
+  expect(() =>
+    observations.identifyProjects(identity.environmentId, ["overflow"])
+  ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+  expect(
+    observations.identifyProjects(identity.environmentId, ["history"])
+  ).toEqual([published.projectId]);
+  await sessions.observe(identity, request([last]));
+  expect(
+    observations.identifyProjects(identity.environmentId, ["overflow"])
+  ).toHaveLength(1);
+  expect(await observations.getProject(published.projectId)).toMatchObject({
+    managed: false,
+  });
 });

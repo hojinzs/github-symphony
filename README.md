@@ -1162,3 +1162,8 @@ The bundled `@gh-symphony/cli/management-agent` module exports
 `createInventorySnapshot` for the foreground runner and its authenticated
 `ProjectIdentityResolver` composition port. It publishes current redacted
 allowlist data after recovery; it does not buffer old inventory across outages.
+
+Fleet project UUIDs follow enrollment generations: replacement agents allocate new
+identities while earlier observations remain stale history. Same-agent reconnects
+retain UUIDs. Allocation caps outstanding unpublished identities at 100 per
+environment; see the fleet service README for migration and recovery behavior.

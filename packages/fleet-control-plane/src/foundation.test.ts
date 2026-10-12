@@ -85,7 +85,7 @@ describe("user-owned SQLite", () => {
       reopened.database.prepare("SELECT name FROM environments").get()
     ).toEqual({ name: "Host" });
     expect(reopened.database.prepare("PRAGMA user_version").get()).toEqual({
-      user_version: 4,
+      user_version: 5,
     });
     reopened.close();
   });
@@ -199,13 +199,13 @@ describe("migrations", () => {
       ).toBeUndefined();
       applyMigrations(db);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 4,
+        user_version: 5,
       });
     } finally {
       db.close();
     }
   });
-  it("upgrades a populated lifecycle v2 database to projection v4 without losing commands", () => {
+  it("upgrades a populated lifecycle v2 database to projection v5 without losing commands", () => {
     const db = new DatabaseSync(":memory:");
     try {
       applyMigrations(db, FLEET_MIGRATIONS.slice(0, 2));
@@ -217,7 +217,7 @@ describe("migrations", () => {
                 'click', '2026-10-09T12:00:00Z', '2026-10-09T12:00:30Z', 'accepted');`);
       applyMigrations(db);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 4,
+        user_version: 5,
       });
       expect(
         db.prepare("SELECT command_id, state FROM lifecycle_commands").get()
@@ -233,6 +233,41 @@ describe("migrations", () => {
       expect(
         db.prepare("SELECT count(*) AS n FROM lifecycle_commands").get()
       ).toEqual({ n: 1 });
+    } finally {
+      db.close();
+    }
+  });
+  it("retains v4 observations as fenced history and permits generation-scoped identities", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      applyMigrations(db, FLEET_MIGRATIONS.slice(0, 4));
+      db.exec(`INSERT INTO environments VALUES ('env', 'Host', 'enrolled', 'online', NULL);
+        INSERT INTO observed_projects VALUES ('old', 'env', 'local', 1, 1, '{"cached":true}', '2026-10-12T00:00:00Z');`);
+      applyMigrations(db);
+      expect(
+        db
+          .prepare(
+            "SELECT project_id, agent_id, observation, received_at FROM observed_projects"
+          )
+          .get()
+      ).toEqual({
+        project_id: "old",
+        agent_id: null,
+        observation: '{"cached":true}',
+        received_at: "2026-10-12T00:00:00Z",
+      });
+      db.exec(
+        `INSERT INTO observed_projects(project_id,environment_id,agent_id,local_project_id) VALUES ('new','env','replacement','local');`
+      );
+      expect(() =>
+        db.exec(
+          `INSERT INTO observed_projects(project_id,environment_id,agent_id,local_project_id) VALUES ('duplicate','env','replacement','local');`
+        )
+      ).toThrow("UNIQUE");
+      applyMigrations(db);
+      expect(
+        db.prepare("SELECT count(*) AS n FROM observed_projects").get()
+      ).toEqual({ n: 2 });
     } finally {
       db.close();
     }

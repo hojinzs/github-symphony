@@ -58,6 +58,24 @@ try {
   const agent = `packages/cli/dist/${chunk}`;
   const cases = [
     [
+      fleet + "observations.js",
+      "WHERE environment_id=? AND agent_id=? AND local_project_id=?",
+      "WHERE environment_id=? AND ? IS NOT NULL AND local_project_id=?",
+      "replacement enrollment allocates distinct project UUID",
+    ],
+    [
+      fleet + "observations.js",
+      "row.agent_id !== null &&\n            row.agent_id === env.agent_id &&",
+      "",
+      "replacement partial inventory cannot revive old host target",
+    ],
+    [
+      fleet + "observations.js",
+      "outstanding >= LIMITS.managedProjectsPerAgent",
+      "false",
+      "cumulative unpublished identity cap rejects overflow",
+    ],
+    [
       fleet + "enrollment.js",
       "connection = 'online', last_contact_at",
       "connection = 'awaiting-signal', last_contact_at",
@@ -113,7 +131,7 @@ try {
     ],
     [
       fleet + "observations.js",
-      "row.environment_id !== environmentId",
+      "row.environment_id !== environmentId ||\n                    row.agent_id !== environment(environmentId)?.agent_id",
       "false",
       "foreign environment project cannot overwrite state",
     ],

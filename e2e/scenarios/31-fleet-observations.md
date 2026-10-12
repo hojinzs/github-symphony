@@ -45,6 +45,11 @@ bounded reads, browser security and native-service slices. Existing regression
 suites remain in the full `pnpm test` gate; C06 does not claim native
 systemd/launchd, live UI, tracker scheduling or service isolation acceptance.
 
+The replacement enrollment path verifies new UUID allocation, stale/unmanaged
+retired targets during partial publication, and cumulative allocation overflow
+with capacity recovery after completing publication. Migration unit tests retain
+v4 cached rows with unknown generation and fence their identity reuse.
+
 The C06/C07 revocation boundary also verifies CP-11: cached observations survive
 credential/session deletion and new commands report `access_revoked`. Full
 enrollment authentication and native-process continuity remain C04/C05 ownership.
@@ -53,10 +58,11 @@ in #1050; CP-03 evidence here covers visible invalid inventory, not stop executi
 
 ## Results and fault sensitivity
 
-The scenario reaches 20 assertions. Eighteen isolated mutations in compiled
+The scenario reaches 24 assertions. Twenty-one isolated mutations in compiled
 fleet/session/enrollment/command/store artifacts and bundled agent artifacts prove
 first signal, partial/complete membership, duplicate rejection, rollback,
 invalidation, snapshot retention, page splitting, normalized scope warning,
+replacement-generation fencing, cumulative unpublished allocation capacity,
 identity fencing, receipt-based totals, cached offline process state, session
 fencing, unverified overlap, paging/cursors and allowlist removal assertions fail.
 Unit mutations additionally cover publisher identity validation, fresh allowlist

@@ -278,3 +278,17 @@ composition and native OS service acceptance are not supplied by these fixtures.
 Retained revoked projects return `access_revoked` for new command submissions.
 Enrollment and offline preconditions are checked before active-session UUIDs,
 since revocation intentionally deletes the session without deleting observations.
+
+Project UUIDs are scoped to environment, enrolled agent ID and canonical local
+project ID. Replacement enrollment creates new project identities; prior
+generation observations remain historical, unmanaged and stale, even during a
+partial replacement revision. Same-agent reconnects retain their UUIDs. Migration
+5 retains v4 history with an unknown generation and fences it until the current
+agent publishes newly allocated identities; it never infers ownership from a
+replacement credential.
+
+Identity allocation permits at most 100 outstanding unpublished mappings per
+environment across calls. Existing mappings and intentionally published history
+remain available at capacity. Overflow rolls back the entire allocation batch;
+completed publication releases pending capacity. Abandoned unpublished mappings
+from retired generations are reclaimed during allocation.

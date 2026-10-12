@@ -120,6 +120,29 @@ export const FLEET_MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE observed_projects RENAME TO observed_projects_v4;
+      CREATE TABLE observed_projects (
+        project_id TEXT PRIMARY KEY,
+        environment_id TEXT NOT NULL REFERENCES environments(id),
+        local_project_id TEXT NOT NULL,
+        managed INTEGER NOT NULL DEFAULT 0,
+        published INTEGER NOT NULL DEFAULT 0,
+        observation TEXT,
+        received_at TEXT,
+        agent_id TEXT,
+        UNIQUE(environment_id, agent_id, local_project_id)
+      );
+      -- v4 did not record enrollment generation. Retain history, never guess ownership.
+      INSERT INTO observed_projects
+        SELECT project_id, environment_id, local_project_id, managed, published,
+          observation, received_at, NULL FROM observed_projects_v4;
+      DROP TABLE observed_projects_v4;
+      CREATE INDEX observed_unpublished ON observed_projects(environment_id, published);
+    `,
+  },
 ];
 
 /** A whole migration batch and its schema version commit together. */
