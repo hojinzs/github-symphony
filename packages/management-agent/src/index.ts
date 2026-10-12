@@ -18,8 +18,22 @@ export type {
 } from "./lifecycle.js";
 export { CliProcess, projectEnvironment } from "./cli-process.js";
 export type { CliInvocation, CliProcessOptions } from "./cli-process.js";
+export {
+  createAgentTransport,
+  AgentTransportError,
+  agentServerOrigin,
+  enrollAgent,
+} from "./transport.js";
+export type { TransportOptions } from "./transport.js";
+
 export { LocalReadAdapter } from "./local-read.js";
 export type {
   LocalReadRuntime,
   LocalReadRuntimeResolver,
 } from "./local-read.js";
+export {
+  runForegroundAgent,
+  reconnectDelay,
+  observationPages,
+} from "./foreground.js";
+export type { ForegroundOptions } from "./foreground.js";

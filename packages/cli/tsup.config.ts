@@ -9,6 +9,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "management-local": "src/management-local.ts",
+    "management-agent": "src/management-agent.ts",
     "worker-entry": "src/worker-entry.ts",
     "mcp-server": "src/mcp-server.ts",
     "git-credential-helper": "src/git-credential-helper.ts",
@@ -22,6 +23,7 @@ export default defineConfig({
     entry: {
       index: "src/index.ts",
       "management-local": "src/management-local.ts",
+      "management-agent": "src/management-agent.ts",
     },
   },
   banner: {

@@ -29,6 +29,12 @@ export {
   type BrowserSession,
 } from "./browser-security.js";
 export {
+  createSessionService,
+  SESSION_LIFETIME_MS,
+  type SessionService,
+  type SessionOptions,
+} from "./sessions.js";
+export {
   createCommandService,
   type CommandService,
   type CommandOptions,
