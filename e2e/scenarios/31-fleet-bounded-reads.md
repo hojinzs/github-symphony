@@ -19,11 +19,13 @@ The actual C09 AgentRegistry/LocalReadAdapter reads real run metadata and files.
 No read implementation is mocked. The optional C06 projection hook persists
 only validated summaries in an independent fixture table.
 
-Every acceptance assertion prints a `reached:` marker. The seven forbidden
+Every acceptance assertion prints a `reached:` marker. The nineteen forbidden
 condition probes copy compiled artifacts outside the checkout, alter one
 condition, and require both a reached marker and the named assertion failure.
-Probes cover CSRF bypass, expiry drift, excessive retention, hidden historical
-state, offline admission, false empty missing-log success, and lost reset state.
+Every listed acceptance assertion has a matching forbidden-condition probe.
+Most alter copied service artifacts; the cached-history survival probe plants
+physical loss of the independent peer fixture table in the copied runner.
+This proves the cache-survival assertion executes and rejects lost history.
 
 | Case                                | Expected result                                                                    |
 | ----------------------------------- | ---------------------------------------------------------------------------------- |

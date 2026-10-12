@@ -92,20 +92,111 @@ try {
       "rotation reset preserved",
       "reset",
     ],
+    [
+      "read-routes",
+      "selection = readSelectionSchema.parse(request.body);",
+      'selection = request.body?.stream === "../../secret" ? {kind:"runs",limit:1} : readSelectionSchema.parse(request.body);',
+      "arbitrary stream rejected",
+    ],
+    [
+      "reads",
+      "options.receiveRunSummaries) {",
+      "false) {",
+      "projection receives cached summaries",
+    ],
+    [
+      "reads",
+      "pending.some((e) => e.request.projectId === projectId)",
+      "false",
+      "one pending read per project",
+    ],
+    [
+      "reads",
+      "!current?.online ||",
+      "false ||",
+      "offline pending detail is unavailable",
+    ],
+    [
+      "runner",
+      'db.prepare("SELECT count(*) AS n FROM fixture_history").get().n === 1',
+      '(db.prepare("DELETE FROM fixture_history").run(), db.prepare("SELECT count(*) AS n FROM fixture_history").get().n === 1)',
+      "restart preserves summaries without durable raw logs",
+    ],
+    [
+      "reads",
+      'historical: true,\n                    result: {\n                        readId: id,\n                        state: "unavailable",',
+      'historical: true,\n                    result: {\n                        readId: id,\n                        state: c10Instances > 1 ? "expired" : "unavailable",',
+      "restart makes unknown reads unavailable",
+      "restart",
+    ],
+    [
+      "reads",
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      "bounded safe run summaries bypass lifecycle slot",
+      'if(entry.result.state === "completed" && entry.result.payload.kind === "runs") entry.result.payload.runs = [];',
+    ],
+    [
+      "reads",
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      "known run detail",
+      'if(entry.result.state === "completed" && entry.result.payload.kind === "run-detail") entry.result.payload.runId = "wrong";',
+    ],
+    [
+      "reads",
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      "bounded log chunk",
+      'if(entry.result.state === "completed" && entry.result.payload.kind === "log-chunk" && entry.result.payload.text === "abcd") entry.result.payload.text = "bad";',
+    ],
+    [
+      "reads",
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      "append follows byte cursor",
+      'if(entry.result.state === "completed" && entry.result.payload.kind === "log-chunk" && entry.result.payload.text === "efgh") entry.result.payload.text = "bad";',
+    ],
+    [
+      "reads",
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      "truncation reset preserved",
+      'if(entry.result.state === "completed" && entry.result.payload.kind === "log-chunk" && entry.result.payload.text === "x") entry.result.payload.reset = false;',
+    ],
+    [
+      "reads",
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      'entry.result = readResultSchema.parse(result.state === "completed"',
+      "traversal is unavailable",
+      'if(entry.result.state === "unavailable" && entry.request.selection.kind === "run-detail" && entry.request.selection.runId === "../secret") entry.result = {readId:entry.request.readId,state:"completed",completedAt:receivedAt,payload:{kind:"run-detail",runId:"../secret",detail:{}}};',
+    ],
   ];
   for (const [module, old, replacement, label, inject] of cases) {
-    const path = join(dir, "packages/fleet-control-plane/dist", `${module}.js`);
+    const path =
+      module === "runner"
+        ? join(dir, "e2e/fleet-reads-e2e.mjs")
+        : join(dir, "packages/fleet-control-plane/dist", `${module}.js`);
     const original = readFileSync(path, "utf8");
     assert.ok(original.includes(old), `mutation anchor ${label}`);
     let mutated = original.replace(old, replacement);
-    if (inject) {
+    if (inject === "restart") {
+      mutated =
+        "let c10Instances = 0;\n" +
+        mutated.replace(
+          "const maximumEntries =",
+          "c10Instances++; const maximumEntries ="
+        );
+    } else if (inject) {
       const anchor =
         "                entry.retainUntil = now().getTime() + LIMITS.completedReadRetentionMs;";
       assert.ok(mutated.includes(anchor));
       const planted =
         inject === "reset"
           ? 'if (entry.result.state === "completed" && entry.result.payload.kind === "log-chunk") entry.result.payload.reset = false;'
-          : 'if (entry.result.state === "unavailable" && entry.request.selection.kind === "log-chunk") entry.result = {readId: entry.request.readId, state:"completed", completedAt:receivedAt, payload:{kind:"log-chunk",runId:entry.request.selection.runId,stream:entry.request.selection.stream,text:"",cursor:"forbidden",reset:false,eof:true}};';
+          : inject === "missing"
+            ? 'if (entry.result.state === "unavailable" && entry.request.selection.kind === "log-chunk") entry.result = {readId: entry.request.readId, state:"completed", completedAt:receivedAt, payload:{kind:"log-chunk",runId:entry.request.selection.runId,stream:entry.request.selection.stream,text:"",cursor:"forbidden",reset:false,eof:true}};'
+            : inject;
       mutated = mutated.replace(anchor, planted + "\n" + anchor);
     }
     try {

@@ -75,7 +75,7 @@ expired or revoked values fail closed. GET/HEAD resolves the private listener's
 local-owner read boundary; the consumer must keep that listener private.
 
 Defaults are eight hours and 256 sessions. Typed options allow lifetimes from
-one second through seven days and registry sizes from 1 through 10,000. Sessions
+one second through nineteen days and registry sizes from 1 through 10,000. Sessions
 are bounded in memory and disappear on restart; SQLite enrollment survives.
 At capacity, issuing a session evicts the oldest live session, whose next request
 fails as unauthenticated. Repeated issuance by anyone with listener access can
@@ -262,6 +262,6 @@ projection remains C06-owned; independent SQLite fixture tables exercise this
 boundary while that sibling is unavailable.
 
 [TC-31](../../e2e/scenarios/31-fleet-bounded-reads.md) describes the built-service
-HTTPS/C04/C05/C09 contract and seven forbidden-condition probes. Run
+HTTPS/C04/C05/C09 contract and nineteen forbidden-condition probes. Run
 `node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs` after
 `pnpm build`, or `./e2e/run-fleet-reads-e2e.sh` for Linux Docker.

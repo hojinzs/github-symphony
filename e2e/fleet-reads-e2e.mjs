@@ -311,7 +311,7 @@ try {
     JSON.parse(
       db
         .prepare("SELECT runs FROM fixture_history WHERE project_id=?")
-        .get(project).runs
+        .get(project)?.runs ?? "[]"
     ).length === 1,
     "projection receives cached summaries"
   );
