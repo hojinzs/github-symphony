@@ -108,3 +108,25 @@ it("renders applied and pending independently with an honest restart warning", a
   ).toContain("Pending: none");
   expect(renderOtlpStatus(undefined)).toEqual([]);
 });
+
+it("rejects disabled and SDK-vetoed shared credentials without reading values", async () => {
+  const secretRead = vi.fn(() => {
+    throw new Error("credential read");
+  });
+  const environment = { OTEL_SDK_DISABLED: "true" };
+  Object.defineProperty(environment, "OPENAI_API_KEY", {
+    get: secretRead,
+    enumerable: true,
+  });
+  for (const enabled of [false, true]) {
+    await expect(
+      inspectOtlp(
+        { ...policy()!, enabled, authReferenceNames: ["OPENAI_API_KEY"] },
+        environment,
+        true,
+        vi.fn()
+      )
+    ).rejects.toThrow("conflicts with agent/tracker authentication");
+  }
+  expect(secretRead).not.toHaveBeenCalled();
+});

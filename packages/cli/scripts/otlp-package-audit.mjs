@@ -60,7 +60,7 @@ function run(command, args, options = {}) {
 }
 async function checked(command, args, options) {
   const result = await run(command, args, options);
-  assert.equal(result.code, 0, result.stderr || result.stdout);
+  assert.equal(result.code, 0, result.stderr + result.stdout);
   return result.stdout;
 }
 async function bytes(directory) {
@@ -113,11 +113,26 @@ async function install(tarball, name) {
 }
 const server = createServer((request, response) => {
   requests++;
-  request.resume();
-  response.writeHead(200);
-  response.end();
+  const body = [];
+  request.on("data", (chunk) => body.push(chunk));
+  request.on("end", () => {
+    receipts.push({
+      path: request.url,
+      authorization: request.headers.authorization,
+      body: Buffer.concat(body),
+    });
+    setTimeout(
+      () => {
+        response.writeHead(200);
+        response.end();
+      },
+      receiverMode === "slow" ? 100 : 0
+    );
+  });
 });
 let requests = 0;
+let receiverMode = "healthy";
+const receipts = [];
 await new Promise((resolveListen) =>
   server.listen(0, "127.0.0.1", resolveListen)
 );
@@ -132,10 +147,10 @@ await writeFile(join(project, ".env"), "AUDIT_AUTH=Bearer audit-secret\n", {
   mode: 0o600,
 });
 await checked("git", ["init", project]);
-async function workflow(policy = "enabled: false") {
+async function workflow(policy = "enabled: false", destination = endpoint) {
   await writeFile(
     join(project, "WORKFLOW.md"),
-    `---\ntracker:\n  kind: file\n  provider:\n    project_slug: audit/repo\n    path: ${join(root, "issues.json")}\npolling:\n  interval_ms: 100\nhooks:\n  after_create: hooks/after_create.sh\nrepository:\n  slug: audit/repo\n  clone_url: file://${project}\nworkspace:\n  root: ${join(project, "work")}\nobservability:\n  otlp:\n    ${policy}\n    endpoint: ${endpoint}\n    headers:\n      Authorization: $AUDIT_AUTH\n---\nAudit.\n`
+    `---\ntracker:\n  kind: file\n  provider:\n    project_slug: audit/repo\n    path: ${join(root, "issues.json")}\npolling:\n  interval_ms: 100\nhooks:\n  after_create: hooks/after_create.sh\nrepository:\n  slug: audit/repo\n  clone_url: file://${project}\nworkspace:\n  root: ${join(project, "work")}\n${policy === null ? "" : `observability:\n  otlp:\n    ${policy}\n    endpoint: ${destination}\n    headers:\n      Authorization: $AUDIT_AUTH\n`}---\nAudit.\n`
   );
 }
 const observer = join(root, "observer.mjs");
@@ -203,6 +218,7 @@ try {
   );
   assert.equal(requests, 0, "Disabled startup connected to receiver");
   for (const [policy, veto] of [
+    [null, false],
     ["", false],
     ["enabled: false", false],
     ["enabled: true", true],
@@ -365,6 +381,103 @@ try {
     assert.ok(transportCalls > 0, `${mode} receiver was never exercised`);
   }
   reached("healthy slow down synchronous offer measurement");
+  const tickMeasurements = {};
+  const runtimeAudit = new URL("./otlp-runtime-audit.mjs", import.meta.url);
+  const cliVersion = JSON.parse(await readFile("package.json", "utf8")).version;
+  for (const [name, build] of Object.entries({ baseline, candidate })) {
+    await workflow();
+    const before = requests;
+    const output = await checked(process.execPath, [
+      runtimeAudit.pathname,
+      build.dist,
+      join(root, `config-${name}`),
+      "disabled",
+      cliVersion,
+    ]);
+    tickMeasurements[`${name}-disabled`] = JSON.parse(
+      output.match(/TICK_REPORT=(.+)/)[1]
+    );
+    assert.equal(requests, before);
+  }
+  for (const mode of ["healthy", "slow", "down"]) {
+    receiverMode = mode;
+    receipts.length = 0;
+    await workflow(
+      "enabled: true",
+      mode === "down" ? "http://127.0.0.1:1" : endpoint
+    );
+    const output = await checked(process.execPath, [
+      runtimeAudit.pathname,
+      candidate.dist,
+      join(root, "config-candidate"),
+      mode,
+      cliVersion,
+    ]);
+    tickMeasurements[mode] = JSON.parse(output.match(/TICK_REPORT=(.+)/)[1]);
+    assert.ok(output.includes("TICK_REPORT="));
+    if (mode === "healthy")
+      assert.ok(output.includes("reached: packed pending"));
+    if (mode !== "down") {
+      for (const signal of ["logs", "metrics"]) {
+        const receipt = receipts.find(
+          (value) => value.path === `/v1/${signal}` && value.body.length > 0
+        );
+        assert.ok(receipt, `Packaged ${signal} export never reached receiver`);
+        assert.equal(receipt.authorization, "Bearer audit-secret");
+        assert.ok(
+          receipt.body.includes(Buffer.from(cliVersion)),
+          "CLI version missing from resource"
+        );
+        assert.equal(receipt.body.includes(Buffer.from("audit-secret")), false);
+      }
+    }
+  }
+  receiverMode = "healthy";
+  await workflow("enabled: true");
+  const enabledStart = await run(process.execPath, [
+    candidate.entry,
+    "--config",
+    join(root, "config-candidate"),
+    "project",
+    "start",
+    "--once",
+    "--project-dir",
+    project,
+  ]);
+  if (process.argv[6] === "--production-cli") {
+    assert.equal(
+      enabledStart.code,
+      0,
+      enabledStart.stdout + enabledStart.stderr
+    );
+    assert.equal(
+      (enabledStart.stdout + enabledStart.stderr).includes("audit-secret"),
+      false
+    );
+    const status = JSON.parse(
+      await checked(process.execPath, [
+        candidate.entry,
+        "--config",
+        join(root, "config-candidate"),
+        "--json",
+        "project",
+        "status",
+        "--project-dir",
+        project,
+      ])
+    );
+    assert.equal(status.telemetry.enabled, true);
+  } else {
+    assert.notEqual(enabledStart.code, 0);
+    assert.ok(
+      (enabledStart.stdout + enabledStart.stderr).includes("unsupported"),
+      enabledStart.stdout + enabledStart.stderr
+    );
+  }
+  reached(
+    "packed complete pipeline, reload and 30-sample reconciliation tick audits"
+  );
+
   const summarize = (build, values) => ({
     tarballBytes: build.tarballBytes,
     installedBytes: build.installedBytes,
@@ -396,13 +509,14 @@ try {
     candidate: current,
     measurements,
     offer,
+    tickMeasurements,
     gates,
     disabledLoadedModules: (await readFile(modules, "utf8")).trim().split("\n"),
   };
   await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n");
   console.log(
     JSON.stringify(
-      { baseline: base, candidate: current, offer, gates },
+      { baseline: base, candidate: current, offer, tickMeasurements, gates },
       null,
       2
     )

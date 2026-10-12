@@ -796,18 +796,35 @@ values from leaking into new runs.
 | `SYMPHONY_CUMULATIVE_TOTAL_TOKENS`    | `0` on fresh worker start     | Worker/runtime | Internal          | Cumulative total tokens.                                  |
 | `SYMPHONY_LAST_TURN_SUMMARY`          | cleared on fresh worker start | Worker/runtime | Internal          | Last turn summary used for continuation/recovery context. |
 
-### OTLP workflow policy (exporter support pending)
+<a id="otlp-workflow-policy-exporter-support-pending"></a>
+
+### OTLP workflow policy
 
 The optional `observability.otlp` mapping is parsed structurally by the shared
 workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
 enable export. The orchestrator contains a pinned official Logs SDK and bounded
-HTTP/protobuf Logs and Metrics pipelines. Production activation remains gated
-until packaged/performance audits pass: independently deployed H rejects enabled
-startup with an explicit unsupported-capability error before loading the SDK.
-The CLI reports this failure once, drains the service, releases its locks and
-exits with code 1; it does not retry rejected startup.
-An internal startup capability defaults off; there is no user-facing flag or
-environment override. Tests can inject providers without enabling production.
+HTTP/protobuf Logs and Metrics pipelines. The audited CLI startup supplies H's
+existing internal production capability and the CLI release version, permitting
+normal YAML enablement. Independent library owners still default to rejection
+before SDK loading; no runtime interface changed. A release with a failing packed
+or performance gate must retain the CLI rejection behavior. Startup construction
+failures report once, drain the service, release locks and exit with code 1.
+There is no user-facing activation flag or environment override. Tests can inject
+providers without enabling production.
+
+```yaml
+observability:
+  otlp:
+    enabled: true
+    endpoint: http://127.0.0.1:4318
+    headers:
+      Authorization: $COLLECTOR_AUTH
+```
+
+Set `COLLECTOR_AUTH` in the project's protected `.env` or process environment;
+use a dedicated name distinct from tracker/agent credentials. Logs and Metrics
+share the general endpoint, appending `/v1/logs` and `/v1/metrics`. `OTEL_SDK_DISABLED=true`
+vetoes enabled policy. Omitted policy or omitted/false enablement never loads the SDK.
 The SDK-free owner resolver remains a separate helper; shared loading never calls
 it. Optional
 SDK-free post-persistence publication hooks default to no-op and add no CLI
@@ -835,7 +852,7 @@ Committed project status and `/api/v1/state` have an additive `telemetry` field:
 `dropped` counts. Endpoint/protocol/header names and validated resource metadata
 are visible; header values and remote error bodies are excluded. Exporter health
 never changes coordination `lastError`. Existing CLI JSON status preserves the
-extension; formatted CLI diagnostics and activation audits are delivered in I.
+extension; single-shot and TTY-watch CLI status render applied/pending settings and restart warnings.
 
 Shutdown closes offers and stops both signal timers, flushing providers
 concurrently with one shared deadline of at most five seconds. Expired requests
@@ -1011,8 +1028,9 @@ trust boundary applies; metadata projection does not redact arbitrary log text.
 OTLP CLI validation uses the managed project's effective environment with the
 same resolver as startup. `doctor --otlp-probe` connects only when
 `observability.otlp.enabled` is true and `OTEL_SDK_DISABLED` does not veto it;
-plain `doctor` validates without OTLP connections. Probe requests have a 3s budget
+plain `doctor` validates without OTLP connections. Credential ownership is checked
+before reading values, including disabled policies; shared agent/tracker auth
+references fail. Resource bounds and reserved metadata match startup validation. Probe requests have a 3s budget
 per signal and report HTTP outcomes, never credentials or Collector response
 bodies. Pending settings reported by `project status` require restart; the
-applied exporter continues until then. Production activation remains gated until
-the CLI packaged audit is complete.
+applied exporter continues until then. The audited CLI supplies the internal startup capability; the library default remains off.

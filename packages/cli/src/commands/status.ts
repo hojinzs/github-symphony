@@ -429,6 +429,14 @@ const handler = async (
                 lastTickLabel: relativeTime(snapshot.lastTickAt),
               },
             }) +
+            "\n" +
+            renderOtlpStatus(
+              (
+                snapshot as ProjectStatusSnapshot & {
+                  telemetry?: Parameters<typeof renderOtlpStatus>[0];
+                }
+              ).telemetry
+            ).join("\n") +
             "\n"
         );
       }

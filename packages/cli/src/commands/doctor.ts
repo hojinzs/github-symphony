@@ -81,6 +81,8 @@ import {
 } from "./workflow.js";
 import { commandExistsOnPath } from "../utils/command-exists-on-path.js";
 
+declare const __CLI_VERSION__: string;
+
 type DoctorStatus = "pass" | "warn" | "fail";
 type DoctorRemediationStatus = "applied" | "skipped" | "manual";
 
@@ -2296,7 +2298,33 @@ export async function runDoctorDiagnostics(
             )
           : process.env,
         parsedArgs.otlpProbe,
-        deps.fetchImpl
+        deps.fetchImpl,
+        {
+          trackerSecretNames: [
+            ...(resolveWorkflowConfigTrackerAdapter(
+              workflow.workflow.tracker.kind ?? ""
+            )?.secretEnvironmentNames() ?? []),
+            ...(resolvedProjectConfig.kind === "resolved"
+              ? resolveTrackerAdapter(
+                  resolvedProjectConfig.projectConfig.tracker
+                ).secretEnvironmentNames()
+              : []),
+          ],
+          runtimeAuthName: workflow.workflow.runtime?.auth.env ?? undefined,
+          resourceIdentity: {
+            "service.version": __CLI_VERSION__,
+            ...(resolvedProjectConfig.kind === "resolved"
+              ? {
+                  "symphony.project.id":
+                    resolvedProjectConfig.projectConfig.projectId,
+                  "symphony.project.slug":
+                    resolvedProjectConfig.projectConfig.slug,
+                  "symphony.tracker.kind":
+                    resolvedProjectConfig.projectConfig.tracker.adapter,
+                }
+              : {}),
+          },
+        }
       );
       const failed = Object.values(details.probe).some(
         (value) => !/^HTTP 2\d\d$/.test(value)

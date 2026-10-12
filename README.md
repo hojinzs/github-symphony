@@ -201,14 +201,17 @@ values through this surface.
 
 ### Observability Surfaces
 
-Optional `observability.otlp` workflow policy is parsed without activating export.
+Optional `observability.otlp` workflow policy defaults to disabled. Set
+`enabled: true` with an HTTP/protobuf endpoint to export Logs and Metrics through
+the audited CLI pipeline. Ambient `OTEL_*` settings alone do not activate export.
 The orchestrator validates enabled transport settings before dispatch and excludes
 exporter credentials from workers and hooks. Exporter auth references must use
 separate names from agent/tracker credentials, even when OTLP is disabled.
 Durable local events and committed status remain authoritative; publication
-failures cannot fail a tick or mark coordination unhealthy. Production enablement
-is explicitly unsupported until packaged audits pass. Rejected startup reports
-the error once and exits with code 1, releasing locks and stopping the service.
+failures cannot fail a tick or mark coordination unhealthy. CLI startup supplies
+the internal capability and release version after clean-install/performance gates;
+independent library owners retain the default rejection guard. Construction
+failures report once and exit with code 1, releasing locks and stopping the service.
 Valid OTLP edits require
 restart; additive JSON status reports applied versus pending settings and safe
 exporter health separately from coordination errors. See the
@@ -1139,4 +1142,4 @@ safety, restart semantics and the production activation gate.
 
 For reproducible clean-install startup/RSS and healthy/slow/down offer measurements,
 see the [packed OTLP performance audit](packages/cli/README.md#packed-otlp-performance-audit).
-Production export remains gated until all packaged runtime acceptance checks pass.
+The audited CLI enables the complete Logs/Metrics pipeline through normal YAML policy.

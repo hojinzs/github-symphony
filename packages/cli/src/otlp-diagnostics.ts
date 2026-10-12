@@ -1,5 +1,6 @@
 import {
   resolveOtlpConfiguration,
+  isAgentChildCredentialEnvironmentName,
   type WorkflowOtlpPolicy,
   type OtlpSafeDescriptor,
 } from "@gh-symphony/core";
@@ -9,9 +10,62 @@ export async function inspectOtlp(
   policy: WorkflowOtlpPolicy | null | undefined,
   environment: NodeJS.ProcessEnv,
   probe = false,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  owner: {
+    trackerSecretNames?: readonly string[];
+    runtimeAuthName?: string;
+    resourceIdentity?: Record<string, string>;
+  } = {}
 ) {
+  // Match H's name-only startup check before reading values or contacting a
+  // receiver. Keep this CLI diagnostic boundary SDK-free and package-local.
+  const names = new Set(policy?.authReferenceNames ?? []);
+  const required = new Set([
+    ...(owner.trackerSecretNames ?? []),
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "SYMPHONY_ORCHESTRATOR_TOKEN",
+    ...(owner.runtimeAuthName ? [owner.runtimeAuthName] : []),
+  ]);
+  for (const name of new Set([...names, ...required])) {
+    if (
+      (names.has(name) &&
+        (required.has(name) || isAgentChildCredentialEnvironmentName(name))) ||
+      (required.has(name) &&
+        /^OTEL_EXPORTER_OTLP_(?:(?:LOGS|METRICS|TRACES)_)?(?:HEADERS|CLIENT_KEY|CLIENT_CERTIFICATE)$/.test(
+          name
+        ))
+    ) {
+      throw new Error(
+        "Exporter credential reference conflicts with agent/tracker authentication"
+      );
+    }
+  }
   const resolved = resolveOtlpConfiguration(policy, environment);
+  if (resolved.enabled) {
+    const reserved: Record<string, string> = {
+      "service.name": "gh-symphony",
+      ...owner.resourceIdentity,
+    };
+    const custom = resolved.resourceAttributes;
+    if (
+      Object.keys(custom).filter((key) => !Object.hasOwn(reserved, key))
+        .length > 16
+    )
+      throw new Error("OTLP resource permits at most 16 custom attributes");
+    for (const [key, value] of Object.entries(custom)) {
+      if (
+        key === "service.instance.id" ||
+        (Object.hasOwn(reserved, key) &&
+          reserved[key as keyof typeof reserved] !== value) ||
+        /(?:^|\.)(?:issue|run|session|turn)(?:\.|$)/i.test(key)
+      ) {
+        throw new Error(
+          "OTLP custom resource attribute is invalid or reserved"
+        );
+      }
+    }
+  }
   const outcomes: Partial<Record<"logs" | "metrics", string>> = {};
   if (probe && resolved.enabled) {
     await Promise.all(
