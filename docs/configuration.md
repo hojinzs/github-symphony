@@ -1029,3 +1029,28 @@ without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
 Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
+
+### Linux agent service adapter (C11)
+
+`LinuxServiceConfig` supplies absolute `homeDirectory`, `nodePath`, `entryPath`,
+`configPath` and `dataDirectory`. The trusted shared composition entry implements
+`--config`, `--data-dir` and `--native-service=linux`; C13 owns public CLI routing.
+No credential is serialized into the unit. The data directory must already exist
+with mode 0700. Unit/parent paths reject symlinks, foreign ownership and writable
+group/other directories; an existing definition must exactly match the requested
+configuration. Installation resumes saved identity and never reenrolls.
+
+`LinuxAgentService` defaults to absolute `/usr/bin/systemctl` and
+`/usr/bin/loginctl`; alternative absolute tool paths are trusted local options.
+Systemd 254+ and a reachable user manager are required. Disabled/unknown linger
+limits startup after boot/logout; enabling linger is an explicit operator action.
+The agent unit uses five-second failure restart delay and five-start/minute limits.
+
+`createLinuxProjectLaunchContext` defaults to `/usr/bin/systemd-run`, requires
+cgroup v2 and execution from inside the agent unit, and consumes the C03 trusted
+launch request/deadline. Pass saved credentials through `managementCredentials`
+to strip value aliases as well as management/broker names. Sanitized project
+environment values are transferred by name; manager-only variables are explicitly
+unset. No new environment-variable configuration is introduced. The runner,
+platform and control-group readers are OS fixture seams; production must use
+actual host defaults. Uninstall preserves all agent and project runtime data.

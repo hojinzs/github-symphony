@@ -1,0 +1,215 @@
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import {
+  LinuxAgentService,
+  renderLinuxAgentUnit,
+  type LinuxServiceConfig,
+} from "./linux-service.js";
+import {
+  runSystemd,
+  type SystemdCommand,
+  type SystemdRunner,
+} from "./linux-systemd.js";
+
+let root: string;
+let config: LinuxServiceConfig;
+let calls: SystemdCommand[];
+let fail: string;
+let linger: string;
+const peer: SystemdRunner = async (command) => {
+  calls.push(command);
+  if (command.args.includes(fail))
+    return { exitCode: 1, stdout: "private peer diagnostic" };
+  if (command.args.includes("--version"))
+    return { exitCode: 0, stdout: "systemd 254\n" };
+  if (command.args.includes("show-user"))
+    return { exitCode: 0, stdout: linger };
+  if (command.args.includes("show"))
+    return { exitCode: 0, stdout: "LoadState=loaded\nActiveState=active\n" };
+  return { exitCode: 0, stdout: "" };
+};
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "linux-service-"));
+  config = {
+    homeDirectory: root,
+    nodePath: process.execPath,
+    entryPath: join(root, 'entry % " $HOME.mjs'),
+    configPath: join(root, "agent config.json"),
+    dataDirectory: join(root, "agent-data"),
+  };
+  await writeFile(
+    config.entryPath,
+    "// independently supplied service entrypoint"
+  );
+  await writeFile(config.configPath, "{}");
+  await mkdir(config.dataDirectory, { mode: 0o700 });
+  await writeFile(
+    join(config.dataDirectory, "registry.json"),
+    "saved-identity",
+    { mode: 0o600 }
+  );
+  calls = [];
+  fail = "never";
+  linger = "yes\n";
+});
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+function service() {
+  return new LinuxAgentService(config, { runner: peer, platform: "linux" });
+}
+
+it("renders user-only absolute invocation without systemd argument expansion", () => {
+  const unit = renderLinuxAgentUnit(config);
+  expect(unit).toContain('ExecStart=:"');
+  expect(unit).toContain('entry %% \\" $HOME.mjs"');
+  expect(unit).toContain('"--data-dir"');
+  expect(unit).toContain('"--native-service=linux"');
+  expect(unit).toContain("WantedBy=default.target");
+  expect(unit).toContain("KillMode=control-group");
+  expect(unit).toContain("RestartSec=5s");
+  expect(unit).not.toMatch(/PartOf=|BindsTo=|registry.json|saved-identity/);
+});
+it("rejects relative and control-character service paths", () => {
+  for (const key of [
+    "homeDirectory",
+    "nodePath",
+    "entryPath",
+    "configPath",
+    "dataDirectory",
+  ] as const) {
+    for (const invalid of ["relative", "/bad\nInjected=yes", "/bad\0path"]) {
+      expect(() => renderLinuxAgentUnit({ ...config, [key]: invalid })).toThrow(
+        /absolute|control/
+      );
+    }
+  }
+});
+it("diagnoses unavailable managers and explicit linger limits without elevation", async () => {
+  linger = "no\n";
+  expect(await service().diagnose()).toMatchObject({
+    supported: true,
+    linger: "disabled",
+    limitations: [expect.stringMatching(/loginctl enable-linger/)],
+  });
+  fail = "show-user";
+  expect((await service().diagnose()).linger).toBe("unknown");
+  fail = "show";
+  expect((await service().diagnose()).supported).toBe(false);
+  expect(calls.every((c) => !c.args.includes("enable-linger"))).toBe(true);
+  expect(
+    (
+      await new LinuxAgentService(config, {
+        runner: peer,
+        platform: "darwin",
+      }).diagnose()
+    ).supported
+  ).toBe(false);
+});
+it("recovers installation after start failure without rewriting identity", async () => {
+  const adapter = service();
+  fail = "start";
+  await expect(adapter.install()).rejects.toThrow(/start/);
+  expect(
+    await readFile(join(config.dataDirectory, "registry.json"), "utf8")
+  ).toBe("saved-identity");
+  const installed = await readFile(adapter.unitPath, "utf8");
+  fail = "never";
+  expect((await adapter.install()).supported).toBe(true);
+  expect(await readFile(adapter.unitPath, "utf8")).toBe(installed);
+  expect(await adapter.status()).toEqual({ installed: true, active: true });
+});
+it("rejects conflicting definitions and unsafe unit paths before effects", async () => {
+  const adapter = service();
+  await mkdir(join(root, ".config/systemd/user"), {
+    recursive: true,
+    mode: 0o700,
+  });
+  await writeFile(adapter.unitPath, "foreign-unit", { mode: 0o600 });
+  await expect(adapter.install()).rejects.toThrow(/conflict/);
+  expect(await readFile(adapter.unitPath, "utf8")).toBe("foreign-unit");
+  expect(calls.some((c) => c.args.includes("enable"))).toBe(false);
+  await rm(adapter.unitPath);
+  await symlink(config.configPath, adapter.unitPath);
+  await expect(adapter.install()).rejects.toThrow(/regular|unsafe/);
+  await rm(adapter.unitPath);
+  await chmod(join(root, ".config/systemd/user"), 0o777);
+  await expect(adapter.install()).rejects.toThrow(/private|unsafe/);
+});
+it("targets only the owned agent and preserves all data on uninstall", async () => {
+  const adapter = service();
+  await adapter.install();
+  calls = [];
+  await adapter.stop();
+  await adapter.restart();
+  await adapter.start();
+  await adapter.uninstall();
+  expect(
+    calls
+      .filter((c) =>
+        c.args.some((a) => ["start", "stop", "restart", "disable"].includes(a))
+      )
+      .map((c) => c.args)
+  ).toEqual([
+    ["--user", "stop", "gh-symphony-agent.service"],
+    ["--user", "restart", "gh-symphony-agent.service"],
+    ["--user", "start", "gh-symphony-agent.service"],
+    ["--user", "stop", "gh-symphony-agent.service"],
+    ["--user", "disable", "gh-symphony-agent.service"],
+  ]);
+  expect(
+    await readFile(join(config.dataDirectory, "registry.json"), "utf8")
+  ).toBe("saved-identity");
+  await expect(readFile(adapter.unitPath)).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+  expect((await adapter.status()).installed).toBe(false);
+  await adapter.uninstall();
+});
+it("refuses lifecycle operations on a replaced unit", async () => {
+  const adapter = service();
+  await adapter.install();
+  await writeFile(adapter.unitPath, "replacement", { mode: 0o600 });
+  calls = [];
+  await expect(adapter.stop()).rejects.toThrow(/conflict/);
+  await expect(adapter.uninstall()).rejects.toThrow(/conflict/);
+  expect(calls).toEqual([]);
+});
+it("bounds subprocess output, deadlines and spawn failure without leaking stderr", async () => {
+  expect(
+    await runSystemd({
+      executable: process.execPath,
+      args: ["-e", 'console.log("ok");console.error("private")'],
+    })
+  ).toEqual({ exitCode: 0, stdout: "ok\n" });
+  expect(
+    (
+      await runSystemd({
+        executable: process.execPath,
+        args: ["-e", 'console.log("x".repeat(70000))'],
+      })
+    ).exitCode
+  ).toBeNull();
+  expect(
+    (
+      await runSystemd({
+        executable: process.execPath,
+        args: ["-e", "setInterval(()=>{},1000)"],
+        timeoutMs: 30,
+      })
+    ).exitCode
+  ).toBeNull();
+  expect(
+    (await runSystemd({ executable: join(root, "missing"), args: [] })).exitCode
+  ).toBeNull();
+});

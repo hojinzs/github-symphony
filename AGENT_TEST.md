@@ -602,3 +602,26 @@ boundaries. Every assertion prints its reached marker; 18 isolated mutations
 prove forbidden conditions fail. Report macOS tests and Linux container tests
 separately. These are ledger/protocol integration checks, not native OS
 orchestrator lifecycle or production agent-journal acceptance.
+
+### Linux agent user-service cases (C11)
+
+Run `pnpm --filter @gh-symphony/management-agent test`; the root `pnpm test`
+includes these cases. `linux-service.test.ts` verifies absolute paths and
+systemd quoting, linger/user-manager diagnosis, failed-install retry, foreign
+unit rejection, lifecycle targeting and preserved data. `linux-launcher.test.ts`
+uses an independent typed OS-command peer to exercise retained oneshot startup,
+cgroup separation, failed execution, deadlines, credential filtering and unique
+unit names. The subprocess test runs real Node children for bounded output,
+timeout and failed-spawn behavior. These are filesystem/process/OS-contract
+simulations on the host; they do not claim native systemd acceptance.
+
+CP-22/23 native acceptance requires a Linux systemd 254+ user manager and unified
+cgroup v2: start a real prepared project through the bundled C03 adapter from
+inside the actual agent service, read both control groups and project process
+identity, then stop/restart/uninstall the agent while verifying the project stays
+alive and its identity/registrations/journal remain intact. Exercise the same C05
+owner lock from a conflicting foreground process. Keep native OS evidence
+separate from ordinary Linux container simulations; a container without a real
+user manager cannot establish OS lifecycle isolation. The C11 black-box runner
+and reached forbidden-condition probes are a separate implementation Plan item
+before handoff.

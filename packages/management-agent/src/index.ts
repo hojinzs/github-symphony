@@ -37,3 +37,18 @@ export {
   observationPages,
 } from "./foreground.js";
 export type { ForegroundOptions } from "./foreground.js";
+export {
+  LinuxAgentService,
+  LINUX_AGENT_UNIT,
+  renderLinuxAgentUnit,
+} from "./linux-service.js";
+export type {
+  LinuxServiceConfig,
+  LinuxServiceOptions,
+  LinuxServiceDiagnosis,
+} from "./linux-service.js";
+export { createLinuxProjectLaunchContext } from "./linux-launcher.js";
+export type {
+  LinuxProjectLaunchRequest,
+  LinuxProjectLauncherOptions,
+} from "./linux-launcher.js";

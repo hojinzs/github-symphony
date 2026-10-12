@@ -1148,5 +1148,15 @@ Transient inventory/delivery adapter failures retry with sanitized diagnostics a
 fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
 until its first authenticated observation.
 This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
-command delivery and native service packaging retain their sibling boundaries.
+command delivery and macOS service packaging retain their sibling boundaries.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
+
+The same bundled module exports C11 `LinuxAgentService` and
+`createLinuxProjectLaunchContext` for trusted Linux service composition. Install,
+start/restart/stop/status/uninstall manage only the user-owned agent unit; project
+daemons launch in separate retained systemd units. Linux requires systemd 254+,
+a reachable user manager and cgroup v2 for isolated launch. Missing linger limits
+boot/logout startup; diagnosis explains `loginctl enable-linger` without changing
+privileges. See the [Linux adapter contract](packages/management-agent/README.md#linux-user-service-packaging-c11)
+for absolute paths, the C13 entrypoint boundary and installation recovery. Native
+OS validation remains separate from command-fixture evidence.
