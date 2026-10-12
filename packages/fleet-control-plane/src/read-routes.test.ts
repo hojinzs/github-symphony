@@ -42,7 +42,14 @@ it("routes read acceptance and details with CSRF and structured errors", async (
     const readId = (accepted!.body as { readId: string }).readId;
     expect(
       await handle({ method: "GET", pathname: `/api/v1/reads/${readId}` })
-    ).toMatchObject({ status: 200, body: { readId, state: "pending" } });
+    ).toMatchObject({
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Symphony-Historical": "false",
+      },
+      body: { readId, state: "pending" },
+    });
     expect(await handle(request)).toMatchObject({
       status: 409,
       body: { error: { code: "read_busy" } },

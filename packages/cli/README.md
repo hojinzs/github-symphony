@@ -639,10 +639,10 @@ The internal [fleet services](../fleet-control-plane/README.md) adds private SQL
 and typed HTTPS-origin configuration for C04 (#1008). C07 (#1011) adds the
 internal lifecycle command ledger and recovery library: durable idempotency,
 claim deadlines, project fences, result reconciliation and audited unknown
-closure. Consumers supply authenticated session/project peers; fleet HTTP
-routing and new CLI commands remain separate. Its enrollment service
+closure. Consumers supply authenticated session/project peers; fleet listener
+installation and new CLI commands remain separate. Its enrollment service
 provides atomic one-use tokens, scoped credential verifiers and transactional
-revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and HTTP routing belong to later consumers;
+revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and listener composition belong to later consumers;
 per-project `--web` retains its existing behavior.
 
 The internal [local management adapter](../management-agent/README.md) adds canonical folder allowlists,

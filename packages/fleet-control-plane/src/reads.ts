@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import {
   LIMITS,
@@ -12,6 +13,7 @@ import {
   type Acknowledgment,
   type OperatorManagementClient,
   type UUID,
+  type RunSummary,
 } from "@gh-symphony/management-protocol";
 import { FleetError, type AgentSessionCredential } from "./enrollment.js";
 import type { CommandPeers, CommandTarget } from "./commands.js";
@@ -21,6 +23,7 @@ export interface ReadService extends Pick<
   OperatorManagementClient,
   "submitRead" | "getRead"
 > {
+  getReadView(id: UUID): { result: ReadResult; historical: boolean };
   poll(identity: AgentSessionCredential): ReadRequest[];
   publishResult(
     identity: AgentSessionCredential,
@@ -36,10 +39,23 @@ interface Entry {
   retainUntil?: number;
 }
 
+export interface ReadOptions {
+  peers: CommandPeers;
+  now?: () => Date;
+  maximumEntries?: number;
+  /** C06 owns merge/pruning of at most 100 summaries; never raw logs. */
+  receiveRunSummaries?: (
+    database: DatabaseSync,
+    projectId: UUID,
+    runs: RunSummary[],
+    receivedAt: string
+  ) => undefined;
+}
+
 /** Trusted API boundary: browser callers must first authenticate local-owner/CSRF. */
 export function createReadService(
   store: FleetStore,
-  options: { peers: CommandPeers; now?: () => Date; maximumEntries?: number }
+  options: ReadOptions
 ): ReadService {
   const maximumEntries = options.maximumEntries ?? 1024;
   if (
@@ -51,6 +67,18 @@ export function createReadService(
   const entries = new Map<UUID, Entry>();
   const now = options.now ?? (() => new Date());
   const db = store.database;
+  function enrolled(target: CommandTarget): boolean {
+    const environment = db
+      .prepare("SELECT enrollment FROM environments WHERE id=?")
+      .get(target.environmentId);
+    const agent = db
+      .prepare("SELECT agent_id FROM agent_credentials WHERE environment_id=?")
+      .get(target.environmentId);
+    return (
+      environment?.enrollment === "enrolled" &&
+      agent?.agent_id === target.agentId
+    );
+  }
   function unavailable(
     entry: Entry,
     code: "agent_offline" | "log_unavailable"
@@ -88,6 +116,7 @@ export function createReadService(
           if (
             !current?.online ||
             !current.managed ||
+            !enrolled(current) ||
             current.sessionId !== entry.target.sessionId ||
             current.agentId !== entry.target.agentId ||
             current.environmentId !== entry.target.environmentId ||
@@ -132,6 +161,11 @@ export function createReadService(
         throw new FleetError("project_invalid", "Invalid project");
       if (!target.online)
         throw new FleetError("agent_offline", "Agent is offline");
+      if (!enrolled(target))
+        throw new FleetError(
+          "access_revoked",
+          "Target enrollment is not active"
+        );
       if (entries.size >= maximumEntries)
         throw new FleetError(
           "read_busy",
@@ -165,6 +199,9 @@ export function createReadService(
       return { readId: request.readId, state: "pending" };
     },
     async getRead(id) {
+      return this.getReadView(id).result;
+    },
+    getReadView(id) {
       try {
         uuidSchema.parse(id);
       } catch {
@@ -174,14 +211,28 @@ export function createReadService(
       const entry = entries.get(id);
       if (!entry)
         return {
-          readId: id,
-          state: "unavailable",
-          diagnostic: {
-            code: "log_unavailable",
-            message: "Read is unknown, restarted or no longer retained",
+          historical: true,
+          result: {
+            readId: id,
+            state: "unavailable",
+            diagnostic: {
+              code: "log_unavailable",
+              message: "Read is unknown, restarted or no longer retained",
+            },
           },
         };
-      return structuredClone(entry.result);
+      const current = options.peers.resolveTarget(db, entry.request.projectId);
+      return {
+        result: structuredClone(entry.result),
+        historical:
+          !current?.online ||
+          !current.managed ||
+          !enrolled(current) ||
+          current.sessionId !== entry.target.sessionId ||
+          current.agentId !== entry.target.agentId ||
+          current.environmentId !== entry.target.environmentId ||
+          current.localProjectId !== entry.target.localProjectId,
+      };
     },
     poll(identity) {
       verify(identity);
@@ -234,6 +285,15 @@ export function createReadService(
         const selection = entry.request.selection;
         const payload = result.payload;
         if (
+          payload.kind !== "log-chunk" &&
+          Buffer.byteLength(JSON.stringify(payload), "utf8") >
+            LIMITS.logChunkBytes
+        )
+          throw new FleetError(
+            "invalid_input",
+            "Read payload exceeds byte limit"
+          );
+        if (
           payload.kind !== selection.kind ||
           (selection.kind !== "runs" &&
             (payload.kind === "runs" || payload.runId !== selection.runId)) ||
@@ -252,6 +312,28 @@ export function createReadService(
       }
       const receivedAt = now().toISOString();
       if (entry.result.state === "pending") {
+        if (
+          result.state === "completed" &&
+          result.payload.kind === "runs" &&
+          options.receiveRunSummaries
+        ) {
+          const runs = structuredClone(result.payload.runs)
+            .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+            .slice(0, LIMITS.runSummariesPerProject);
+          store.transaction(() => {
+            if (
+              options.receiveRunSummaries!(
+                db,
+                entry.request.projectId,
+                runs,
+                receivedAt
+              ) !== undefined
+            )
+              throw new Error(
+                "Read projection hook must be synchronous and return undefined"
+              );
+          });
+        }
         entry.result = readResultSchema.parse(
           result.state === "completed"
             ? { ...result, completedAt: receivedAt }

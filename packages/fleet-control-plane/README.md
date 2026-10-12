@@ -242,3 +242,26 @@ Errors use the v1 `{ error: { code, message, requestId } }` shape; unmatched rou
 return undefined for the owning server to dispatch. The listener must enforce
 its existing JSON body limit before invoking this dispatcher. Agent poll/results
 remain service composition boundaries shared with lifecycle commands.
+
+`getReadView(id)` returns the v1 result plus a historical flag based on the
+current project/session/connection projection. The detail dispatcher preserves
+the v1 JSON result and supplies `X-Symphony-Historical: true|false` and
+`Cache-Control: no-store`; mounting listeners must forward those headers.
+Completed results keep their first receipt timestamp. Non-log payload JSON is
+limited to 256 KiB before retention, in addition to the log-text byte limit.
+
+Optional `receiveRunSummaries(database, projectId, runs, receivedAt)` hands
+validated completed summaries to C06 on the shared transaction connection,
+newest first and capped at 100. The projection owner must merge/prune its cached
+history to at most 100 per project, retain it offline and after restart, and
+label it using receipt/observation times. The hook must synchronously return
+undefined; failure rolls back its writes and leaves the read pending for retry.
+Identical completed replay does not invoke it twice. C10 never sends log text
+or arbitrary run detail to this persistence hook. Production observation/project
+projection remains C06-owned; independent SQLite fixture tables exercise this
+boundary while that sibling is unavailable.
+
+[TC-31](../../e2e/scenarios/31-fleet-bounded-reads.md) describes the built-service
+HTTPS/C04/C05/C09 contract and seven forbidden-condition probes. Run
+`node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs` after
+`pnpm build`, or `./e2e/run-fleet-reads-e2e.sh` for Linux Docker.

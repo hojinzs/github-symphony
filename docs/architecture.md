@@ -289,7 +289,11 @@ No management protocol, tracker policy, or fleet behavior is added to
 - C10 read observability: the ephemeral result registry retains terminal results
   for 60 seconds, marks pending reads expired at 30 seconds, and reports offline,
   removed, restarted or unknown results as unavailable. Receipt timestamps label
-  cached content age; raw log text never enters fleet persistence.
+  cached content age; raw log text never enters fleet persistence. Historical
+  views and no-store HTTP headers preserve the v1 result body. A synchronous
+  transactional summary hook supplies validated newest-first summaries to the
+  C06 projection owner; C06 retains merge/pruning ownership. Registry and payload
+  caps bound retained memory without shortening accepted result retention.
 - C05 management connection observability: `management-agent/src/foreground.ts` emits sanitized online/retrying state and `fleet-control-plane/src/sessions.ts` records receipt-based first signal, sequence and host/version metadata. Agent clocks cannot determine freshness; core scheduling is untouched.
 - Internal lifecycle owner: `packages/orchestrator/src/observability/lifecycle.ts` freezes startup transport settings, compares validated reload candidates privately (including header values), and exposes safe applied/pending descriptors. Disable edits retain the active startup provider until restart; revert clears pending state. Publication and shutdown failures remain isolated from coordination health. Shutdown stops offers and gives the owned pipeline one five-second deadline. The service initializes the SDK-free owner before dispatch and installs Logs at the existing post-append FS store boundary and Metrics at the committed snapshot/tick boundary. `observability/resource-validation.ts` applies provider resource limits before last-known-good persistence without loading the SDK. `observability/pipeline.ts` lazily composes both providers with one resource UUID, samples Logs loss deltas once into Metrics, and projects bounded per-signal diagnostics. Status uses an orchestrator-owned additive field preserved by existing readers; no core contract changes. The internal production capability defaults off until audited CLI delivery; tests may inject providers.
 

@@ -215,3 +215,223 @@ it("fences wrong result sessions, enforces log byte limits and preserves reset",
     })
   ).rejects.toMatchObject({ code: "invalid_input" });
 });
+
+it("marks completed content historical offline and offers bounded summaries to the projection owner", async () => {
+  const f = await setup();
+  f.store.database.exec(
+    "CREATE TABLE fixture_read_history(project_id TEXT PRIMARY KEY, received_at TEXT, runs TEXT)"
+  );
+  const api = createReadService(f.store, {
+    peers: f.peers,
+    now: f.now,
+    receiveRunSummaries(database, projectId, runs, receivedAt) {
+      database
+        .prepare("INSERT INTO fixture_read_history VALUES (?,?,?)")
+        .run(projectId, receivedAt, JSON.stringify(runs));
+      return undefined;
+    },
+  });
+  const project = f.project();
+  const read = await api.submitRead(project, { kind: "runs", limit: 1 });
+  const runs = [
+    {
+      runId: "r1",
+      status: "succeeded",
+      startedAt: f.now().toISOString(),
+      updatedAt: f.now().toISOString(),
+    },
+  ];
+  await api.publishResult(f.identity, {
+    protocolVersion: 1,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+    requestId: randomUUID(),
+    result: {
+      kind: "read",
+      result: {
+        readId: read.readId,
+        state: "completed",
+        completedAt: f.now().toISOString(),
+        payload: { kind: "runs", runs },
+      },
+    },
+  });
+  expect(api.getReadView(read.readId)).toMatchObject({
+    historical: false,
+    result: { state: "completed" },
+  });
+  f.store.database
+    .prepare("UPDATE fixture_projects SET online=0 WHERE project_id=?")
+    .run(project);
+  expect(api.getReadView(read.readId)).toMatchObject({
+    historical: true,
+    result: { state: "completed" },
+  });
+  const cached = f.store.database
+    .prepare("SELECT * FROM fixture_read_history WHERE project_id=?")
+    .get(project)!;
+  expect(JSON.parse(String(cached.runs))).toEqual(runs);
+  f.advance(60_000);
+  expect(api.getReadView(read.readId)).toMatchObject({
+    result: { state: "unavailable" },
+  });
+  expect(
+    f.store.database
+      .prepare("SELECT count(*) AS n FROM fixture_read_history")
+      .get()!.n
+  ).toBe(1);
+});
+
+it("rolls back failed summary projection and allows result retry without reoffering completed replay", async () => {
+  const f = await setup();
+  f.store.database.exec("CREATE TABLE fixture_offers(received_at TEXT)");
+  let fail = true;
+  const api = createReadService(f.store, {
+    peers: f.peers,
+    now: f.now,
+    receiveRunSummaries(database, _projectId, _runs, receivedAt) {
+      database.prepare("INSERT INTO fixture_offers VALUES (?)").run(receivedAt);
+      if (fail) throw new Error("projection unavailable");
+      return undefined;
+    },
+  });
+  const read = await api.submitRead(f.project(), { kind: "runs", limit: 1 });
+  const request = {
+    protocolVersion: 1 as const,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+    requestId: randomUUID(),
+    result: {
+      kind: "read" as const,
+      result: {
+        readId: read.readId,
+        state: "completed" as const,
+        completedAt: f.now().toISOString(),
+        payload: { kind: "runs" as const, runs: [] },
+      },
+    },
+  };
+  await expect(api.publishResult(f.identity, request)).rejects.toThrow(
+    "projection unavailable"
+  );
+  expect(
+    f.store.database.prepare("SELECT count(*) AS n FROM fixture_offers").get()!
+      .n
+  ).toBe(0);
+  expect(await api.getRead(read.readId)).toMatchObject({ state: "pending" });
+  fail = false;
+  await api.publishResult(f.identity, request);
+  await api.publishResult(f.identity, request);
+  expect(
+    f.store.database.prepare("SELECT count(*) AS n FROM fixture_offers").get()!
+      .n
+  ).toBe(1);
+});
+
+it("does not resurrect expired reads from a late completed result", async () => {
+  const f = await setup();
+  const read = await f.api.submitRead(f.project(), { kind: "runs", limit: 1 });
+  f.advance(30_000);
+  await f.api.publishResult(f.identity, {
+    protocolVersion: 1,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+    requestId: randomUUID(),
+    result: {
+      kind: "read",
+      result: {
+        readId: read.readId,
+        state: "completed",
+        completedAt: f.now().toISOString(),
+        payload: { kind: "runs", runs: [] },
+      },
+    },
+  });
+  expect(await f.api.getRead(read.readId)).toMatchObject({ state: "expired" });
+});
+
+it("rejects oversized run detail payloads before retaining them", async () => {
+  const f = await setup();
+  const read = await f.api.submitRead(f.project(), {
+    kind: "run-detail",
+    runId: "r1",
+  });
+  await expect(
+    f.api.publishResult(f.identity, {
+      protocolVersion: 1,
+      environmentId: f.identity.environmentId,
+      sessionId: f.identity.sessionId,
+      requestId: randomUUID(),
+      result: {
+        kind: "read",
+        result: {
+          readId: read.readId,
+          state: "completed",
+          completedAt: f.now().toISOString(),
+          payload: {
+            kind: "run-detail",
+            runId: "r1",
+            detail: "x".repeat(256 * 1024),
+          },
+        },
+      },
+    })
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  expect(await f.api.getRead(read.readId)).toMatchObject({ state: "pending" });
+});
+
+it("rejects revoked enrollment even when a projection has stale online state", async () => {
+  const f = await setup();
+  const project = f.project();
+  const target = f.peers.resolveTarget(f.store.database, project)!;
+  const api = createReadService(f.store, {
+    peers: { ...f.peers, resolveTarget: () => target },
+    now: f.now,
+  });
+  await f.enrollment.revoke(f.identity.environmentId);
+  await expect(
+    api.submitRead(project, { kind: "runs", limit: 1 })
+  ).rejects.toMatchObject({ code: "access_revoked" });
+});
+
+it("scopes identical local project IDs to their enrolled environments", async () => {
+  const f = await setup();
+  const other = await commandPeers(f.store, f.now);
+  const firstProject = f.project();
+  const secondProject = other.project();
+  const localId = f.store.database
+    .prepare("SELECT local_id FROM fixture_projects WHERE project_id=?")
+    .get(firstProject)!.local_id;
+  f.store.database
+    .prepare("UPDATE fixture_projects SET local_id=? WHERE project_id=?")
+    .run(localId, secondProject);
+  const first = await f.api.submitRead(firstProject, {
+    kind: "runs",
+    limit: 1,
+  });
+  const second = await f.api.submitRead(secondProject, {
+    kind: "runs",
+    limit: 1,
+  });
+  expect(f.api.poll(f.identity).map((r) => r.readId)).toEqual([first.readId]);
+  expect(f.api.poll(other.identity).map((r) => r.readId)).toEqual([
+    second.readId,
+  ]);
+  await expect(
+    f.api.publishResult(other.identity, {
+      protocolVersion: 1,
+      environmentId: other.identity.environmentId,
+      sessionId: other.identity.sessionId,
+      requestId: randomUUID(),
+      result: {
+        kind: "read",
+        result: {
+          readId: first.readId,
+          state: "completed",
+          completedAt: f.now().toISOString(),
+          payload: { kind: "runs", runs: [] },
+        },
+      },
+    })
+  ).rejects.toMatchObject({ code: "claim_owner_conflict" });
+});

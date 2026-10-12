@@ -446,6 +446,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes                              |
 | `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                                                       |
 | `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                                                 |
+| `e2e/scenarios/31-fleet-bounded-reads.md`               | C10 CP-12: HTTPS read admission/detail, actual C09 filesystem reads, history/expiry/offline/reset and seven reached forbidden-condition probes                                                   |
 | `e2e/scenarios/29-fleet-command-recovery.md`            | C07 CP-06/07/09/18/19: SQLite claim races, restart/lost-result recovery, ownership fencing, audited closure and 17 reached forbidden-condition probes                                            |
 | `e2e/scenarios/29-otlp-lifecycle.md`                    | OT-03/10/11/12: gated/disabled startup, applied/pending status through HTTP, invalid reload/revert, health isolation, bounded shutdown and two reached forbidden-condition probes                |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: disabled-policy exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution; enabled production startup exits once with code 1 |
@@ -612,5 +613,8 @@ completed replay, offline/restart outcomes, retained-registry admission and
 fail-closed synchronous authentication. `read-routes.test.ts` exercises actual
 C04 CSRF sessions with independent SQLite project/session tables and structured
 202/200/400/401/409 responses. No native service isolation claim follows from
-these tests; C09 filesystem composition and Docker blackbox remain separate
-delivery gates for #1014.
+these tests. [TC-31](e2e/scenarios/31-fleet-bounded-reads.md) adds actual C09
+filesystem composition through trusted HTTPS plus seven copied-artifact probes.
+Run `node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs`
+after `pnpm build`; `./e2e/run-fleet-reads-e2e.sh` supplies isolated Linux Docker.
+Report native host and container evidence separately.

@@ -13,6 +13,7 @@ export interface ReadRouteRequest extends BrowserRequest {
 }
 export interface ReadRouteResponse {
   status: number;
+  headers?: Record<string, string>;
   body: unknown;
 }
 /** Mount only inside the private fleet listener; no per-project server changes. */
@@ -41,9 +42,14 @@ export function createReadRoutes(reads: ReadService, browser: BrowserSecurity) {
           body: await reads.submitRead(submit[1], selection),
         };
       }
+      const view = reads.getReadView((detail as RegExpExecArray)[1]);
       return {
         status: 200,
-        body: await reads.getRead((detail as RegExpExecArray)[1]),
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Symphony-Historical": String(view.historical),
+        },
+        body: view.result,
       };
     } catch (error) {
       if (!(error instanceof FleetError)) throw error;
