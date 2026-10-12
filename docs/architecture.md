@@ -397,4 +397,8 @@ complete inventory revisions and bounded page staging. Its synchronous
 invalidation peer belongs to lifecycle command storage; its command-target reader
 contains no scheduler policy. Operator queries add receipt-based freshness,
 retained snapshots, deterministic filter-scoped paging and normalized non-secret
-cross-environment scope warnings. No orchestration-core behavior changes.
+cross-environment scope warnings. Each query caches environment lookups and indexes
+normalized tracker identity/filter groups; related-project warnings are bounded.
+Different reported tracker identities do not warn, while unknown scopes and
+differing filters within an identity remain unverified. No orchestration-core
+behavior changes.

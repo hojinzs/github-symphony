@@ -245,8 +245,10 @@ Missing snapshots retain the last successful snapshot and its original timestamp
 with an explicit stale diagnostic. Missing snapshots and empty run summaries never
 imply a stopped process. Normalized reported tracker metadata compares adapter,
 binding and repository plus sorted/deduplicated state and label sets across
-environments. Differing, missing, stale or failed scope observations produce `unverified`
-warnings; identical known scopes produce `identical` warnings. This does not
+environments. Missing, stale or failed scope observations produce `unverified`
+warnings, as do differing state/label filters on the same adapter/binding/repository.
+Different adapter, binding or repository identities produce no warning; identical
+known scopes produce `identical` warnings. This does not
 reimplement provider eligibility, prevent starts, or provide global scheduling.
 
 `observations.test.ts` composes real C04 enrollment/C05 sessions with SQLite and
@@ -256,8 +258,10 @@ plane remains a repository-local extension; `docs/symphony-spec.md` is unchanged
 The query projection fields are validated by the additive v1 aggregate protocol
 schema. An identical known pair and unverified comparisons can coexist. Related
 UUID lists are bounded to 100 per warning; they are examples of reported matches,
-not an exhaustive global ownership guarantee. Different reported scopes never
-establish disjoint eligibility. Cached run summaries retain local times/statuses
+not an exhaustive global ownership guarantee. Absence of a warning does not
+establish disjoint eligibility. Queries normalize scopes once, index identity and
+filter groups, and cache each environment lookup per projection. Comparisons use
+linear counts with bounded related-UUID lists rather than all-project pair scans. Cached run summaries retain local times/statuses
 and sort newest first. Default query pages include retained unmanaged history;
 `summary` counts only current managed projects.
 

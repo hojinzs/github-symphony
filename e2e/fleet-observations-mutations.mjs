@@ -137,8 +137,8 @@ try {
     ],
     [
       fleet + "observations.js",
-      "if (items.some((other) => other.managed &&",
-      "if (items.some((other) => false && other.managed &&",
+      "if (outside(unknown, item.environmentId) ||",
+      "if (false && (outside(unknown, item.environmentId)) ||",
       "current-session recovery leaves offline overlap unverified",
     ],
     [

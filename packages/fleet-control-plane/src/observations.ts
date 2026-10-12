@@ -76,7 +76,9 @@ function invalid(): never {
   );
 }
 /** Compare only adapter-owned non-secret metadata; never infer eligibility. */
-function scopeKey(observation: ProjectObservation): string | undefined {
+function scopeKey(
+  observation: ProjectObservation
+): { identity: string; key: string } | undefined {
   const snapshot = observation.snapshot;
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot))
     return undefined;
@@ -105,14 +107,20 @@ function scopeKey(observation: ProjectObservation): string | undefined {
     )
   )
     return undefined;
-  return JSON.stringify([
+  const identity = JSON.stringify([
     (adapter as string).trim().toLowerCase(),
     (bindingId as string).trim(),
     (repository as string).trim(),
-    ...sets.map((v) =>
-      [...new Set((v as string[]).map((s) => s.trim()))].sort()
-    ),
   ]);
+  return {
+    identity,
+    key: JSON.stringify([
+      identity,
+      ...sets.map((v) =>
+        [...new Set((v as string[]).map((s) => s.trim()))].sort()
+      ),
+    ]),
+  };
 }
 
 export function createObservationService(
@@ -152,11 +160,12 @@ export function createObservationService(
       Date.parse(env.expires_at) > now().getTime()
     );
   }
-  function project(row: ProjectRow): ObservedProject {
+  function project(
+    row: ProjectRow,
+    env = environment(row.environment_id)!
+  ): ObservedProject {
     const observation = JSON.parse(row.observation!) as ProjectObservation;
-    const connection = online(environment(row.environment_id)!)
-      ? "online"
-      : "offline";
+    const connection = online(env) ? "online" : "offline";
     const fresh =
       connection === "online" &&
       Date.parse(row.received_at!) + SESSION_LIFETIME_MS > now().getTime();
@@ -182,45 +191,87 @@ export function createObservationService(
     };
   }
   function projected() {
-    const items = rows().map(project);
+    // Normalize once and query each environment once, including retained history.
+    const environments = new Map<string, EnvironmentRow>();
+    const items = rows().map((row) => {
+      let env = environments.get(row.environment_id);
+      if (!env) {
+        env = environment(row.environment_id)!;
+        environments.set(row.environment_id, env);
+      }
+      return project(row, env);
+    });
+    type Counts = { total: number; environments: Map<string, number> };
+    const unknown: Counts = { total: 0, environments: new Map() };
+    const identities = new Map<string, Counts>();
+    const groups = new Map<
+      string,
+      { counts: Counts; projects: ObservedProject[] }
+    >();
+    const scopes = new Map<string, ReturnType<typeof scopeKey>>();
+    function add(counts: Counts, item: ObservedProject) {
+      counts.total++;
+      counts.environments.set(
+        item.environmentId,
+        (counts.environments.get(item.environmentId) ?? 0) + 1
+      );
+    }
+    function outside(counts: Counts, environmentId: string) {
+      return counts.total - (counts.environments.get(environmentId) ?? 0);
+    }
     for (const item of items) {
       if (!item.managed) continue;
-      const key = scopeKey(item.observation);
-      if (!key || !item.fresh || item.snapshotStale) {
+      const scope =
+        item.fresh && !item.snapshotStale
+          ? scopeKey(item.observation)
+          : undefined;
+      scopes.set(item.projectId, scope);
+      if (!scope) {
+        add(unknown, item);
+        continue;
+      }
+      let identity = identities.get(scope.identity);
+      if (!identity) {
+        identity = { total: 0, environments: new Map() };
+        identities.set(scope.identity, identity);
+      }
+      add(identity, item);
+      let group = groups.get(scope.key);
+      if (!group) {
+        group = { counts: { total: 0, environments: new Map() }, projects: [] };
+        groups.set(scope.key, group);
+      }
+      add(group.counts, item);
+      group.projects.push(item);
+    }
+    for (const item of items) {
+      if (!item.managed) continue;
+      const scope = scopes.get(item.projectId);
+      if (!scope) {
         item.warnings.push({
           state: "unverified",
           projectIds: [item.projectId],
         });
         continue;
       }
-      const matches = items.filter(
-        (other) =>
-          other.managed &&
-          other.fresh &&
-          !other.snapshotStale &&
-          other.environmentId !== item.environmentId &&
-          scopeKey(other.observation) === key
-      );
-      if (matches.length)
+      const group = groups.get(scope.key)!;
+      if (outside(group.counts, item.environmentId)) {
+        // Rows are already UUID ordered. Stop at the wire warning limit.
+        const related: string[] = [];
+        for (const other of group.projects) {
+          if (other.environmentId !== item.environmentId)
+            related.push(other.projectId);
+          if (related.length === LIMITS.maximumPageSize - 1) break;
+        }
         item.warnings.push({
           state: "identical",
-          projectIds: [
-            item.projectId,
-            ...matches
-              .map((p) => p.projectId)
-              .sort()
-              .slice(0, LIMITS.maximumPageSize - 1),
-          ].sort(),
+          projectIds: [item.projectId, ...related].sort(),
         });
+      }
       if (
-        items.some(
-          (other) =>
-            other.managed &&
-            other.environmentId !== item.environmentId &&
-            (!other.fresh ||
-              other.snapshotStale ||
-              scopeKey(other.observation) !== key)
-        )
+        outside(unknown, item.environmentId) ||
+        outside(identities.get(scope.identity)!, item.environmentId) >
+          outside(group.counts, item.environmentId)
       )
         item.warnings.push({
           state: "unverified",

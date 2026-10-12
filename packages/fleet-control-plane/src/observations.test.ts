@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type {
   EnrollmentResponse,
   ProjectObservation,
@@ -305,6 +305,22 @@ it("isolates environment identities and normalizes only reported scope sets", as
   expect((await observations.getProject(a.projectId)).warnings).toEqual([
     { state: "unverified", projectIds: [a.projectId] },
   ]);
+  for (const different of [
+    { adapter: "linear" },
+    { bindingId: "project-2" },
+    { repository: "owner/other" },
+  ]) {
+    await sessions.observe(
+      identity,
+      request([
+        {
+          ...b,
+          snapshot: { trackerScope: { ...scope, ...different } },
+        },
+      ])
+    );
+    expect((await observations.getProject(a.projectId)).warnings).toEqual([]);
+  }
   await sessions.observe(identity, request([{ ...b, snapshot: {} }]));
   expect((await observations.getProject(a.projectId)).warnings).toEqual([
     { state: "unverified", projectIds: [a.projectId] },
@@ -526,4 +542,62 @@ it("reports revoked enrollment before validating absent active-session IDs in a 
   expect(
     store.database.prepare("SELECT count(*) AS n FROM lifecycle_commands").get()
   ).toEqual({ n: 0 });
+});
+
+it("indexes a thousand scopes once and queries each environment once per projection", async () => {
+  for (let host = 0; host < 10; host++) {
+    if (host) {
+      const next = await enrolled(`Host-${host}`);
+      identity = next.credential;
+      sessionId = next.session.sessionId;
+      sequence = 0;
+    }
+    const projects = Array.from({ length: 100 }, (_, index) => ({
+      ...project(`project-${index}`),
+      snapshot: {
+        trackerScope: { ...scope, repository: `owner/repo-${host}` },
+      },
+    }));
+    await sessions.observe(identity, request(projects));
+  }
+  const stringify = vi.spyOn(JSON, "stringify");
+  const prepare = vi.spyOn(store.database, "prepare");
+  try {
+    const first = await observations.listProjects();
+    expect(first.items).toHaveLength(25);
+    expect(first.items.every((item) => item.warnings.length === 0)).toBe(true);
+    expect(
+      stringify.mock.calls.filter(
+        ([value]) =>
+          Array.isArray(value) &&
+          typeof value[0] === "string" &&
+          value[0].startsWith("[")
+      )
+    ).toHaveLength(1000);
+    expect(
+      prepare.mock.calls.filter(([sql]) => sql.includes("FROM environments"))
+    ).toHaveLength(10);
+    for (const query of [
+      () => observations.getProject(first.items[0].projectId),
+      () => observations.summary(),
+    ]) {
+      stringify.mockClear();
+      prepare.mockClear();
+      await query();
+      expect(
+        stringify.mock.calls.filter(
+          ([value]) =>
+            Array.isArray(value) &&
+            typeof value[0] === "string" &&
+            value[0].startsWith("[")
+        )
+      ).toHaveLength(1000);
+      expect(
+        prepare.mock.calls.filter(([sql]) => sql.includes("FROM environments"))
+      ).toHaveLength(10);
+    }
+  } finally {
+    stringify.mockRestore();
+    prepare.mockRestore();
+  }
 });
