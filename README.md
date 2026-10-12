@@ -1144,6 +1144,9 @@ For reproducible clean-install startup/RSS and healthy/slow/down offer measureme
 see the [packed OTLP performance audit](packages/cli/README.md#packed-otlp-performance-audit).
 The audited CLI enables the complete Logs/Metrics pipeline through normal YAML policy.
 
+OTLP doctor probes own their HTTP sockets and destroy stalled connections at the
+three-second deadline, allowing the command to exit after reporting the result.
+
 The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
 and foreground outbound HTTPS transport for application/service composition:
 

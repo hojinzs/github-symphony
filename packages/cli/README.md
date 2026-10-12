@@ -729,6 +729,9 @@ checks the final startup composition; omit it when auditing a candidate whose
 production capability is still off. These loopback fixtures prove shipped
 behavior, while actual Collector dogfood receipt remains a separate Epic gate.
 
+OTLP doctor probes own their HTTP sockets and destroy stalled connections at the
+three-second deadline, allowing the command to exit after reporting the result.
+
 The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
 and foreground outbound HTTPS transport for application/service composition:
 

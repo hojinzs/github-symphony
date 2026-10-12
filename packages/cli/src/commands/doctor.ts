@@ -2298,7 +2298,8 @@ export async function runDoctorDiagnostics(
             )
           : process.env,
         parsedArgs.otlpProbe,
-        deps.fetchImpl,
+        // Preserve injected test transports; production probes own their sockets.
+        deps.fetchImpl === fetch ? undefined : deps.fetchImpl,
         {
           trackerSecretNames: [
             ...(resolveWorkflowConfigTrackerAdapter(

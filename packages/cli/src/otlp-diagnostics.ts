@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import {
   resolveOtlpConfiguration,
   isAgentChildCredentialEnvironmentName,
@@ -5,12 +7,40 @@ import {
   type OtlpSafeDescriptor,
 } from "@gh-symphony/core";
 
+// Own the request/socket instead of using fetch's shared connection pool.
+// Abort must release a pending TLS handshake as well as settle the result.
+const probeRequest: typeof fetch = async (input, init) =>
+  new Promise<Response>((resolve, reject) => {
+    const url = new URL(String(input));
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
+      url,
+      {
+        method: "POST",
+        headers: Object.fromEntries(new Headers(init?.headers)),
+        agent: false,
+      },
+      (response) => {
+        // Only the status is diagnostic; never retain a receiver response body.
+        response.destroy();
+        resolve(new Response(null, { status: response.statusCode ?? 500 }));
+      }
+    );
+    const abort = () => request.destroy(new Error("Probe aborted"));
+    request.on("error", reject);
+    request.on("close", () =>
+      init?.signal?.removeEventListener("abort", abort)
+    );
+    init?.signal?.addEventListener("abort", abort, { once: true });
+    if (init?.signal?.aborted) abort();
+    else request.end();
+  });
+
 /** SDK-free diagnostics. Never return transport credentials or remote bodies. */
 export async function inspectOtlp(
   policy: WorkflowOtlpPolicy | null | undefined,
   environment: NodeJS.ProcessEnv,
   probe = false,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = probeRequest,
   owner: {
     trackerSecretNames?: readonly string[];
     runtimeAuthName?: string;

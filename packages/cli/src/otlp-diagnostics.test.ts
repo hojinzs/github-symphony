@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { createServer, type Socket } from "node:net";
 import { afterEach, expect, it, vi } from "vitest";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import { inspectOtlp, renderOtlpStatus } from "./otlp-diagnostics.js";
@@ -130,3 +132,48 @@ it("rejects disabled and SDK-vetoed shared credentials without reading values", 
   }
   expect(secretRead).not.toHaveBeenCalled();
 });
+
+it("releases stalled TLS sockets so the probe process exits within its budget", async () => {
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  const started = performance.now();
+  const child = spawn(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "--input-type=module",
+      "-e",
+      `
+    import { inspectOtlp } from ${JSON.stringify(new URL("./otlp-diagnostics.ts", import.meta.url).href)};
+    const result = await inspectOtlp({enabled:true, endpoint:"https://127.0.0.1:${address.port}", resourceAttributes:{},referenceNames:[],authReferenceNames:[]}, {}, true);
+    console.log(JSON.stringify(result.probe));
+  `,
+    ],
+    { env: { ...process.env, OTEL_SDK_DISABLED: "false" } }
+  );
+  let output = "";
+  child.stdout.on("data", (data) => {
+    output += data;
+  });
+  const deadline = setTimeout(() => child.kill("SIGKILL"), 6000);
+  try {
+    const code = await new Promise<number | null>((resolve) =>
+      child.on("close", resolve)
+    );
+    expect(output).toContain('"logs":"timeout"');
+    expect(output).toContain('"metrics":"timeout"');
+    expect(code).toBe(0);
+    expect(performance.now() - started).toBeLessThan(5000);
+  } finally {
+    clearTimeout(deadline);
+    child.kill("SIGKILL");
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}, 10000);

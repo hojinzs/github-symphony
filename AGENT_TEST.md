@@ -624,3 +624,7 @@ invalid last-known-good/revert, shared shutdown deadline, and 30 full reconcilia
 ticks per disabled baseline/candidate and enabled healthy/slow/down receiver.
 The final audit uses `--production-cli` to assert normal YAML-enabled startup.
 The default library guard stays off. Collector dogfood receipt is a separate Epic gate.
+
+The packed OTLP audit also starts a TCP peer that stalls TLS and verifies both
+probe timeouts and doctor process exit within five seconds (three-second probe
+budget plus CLI startup allowance).

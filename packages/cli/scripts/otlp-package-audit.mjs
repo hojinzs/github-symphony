@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import { createServer as createTcpServer } from "node:net";
 
 // Run from packages/cli after build. Baseline is a separately built pre-SDK
 // tarball, never a workspace-linked package. Reports are written outside source.
@@ -293,6 +294,49 @@ try {
   assert.ok(requests >= 2, probe.stdout + probe.stderr);
   assert.equal((probe.stdout + probe.stderr).includes("audit-secret"), false);
   reached("explicit doctor probes both signals");
+  // Accept TCP but never complete TLS: deterministic stalled connection without
+  // depending on firewall routing or a public blackhole address.
+  const stalledSockets = new Set();
+  const stalled = createTcpServer((socket) => {
+    stalledSockets.add(socket);
+    socket.on("close", () => stalledSockets.delete(socket));
+  });
+  await new Promise((resolveListen) =>
+    stalled.listen(0, "127.0.0.1", resolveListen)
+  );
+  try {
+    await workflow(
+      "enabled: true",
+      `https://127.0.0.1:${stalled.address().port}`
+    );
+    const started = performance.now();
+    const timed = await run(process.execPath, [
+      candidate.entry,
+      "--config",
+      join(root, "config-candidate"),
+      "--json",
+      "doctor",
+      "--otlp-probe",
+      "--project-dir",
+      project,
+    ]);
+    reached("stalled TLS doctor process deadline");
+    assert.ok([0, 1].includes(timed.code), timed.stderr);
+    const diagnostic = JSON.parse(timed.stdout).checks.find(
+      (check) => check.id === "otlp"
+    );
+    assert.equal(diagnostic.details.probe.logs, "timeout");
+    assert.equal(diagnostic.details.probe.metrics, "timeout");
+    assert.ok(
+      performance.now() - started < 5000,
+      "doctor process exceeded probe budget plus startup allowance"
+    );
+  } finally {
+    for (const socket of stalledSockets) socket.destroy();
+    await new Promise((resolveClose) => stalled.close(resolveClose));
+    await workflow("enabled: true");
+  }
+
   const files = await readdir(candidate.dist);
   const findExport = async (name) => {
     for (const file of files.filter(
