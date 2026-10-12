@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
   LinuxAgentService,
@@ -26,6 +26,9 @@ let config: LinuxServiceConfig;
 let calls: SystemdCommand[];
 let fail: string;
 let linger: string;
+let fragmentOverride: string | undefined;
+let dropIns: string;
+let transient: string;
 const peer: SystemdRunner = async (command) => {
   calls.push(command);
   if (command.args.includes(fail))
@@ -35,7 +38,10 @@ const peer: SystemdRunner = async (command) => {
   if (command.args.includes("show-user"))
     return { exitCode: 0, stdout: linger };
   if (command.args.includes("show"))
-    return { exitCode: 0, stdout: "LoadState=loaded\nActiveState=active\n" };
+    return {
+      exitCode: 0,
+      stdout: `LoadState=loaded\nActiveState=active\nFragmentPath=${fragmentOverride ?? join(root, ".config/systemd/user/gh-symphony-agent.service")}\nDropInPaths=${dropIns}\nTransient=${transient}\n`,
+    };
   return { exitCode: 0, stdout: "" };
 };
 beforeEach(async () => {
@@ -61,6 +67,9 @@ beforeEach(async () => {
   calls = [];
   fail = "never";
   linger = "yes\n";
+  fragmentOverride = undefined;
+  dropIns = "";
+  transient = "no";
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -212,4 +221,44 @@ it("bounds subprocess output, deadlines and spawn failure without leaking stderr
   expect(
     (await runSystemd({ executable: join(root, "missing"), args: [] })).exitCode
   ).toBeNull();
+});
+
+it("renders a raw absolute working directory accepted by systemd", () => {
+  const unit = renderLinuxAgentUnit(config);
+  const cwd = unit
+    .split("\n")
+    .find((line) => line.startsWith("WorkingDirectory="))!
+    .slice("WorkingDirectory=".length);
+  // WorkingDirectory's native parser checks the raw rvalue; it does not unquote.
+  expect(isAbsolute(cwd)).toBe(true);
+  expect(cwd).not.toMatch(/["%]/);
+});
+it("rejects foreign fragments, transient units and drop-ins before manager lifecycle effects", async () => {
+  const adapter = service();
+  await adapter.install();
+  for (const conflict of ["fragment", "drop-in", "transient"] as const) {
+    fragmentOverride =
+      conflict === "fragment"
+        ? "/run/user/1000/systemd/transient/gh-symphony-agent.service"
+        : undefined;
+    dropIns =
+      conflict === "drop-in"
+        ? "/home/operator/.config/systemd/user/gh-symphony-agent.service.d/override.conf"
+        : "";
+    transient = conflict === "transient" ? "yes" : "no";
+    calls = [];
+    await expect(adapter.install()).rejects.toThrow(/conflict/);
+    await expect(adapter.start()).rejects.toThrow(/conflict/);
+    await expect(adapter.stop()).rejects.toThrow(/conflict/);
+    await expect(adapter.restart()).rejects.toThrow(/conflict/);
+    await expect(adapter.uninstall()).rejects.toThrow(/conflict/);
+    await expect(adapter.status()).rejects.toThrow(/conflict/);
+    expect(
+      calls.some((c) =>
+        c.args.some((a) =>
+          ["start", "stop", "restart", "enable", "disable"].includes(a)
+        )
+      )
+    ).toBe(false);
+  }
 });

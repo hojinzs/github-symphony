@@ -450,6 +450,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/29-otlp-lifecycle.md`                    | OT-03/10/11/12: gated/disabled startup, applied/pending status through HTTP, invalid reload/revert, health isolation, bounded shutdown and two reached forbidden-condition probes                |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: disabled-policy exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution; enabled production startup exits once with code 1 |
 | `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes                           |
+| `e2e/scenarios/31-linux-agent-user-service.md`          | C11 CP-22/23: retry/lock conflict, isolated project units, CLI continuity through service lifecycle and 18 fault probes; native and simulated evidence separated                                 |
 
 ## TC Writing Guide
 
@@ -622,6 +623,12 @@ identity, then stop/restart/uninstall the agent while verifying the project stay
 alive and its identity/registrations/journal remain intact. Exercise the same C05
 owner lock from a conflicting foreground process. Keep native OS evidence
 separate from ordinary Linux container simulations; a container without a real
-user manager cannot establish OS lifecycle isolation. The C11 black-box runner
-and reached forbidden-condition probes are a separate implementation Plan item
-before handoff.
+user manager cannot establish OS lifecycle isolation. Run `node e2e/linux-agent-service-e2e.mjs --simulate` and
+`node e2e/run-linux-agent-service-probes.mjs --simulate` for host contract evidence,
+or `./e2e/run-linux-agent-service-e2e.sh` for Docker. Run both Node commands with
+`--native` on a prepared Linux operator account for actual systemd acceptance;
+the native runner refuses to replace a preexisting agent service.
+[TC-31](e2e/scenarios/31-linux-agent-user-service.md) specifies all normal, invalid,
+recovery and reached-probe cases. Docker preflight 69 is the documented worker
+exception; native preflight 69 records unavailable native acceptance, which must
+be confirmed separately before release.

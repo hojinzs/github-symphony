@@ -229,7 +229,11 @@ const launchContext = createLinuxProjectLaunchContext({
 `homeDirectory` must be the actual user's home used by the user manager. The
 owned definition is `~/.config/systemd/user/gh-symphony-agent.service`, mode 0600.
 Node, entry, configuration and data paths must be absolute; unsafe paths and
-conflicting definitions are rejected. Directory components must be user-owned,
+conflicting definitions are rejected. The manager must report the expected
+loaded `FragmentPath`, a non-transient unit and no `DropInPaths` before lifecycle
+effects; conflicting effective definitions require explicit local repair.
+`WorkingDirectory=/` is a raw absolute systemd setting; entry/config/data paths
+are supplied absolutely in the command. Directory components must be user-owned,
 non-symlink directories without group/other write access; the data directory
 must be exactly 0700. The unit uses no credential arguments, disables executable
 argument environment expansion, escapes percent specifiers and sends local
@@ -269,5 +273,8 @@ continuity guarantee.
 Run `pnpm --filter @gh-symphony/management-agent test` for configuration,
 installation recovery, subprocess boundaries and independent typed OS-command
 fixtures. Those fixtures are simulations, not native systemd acceptance.
-Native lifecycle and Docker verification are recorded separately under C11 in
-`AGENT_TEST.md` as the black-box slice lands.
+[TC-31](../../e2e/scenarios/31-linux-agent-user-service.md) runs actual C03/C05/C11
+composition, TLS delivery, managed daemon continuity and 18 reached fault
+probes. Use `--simulate` for ordinary host/Docker contract evidence and `--native`
+on a prepared Linux operator account for actual systemd/cgroup acceptance. Native
+acceptance remains a separate pre-release gate; simulations do not satisfy it.

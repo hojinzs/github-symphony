@@ -45,7 +45,7 @@ export function renderLinuxAgentUnit(config: LinuxServiceConfig): string {
     '"--native-service=linux"',
   ];
   // ':' suppresses ExecStart environment substitution; %% preserves literal specifiers.
-  return `[Unit]\nDescription=GitHub Symphony management agent\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n[Service]\nType=exec\nExecStart=:${arguments_.join(" ")}\nWorkingDirectory=${quoted(config.dataDirectory)}\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=15s\nKillMode=control-group\nUMask=0077\nStandardInput=null\nStandardOutput=journal\nStandardError=journal\n\n[Install]\nWantedBy=default.target\n`;
+  return `[Unit]\nDescription=GitHub Symphony management agent\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n[Service]\nType=exec\nExecStart=:${arguments_.join(" ")}\nWorkingDirectory=/\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=15s\nKillMode=control-group\nUMask=0077\nStandardInput=null\nStandardOutput=journal\nStandardError=journal\n\n[Install]\nWantedBy=default.target\n`;
 }
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
@@ -181,6 +181,53 @@ export class LinuxAgentService {
       throw error;
     }
   }
+  private async managerUnit(
+    allowMissing = false
+  ): Promise<Map<string, string>> {
+    if (this.os !== "linux")
+      throw new Error("Linux systemd user services unavailable");
+    const result = await this.runner({
+      executable: this.systemctl,
+      args: [
+        "--user",
+        "show",
+        LINUX_AGENT_UNIT,
+        "--property=LoadState",
+        "--property=ActiveState",
+        "--property=FragmentPath",
+        "--property=DropInPaths",
+        "--property=Transient",
+      ],
+    });
+    const properties = new Map(
+      result.stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const separator = line.indexOf("=");
+          return [line.slice(0, separator), line.slice(separator + 1)];
+        })
+    );
+    if (
+      allowMissing &&
+      properties.get("LoadState") === "not-found" &&
+      !properties.get("FragmentPath") &&
+      !properties.get("DropInPaths")
+    )
+      return properties;
+    if (result.exitCode !== 0)
+      throw new Error("Agent service manager identity unavailable");
+    if (
+      properties.get("LoadState") !== "loaded" ||
+      properties.get("FragmentPath") !== this.unitPath ||
+      properties.get("DropInPaths") !== "" ||
+      properties.get("Transient") !== "no"
+    )
+      throw new Error(
+        "Effective agent service configuration conflicts; inspect loaded fragment and drop-ins before local repair"
+      );
+    return properties;
+  }
   private async command(verb: string, unit = true): Promise<void> {
     if (this.os !== "linux")
       throw new Error("Linux systemd user services unavailable");
@@ -210,6 +257,7 @@ export class LinuxAgentService {
       (data.mode & 0o777) !== 0o700
     )
       throw new Error("Agent data directory must be private and user-owned");
+    await this.managerUnit(true);
     if (!exists) {
       // Exclusive creation never overwrites a concurrent installer or foreign definition.
       const file = await open(this.unitPath, "wx", 0o600);
@@ -221,6 +269,7 @@ export class LinuxAgentService {
       }
     }
     await this.command("daemon-reload", false);
+    await this.requireOwned();
     await this.command("enable");
     await this.start();
     return diagnosis;
@@ -228,6 +277,7 @@ export class LinuxAgentService {
   private async requireOwned(): Promise<void> {
     if (!(await this.ownedUnit()))
       throw new Error("Agent service is not installed");
+    await this.managerUnit();
   }
   async start(): Promise<void> {
     await this.requireOwned();
@@ -243,6 +293,7 @@ export class LinuxAgentService {
   }
   async uninstall(): Promise<void> {
     if (!(await this.ownedUnit())) return;
+    await this.managerUnit();
     await this.command("stop");
     await this.command("disable");
     await this.requireOwned();
@@ -251,23 +302,10 @@ export class LinuxAgentService {
   }
   async status(): Promise<{ installed: boolean; active: boolean }> {
     if (!(await this.ownedUnit())) return { installed: false, active: false };
-    if (this.os !== "linux")
-      throw new Error("Linux systemd user services unavailable");
-    const result = await this.runner({
-      executable: this.systemctl,
-      args: [
-        "--user",
-        "show",
-        LINUX_AGENT_UNIT,
-        "--property=LoadState",
-        "--property=ActiveState",
-      ],
-    });
-    if (result.exitCode !== 0)
-      throw new Error("Agent service status unavailable");
+    const properties = await this.managerUnit();
     return {
       installed: true,
-      active: result.stdout.split("\n").includes("ActiveState=active"),
+      active: properties.get("ActiveState") === "active",
     };
   }
 }

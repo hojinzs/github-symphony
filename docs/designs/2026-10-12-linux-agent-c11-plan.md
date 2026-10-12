@@ -1,6 +1,6 @@
 # C11 Linux agent user-service implementation plan
 
-**Status:** Draft — implementation in #1015, Epic #983
+**Status:** Implemented — review and native pre-release acceptance pending (#1015, Epic #983)
 **Symphony Layers:** Configuration, Execution, Integration (cross-layer)
 
 ## Ownership and existing contracts

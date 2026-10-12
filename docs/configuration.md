@@ -1054,3 +1054,10 @@ environment values are transferred by name; manager-only variables are explicitl
 unset. No new environment-variable configuration is introduced. The runner,
 platform and control-group readers are OS fixture seams; production must use
 actual host defaults. Uninstall preserves all agent and project runtime data.
+
+The Linux agent unit uses raw `WorkingDirectory=/` so the native parser receives
+an absolute path; configured entry/data/config paths remain absolute arguments.
+Lifecycle effects additionally require the manager's loaded `FragmentPath` to
+match the owned definition, `Transient=no`, and no `DropInPaths`. Same-name
+transient units, alternative fragments and overrides are configuration conflicts
+requiring local repair, even when the filesystem definition is unchanged.
