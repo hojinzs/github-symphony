@@ -1150,3 +1150,10 @@ until its first authenticated observation.
 This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
 command delivery and native service packaging retain their sibling boundaries.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
+
+The internal [fleet observation service](packages/fleet-control-plane/README.md) provides C06 cached inventory
+queries, receipt-based offline/stale state, paged project lists and advisory
+tracker-scope warnings. Complete uploads change membership atomically; partial
+uploads retain unseen projects. These library boundaries are separate from the
+existing `gh-symphony project` commands and per-project `--web` server; fleet HTTP
+and UI assembly remains a consumer integration.

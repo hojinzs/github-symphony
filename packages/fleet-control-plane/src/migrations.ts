@@ -92,6 +92,34 @@ export const FLEET_MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE observed_projects (
+        project_id TEXT PRIMARY KEY,
+        environment_id TEXT NOT NULL REFERENCES environments(id),
+        local_project_id TEXT NOT NULL,
+        managed INTEGER NOT NULL DEFAULT 0,
+        published INTEGER NOT NULL DEFAULT 0,
+        observation TEXT,
+        received_at TEXT,
+        UNIQUE(environment_id, local_project_id)
+      );
+      CREATE TABLE inventory_revisions (
+        environment_id TEXT PRIMARY KEY REFERENCES environments(id),
+        session_id TEXT NOT NULL,
+        revision_id TEXT NOT NULL,
+        page_count INTEGER NOT NULL,
+        complete INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE inventory_pages (
+        environment_id TEXT NOT NULL REFERENCES environments(id),
+        page_index INTEGER NOT NULL,
+        project_ids TEXT NOT NULL,
+        PRIMARY KEY(environment_id, page_index)
+      );
+    `,
+  },
 ];
 
 /** A whole migration batch and its schema version commit together. */

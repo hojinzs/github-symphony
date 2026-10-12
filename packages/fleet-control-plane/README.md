@@ -210,3 +210,45 @@ records the package boundaries. After `pnpm build`, run
 `./e2e/run-fleet-commands-e2e.sh` for isolated Linux Docker.
 [TC-29](../../e2e/scenarios/29-fleet-command-recovery.md) distinguishes
 ledger/journal-fixture integration evidence from native OS lifecycle validation.
+
+## C06 cached observations and atomic inventory
+
+`createObservationService(store, { invalidateProject, now? })` owns migration 4:
+server-issued UUIDs uniquely bind `(environmentId, localProjectId)`, completed
+inventory membership, bounded in-flight page identity sets, and latest project
+observations. Wire identities must be allocated with `identifyProjects` by trusted
+authenticated composition before upload. Production identity negotiation and HTTP
+route assembly remain typed consumer boundaries; this library does not expose an
+unauthenticated allocation route.
+
+Pass `receiveObservation` directly to the C05 session service on the same store.
+The callback requires an active shared transaction; sequence, authenticated
+receipt and projection commit or roll back together. Page zero begins a revision;
+remaining page indexes may arrive in any order. Page count, identities, duplicate
+pages and the 100-project aggregate limit are validated across pages. Only a
+complete revision changes managed membership. Existing project status can advance
+before completion; newly discovered projects appear after completion. Removed
+projects retain last-known data marked unmanaged. The required synchronous
+`invalidateProject(database, projectId)` peer expires unclaimed lifecycle commands
+on removal or reported folder loss without stopping any process.
+
+`listProjects` defaults to 25 rows (maximum 100) and uses project UUID keyset
+paging, with cursors scoped to environment/process/connection filters. Invalid
+cursors and filter changes return `cursor_reset`; invalid limits are rejected.
+`getProject` adds receipt freshness, snapshot staleness and advisory scope
+warnings to the protocol aggregate shape. `summary` counts only managed, fresh
+running observations; offline/removed historical running processes are excluded.
+Queries compute timeout freshness even before session-expiry maintenance runs.
+Restart recovery belongs to C05 and preserves cached project state as stale.
+
+Missing snapshots retain the last successful snapshot and its original timestamp,
+with an explicit stale diagnostic. Missing snapshots and empty run summaries never
+imply a stopped process. Normalized reported tracker metadata compares adapter,
+binding and repository plus sorted/deduplicated state and label sets across
+environments. Unknown, stale or failed scope observations produce `unverified`
+warnings; identical known scopes produce `identical` warnings. This does not
+reimplement provider eligibility, prevent starts, or provide global scheduling.
+
+`observations.test.ts` composes real C04 enrollment/C05 sessions with SQLite and
+typed independent project observations for CP-01/03/05/10/14/17/21. The management
+plane remains a repository-local extension; `docs/symphony-spec.md` is unchanged.

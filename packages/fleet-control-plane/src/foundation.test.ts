@@ -85,7 +85,7 @@ describe("user-owned SQLite", () => {
       reopened.database.prepare("SELECT name FROM environments").get()
     ).toEqual({ name: "Host" });
     expect(reopened.database.prepare("PRAGMA user_version").get()).toEqual({
-      user_version: 3,
+      user_version: 4,
     });
     reopened.close();
   });
@@ -199,13 +199,13 @@ describe("migrations", () => {
       ).toBeUndefined();
       applyMigrations(db);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 3,
+        user_version: 4,
       });
     } finally {
       db.close();
     }
   });
-  it("upgrades a populated lifecycle v2 database to session v3 without losing commands", () => {
+  it("upgrades a populated lifecycle v2 database to projection v4 without losing commands", () => {
     const db = new DatabaseSync(":memory:");
     try {
       applyMigrations(db, FLEET_MIGRATIONS.slice(0, 2));
@@ -217,7 +217,7 @@ describe("migrations", () => {
                 'click', '2026-10-09T12:00:00Z', '2026-10-09T12:00:30Z', 'accepted');`);
       applyMigrations(db);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
-        user_version: 3,
+        user_version: 4,
       });
       expect(
         db.prepare("SELECT command_id, state FROM lifecycle_commands").get()

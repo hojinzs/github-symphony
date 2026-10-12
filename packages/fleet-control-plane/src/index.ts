@@ -5,6 +5,13 @@ export {
 } from "./config.js";
 export { openFleetStore, type FleetStore } from "./store.js";
 export {
+  createObservationService,
+  type ObservationService,
+  type ObservationOptions,
+  type ObservedProject,
+  type ScopeWarning,
+} from "./observations.js";
+export {
   applyMigrations,
   FLEET_MIGRATIONS,
   type Migration,
