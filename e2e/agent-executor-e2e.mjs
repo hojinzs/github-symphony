@@ -9,6 +9,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -482,14 +483,37 @@ if (process.argv.includes("--agent")) {
 
     await writeFile(join(folder, "WORKFLOW.md"), "invalid workflow");
     const invalid = await submit("invalid-start");
-    await agent.run(poll([invalid]));
+    loseResult = true;
+    const invalidRun = await agent.run(poll([invalid]));
     const invalidResult = await commands.getCommand(invalid.commandId);
     check(
-      invalidResult.state === "failed" &&
+      invalidRun === "network_failure" &&
+        invalidResult.state === "failed" &&
         invalidResult.diagnostic.code === "project_invalid" &&
         effects.length === 0,
       "CP04 invalid local workflow fails without spawning a daemon"
     );
+    await agent.close(true);
+    await rename(folder, join(root, "moved-folder"));
+    if (probe === "duplicate-result")
+      await plant(invalid.commandId, (value) => {
+        delete value.result;
+      });
+    agent = await startAgent();
+    const duplicateRun = await agent.run(poll([invalid]));
+    const duplicateUploads = uploads.filter(
+      (value) => value.commandId === invalid.commandId
+    );
+    check(
+      !duplicateRun &&
+        (await entry(invalid.commandId)).acknowledged &&
+        duplicateUploads.length === 2 &&
+        JSON.stringify(duplicateUploads[0]) ===
+          JSON.stringify(duplicateUploads[1]) &&
+        effects.length === 0,
+      "CP07 duplicate result resends after managed folder disappears"
+    );
+    await rename(join(root, "moved-folder"), folder);
     await writeFile(join(folder, "WORKFLOW.md"), workflow);
 
     let command = await submit("lost-claim");

@@ -34,8 +34,14 @@ export class CommandExecutor {
     const identity = this.registry.identity;
     if (!identity || identity.environmentId !== response.environmentId)
       throw new AgentTransportError("response_identity_mismatch", false);
-    for (const command of response.commands)
-      await this.journal.receive(command);
+    const results: PromiseSettledResult<void>[] = [];
+    for (const command of response.commands) {
+      try {
+        await this.journal.receive(command);
+      } catch (reason) {
+        results.push({ status: "rejected", reason });
+      }
+    }
     const entries = this.journal
       .list()
       .filter(
@@ -44,7 +50,6 @@ export class CommandExecutor {
           !entry.retiredAt
       );
     // Bound local work even if retained recovery records outnumber one poll.
-    const results: PromiseSettledResult<void>[] = [];
     for (
       let offset = 0;
       offset < entries.length;

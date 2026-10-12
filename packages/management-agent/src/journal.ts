@@ -86,6 +86,14 @@ export class CommandJournal {
     const identity = this.registry.identity;
     if (!identity || parsed.environmentId !== identity.environmentId)
       throw new Error("Command targets another enrolled identity");
+    // A retained receipt/result remains recoverable after local access removal
+    // or a missing folder. New effects still recheck registration in lifecycle.
+    const retained = this.get(parsed.commandId);
+    if (retained) {
+      if (!sameCommand(retained.command, parsed))
+        throw new Error("Command ID conflicts with durable receipt");
+      return retained;
+    }
     const project = await this.registry.resolveManaged(parsed.localProjectId);
     await this.update((entries) => {
       const existing = entries.find(

@@ -13,7 +13,10 @@ assembly or a native systemd/launchd service test.
 ## Steps
 
 1. Run `node e2e/agent-executor-e2e.mjs` on the host.
-2. Verify invalid local workflow fails without spawning, then restore it.
+2. Verify invalid local workflow fails without spawning. Lose its result
+   acknowledgment, kill the agent and move its folder. Redeliver the same command
+   after restart and verify the saved result resends unchanged without live folder
+   access or new effects. Restore the folder and workflow afterward.
 3. Commit a real fleet claim but lose its response before an effect. Kill the
    agent, advance the fixture server clock past the claim deadline, restart the
    agent and replay. Verify the original claim time and one ready CLI daemon.
@@ -39,7 +42,8 @@ assembly or a native systemd/launchd service test.
    evidence.
 9. Kill the agent while B runs. Verify B continues and stale-session claim replay
    is rejected by the actual fleet service.
-10. Run `node e2e/agent-executor-mutations.mjs`. Five isolated runs plant changed
+10. Run `node e2e/agent-executor-mutations.mjs`. Six isolated runs plant lost cached
+    result after folder removal, changed
     claim time in real SQLite, a changed retry result in the real journal, a
     removed marker, a fabricated expired result, or a shutdown of B. Each must
     print its named reached assertion and fail with that assertion's error.
@@ -49,12 +53,12 @@ assembly or a native systemd/launchd service test.
 
 ## Expected
 
-- Baseline prints 22 reached assertions and `agent executor black-box passed`,
+- Baseline prints 23 reached assertions and `agent executor black-box passed`,
   identifying the actual host OS and the simulated peer/clock boundaries.
 - CP-04/05/06/07/08/09/18/19 and applicable U04 lifecycle/U07 recovery library
   paths use actual durable agent and fleet records. Existing local CLI readiness,
   locks and expected-target shutdown remain authoritative.
-- All five probes fail at their named assertions. An unrelated exception or
+- All six probes fail at their named assertions. An unrelated exception or
   timeout does not count as mutation evidence.
 - Unit tests separately cover foreign ownership, terminal/unknown replay,
   readiness absence, held locks, target PID/runtime reuse, original execution

@@ -6,6 +6,10 @@ const runner = fileURLToPath(
   new URL("./agent-executor-e2e.mjs", import.meta.url)
 );
 for (const [probe, label] of [
+  [
+    "duplicate-result",
+    "CP07 duplicate result resends after managed folder disappears",
+  ],
   ["claim-time", "CP18 original ownership and claim time retained"],
   [
     "result",

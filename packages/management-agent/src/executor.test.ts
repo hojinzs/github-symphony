@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -283,6 +284,52 @@ it("resends the durable result after lost acknowledgment and restart without eff
   expect(effects).toEqual(["start"]);
   expect(journal.get(command.commandId)?.acknowledged).toBe(true);
 });
+
+it.each(["moved", "removed"] as const)(
+  "resends a duplicate durable result after its project is %s",
+  async (condition) => {
+    loseResult = true;
+    await expect(executor.handlePoll(poll(), client)).rejects.toThrow(
+      "network_failure"
+    );
+    const saved = journal.get(command.commandId)?.result;
+    if (condition === "moved")
+      await rename(join(root, "project"), join(root, "moved-project"));
+    else await registry.remove(command.localProjectId);
+    await reopen();
+    await executor.handlePoll(poll(), client);
+    expect(resultUploads).toEqual([saved, saved]);
+    expect(journal.get(command.commandId)?.acknowledged).toBe(true);
+    expect(effects).toEqual(["start"]);
+  }
+);
+
+it.each(["unmanaged", "conflicting"] as const)(
+  "drains unrelated durable results despite a %s delivery",
+  async (condition) => {
+    loseResult = true;
+    await expect(executor.handlePoll(poll(), client)).rejects.toThrow(
+      "network_failure"
+    );
+    const invalid: LifecycleCommand =
+      condition === "unmanaged"
+        ? {
+            ...command,
+            commandId: randomUUID(),
+            projectId: randomUUID(),
+            localProjectId: "unregistered-folder",
+          }
+        : { ...command, operation: "stop" };
+    await expect(executor.handlePoll(poll([invalid]), client)).rejects.toThrow(
+      condition === "unmanaged" ? "project_unmanaged" : "conflicts"
+    );
+    expect(journal.get(command.commandId)?.acknowledged).toBe(true);
+    expect(resultUploads).toHaveLength(2);
+    expect(effects).toEqual(["start"]);
+    if (condition === "unmanaged")
+      expect(journal.get(invalid.commandId)).toBeUndefined();
+  }
+);
 
 it("executes verified stop only after the durable expected target is saved", async () => {
   command.operation = "stop";
