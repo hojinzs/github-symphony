@@ -1,6 +1,6 @@
 # C12 macOS agent user-service implementation plan
 
-**Status:** Draft implementation plan (#1016; Epic #983)
+**Status:** Implemented, pending review (#1016; Epic #983)
 **Symphony Layers:** Configuration, Execution, Integration (cross-layer)
 
 ## Scope and conformance

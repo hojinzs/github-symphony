@@ -192,3 +192,41 @@ invalid inventory remain fatal.
 
 If a session-negotiation response is lost after the server commits it, exclusivity
 can delay recovery until the 30-second session expiry plus reconnect backoff.
+
+## C12 macOS user-service boundary
+
+`MacOSAgentService` and `launchMacOSProject` are exported through the bundled
+`@gh-symphony/cli/management-agent` module. C13 retains public command/setup
+routing. The adapter accepts trusted local `MacOSServiceConfig`: absolute Node,
+foreground entrypoint (consuming `--config <file>`), config and private data
+paths, current UID, and user home. Resolve the real OS home with
+`userInfo().homedir`; an overridden `HOME` may refer to a worker sandbox rather
+than the login user's home. Alternate staging homes report `autoStart.login =
+false`. The default label is `com.github-symphony.management-agent`.
+
+Call `install()` then `start()`; `status()`, `stop()`, `restart()` and
+`uninstall()` query/control only that job. Installation is private, idempotent
+for identical configuration, rejects symlinks/conflicts and preserves a failed
+bootstrap for retry. Unload polls for launchd removal within a 25-second window; an in-flight
+launchctl query has its own ten-second command timeout. Failed
+unload retains the definition; uninstall never deletes agent data. Credentials
+are read by the foreground entrypoint, not embedded in the plist. Unexpected
+nonzero exits restart with launchd's ten-second throttle; stdout/stderr remain
+under the user-only data directory. Log rotation belongs to the embedding owner.
+
+For C03's `native-service` launch context, supply
+`launchIsolatedProject: launchMacOSProject`. macOS project CLI invocations get a
+separate process group; the plist sets `AbandonProcessGroup` so launchd job exit
+cleanup does not capture managed projects. Foreground and service consumers use
+the same existing C03 lock. The directly launched agent stays foreground.
+
+Login auto-start requires the real user's `Library/LaunchAgents` directory.
+There is no pre-login boot startup, logout survival, privileged LaunchDaemon or
+promise of project persistence through machine/session teardown. `status()`
+rejects missing GUI-session support rather than reporting a stopped service.
+Use foreground execution for that environment.
+
+[TC-31](../../e2e/scenarios/31-macos-agent-service.md) exercises real launchd and
+prepared-project lifecycle with an independently typed C05 delivery fixture.
+Native macOS, portable contracts and Docker evidence are distinct. Login/logout
+remains an explicit manual walkthrough.
