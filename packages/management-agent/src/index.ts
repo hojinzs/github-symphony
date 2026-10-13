@@ -52,3 +52,15 @@ export type {
   LinuxProjectLaunchRequest,
   LinuxProjectLauncherOptions,
 } from "./linux-launcher.js";
+export {
+  MacOSAgentService,
+  runLaunchctl,
+  launchMacOSProject,
+} from "./macos-service.js";
+export type {
+  MacOSServiceConfig,
+  MacOSServiceStatus,
+  MacOSProjectLaunch,
+  LaunchctlRunner,
+  LaunchctlResult,
+} from "./macos-service.js";

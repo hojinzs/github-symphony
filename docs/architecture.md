@@ -82,6 +82,8 @@ the tracker adapter:
 - Fleet HTTPS origin, explicit private bind and absolute user-owned persistence configuration: `packages/fleet-control-plane/src/config.ts` (C04, #1008). This is independent of workflow configuration.
 
 - C11 Linux service configuration: `packages/management-agent/src/linux-service.ts` owns absolute paths, user-unit rendering, identity-preserving installation recovery and linger/XDG/unified-cgroup diagnosis. Shared public command routing remains in C13.
+
+- macOS management service configuration: `management-agent/src/macos-service.ts` validates trusted absolute host paths/current UID and owns a private user LaunchAgent definition (C12, #1016).
 - Local management allowlist and enrollment persistence: `packages/management-agent` (C03, #1007), with canonical folder IDs and a user-only registry; the CLI remains responsible for workflow validation.
 - Management v1 identity, capacity, wire contracts and strict runtime schemas: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
 
@@ -208,6 +210,12 @@ checks before launch, verifies disjoint cgroup v2 ownership and startup
 execution status, and never propagates agent lifecycle operations to project units.
 `linux-systemd.ts` owns bounded local OS subprocess calls.
 
+On macOS the CLI driver creates
+a separate project CLI process group. C12 `macos-service.ts` supplies the
+structural C03 isolated-launcher port and disables launchd process-group cleanup
+with `AbandonProcessGroup`. Service stop/restart/uninstall retain registry/journal
+and project lifetimes; native launchd evidence is separate from portable tests.
+
 - Exporter credential ownership: `packages/orchestrator/src/exporter-environment.ts`
   uses core OTLP auth-reference provenance to strip final worker/hook environments.
   Name-only conflicts with agent/tracker credentials fail even for disabled OTLP;
@@ -246,7 +254,13 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
+- C12 macOS OS adapter: `management-agent/src/macos-service.ts` executes absolute `/bin/launchctl` in the current GUI user domain, confirms load/removal and keeps user diagnostics; C13 retains public command routing.
 - C05 outbound runtime: `packages/management-agent/src/transport.ts` validates verified HTTPS messages, bounds bodies and correlates identity; `foreground.ts` holds the local registry lock and runs independent observation/poll loops with capped reconnect jitter. The published `@gh-symphony/cli/management-agent` entry is built from `packages/cli/src/management-agent.ts`. C06 inventory UUID/projection and command/read delivery remain typed sibling ports.
+- C10 bounded read integration: `packages/fleet-control-plane/src/reads.ts` uses
+  synchronous project/session peers and C01 schemas, independently of lifecycle
+  slots. `src/read-routes.ts` resolves C04 CSRF for read admission and dispatches
+  browser read/detail routes; the private listener and shared agent transport
+  remain consumer-owned. C09 supplies local filesystem reads.
 - C05 fleet session owner: `packages/fleet-control-plane/src/sessions.ts` owns exclusive sessions, receipt-based renewal, sequence fencing and migration 3 on the C04 transaction boundary. Startup recovery fences persisted sessions without project process effects; its synchronous observation hook belongs to C06.
 
 - Fleet lifecycle command integration: `CommandPeers` supplies synchronous
@@ -287,6 +301,14 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 6. Observability — events and status surfaces
 
+- C10 read observability: the ephemeral result registry retains terminal results
+  for 60 seconds, marks pending reads expired at 30 seconds, and reports offline,
+  removed, restarted or unknown results as unavailable. Receipt timestamps label
+  cached content age; raw log text never enters fleet persistence. Historical
+  views and no-store HTTP headers preserve the v1 result body. A synchronous
+  transactional summary hook supplies validated newest-first summaries to the
+  C06 projection owner; C06 retains merge/pruning ownership. Registry and payload
+  caps bound retained memory without shortening accepted result retention.
 - C05 management connection observability: `management-agent/src/foreground.ts` emits sanitized online/retrying state and `fleet-control-plane/src/sessions.ts` records receipt-based first signal, sequence and host/version metadata. Agent clocks cannot determine freshness; core scheduling is untouched.
 - Internal lifecycle owner: `packages/orchestrator/src/observability/lifecycle.ts` freezes startup transport settings, compares validated reload candidates privately (including header values), and exposes safe applied/pending descriptors. Disable edits retain the active startup provider until restart; revert clears pending state. Publication and shutdown failures remain isolated from coordination health. Shutdown stops offers and gives the owned pipeline one five-second deadline. The service initializes the SDK-free owner before dispatch and installs Logs at the existing post-append FS store boundary and Metrics at the committed snapshot/tick boundary. `observability/resource-validation.ts` applies provider resource limits before last-known-good persistence without loading the SDK. `observability/pipeline.ts` lazily composes both providers with one resource UUID, samples Logs loss deltas once into Metrics, and projects bounded per-signal diagnostics. Status uses an orchestrator-owned additive field preserved by existing readers; no core contract changes. The internal production capability defaults off until audited CLI delivery; tests may inject providers.
 

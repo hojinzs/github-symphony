@@ -289,3 +289,61 @@ composition, TLS delivery, managed daemon continuity and 18 reached fault
 probes. Use `--simulate` for ordinary host/Docker contract evidence and `--native`
 on a prepared Linux operator account for actual systemd/cgroup acceptance. Native
 acceptance remains a separate pre-release gate; simulations do not satisfy it.
+
+## C12 macOS user-service boundary
+
+`MacOSAgentService` and `launchMacOSProject` are exported through the bundled
+`@gh-symphony/cli/management-agent` module. C13 retains public command/setup
+routing. The adapter accepts trusted local `MacOSServiceConfig`: absolute Node,
+foreground entrypoint (consuming `--config <file>`), config and private data
+paths, current UID, and user home. Resolve the real OS home with
+`userInfo().homedir`; an overridden `HOME` may refer to a worker sandbox rather
+than the login user's home. Alternate staging homes report `autoStart.login =
+false`. The default label is `com.github-symphony.management-agent`.
+
+Call `install()` then `start()`; `status()`, `stop()`, `restart()` and
+`uninstall()` query/control only that job. Installation is private, idempotent
+for identical configuration, rejects symlinks/conflicts and preserves a failed
+bootstrap for retry. Unload polls for launchd removal within a 25-second window; an in-flight
+launchctl query has its own ten-second command timeout. Failed
+unload retains the definition; uninstall never deletes agent data. Credentials
+are read by the foreground entrypoint, not embedded in the plist. Unexpected
+nonzero exits restart with launchd's ten-second throttle; stdout/stderr remain
+under the user-only data directory. Log rotation belongs to the embedding owner.
+
+For C03's `native-service` launch context, supply
+`launchIsolatedProject: launchMacOSProject`. macOS project CLI invocations get a
+separate process group; the plist sets `AbandonProcessGroup` so launchd job exit
+cleanup does not capture managed projects. Foreground and service consumers use
+the same existing C03 lock. The directly launched agent stays foreground.
+
+Login auto-start requires the real user's `Library/LaunchAgents` directory.
+There is no pre-login boot startup, logout survival, privileged LaunchDaemon or
+promise of project persistence through machine/session teardown. `status()`
+rejects missing GUI-session support rather than reporting a stopped service.
+Use foreground execution for that environment.
+
+[TC-31](../../e2e/scenarios/31-macos-agent-service.md) exercises real launchd and
+prepared-project lifecycle with an independently typed C05 delivery fixture.
+Native macOS, portable contracts and Docker evidence are distinct. Login/logout
+remains an explicit manual walkthrough.
+
+A Node upgrade or moved CLI entrypoint can leave a conflicting saved definition.
+All adapter actions fail closed on that conflict, including stop and uninstall.
+To repair explicitly, use the current user's GUI session and first inspect the
+saved plist with `plutil -p "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`
+and `launchctl print "gui/$(id -u)/com.github-symphony.management-agent"`.
+Confirm the label and loaded path match your agent, and that the plist is a
+regular, non-symlink file owned by your UID with mode 0600. Use the real login
+home if `HOME` is overridden; substitute the configured label for an override.
+Do not remove or unload a foreign or unsafe definition.
+
+Run `launchctl bootout "gui/$(id -u)/com.github-symphony.management-agent"`
+if the job is loaded. Wait until `launchctl print` for that exact target reports
+that the service could not be found; a missing GUI domain or another command
+error does not confirm removal. Only then remove the inspected plist with
+`rm "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`.
+Call `install()` and `start()` with the updated absolute executable and
+entrypoint paths. Keep the existing config and private data directory: this
+repair preserves enrollment, allowlist and journal data and does not stop
+managed project orchestrators. Installation requires an executable `nodePath`.

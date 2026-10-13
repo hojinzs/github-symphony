@@ -12,6 +12,9 @@ export {
   LINUX_AGENT_UNIT,
   renderLinuxAgentUnit,
   createLinuxProjectLaunchContext,
+  MacOSAgentService,
+  runLaunchctl,
+  launchMacOSProject,
 } from "@gh-symphony/management-agent";
 export type {
   AgentIdentity,
@@ -22,4 +25,8 @@ export type {
   LinuxServiceDiagnosis,
   LinuxProjectLaunchRequest,
   LinuxProjectLauncherOptions,
+  MacOSServiceConfig,
+  MacOSServiceStatus,
+  MacOSProjectLaunch,
+  LaunchctlRunner,
 } from "@gh-symphony/management-agent";

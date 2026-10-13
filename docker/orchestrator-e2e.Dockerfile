@@ -49,6 +49,12 @@ COPY --from=build --chown=node:node /app/e2e/fleet-commands-peer.mjs /app/e2e/fl
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-e2e.mjs /app/e2e/fleet-commands-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-mutations.mjs /app/e2e/fleet-commands-mutations.mjs
 
+COPY --from=build --chown=node:node /app/e2e/fleet-reads-e2e.mjs /app/e2e/fleet-reads-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-reads-mutations.mjs /app/e2e/fleet-reads-mutations.mjs
+
+COPY --from=build --chown=node:node /app/e2e/linux-agent-service-e2e.mjs /app/e2e/linux-agent-service-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/run-linux-agent-service-probes.mjs /app/e2e/run-linux-agent-service-probes.mjs
+
 # Copy seed data
 COPY --chown=node:node e2e/seed /e2e/seed
 
