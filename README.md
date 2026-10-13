@@ -1154,3 +1154,13 @@ Existing `gh-symphony project` and per-project `--web` commands keep their behav
 The [C10 fleet read lane](packages/fleet-control-plane/README.md#bounded-read-lane-c10) supplies bounded
 run/detail/log requests and route dispatch for a consuming private fleet service.
 It has no new CLI command; existing project and per-project web usage is unchanged.
+
+### macOS management-agent user service (C12)
+
+The bundled `@gh-symphony/cli/management-agent` module now exports
+`MacOSAgentService` and `launchMacOSProject` for local service composition.
+Install/start/status/stop/restart/uninstall operate only on the current user's
+LaunchAgent and preserve management identity and managed orchestrators. Public
+agent command routing remains C13-owned. Login startup requires the real OS user
+home; no pre-login boot or logout survival is promised. See the management-agent
+package README for the typed configuration and TC-31 native validation.

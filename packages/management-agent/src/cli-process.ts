@@ -43,6 +43,9 @@ export class CliProcess {
           cwd,
           env: this.environment,
           shell: false,
+          // launchd job cleanup must not capture project CLI invocations.
+          // Linux service isolation is owned by its explicit native launcher.
+          detached: process.platform === "darwin",
           stdio: ["ignore", "pipe", "ignore"],
         }
       );
