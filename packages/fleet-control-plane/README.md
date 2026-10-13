@@ -75,7 +75,7 @@ expired or revoked values fail closed. GET/HEAD resolves the private listener's
 local-owner read boundary; the consumer must keep that listener private.
 
 Defaults are eight hours and 256 sessions. Typed options allow lifetimes from
-one second through seven days and registry sizes from 1 through 10,000. Sessions
+one second through nineteen days and registry sizes from 1 through 10,000. Sessions
 are bounded in memory and disappear on restart; SQLite enrollment survives.
 At capacity, issuing a session evicts the oldest live session, whose next request
 fails as unauthenticated. Repeated issuance by anyone with listener access can
@@ -292,3 +292,61 @@ environment across calls. Existing mappings and intentionally published history
 remain available at capacity. Overflow rolls back the entire allocation batch;
 completed publication releases pending capacity. Abandoned unpublished mappings
 from retired generations are reclaimed during allocation.
+
+## Bounded read lane (C10)
+
+`createReadService(store, { peers, now?, maximumEntries? })` exposes `submitRead`
+and `getRead` plus agent `poll` and `publishResult`. Supply the same authenticated
+project/session peers as the command ledger. Reads never acquire a lifecycle
+command slot. Admission requires a managed, valid, supported online target;
+four pending reads per agent and one per project are allowed. Requests expire
+at 30 seconds using server time. Terminal results remain in memory for 60 seconds,
+including logs; they never enter SQLite. The result registry defaults to 1024
+entries (configurable from 1 to 10000); full registries reject new reads with
+`read_busy` rather than evicting a result before its retention ends.
+
+Poll and result publication require the current enrolled session. Results must
+match the selected kind/run/stream and requested UTF-8 byte limit. Completion
+uses receipt time, and identical completed replay preserves that first receipt.
+Disconnection, removal or session replacement makes pending work unavailable.
+Expired reads stay expired despite late results. Call `recover()` when restarting
+an in-process service; a newly constructed service has no retained results and
+unknown IDs explicitly return unavailable. Already completed content retains
+its completion timestamp when disconnected; consuming views must display it
+as historical and pause follow. Local C09 adapters own file containment, rotation,
+truncation and cursor generation; the fleet service preserves reset diagnostics.
+
+`createReadRoutes(reads, browserSecurity)` supplies an HTTP-framework-independent
+request dispatcher for `POST /api/v1/projects/:id/reads` (202) and
+`GET /api/v1/reads/:id` (200). Mount it only behind the fleet private listener.
+POST resolves the actual local-owner CSRF session before parsing/admission.
+Errors use the v1 `{ error: { code, message, requestId } }` shape; unmatched routes
+return undefined for the owning server to dispatch. The listener must enforce
+its existing JSON body limit before invoking this dispatcher. Agent poll/results
+remain service composition boundaries shared with lifecycle commands.
+
+`getReadView(id)` returns the v1 result plus a historical flag based on the
+current project/session/connection projection. The detail dispatcher preserves
+the v1 JSON result and supplies `X-Symphony-Historical: true|false` and
+`Cache-Control: no-store`; mounting listeners must forward those headers.
+Completed results keep their first receipt timestamp. Non-log payload JSON is
+limited to 256 KiB before retention. Serialized log payloads, including cursors,
+are limited to 256 KiB plus 1 KiB of metadata overhead, in addition to the
+request-specific UTF-8 text limit. Read submission receipts contain only `readId`;
+completed JSON replays ignore object key order while preserving array order.
+
+Optional `receiveRunSummaries(database, projectId, runs, receivedAt)` hands
+validated completed summaries to C06 on the shared transaction connection,
+newest first and capped at 100. The projection owner must merge/prune its cached
+history to at most 100 per project, retain it offline and after restart, and
+label it using receipt/observation times. The hook must synchronously return
+undefined; failure rolls back its writes and leaves the read pending for retry.
+Identical completed replay does not invoke it twice. C10 never sends log text
+or arbitrary run detail to this persistence hook. Production observation/project
+projection remains C06-owned; independent SQLite fixture tables exercise this
+boundary while that sibling is unavailable.
+
+[TC-31](../../e2e/scenarios/31-fleet-bounded-reads.md) describes the built-service
+HTTPS/C04/C05/C09 contract and nineteen forbidden-condition probes. Run
+`node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs` after
+`pnpm build`, or `./e2e/run-fleet-reads-e2e.sh` for Linux Docker.

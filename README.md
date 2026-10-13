@@ -1098,10 +1098,10 @@ The internal [fleet services](packages/fleet-control-plane/README.md) adds priva
 and typed HTTPS-origin configuration for C04 (#1008). C07 (#1011) adds the
 internal lifecycle command ledger and recovery library: durable idempotency,
 claim deadlines, project fences, result reconciliation and audited unknown
-closure. Consumers supply authenticated session/project peers; fleet HTTP
-routing and new CLI commands remain separate. Its enrollment service
+closure. Consumers supply authenticated session/project peers; fleet listener
+installation and new CLI commands remain separate. Its enrollment service
 provides atomic one-use tokens, scoped credential verifiers and transactional
-revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and HTTP routing belong to later consumers;
+revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and listener composition belong to later consumers;
 per-project `--web` retains its existing behavior.
 
 ## License
@@ -1167,3 +1167,17 @@ Fleet project UUIDs follow enrollment generations: replacement agents allocate n
 identities while earlier observations remain stale history. Same-agent reconnects
 retain UUIDs. Allocation caps outstanding unpublished identities at 100 per
 environment; see the fleet service README for migration and recovery behavior.
+
+The [C10 fleet read lane](packages/fleet-control-plane/README.md#bounded-read-lane-c10) supplies bounded
+run/detail/log requests and route dispatch for a consuming private fleet service.
+It has no new CLI command; existing project and per-project web usage is unchanged.
+
+### macOS management-agent user service (C12)
+
+The bundled `@gh-symphony/cli/management-agent` module now exports
+`MacOSAgentService` and `launchMacOSProject` for local service composition.
+Install/start/status/stop/restart/uninstall operate only on the current user's
+LaunchAgent and preserve management identity and managed orchestrators. Public
+agent command routing remains C13-owned. Login startup requires the real OS user
+home; no pre-login boot or logout survival is promised. See the management-agent
+package README for the typed configuration and TC-31 native validation.

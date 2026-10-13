@@ -39,3 +39,16 @@ export {
 export type { ForegroundOptions } from "./foreground.js";
 export { createInventorySnapshot } from "./inventory.js";
 export type { ProjectIdentityResolver } from "./inventory.js";
+
+export {
+  MacOSAgentService,
+  runLaunchctl,
+  launchMacOSProject,
+} from "./macos-service.js";
+export type {
+  MacOSServiceConfig,
+  MacOSServiceStatus,
+  MacOSProjectLaunch,
+  LaunchctlRunner,
+  LaunchctlResult,
+} from "./macos-service.js";
