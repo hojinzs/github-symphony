@@ -247,6 +247,11 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 - C12 macOS OS adapter: `management-agent/src/macos-service.ts` executes absolute `/bin/launchctl` in the current GUI user domain, confirms load/removal and keeps user diagnostics; C13 retains public command routing.
 - C05 outbound runtime: `packages/management-agent/src/transport.ts` validates verified HTTPS messages, bounds bodies and correlates identity; `foreground.ts` holds the local registry lock and runs independent observation/poll loops with capped reconnect jitter. The published `@gh-symphony/cli/management-agent` entry is built from `packages/cli/src/management-agent.ts`. C06 inventory UUID/projection and command/read delivery remain typed sibling ports.
+- C10 bounded read integration: `packages/fleet-control-plane/src/reads.ts` uses
+  synchronous project/session peers and C01 schemas, independently of lifecycle
+  slots. `src/read-routes.ts` resolves C04 CSRF for read admission and dispatches
+  browser read/detail routes; the private listener and shared agent transport
+  remain consumer-owned. C09 supplies local filesystem reads.
 - C05 fleet session owner: `packages/fleet-control-plane/src/sessions.ts` owns exclusive sessions, receipt-based renewal, sequence fencing and migration 3 on the C04 transaction boundary. Startup recovery fences persisted sessions without project process effects; its synchronous observation hook belongs to C06.
 
 - Fleet lifecycle command integration: `CommandPeers` supplies synchronous
@@ -291,6 +296,14 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 - Internal lifecycle owner: `packages/orchestrator/src/observability/lifecycle.ts` freezes startup transport settings, compares validated reload candidates privately (including header values), and exposes safe applied/pending descriptors. Disable edits retain the active startup provider until restart; revert clears pending state. Publication and shutdown failures remain isolated from coordination health. Shutdown stops offers and gives the owned pipeline one five-second deadline. The service initializes the SDK-free owner before dispatch and installs Logs at the existing post-append FS store boundary and Metrics at the committed snapshot/tick boundary. `observability/resource-validation.ts` applies provider resource limits before last-known-good persistence without loading the SDK. `observability/pipeline.ts` lazily composes both providers with one resource UUID, samples Logs loss deltas once into Metrics, and projects bounded per-signal diagnostics. Status uses an orchestrator-owned additive field preserved by existing readers; no core contract changes. The library production capability defaults off; audited CLI startup supplies the capability and its release version through H’s existing input. Tests may inject providers.
 
+- C10 read observability: the ephemeral result registry retains terminal results
+  for 60 seconds, marks pending reads expired at 30 seconds, and reports offline,
+  removed, restarted or unknown results as unavailable. Receipt timestamps label
+  cached content age; raw log text never enters fleet persistence. Historical
+  views and no-store HTTP headers preserve the v1 result body. A synchronous
+  transactional summary hook supplies validated newest-first summaries to the
+  C06 projection owner; C06 retains merge/pruning ownership. Registry and payload
+  caps bound retained memory without shortening accepted result retention.
 - C05 management connection observability: `management-agent/src/foreground.ts` emits sanitized online/retrying state and `fleet-control-plane/src/sessions.ts` records receipt-based first signal, sequence and host/version metadata. Agent clocks cannot determine freshness; core scheduling is untouched.
 
 - Bounded local management reads: `packages/management-agent/src/local-read.ts` (C09, #1013) projects run metadata and reads fixed contained streams through a trusted canonical-runtime resolver, with signed generation/byte cursors and a 256 KiB wire limit. This Integration/Observability management extension does not alter orchestration or the upstream specification.
