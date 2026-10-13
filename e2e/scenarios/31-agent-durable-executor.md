@@ -48,8 +48,13 @@ assembly or a native systemd/launchd service test.
     removed marker, a fabricated expired result, or a shutdown of B. Each must
     print its named reached assertion and fail with that assertion's error.
 11. Run `./e2e/run-agent-executor-e2e.sh` for isolated Linux Docker baseline and
-    the same forbidden-condition probes. Record preflight status 69 separately
-    when the unattended worker cannot access Docker; it is not Linux evidence.
+    the same forbidden-condition probes. The runtime image must include both
+    `agent-executor-e2e.mjs` and `agent-executor-mutations.mjs`; a missing runner
+    after successful preflight is a test failure. The Compose service uses an
+    init process to reap orphaned daemons after stop/crash cases; without it,
+    zombies can prevent verified stopped-state observation. Record preflight
+    status 69 separately when the unattended worker cannot access Docker;
+    it is not Linux evidence.
 
 ## Expected
 

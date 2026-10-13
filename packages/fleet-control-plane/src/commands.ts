@@ -1,3 +1,4 @@
+import { json } from "./json.js";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type {
@@ -21,7 +22,6 @@ import {
   resultRequestSchema,
   commandRecordSchema,
   type Schema,
-  type JsonValue,
 } from "@gh-symphony/management-protocol";
 import { FleetError } from "./enrollment.js";
 import type { FleetStore } from "./store.js";
@@ -83,15 +83,6 @@ function parse<T>(schema: Schema<T>, value: unknown): T {
   } catch {
     throw new FleetError("invalid_input", "Invalid command input");
   }
-}
-function json(value: JsonValue): string {
-  if (Array.isArray(value)) return `[${value.map(json).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${json(value[key])}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
 }
 
 /** Trusted library boundary. HTTP consumers must resolve local-owner/CSRF first. */

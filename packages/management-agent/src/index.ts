@@ -41,3 +41,15 @@ export {
   observationPages,
 } from "./foreground.js";
 export type { ForegroundOptions, ForegroundClient } from "./foreground.js";
+export {
+  MacOSAgentService,
+  runLaunchctl,
+  launchMacOSProject,
+} from "./macos-service.js";
+export type {
+  MacOSServiceConfig,
+  MacOSServiceStatus,
+  MacOSProjectLaunch,
+  LaunchctlRunner,
+  LaunchctlResult,
+} from "./macos-service.js";

@@ -41,3 +41,13 @@ export {
   type CommandPeers,
   type CommandTarget,
 } from "./commands.js";
+export {
+  createReadService,
+  type ReadService,
+  type ReadOptions,
+} from "./reads.js";
+export {
+  createReadRoutes,
+  type ReadRouteRequest,
+  type ReadRouteResponse,
+} from "./read-routes.js";
