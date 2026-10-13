@@ -1030,6 +1030,20 @@ Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
 
+## Fleet read service limits (C10)
+
+The internal fleet read factory takes `maximumEntries` (default 1024, range
+1–10000), bounding pending and retained result records together. This is a
+library composition option; it adds no workflow field, CLI flag or environment
+variable. The v1 limits remain four pending reads per agent, one per project,
+30-second lifetime, 60-second terminal retention, 100 cached run summaries per
+project, and 256 KiB log chunks. Serialized log payloads (including cursors) are capped at 256 KiB plus 1 KiB
+of metadata overhead, in addition to the request-specific text bound.
+Non-log result payloads also have a 256 KiB JSON
+retention bound. A full registry returns `read_busy` without early eviction.
+The private listener enforces its existing request body bound and forwards
+historical/no-store headers from the detail dispatcher.
+
 ### macOS agent service configuration (C12)
 
 The bundled `MacOSAgentService` accepts trusted absolute `nodePath`, `entrypoint`,
