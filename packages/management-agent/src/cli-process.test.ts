@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { CliProcess } from "./cli-process.js";
+import { launchMacOSProject } from "./macos-service.js";
 let root: string;
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "cli-process-contract-")));
@@ -60,3 +61,25 @@ it("bounds unresolved child calls and rejects relative executable configuration"
   expect((await peer.run([], root)).exitCode).toBeNull();
   expect(() => new CliProcess({ executable: "node" })).toThrow("absolute");
 });
+it.skipIf(process.platform !== "darwin")(
+  "places macOS project invocations outside the agent process group",
+  async () => {
+    const path = join(root, "group.mjs");
+    await writeFile(
+      path,
+      'import {execFileSync} from "node:child_process"; import {writeFileSync} from "node:fs"; writeFileSync("groups.json", JSON.stringify({child:execFileSync("/bin/ps",["-o","pgid=","-p",String(process.pid)],{encoding:"utf8"}).trim(),parent:execFileSync("/bin/ps",["-o","pgid=","-p",String(process.ppid)],{encoding:"utf8"}).trim()}));'
+    );
+    const result = await launchMacOSProject({
+      executable: process.execPath,
+      args: [path],
+      cwd: root,
+      environment: process.env,
+      deadline: Date.now() + 10_000,
+    });
+    expect(result.exitCode).toBe(0);
+    const groups = JSON.parse(
+      await readFile(join(root, "groups.json"), "utf8")
+    );
+    expect(groups.child).not.toBe(groups.parent);
+  }
+);

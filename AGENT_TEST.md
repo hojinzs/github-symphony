@@ -450,6 +450,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/29-otlp-lifecycle.md`                    | OT-03/10/11/12: gated/disabled startup, applied/pending status through HTTP, invalid reload/revert, health isolation, bounded shutdown, normal CLI YAML activation and three reached forbidden-condition probes                                 |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: disabled-policy exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution; audited enabled CLI startup completes one tick with code 0, applied telemetry and released locks |
 | `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes                                                                          |
+| `e2e/scenarios/31-macos-agent-service.md`               | C12 CP-22/23: native LaunchAgent retry, process-group isolation, stop/restart/crash/uninstall preservation, shared lock and five reached assertion probes; login/logout reported separately                                                     |
 
 ## TC Writing Guide
 
@@ -484,6 +485,17 @@ Stop the container, reset fixtures
 - **Polling interval**: poll state at 1-second intervals, but set a maximum wait time
 - **Issue removal**: after observing worker completion, always remove issues to avoid retry loops
 - **STUB_SCENARIO**: pick the worker behavior matching the scenario (e.g. `STUB_SCENARIO=fail docker compose ...`)
+
+### macOS agent service cases (C12)
+
+[TC-31](e2e/scenarios/31-macos-agent-service.md) defines CP-22/23 and the separate
+manual login/logout walkthrough. After `pnpm build`, run
+`./e2e/run-macos-agent-service-e2e.sh` on macOS for native launchd, real
+prepared-project preservation and five reached forbidden-condition probes.
+Typecheck the independent peer fixture with the command in TC-31. Portable
+`management-agent` tests cover configuration/lifecycle/error contracts and
+mutation checks; they do not establish native OS acceptance. C05 Docker
+`./e2e/run-agent-transport-e2e.sh` remains the applicable dependency scenario.
 
 ### Management protocol contract cases (C01)
 
