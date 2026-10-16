@@ -637,7 +637,41 @@ TLS peer and actual bundled publisher reach 24 assertions; 22 isolated artifact
 mutations must reach and fail their intended assertion. Actual macOS evidence
 must be reported separately from Linux/container simulations, production fleet
 HTTP/UI assembly and native-service acceptance.
+
+### Linux agent user-service cases (C11)
+
+Run `pnpm --filter @gh-symphony/management-agent test`; the root `pnpm test`
+includes these cases. `linux-service.test.ts` verifies absolute paths and
+systemd quoting, linger/user-manager diagnosis, failed-install retry, foreign
+unit rejection, vendor type-wide drop-in acceptance versus targeted/user override
+rejection, XDG and legacy/hybrid cgroup diagnosis, lifecycle targeting and preserved data. `linux-launcher.test.ts`
+uses an independent typed OS-command peer to exercise retained oneshot startup,
+cgroup separation, failed execution, deadlines, credential filtering and unique
+unit names. Real filesystem cgroup-event fixtures additionally verify empty
+retained-unit reclamation, populated/replaced/uncertain unit preservation and
+cleanup failure isolation. TC-31 simulation adds two reached cleanup assertions
+and matching forbidden-condition probes. The subprocess test runs real Node children for bounded output,
+timeout and failed-spawn behavior. These are filesystem/process/OS-contract
+simulations on the host; they do not claim native systemd acceptance.
+
+CP-22/23 native acceptance requires a Linux systemd 254+ user manager and unified
+cgroup v2: start a real prepared project through the bundled C03 adapter from
+inside the actual agent service, read both control groups and project process
+identity, then stop/restart/uninstall the agent while verifying the project stays
+alive and its identity/registrations/journal remain intact. Exercise the same C05
+owner lock from a conflicting foreground process. Keep native OS evidence
+separate from ordinary Linux container simulations; a container without a real
+user manager cannot establish OS lifecycle isolation. Run `node e2e/linux-agent-service-e2e.mjs --simulate` and
+`node e2e/run-linux-agent-service-probes.mjs --simulate` for host contract evidence,
+or `./e2e/run-linux-agent-service-e2e.sh` for Docker. The Docker runtime image
+includes both C11 programs, so this runner checks the packaged CLI and all
+20 forbidden-condition probes inside Linux. Run both Node commands with
+`--native` on a prepared Linux operator account for actual systemd acceptance;
+the native runner refuses to replace a preexisting agent service.
 [TC-31](e2e/scenarios/31-linux-agent-user-service.md) specifies all normal, invalid,
+recovery and reached-probe cases. Docker preflight 69 is the documented worker
+exception; native preflight 69 records unavailable native acceptance, which must
+be confirmed separately before release.
 
 ### Fleet bounded read service cases (C10)
 
