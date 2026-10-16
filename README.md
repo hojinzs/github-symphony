@@ -201,14 +201,17 @@ values through this surface.
 
 ### Observability Surfaces
 
-Optional `observability.otlp` workflow policy is parsed without activating export.
+Optional `observability.otlp` workflow policy defaults to disabled. Set
+`enabled: true` with an HTTP/protobuf endpoint to export Logs and Metrics through
+the audited CLI pipeline. Ambient `OTEL_*` settings alone do not activate export.
 The orchestrator validates enabled transport settings before dispatch and excludes
 exporter credentials from workers and hooks. Exporter auth references must use
 separate names from agent/tracker credentials, even when OTLP is disabled.
 Durable local events and committed status remain authoritative; publication
-failures cannot fail a tick or mark coordination unhealthy. Production enablement
-is explicitly unsupported until packaged audits pass. Rejected startup reports
-the error once and exits with code 1, releasing locks and stopping the service.
+failures cannot fail a tick or mark coordination unhealthy. CLI startup supplies
+the internal capability and release version after clean-install/performance gates;
+independent library owners retain the default rejection guard. Construction
+failures report once and exit with code 1, releasing locks and stopping the service.
 Valid OTLP edits require
 restart; additive JSON status reports applied versus pending settings and safe
 exporter health separately from coordination errors. See the
@@ -1026,6 +1029,8 @@ Before shipping a change:
 ```bash
 pnpm lint
 pnpm test
+# Clean production tarball, lazy SDK chunks and worker boundary
+pnpm --filter @gh-symphony/cli test:package
 pnpm typecheck
 pnpm build
 ```
@@ -1128,6 +1133,19 @@ Responses contain at most 256 KiB of UTF-8 log text with a scoped byte cursor;
 rotation/truncation reports reset, and missing or escaping selections report
 unavailable. Read access survives invalid workflow and has no process effects.
 Raw logs may contain sensitive text and are restricted to trusted operator access.
+
+OTLP operational diagnostics are available through `gh-symphony doctor` and
+`gh-symphony doctor --otlp-probe` (explicit, bounded enabled connectivity check).
+`gh-symphony project status` shows applied versus pending exporter settings.
+See [CLI OTLP diagnostics](packages/cli/README.md#otlp-diagnostics) for credential
+safety, restart semantics and the production activation gate.
+
+For reproducible clean-install startup/RSS and healthy/slow/down offer measurements,
+see the [packed OTLP performance audit](packages/cli/README.md#packed-otlp-performance-audit).
+The audited CLI enables the complete Logs/Metrics pipeline through normal YAML policy.
+
+OTLP doctor probes own their HTTP sockets and destroy stalled connections at the
+three-second deadline, allowing the command to exit after reporting the result.
 
 The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
 and foreground outbound HTTPS transport for application/service composition.

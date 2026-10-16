@@ -1,13 +1,15 @@
-# TC-29: OTLP lifecycle and safe diagnostics (H)
+# TC-29: OTLP lifecycle and safe diagnostics (H/I)
 
 ## Setup
 
 Run `pnpm build`, then `node e2e/otlp-lifecycle-contract.mjs` locally, or
-`./e2e/run-otlp-lifecycle-e2e.sh` for the isolated Docker run and both probes.
+`./e2e/run-otlp-lifecycle-e2e.sh` for the isolated Docker run and all three probes.
 The fixture creates temporary project state, an empty file tracker, a real
 HTTP control-plane listener and a local receiver. Explicit injection enables
 the built owned pipeline; default production startup still rejects enablement.
-This is H integration evidence, not I packaged activation or Epic Collector proof.
+The audited CLI also verifies normal YAML-enabled startup through H's existing
+capability input. Clean production tarball installs are covered separately by
+the CLI package audit; this loopback fixture is not Epic Collector dogfood proof.
 
 ## Steps
 
@@ -24,15 +26,19 @@ This is H integration evidence, not I packaged activation or Epic Collector proo
    credentials/receiver/invalid URLs are absent from HTTP output and diagnostics.
 6. Shutdown and verify the shared telemetry operation completes in five seconds
    (100 ms measurement tolerance).
-7. Plant each forbidden condition and require failure after its reached marker:
+7. Start a separate empty file-tracker project through the built CLI with YAML
+   enablement, then query JSON status. Verify the CLI supplies production capability,
+   applied enablement is true, coordination remains healthy and credentials stay absent.
+8. Plant each forbidden condition and require failure after its reached marker:
    `--probe=pending-disable` discards the applied owner before the disable reload;
    `--probe=secret-diagnostic` writes a credential sentinel into persisted status.
+   `--probe=cli-capability` removes applied enablement from the CLI result.
 
 ## Expected
 
-The normal run prints `OTLP H lifecycle contract passed`. Every named assertion
+The normal run prints `OTLP H/I lifecycle contract passed`. Every named assertion
 prints `reached:` before evaluation. Each probe fails with `AssertionError` after
-its matching marker. The Docker runner validates both conditions rather than
+its matching marker. The Docker runner validates all three conditions rather than
 accepting any arbitrary non-zero process exit.
 
 Real-provider unit fixtures separately verify both concurrent flushes start,

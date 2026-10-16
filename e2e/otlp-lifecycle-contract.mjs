@@ -3,6 +3,9 @@ import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import {
   OrchestratorService,
   createStore,
@@ -12,6 +15,7 @@ import { startControlPlaneServer } from "../packages/control-plane/dist/index.js
 
 const probe = process.argv.find((arg) => arg.startsWith("--probe="))?.slice(8);
 const reached = (name) => console.log(`reached: ${name}`);
+const execute = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), "otlp-h-contract-"));
 const collector = createServer((_request, response) => {
   response.writeHead(400);
@@ -160,7 +164,68 @@ try {
   await service.shutdown();
   reached("bounded shutdown");
   assert.ok(performance.now() - start <= 5100);
-  console.log("OTLP H lifecycle contract passed");
+  const cliProject = join(root, "cli-project");
+  const cliConfig = join(root, "cli-config");
+  await mkdir(join(cliProject, "hooks"), { recursive: true });
+  await writeFile(
+    join(cliProject, "hooks/after_create.sh"),
+    "#!/bin/sh\nexit 0\n",
+    { mode: 0o755 }
+  );
+  await execute("git", ["init", cliProject]);
+  await writeFile(
+    join(cliProject, "WORKFLOW.md"),
+    `---\ntracker:\n  kind: file\n  provider:\n    project_slug: o/r\n    path: ${issues}\nrepository:\n  slug: o/r\n  clone_url: file://${cliProject}\nhooks:\n  after_create: hooks/after_create.sh\nworkspace:\n  root: ${join(cliProject, "work")}\nobservability:\n  otlp:\n    enabled: true\n    endpoint: ${endpoint}\n    headers:\n      Authorization: $H_CONTRACT_AUTH\n---\nWork.\n`
+  );
+  const cli = fileURLToPath(
+    new URL("../packages/cli/dist/index.js", import.meta.url)
+  );
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith("SYMPHONY_") && !key.startsWith("OTEL_")
+    )
+  );
+  const started = await execute(
+    process.execPath,
+    [
+      cli,
+      "--config",
+      cliConfig,
+      "project",
+      "start",
+      "--once",
+      "--project-dir",
+      cliProject,
+    ],
+    { env, timeout: 15000 }
+  );
+  const queried = await execute(
+    process.execPath,
+    [
+      cli,
+      "--config",
+      cliConfig,
+      "--json",
+      "project",
+      "status",
+      "--project-dir",
+      cliProject,
+    ],
+    { env, timeout: 15000 }
+  );
+  const cliStatus = JSON.parse(queried.stdout);
+  if (probe === "cli-capability") cliStatus.telemetry.enabled = false;
+  reached("CLI production capability");
+  assert.equal(cliStatus.telemetry.enabled, true);
+  assert.equal(cliStatus.telemetry.applied.enabled, true);
+  assert.equal(cliStatus.lastError, null);
+  assert.equal(
+    JSON.stringify([cliStatus, started.stdout, started.stderr]).includes(
+      "secret-project-auth"
+    ),
+    false
+  );
+  console.log("OTLP H/I lifecycle contract passed");
 } finally {
   await service?.shutdown();
   if (api) {

@@ -76,6 +76,8 @@ import {
 } from "../expected-stop.js";
 import type { Server as LocalStopServer } from "node:net";
 
+declare const __CLI_VERSION__: string;
+
 const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
 
 function timestamp(): string {
@@ -1154,6 +1156,8 @@ const handler = async (
     let requestShutdown: (() => void) | null = null;
     let authShutdownRequested = false;
     const service = new OrchestratorService(store, projectConfig, {
+      // Slice I clean-install/performance gates audit this complete owned pipeline.
+      telemetry: { productionCapability: true, version: __CLI_VERSION__ },
       logLevel,
       assignedOnly: parsed.assignedOnly,
       ownerToken: projectLock.ownerToken,

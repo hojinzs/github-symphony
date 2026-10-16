@@ -13,7 +13,7 @@ cleanup() {
 trap cleanup EXIT
 cd "$ROOT_DIR"
 "${COMPOSE[@]}" run --build --rm --no-deps --entrypoint node symphony-e2e /app/e2e/otlp-lifecycle-contract.mjs
-for probe in pending-disable secret-diagnostic; do
+for probe in pending-disable secret-diagnostic cli-capability; do
   output=$(mktemp)
   if "${COMPOSE[@]}" run --rm --no-deps --entrypoint node symphony-e2e /app/e2e/otlp-lifecycle-contract.mjs "--probe=$probe" >"$output" 2>&1; then
     cat "$output"; rm -f "$output"; echo "Forbidden-condition probe unexpectedly passed: $probe" >&2; exit 1
@@ -21,6 +21,7 @@ for probe in pending-disable secret-diagnostic; do
   case "$probe" in
     pending-disable) marker='reached: pending disable' ;;
     secret-diagnostic) marker='reached: secret-free output' ;;
+    cli-capability) marker='reached: CLI production capability' ;;
   esac
   rg -F "$marker" "$output"
   rg -F 'AssertionError' "$output"
