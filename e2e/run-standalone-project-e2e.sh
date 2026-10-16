@@ -95,19 +95,21 @@ git -C /e2e/repos/test-owner/test-repo commit -m "Update committed workflow poli
 git -C /e2e/repos/test-owner/test-repo config uploadpack.allowFilter true
 printf "[]\n" > "$FIXTURE"
 
-# TC-26 also checks the packaged, continuous CLI production gate. A rejected
-# startup must exit once rather than retrying without backoff.
+# TC-26 also checks the audited CLI production composition. One empty enabled
+# tick must succeed and release the project lock before credential isolation tests.
 sed -i "s/enabled: false/enabled: true/" "$PROJECT_ROOT/project-beta/WORKFLOW.md"
 set +e
 (cd "$PROJECT_ROOT/project-beta" &&
   GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
-  timeout 20s node /app/packages/cli/dist/index.js --config "$CONFIG_DIR-otlp-gate" project start \
+  timeout 20s node /app/packages/cli/dist/index.js --config "$CONFIG_DIR-otlp-gate" project start --once \
     > /tmp/otlp-production-gate.log 2>&1)
 gate_status=$?
 set -e
-echo "reached: production gate exit assertions"
-test "$gate_status" -eq 1
-test "$(grep -c "OTLP production activation is unsupported" /tmp/otlp-production-gate.log)" -eq 1
+echo "reached: production capability exit assertions"
+test "$gate_status" -eq 0
+node /app/packages/cli/dist/index.js --config "$CONFIG_DIR-otlp-gate" --json project status \
+  --project-dir "$PROJECT_ROOT/project-beta" > /tmp/otlp-production-status.json
+jq -e ".telemetry.enabled == true and .telemetry.applied.enabled == true and .lastError == null" /tmp/otlp-production-status.json >/dev/null
 gate_lock=$(find "$CONFIG_DIR-otlp-gate" -name .lock -type f -print)
 test -z "$gate_lock"
 sed -i "s/enabled: true/enabled: false/" "$PROJECT_ROOT/project-beta/WORKFLOW.md"
