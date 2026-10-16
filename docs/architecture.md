@@ -245,8 +245,9 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
+- C05 outbound runtime: `packages/management-agent/src/transport.ts` validates verified HTTPS messages, bounds bodies and correlates identity; `foreground.ts` holds the local registry lock and runs independent observation/poll loops with capped reconnect jitter. The published `@gh-symphony/cli/management-agent` entry is built from `packages/cli/src/management-agent.ts`. C06 `management-agent/src/inventory.ts` supplies the redacted current registry snapshot and consumes a typed server UUID resolver; command/read delivery remains a sibling port.
+
 - C12 macOS OS adapter: `management-agent/src/macos-service.ts` executes absolute `/bin/launchctl` in the current GUI user domain, confirms load/removal and keeps user diagnostics; C13 retains public command routing.
-- C05 outbound runtime: `packages/management-agent/src/transport.ts` validates verified HTTPS messages, bounds bodies and correlates identity; `foreground.ts` holds the local registry lock and runs independent observation/poll loops with capped reconnect jitter. The published `@gh-symphony/cli/management-agent` entry is built from `packages/cli/src/management-agent.ts`. C06 inventory UUID/projection and command/read delivery remain typed sibling ports.
 - C10 bounded read integration: `packages/fleet-control-plane/src/reads.ts` uses
   synchronous project/session peers and C01 schemas, independently of lifecycle
   slots. `src/read-routes.ts` resolves C04 CSRF for read admission and dispatches
@@ -261,7 +262,7 @@ No management protocol, tracker policy, or fleet behavior is added to
   effects remain consumer-owned.
 
 - Fleet SQLite schema migrations, private filesystem checks and transaction boundaries: `packages/fleet-control-plane` (C04, #1008). Atomic one-use enrollment, credential authentication and revocation invoke peer-owned session/command writes in the same SQLite transaction. First-signal updates require the current session owner's verifier. HTTP consumers remain separate; this package does not dispatch workers or stop orchestrators.
-- `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. The local `packages/management-agent` registry adds canonical allowlist inventory and typed lifecycle/reader boundaries. `packages/cli/src/management-local.ts` implements the concrete local driver and `createLocalReadAdapter` canonical-runtime read factory; `local-project-runtime.ts` resolves canonical folders through existing cached aliases and runtime ownership evidence. The CLI bundles this driver under the `management-local` module entry. C05 bundles `management-agent` with enrollment and the foreground HTTPS runtime; C04/C05 fleet services retain a separate store/session boundary. Inventory projection, route assembly and delivery execution remain sibling-owned. Native-service consumers must provide a separately verified isolated project launcher; C03 rejects a service launch context without that boundary.
+- `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. The local `packages/management-agent` registry adds canonical allowlist inventory and typed lifecycle/reader boundaries. `packages/cli/src/management-local.ts` implements the concrete local driver and `createLocalReadAdapter` canonical-runtime read factory; `local-project-runtime.ts` resolves canonical folders through existing cached aliases and runtime ownership evidence. The CLI bundles this driver under the `management-local` module entry. C05 bundles `management-agent` with enrollment and the foreground HTTPS runtime; C04/C05 fleet services retain a separate store/session boundary. C06 `fleet-control-plane/src/observations.ts` owns server UUID allocation and inventory projection; route assembly and delivery execution remain sibling-owned. Native-service consumers must provide a separately verified isolated project launcher; C03 rejects a service launch context without that boundary.
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason. State-list filtering preserves the exact malformed-item count and bounded diagnostic samples so startup cleanup remains observable.
 - Tracker adapters expose state reads and mutations to the Coordination layer, but the orchestrator does not author issue comments. Status reports, blocker notices, and other tracker comments are worker-owned operations; GitHub approval-workflow comments remain in `packages/extension-github-workflow`.
@@ -407,3 +408,19 @@ to npm.
 
 Appendix A's SSH worker transport is not implemented and is out of scope for
 this repository at present; local worker execution is the supported model.
+
+### C06 aggregate observation ownership (Integration and Observability)
+
+`packages/fleet-control-plane/src/observations.ts` projects C05 authenticated
+observations in the same SQLite transaction. Migration 4 owns project identity,
+complete inventory revisions and bounded page staging. Migration 5 scopes UUIDs
+to enrollment generations and preserves unowned v4 history behind a stale fence.
+Identity allocation transactionally caps outstanding unpublished mappings. Its synchronous
+invalidation peer belongs to lifecycle command storage; its command-target reader
+contains no scheduler policy. Operator queries add receipt-based freshness,
+retained snapshots, deterministic filter-scoped paging and normalized non-secret
+cross-environment scope warnings. Each query caches environment lookups and indexes
+normalized tracker identity/filter groups; related-project warnings are bounded.
+Different reported tracker identities do not warn, while unknown scopes and
+differing filters within an identity remain unverified. No orchestration-core
+behavior changes.

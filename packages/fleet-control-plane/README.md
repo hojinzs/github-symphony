@@ -211,6 +211,88 @@ records the package boundaries. After `pnpm build`, run
 [TC-29](../../e2e/scenarios/29-fleet-command-recovery.md) distinguishes
 ledger/journal-fixture integration evidence from native OS lifecycle validation.
 
+## C06 cached observations and atomic inventory
+
+`createObservationService(store, { invalidateProject, now? })` owns migration 4:
+server-issued UUIDs uniquely bind `(environmentId, localProjectId)`, completed
+inventory membership, bounded in-flight page identity sets, and latest project
+observations. Wire identities must be allocated with `identifyProjects` by trusted
+authenticated composition before upload. Production identity negotiation and HTTP
+route assembly remain typed consumer boundaries; this library does not expose an
+unauthenticated allocation route.
+
+Pass `receiveObservation` directly to the C05 session service on the same store.
+The callback requires an active shared transaction; sequence, authenticated
+receipt and projection commit or roll back together. Page zero begins a revision;
+remaining page indexes may arrive in any order. Page count, identities, duplicate
+pages and the 100-project aggregate limit are validated across pages. Only a
+complete revision changes managed membership. Existing project status can advance
+before completion; newly discovered projects appear after completion. Removed
+projects retain last-known data marked unmanaged. The required synchronous
+`invalidateProject(database, projectId)` peer expires unclaimed lifecycle commands
+on removal or reported folder loss without stopping any process.
+
+`listProjects` defaults to 25 rows (maximum 100) and uses project UUID keyset
+paging, with cursors scoped to environment/process/connection filters. Invalid
+cursors and filter changes return `cursor_reset`; invalid limits are rejected.
+`getProject` adds receipt freshness, snapshot staleness and advisory scope
+warnings to the protocol aggregate shape. `summary` counts only managed, fresh
+running observations; offline/removed historical running processes are excluded.
+Queries compute timeout freshness even before session-expiry maintenance runs.
+Restart recovery belongs to C05 and preserves cached project state as stale.
+
+Missing snapshots retain the last successful snapshot and its original timestamp,
+with an explicit stale diagnostic. Missing snapshots and empty run summaries never
+imply a stopped process. Normalized reported tracker metadata compares adapter,
+binding and repository plus sorted/deduplicated state and label sets across
+environments. Missing, stale or failed scope observations produce `unverified`
+warnings, as do differing state/label filters on the same adapter/binding/repository.
+Different adapter, binding or repository identities produce no warning; identical
+known scopes produce `identical` warnings. This does not
+reimplement provider eligibility, prevent starts, or provide global scheduling.
+
+`observations.test.ts` composes real C04 enrollment/C05 sessions with SQLite and
+typed independent project observations for CP-01/03/05/10/14/17/21. The management
+plane remains a repository-local extension; `docs/symphony-spec.md` is unchanged.
+
+The query projection fields are validated by the additive v1 aggregate protocol
+schema. An identical known pair and unverified comparisons can coexist. Related
+UUID lists are bounded to 100 per warning; they are examples of reported matches,
+not an exhaustive global ownership guarantee. Absence of a warning does not
+establish disjoint eligibility. Queries normalize scopes once, index identity and
+filter groups, and cache each environment lookup per projection. Comparisons use
+linear counts with bounded related-UUID lists rather than all-project pair scans. Cached run summaries retain local times/statuses
+and sort newest first. Default query pages include retained unmanaged history;
+`summary` counts only current managed projects.
+
+Wire the required invalidation peer as
+`(database, id) => commands.invalidateProject(id, database)`; C07 accepts the
+shared active transaction without nesting `BEGIN`. A peer failure rolls back
+command expiry, projection writes, authenticated sequence and contact together.
+Use `resolveTarget` as the C07 project peer on that same database.
+
+[TC-31](../../e2e/scenarios/31-fleet-observations.md) exercises real C04/C05/C06/C07
+composition, TLS transport and the bundled publisher. Production route/UI
+composition and native OS service acceptance are not supplied by these fixtures.
+
+Retained revoked projects return `access_revoked` for new command submissions.
+Enrollment and offline preconditions are checked before active-session UUIDs,
+since revocation intentionally deletes the session without deleting observations.
+
+Project UUIDs are scoped to environment, enrolled agent ID and canonical local
+project ID. Replacement enrollment creates new project identities; prior
+generation observations remain historical, unmanaged and stale, even during a
+partial replacement revision. Same-agent reconnects retain their UUIDs. Migration
+5 retains v4 history with an unknown generation and fences it until the current
+agent publishes newly allocated identities; it never infers ownership from a
+replacement credential.
+
+Identity allocation permits at most 100 outstanding unpublished mappings per
+environment across calls. Existing mappings and intentionally published history
+remain available at capacity. Overflow rolls back the entire allocation batch;
+completed publication releases pending capacity. Abandoned unpublished mappings
+from retired generations are reclaimed during allocation.
+
 ## Bounded read lane (C10)
 
 `createReadService(store, { peers, now?, maximumEntries? })` exposes `submitRead`
