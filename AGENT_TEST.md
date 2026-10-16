@@ -450,6 +450,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/29-otlp-lifecycle.md`                    | OT-03/10/11/12: gated/disabled startup, applied/pending status through HTTP, invalid reload/revert, health isolation, bounded shutdown and two reached forbidden-condition probes                                   |
 | `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: disabled-policy exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution; enabled production startup exits once with code 1                    |
 | `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes                                              |
+| `e2e/scenarios/31-agent-durable-executor.md`            | C08 CP-04–09/18/19: real agent journal, C07 ledger, separate agent/CLI processes, crash boundaries, deferred exit and replacement recovery; 23 reached assertions and six forbidden-condition probes                |
 | `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 24 reached assertions and 22 isolated forbidden-condition probes |
 | `e2e/scenarios/31-fleet-bounded-reads.md`               | C10 CP-12: HTTPS read admission/detail, actual C09 filesystem reads, history/expiry/offline/reset and nineteen reached forbidden-condition probes                                                                   |
 | `e2e/scenarios/31-macos-agent-service.md`               | C12 CP-22/23: native LaunchAgent retry, process-group isolation, stop/restart/crash/uninstall preservation, shared lock and five reached assertion probes; login/logout reported separately                         |
@@ -598,6 +599,27 @@ and HTTPS peer processes plus a real prepared-project CLI daemon. Six forbidden
 conditions must reach and fail their assertions. Report actual macOS/Linux
 container evidence separately; this is not native systemd/launchd isolation or
 service lifecycle validation.
+
+### Agent durable executor cases (C08)
+
+`pnpm --filter @gh-symphony/management-agent test` covers real private journal
+files, restart of the registry owner, concurrent effect-marker writes, immutable
+claim/target/result boundaries, foreign identity and unsafe/corrupted files.
+`executor.test.ts` exercises the actual journal and lifecycle adapter against an
+independent typed durable claim/result peer. It covers lost responses, duplicate
+delivery, authoritative server expiry, agent/server clock skew in both directions,
+marker-only crashes, unknown resolution,
+readiness/exit/lock evidence, runtime replacement and same-agent ownership
+transfer. Foreground tests cover locked-registry handler composition and recovery
+on empty polls. [TC-31](e2e/scenarios/31-agent-durable-executor.md) runs the
+bundled executor/journal against real C07 SQLite storage and separate real
+agent/CLI daemon processes. After `pnpm build`, run
+`node e2e/agent-executor-e2e.mjs` and `node e2e/agent-executor-mutations.mjs`,
+or `./e2e/run-agent-executor-e2e.sh` for isolated Linux Docker. Six actual
+durable/runtime forbidden conditions must reach and fail their named assertions.
+Report actual host OS separately from container results. Session/project truth,
+deadline clock advancement and the deferred-exit driver are explicit fixtures;
+native-service isolation and fleet HTTP/UI acceptance remain outside C08.
 
 ### Fleet lifecycle command recovery cases (C07)
 
