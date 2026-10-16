@@ -398,3 +398,17 @@ Verification: `node e2e/fleet-projects-e2e.mjs` and
 `./e2e/run-fleet-projects-e2e.sh` for Linux Docker. These exercise actual
 enrollment, session, inventory and route services; the loopback HTTP fixture
 does not claim native lifecycle or production HTTPS deployment validation.
+
+### Lifecycle presentation compositions (C17)
+
+`src/command-pages.ts` contains typed command history, CommandProgress,
+RecoveryPanel and start/stop/unresolved-closure confirmation compositions.
+They consume protocol `CommandRecord` values separately from C16 project
+observations: accepted/executing never changes process state, superseded targets
+do not imply replacement-process termination, and audited closure preserves
+unknown with actor/time/reason. Unresolved recovery offers no replay control.
+`CommandContext.disabledReasons` carries service-owned admission reasons in
+addition to observation eligibility. Forms describe intent only; the consuming
+private fleet route must authenticate CSRF, validate input and recheck command
+admission. These compositions do not install routes or change the per-project
+web server. Graphite responsive styles cover desktop, tablet and phone widths.
