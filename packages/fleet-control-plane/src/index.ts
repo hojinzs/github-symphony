@@ -76,3 +76,11 @@ export {
   type ProjectLinks,
   type FleetPage,
 } from "./project-pages.js";
+
+export {
+  createCommandRoutes,
+  commandProjectLinks,
+  type CommandRouteRequest,
+  type CommandRouteOptions,
+} from "./command-routes.js";
+export type { CommandContext } from "./command-pages.js";

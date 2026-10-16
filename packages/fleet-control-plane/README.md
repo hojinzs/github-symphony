@@ -410,5 +410,24 @@ unknown with actor/time/reason. Unresolved recovery offers no replay control.
 `CommandContext.disabledReasons` carries service-owned admission reasons in
 addition to observation eligibility. Forms describe intent only; the consuming
 private fleet route must authenticate CSRF, validate input and recheck command
-admission. These compositions do not install routes or change the per-project
-web server. Graphite responsive styles cover desktop, tablet and phone widths.
+admission. These compositions do not change the per-project web server. Graphite responsive styles cover desktop, tablet and phone widths.
+
+`createCommandRoutes(commands, browserSecurity, { context })` supplies the private
+fleet mount for GET `/projects/:id/commands`, `/projects/:id/commands/start|stop`
+and `/commands/:id`, and POST `/projects/:id/commands`,
+`/commands/:id/closure-confirmation` and `/commands/:id/close-unresolved`.
+Compose it with C16 `createProjectRoutes` using `commandProjectLinks` and serve
+both dispatchers on the private fleet listener. `context` provides current C06
+observations, environment name and backend admission reasons. C07 rechecks
+admission and persists command identity; this route never executes lifecycle
+operations itself. GET confirmations do not submit commands.
+
+The listener must parse bounded form bodies and reject duplicate keys, pass
+canonical Origin/cookie headers unchanged, and return the dispatcher's security
+headers. Each mutation requires an actual C04 browser session and matching CSRF.
+The unresolved closure review issues an expiring receipt bound to command,
+reason, CSRF and cookie. Direct, changed or expired confirmation is rejected;
+restart discards these receipts without changing durable commands. Native dialog
+enhancement traps focus, places initial focus on Cancel, supports Escape, and
+returns to the action anchor. Without enhancement the confirmation is still an
+explicit native POST form. Unknown outcomes offer no replay action.
