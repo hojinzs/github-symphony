@@ -1,5 +1,7 @@
 services:
   symphony-e2e:
+    # Reap orphaned daemons after the lifecycle/crash scenarios stop them.
+    init: true
     image: ${SYMPHONY_E2E_IMAGE:-gh-symphony-e2e:e2e}
     build:
       context: .

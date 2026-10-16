@@ -998,6 +998,12 @@ The bundled `@gh-symphony/cli/management-local` factory accepts trusted local
 A native-service context requires `launchIsolatedProject`; OS-specific service
 packaging must independently verify that agent service stop/restart/uninstall
 preserves orchestrators. The default effect/observation deadline is 60 seconds.
+Fleet execution claim expiry uses the server clock. After an authoritative
+executing claim response, the agent bounds local observation using its own clock,
+without comparing the server's claimedAt to local time. The embedder schedules
+`CommandJournal.prune()` (for example, daily) under the registry owner lock to
+remove eligible acknowledged terminal/retired records after 30 days; unresolved
+effects and unknown outcomes remain retained.
 Management/broker variables beginning `GH_SYMPHONY_MANAGEMENT_`,
 `GH_SYMPHONY_AGENT_`, `GH_SYMPHONY_CONTROL_PLANE_`, or `SYMPHONY_ORCHESTRATOR_`
 are excluded from CLI subprocess environments. Any variable whose value contains
@@ -1014,6 +1020,16 @@ saved credential from the management registry at request time, sends it only as
 an Authorization bearer header, and rejects redirects. The registry requires
 current-user ownership and exact 0700/0600 directory/file permissions; unsafe
 existing paths fail closed. No enrollment token is retained after exchange.
+The C08 command journal stores `commands.json` in the same private agent data
+directory as `registry.json`, with exact mode `0600`. Keep journal backups private:
+they include canonical paths and raw expected process identities, but no copied
+management credential. A malformed or unsafe journal fails closed; do not delete
+effect markers to retry an unresolved operation.
+Acknowledged terminal/retired journal records are eligible for pruning after
+30 days; unresolved entries remain. C08 consumers compose `CommandExecutor`
+through the foreground `createDeliveryHandler` option; a full command client is
+required for claims/results. There are no new environment variables or flags.
+
 See the [management agent boundary](../packages/management-agent/README.md#c05-outbound-enrollment-boundary).
 
 C05 foreground consumers provide a private registry directory, agent version,

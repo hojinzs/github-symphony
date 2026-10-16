@@ -207,6 +207,15 @@ structural C03 isolated-launcher port and disables launchd process-group cleanup
 with `AbandonProcessGroup`. Service stop/restart/uninstall retain registry/journal
 and project lifetimes; native launchd evidence is separate from portable tests.
 
+C08's `management-agent/src/executor.ts` joins the journal to this adapter and
+the typed command client. Receipt precedes claim; a synced marker precedes
+invocation; saved results precede upload. Read-only reconciliation uses readiness,
+the journaled stop target and exit/lock evidence. Per-project serialization keeps
+effects isolated, and registry shutdown retains its lock through durable writes.
+The foreground delivery factory supplies the locked registry/current-session
+client and runs even on empty polls. Core dispatch and workflow policy remain
+outside this management executor.
+
 - Exporter credential ownership: `packages/orchestrator/src/exporter-environment.ts`
   uses core OTLP auth-reference provenance to strip final worker/hook environments.
   Name-only conflicts with agent/tracker credentials fail even for disabled OTLP;
@@ -306,6 +315,7 @@ No management protocol, tracker policy, or fleet behavior is added to
   C06 projection owner; C06 retains merge/pruning ownership. Registry and payload
   caps bound retained memory without shortening accepted result retention.
 - C05 management connection observability: `management-agent/src/foreground.ts` emits sanitized online/retrying state and `fleet-control-plane/src/sessions.ts` records receipt-based first signal, sequence and host/version metadata. Agent clocks cannot determine freshness; core scheduling is untouched.
+- C08 durable local execution evidence: `management-agent/src/journal.ts` persists command receipt, claim, effect marker, expected stop target, result and acknowledgment under the registry owner lock. Synced private-file replacement preserves replay fences across agent restart. This Execution/Integration/Observability management extension leaves dispatch and tracker policy in their existing layers.
 
 - Bounded local management reads: `packages/management-agent/src/local-read.ts` (C09, #1013) projects run metadata and reads fixed contained streams through a trusted canonical-runtime resolver, with signed generation/byte cursors and a 256 KiB wire limit. This Integration/Observability management extension does not alter orchestration or the upstream specification.
 - Fleet durable audit schema: `packages/fleet-control-plane/src/migrations.ts`. C07 (#1011) adds lifecycle command storage with actor-scoped idempotency, a project fence covering unresolved unknown outcomes, claim/result timestamps and explicit closure metadata. `src/commands.ts` owns management-only command submission, claims, deadline recovery, same-agent ownership transfer, unknown closure, history and retention with transactional audits. Typed synchronous peer hooks supply project/session truth; agent journals and HTTP routing stay with their consumers. `src/enrollment.ts` commits create/regenerate/revoke local-owner audits and agent exchange audits with their mutations. `src/browser-security.ts` resolves local-owner browser mutations only after exact HTTPS Origin and session-bound CSRF validation. HTTP/TLS routing remains consumer-owned.

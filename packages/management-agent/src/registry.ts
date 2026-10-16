@@ -73,6 +73,7 @@ export function localProjectId(projectDirInput: string): string {
 export class AgentRegistry {
   private closed = false;
   private writes: Promise<unknown> = Promise.resolve();
+  private readonly ownedOperations = new Set<Promise<unknown>>();
   private constructor(
     readonly directory: string,
     private readonly lock: ProjectLockHandle,
@@ -280,7 +281,16 @@ export class AgentRegistry {
     if (this.closed) return;
     this.closed = true;
     await this.writes;
+    await Promise.allSettled(this.ownedOperations);
     await releaseProjectLock(this.lock);
+  }
+  /** Keep the lifetime lock through a sibling's admitted durable filesystem write. */
+  whileOwned<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertOpen();
+    const task = Promise.resolve().then(operation);
+    this.ownedOperations.add(task);
+    void task.finally(() => this.ownedOperations.delete(task)).catch(() => {});
+    return task;
   }
   private assertOpen(): void {
     if (this.closed) throw new Error("Agent registry is closed");

@@ -1148,7 +1148,9 @@ OTLP doctor probes own their HTTP sockets and destroy stalled connections at the
 three-second deadline, allowing the command to exit after reporting the result.
 
 The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
-and foreground outbound HTTPS transport for application/service composition:
+and foreground outbound HTTPS transport for application/service composition.
+C08 adds `CommandJournal` and `CommandExecutor` for durable claim replay,
+verified lifecycle execution and read-only restart reconciliation:
 
 ```ts
 import {
@@ -1156,6 +1158,8 @@ import {
   createAgentTransport,
   enrollAgent,
   runForegroundAgent,
+  CommandJournal,
+  CommandExecutor,
 } from "@gh-symphony/cli/management-agent";
 ```
 
@@ -1166,7 +1170,10 @@ Transient inventory/delivery adapter failures retry with sanitized diagnostics a
 fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
 until its first authenticated observation.
 This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
-command delivery and native service packaging retain their sibling boundaries.
+fleet route assembly and native service packaging retain their sibling boundaries.
+Use `createDeliveryHandler` to compose command and read handlers while the
+foreground runtime holds the registry lock. The factory handler receives empty
+polls too, allowing durable result retry and recovery without redelivery.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
 
 The internal [fleet observation service](packages/fleet-control-plane/README.md) provides C06 cached inventory
