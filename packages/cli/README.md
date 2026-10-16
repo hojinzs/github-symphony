@@ -684,8 +684,8 @@ heartbeats and polling run independently with bounded reconnect backoff.
 Transient inventory/delivery adapter failures retry with sanitized diagnostics and
 fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
 until its first authenticated observation.
-This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
-command delivery retain their sibling boundaries.
+This module adds no command or listener. Guided setup (C13, #1017) and command
+delivery retain their sibling boundaries; C06 supplies inventory projection.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
 
 The same bundled module exports C11 `LinuxAgentService` and
@@ -699,6 +699,23 @@ boot/logout startup; diagnosis explains `loginctl enable-linger` without changin
 privileges. See the [Linux adapter contract](../management-agent/README.md#linux-user-service-packaging-c11)
 for absolute paths, the C13 entrypoint boundary and installation recovery. Native
 OS validation remains separate from command-fixture evidence.
+
+The internal [fleet observation service](../fleet-control-plane/README.md) provides C06 cached inventory
+queries, receipt-based offline/stale state, paged project lists and advisory
+tracker-scope warnings. Complete uploads change membership atomically; partial
+uploads retain unseen projects. These library boundaries are separate from the
+existing `gh-symphony project` commands and per-project `--web` server; fleet HTTP
+and UI assembly remains a consumer integration.
+
+The bundled `@gh-symphony/cli/management-agent` module exports
+`createInventorySnapshot` for the foreground runner and its authenticated
+`ProjectIdentityResolver` composition port. It publishes current redacted
+allowlist data after recovery; it does not buffer old inventory across outages.
+
+Fleet project UUIDs follow enrollment generations: replacement agents allocate new
+identities while earlier observations remain stale history. Same-agent reconnects
+retain UUIDs. Allocation caps outstanding unpublished identities at 100 per
+environment; see the fleet service README for migration and recovery behavior.
 
 The [C10 fleet read lane](../fleet-control-plane/README.md#bounded-read-lane-c10) supplies bounded
 run/detail/log requests and route dispatch for a consuming private fleet service.

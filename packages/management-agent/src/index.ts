@@ -37,6 +37,9 @@ export {
   observationPages,
 } from "./foreground.js";
 export type { ForegroundOptions } from "./foreground.js";
+export { createInventorySnapshot } from "./inventory.js";
+export type { ProjectIdentityResolver } from "./inventory.js";
+
 export {
   LinuxAgentService,
   LINUX_AGENT_UNIT,

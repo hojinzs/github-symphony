@@ -243,11 +243,20 @@ export interface ProjectFilter extends PageRequest {
   process?: "running" | "stopped" | "unknown";
   connection?: "online" | "offline";
 }
+export interface ScopeWarning {
+  state: "identical" | "unverified";
+  /** Bounded related IDs; warnings are advisory, never a scheduler fence. */
+  projectIds: UUID[];
+}
 export interface AggregateProject extends ProjectIdentity {
   managed: boolean;
   connection: "online" | "offline";
   lastReceivedAt: UtcTimestamp;
   observation: ProjectObservation;
+  /** C06 projections; optional for pre-projection v1 peers. */
+  fresh?: boolean;
+  snapshotStale?: boolean;
+  warnings?: ScopeWarning[];
 }
 export interface Page<T> {
   items: T[];
