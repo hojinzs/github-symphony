@@ -408,3 +408,28 @@ and preserves historical content and its fetched timestamp. Rotation requires
 explicit reset, including after reconnect; reconnect never resumes follow.
 The read transport owns the 30-second request lifetime. This internal model
 does not install routes, persist raw logs, or perform lifecycle actions.
+
+`createRunRoutes(observations, browser, { environments, links?, now? })`
+mounts C18 beside `createProjectRoutes` and `createReadRoutes` on the private
+fleet listener. It handles `GET /projects/:projectId/runs` (optional known
+`run`, allowed `stream`, and positive `page`), `GET
+/projects/:projectId/runs/state`, and local `runs.css`/`runs.js` assets.
+C16 project detail links to this destination by default. The listener must
+forward response headers including Set-Cookie and mount C10's submit/result
+routes, forwarding Origin, Cookie and X-CSRF-Token for submissions.
+The dispatcher reuses its single private operator session across page
+navigation until expiry so opening another run tab does not replace the cookie.
+Refresh the page after a session expires. No new listener or per-project
+server behavior is introduced.
+
+History uses C06's maximum 100 retained summaries, paged 25 at a time.
+Native run/stream selection starts a new bounded read; Follow/Pause is
+explicit, uses at most one request at a time, and is paced at one second.
+The 30-second deadline covers acceptance and polling, including a stalled
+network call. Rotation blocks further reads until Reset cursor. Offline
+and expired/unavailable states preserve fetched content and timestamps;
+reconnection checks observations and leaves follow paused. Logs are text,
+never HTML, with a 256 KiB retained UTF-8 view and no browser persistence.
+The browser bundle is built with esbuild into `dist/browser/`; ship it with
+the server output. C14 native keyboard controls, focus and polite status
+announcements are retained; log lines are outside the live region.
