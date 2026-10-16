@@ -350,3 +350,20 @@ boundary while that sibling is unavailable.
 HTTPS/C04/C05/C09 contract and nineteen forbidden-condition probes. Run
 `node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs` after
 `pnpm build`, or `./e2e/run-fleet-reads-e2e.sh` for Linux Docker.
+
+## Project presentation boundary (C16)
+
+`src/project-presentation.ts` maps C06 `ObservedProject` values to fleet/detail
+widget data. Connection, process, health, agent observation time and receipt time
+stay separate. Historical process and snapshot values remain available with
+explicit historical flags; missing work counts remain unknown.
+`summarizeProjects` requires the complete workspace inventory and labels its
+scope; never pass a filtered page. Running totals require fresh managed process
+observations, while active-work totals also require a fresh snapshot.
+
+Start/Stop disabled reasons are presentation guidance only. Invalid workflow
+blocks Start while a verified running process can remain eligible for Stop;
+offline, stale, unmanaged and incompatible targets carry adjacent reasons.
+C17 owns command authorization and dispatch. Scope overlap stays advisory.
+These internal helpers do not install a fleet listener or alter per-project web
+behavior. Responsive route rendering is the remaining C16 delivery slice.
