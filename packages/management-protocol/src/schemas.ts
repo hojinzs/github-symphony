@@ -427,6 +427,17 @@ export const aggregateProjectSchema: Schema<C.AggregateProject> = refine(
     connection: enumeration(["online", "offline"] as const),
     lastReceivedAt: timestampSchema,
     observation: projectObservationSchema,
+    fresh: optional(boolean),
+    snapshotStale: optional(boolean),
+    warnings: optional(
+      array(
+        object({
+          state: enumeration(["identical", "unverified"] as const),
+          projectIds: array(uuidSchema, LIMITS.maximumPageSize),
+        }),
+        2
+      )
+    ),
   }),
   (v) =>
     v.projectId === v.observation.projectId &&

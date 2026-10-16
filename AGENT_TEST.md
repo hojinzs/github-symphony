@@ -452,6 +452,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes                                                                          |
 | `e2e/scenarios/31-macos-agent-service.md`               | C12 CP-22/23: native LaunchAgent retry, process-group isolation, stop/restart/crash/uninstall preservation, shared lock and five reached assertion probes; login/logout reported separately                                                     |
 | `e2e/scenarios/31-fleet-bounded-reads.md`               | C10 CP-12: HTTPS read admission/detail, actual C09 filesystem reads, history/expiry/offline/reset and nineteen reached forbidden-condition probes                                                                                               |
+| `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 24 reached assertions and 22 isolated forbidden-condition probes                             |
 
 ## TC Writing Guide
 
@@ -641,6 +642,26 @@ The default library guard stays off. Collector dogfood receipt is a separate Epi
 The packed OTLP audit also starts a TCP peer that stalls TLS and verifies both
 probe timeouts and doctor process exit within five seconds (three-second probe
 budget plus CLI startup allowance).
+
+### Fleet observation and inventory cases (C06)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes real C04 enrollment,
+C05 sequence/authentication and C07 command invalidation on SQLite; atomic/partial
+membership, rejected pages/identities/capacity, rollback, clock skew, snapshot/run
+retention, restart, scoped paging and normalized advisory warnings. Publisher
+unit cases in `management-agent/src/inventory.test.ts` use the real canonical
+registry and independent identity/reader fixtures, including leak canaries and
+outage/removal recovery. Protocol tests cover additive optional query projection
+fields while accepting prior v1 aggregate fixtures.
+
+[TC-31](e2e/scenarios/31-fleet-observations.md) defines the owned CP and operator
+walkthrough cases. After `pnpm build`, run `node e2e/fleet-observations-e2e.mjs`
+and `node e2e/fleet-observations-mutations.mjs`, or
+`./e2e/run-fleet-observations-e2e.sh` for isolated Linux Docker. The independent
+TLS peer and actual bundled publisher reach 24 assertions; 22 isolated artifact
+mutations must reach and fail their intended assertion. Actual macOS evidence
+must be reported separately from Linux/container simulations, production fleet
+HTTP/UI assembly and native-service acceptance.
 
 ### Fleet bounded read service cases (C10)
 
