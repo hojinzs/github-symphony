@@ -17,6 +17,36 @@ prompt`).observability!.otlp;
 
 afterEach(() => vi.useRealTimers());
 
+it("keeps probe transports unloaded for rendering and validation", async () => {
+  const child = spawn(process.execPath, [
+    "--experimental-strip-types",
+    "--input-type=module",
+    "-e",
+    `
+      import { registerHooks } from "node:module";
+      registerHooks({ resolve(specifier, context, next) {
+        if (/^(node:)?https?$/.test(specifier)) throw Error("FORBIDDEN_PROBE_TRANSPORT");
+        return next(specifier, context);
+      }});
+      const { inspectOtlp, renderOtlpStatus } = await import(${JSON.stringify(new URL("./otlp-diagnostics.ts", import.meta.url).href)});
+      renderOtlpStatus(undefined);
+      await inspectOtlp(undefined, {}, true);
+      await inspectOtlp({enabled:true, endpoint:"https://localhost:4318", resourceAttributes:{},referenceNames:[],authReferenceNames:[]}, {}, false);
+      console.log("reached: transport-free diagnostics");
+    `,
+  ]);
+  let output = "";
+  child.stdout.on("data", (data) => (output += data));
+  child.stderr.on("data", (data) => (output += data));
+  const deadline = setTimeout(() => child.kill("SIGKILL"), 4000);
+  const code = await new Promise<number | null>((resolve) =>
+    child.on("close", resolve)
+  ).finally(() => clearTimeout(deadline));
+  expect(output).not.toContain("FORBIDDEN_PROBE_TRANSPORT");
+  expect(output).toContain("reached: transport-free diagnostics");
+  expect(code).toBe(0);
+});
+
 it("never connects for disabled policy, omission or SDK veto", async () => {
   const request = vi.fn();
   for (const raw of [undefined, { ...policy(), enabled: false }, policy()]) {

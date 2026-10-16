@@ -371,7 +371,9 @@ authoritative tests for repository behavior.
 The CLI Observability composition adds SDK-free `doctor` validation and explicit
 bounded probes, applied/pending `status` rendering, and shared core event severity
 for existing log filters. Its public Commander entry forwards `--otlp-probe` to
-the doctor handler. CLI packaging audits run from production-only tarball installs
+the doctor handler. HTTP/TLS probe transports load only when an enabled explicit
+probe connects, keeping status rendering and validation free of probe transport
+initialization. CLI packaging audits run from production-only tarball installs
 and measure disabled startup/RSS and synchronous offer thresholds separately from
 package bytes, and measure full reconciliation ticks under healthy/slow/down
 receivers. Slice I passed those gates before supplying H’s existing startup

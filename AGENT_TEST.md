@@ -642,6 +642,8 @@ The default library guard stays off. Collector dogfood receipt is a separate Epi
 The packed OTLP audit also starts a TCP peer that stalls TLS and verifies both
 probe timeouts and doctor process exit within five seconds (three-second probe
 budget plus CLI startup allowance).
+Its disabled startup loader rejects diagnostic-module evaluation as well as SDK
+evaluation, so status/probe initialization cannot enter the startup benchmark.
 
 ### Fleet observation and inventory cases (C06)
 

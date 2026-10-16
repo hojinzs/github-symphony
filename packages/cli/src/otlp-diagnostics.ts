@@ -1,5 +1,3 @@
-import { request as httpRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
 import {
   resolveOtlpConfiguration,
   isAgentChildCredentialEnvironmentName,
@@ -9,10 +7,15 @@ import {
 
 // Own the request/socket instead of using fetch's shared connection pool.
 // Abort must release a pending TLS handshake as well as settle the result.
-const probeRequest: typeof fetch = async (input, init) =>
-  new Promise<Response>((resolve, reject) => {
-    const url = new URL(String(input));
-    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
+const probeRequest: typeof fetch = async (input, init) => {
+  const url = new URL(String(input));
+  // Status rendering and validation share this module with probes. Keep TLS
+  // initialization out of their startup path until a probe actually connects.
+  const { request: send } = await (url.protocol === "https:"
+    ? import("node:https")
+    : import("node:http"));
+  return new Promise<Response>((resolve, reject) => {
+    const request = send(
       url,
       {
         method: "POST",
@@ -34,6 +37,7 @@ const probeRequest: typeof fetch = async (input, init) =>
     if (init?.signal?.aborted) abort();
     else request.end();
   });
+};
 
 /** SDK-free diagnostics. Never return transport credentials or remote bodies. */
 export async function inspectOtlp(

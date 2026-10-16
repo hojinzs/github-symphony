@@ -13,7 +13,6 @@ import {
 } from "@gh-symphony/orchestrator";
 import type { GlobalOptions } from "../index.js";
 import startCommand from "./start.js";
-import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
 import {
   loadProjectConfig,
@@ -505,6 +504,7 @@ const handler = async (
       requestedProjectDir: resolvedProjectDir,
     };
     if (subcommand === "status") {
+      const { default: statusCommand } = await import("./status.js");
       await statusCommand(forwarded, runtimeOptions);
       return;
     }

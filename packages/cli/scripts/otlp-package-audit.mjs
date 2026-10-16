@@ -162,7 +162,7 @@ await writeFile(
 const loader = join(root, "loader.mjs");
 await writeFile(
   loader,
-  `import {appendFileSync} from "node:fs"; export async function load(url,context,next){const result=await next(url,context);appendFileSync(process.env.AUDIT_MODULES,url+"\\n");if(url.includes("@opentelemetry")||String(result.source??"").includes("@opentelemetry+"))throw Error("FORBIDDEN_SDK_EVALUATION");return result;}`
+  `import {appendFileSync} from "node:fs"; export async function load(url,context,next){const result=await next(url,context);appendFileSync(process.env.AUDIT_MODULES,url+"\\n");if(url.includes("@opentelemetry")||String(result.source??"").includes("@opentelemetry+"))throw Error("FORBIDDEN_SDK_EVALUATION");if(String(result.source??"").includes("async function inspectOtlp("))throw Error("FORBIDDEN_DIAGNOSTICS_EVALUATION");return result;}`
 );
 let report;
 try {
@@ -200,6 +200,7 @@ try {
     }
   }
   reached("30 fresh-process disabled startup samples");
+  reached("disabled startup diagnostic evaluation guard");
   const modules = join(root, "modules.txt");
   await checked(
     process.execPath,
