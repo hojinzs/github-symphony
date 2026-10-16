@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { performanceGates } from "./otlp-performance-gates.mjs";
+import {
+  performanceGates,
+  startupBuildOrder,
+} from "./otlp-performance-gates.mjs";
 import {
   mkdtemp,
   mkdir,
@@ -175,9 +178,12 @@ try {
   const candidate = await install(join(root, pack.filename), "candidate");
   await workflow();
   const measurements = {};
-  // Alternate the two builds, same Node/OS/config/disk state, fresh process each.
+  const startupOrder = [];
+  // Thirty fresh processes per build; each build runs first in fifteen pairs.
   for (let index = 0; index < 30; index++) {
-    for (const [name, build] of Object.entries({ baseline, candidate })) {
+    for (const name of startupBuildOrder(index)) {
+      const build = { baseline, candidate }[name];
+      startupOrder.push(name);
       const started = performance.now();
       const result = await run(process.execPath, [
         "--import",
@@ -200,6 +206,16 @@ try {
     }
   }
   reached("30 fresh-process disabled startup samples");
+  reached("counterbalanced startup order assertion");
+  for (const name of ["baseline", "candidate"]) {
+    assert.equal(startupOrder.filter((build) => build === name).length, 30);
+    assert.equal(
+      startupOrder.filter((build, index) => index % 2 === 0 && build === name)
+        .length,
+      15,
+      "Each build must run first in fifteen startup pairs"
+    );
+  }
   reached("disabled startup diagnostic evaluation guard");
   const modules = join(root, "modules.txt");
   await checked(
@@ -549,10 +565,11 @@ try {
     node: process.version,
     os: `${platform()} ${release()} ${arch()}`,
     conditions:
-      "fresh processes, alternating 30 samples, same empty file-tracker project, warm filesystem, npm --omit=dev --ignore-scripts",
+      "fresh processes, counterbalanced 30 samples per build (15 first positions each), same empty file-tracker project, warm filesystem, npm --omit=dev --ignore-scripts",
     baseline: base,
     candidate: current,
     measurements,
+    startupOrder,
     offer,
     tickMeasurements,
     gates,

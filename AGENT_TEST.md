@@ -626,8 +626,8 @@ by `--version` and the idle worker entry. Ambient OTLP endpoint configuration is
 present; run identity variables are removed from the worker probe. Existing MCP,
 management and credential-helper checks execute from that same installation.
 This is a package reachability test. The separate
-`packages/cli/scripts/otlp-package-audit.mjs` audit adds 30 alternating clean-install
-startup/RSS samples, healthy/slow/down offer latency, disabled startup SDK and
+`packages/cli/scripts/otlp-package-audit.mjs` audit adds 30 counterbalanced clean-install
+startup/RSS samples per build, healthy/slow/down offer latency, disabled startup SDK and
 connection guards, and packed doctor network/credential checks. See the CLI
 README for arguments and baseline preparation. `package-performance.test.ts`
 guards the review thresholds and `index-otlp.test.ts` guards public probe flag
@@ -644,6 +644,9 @@ probe timeouts and doctor process exit within five seconds (three-second probe
 budget plus CLI startup allowance).
 Its disabled startup loader rejects diagnostic-module evaluation as well as SDK
 evaluation, so status/probe initialization cannot enter the startup benchmark.
+Startup sampling counterbalances pair order: thirty fresh processes per build,
+with each build first in fifteen pairs. The report records the complete order;
+the audit rejects an unbalanced schedule without discarding timing outliers.
 
 ### Fleet observation and inventory cases (C06)
 

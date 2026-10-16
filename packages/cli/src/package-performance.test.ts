@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-const { performanceGates } = await import(
+const { performanceGates, startupBuildOrder } = await import(
   new URL("../scripts/otlp-performance-gates.mjs", import.meta.url).href
 );
 const baseline = { startupP95Ms: 100, rssMedianBytes: 80 * 1024 * 1024 };
@@ -11,6 +11,19 @@ const offers = {
 };
 
 describe("packed OTLP release performance gates", () => {
+  it("gives each build thirty samples and fifteen first positions", () => {
+    const pairs = Array.from({ length: 30 }, (_, index) =>
+      startupBuildOrder(index)
+    );
+    for (const pair of pairs) {
+      expect([...pair].sort()).toEqual(["baseline", "candidate"]);
+    }
+    for (const name of ["baseline", "candidate"]) {
+      expect(pairs.flat().filter((build) => build === name)).toHaveLength(30);
+      expect(pairs.filter(([first]) => first === name)).toHaveLength(15);
+    }
+  });
+
   it("allows the larger 10ms startup allowance, including its boundary", () => {
     expect(
       performanceGates(baseline, { ...baseline, startupP95Ms: 110 }, offers)

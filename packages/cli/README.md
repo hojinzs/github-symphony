@@ -707,9 +707,11 @@ node scripts/otlp-package-audit.mjs /absolute/baseline.tgz /tmp/otlp-report.json
 
 Build the baseline from a separate source archive and pack it before running the
 comparison. The audit installs both tarballs with production dependencies only,
-alternates 30 fresh processes on the same empty file-tracker project, and writes
+counterbalances 30 fresh processes per build on the same empty file-tracker
+project (each build runs first in fifteen pairs), and writes
 raw startup/RSS samples, loaded modules, sizes and threshold results to the
-external JSON report. RSS is sampled after the single idle reconciliation, at
+external JSON report, including the complete startup order. All samples count
+toward the unchanged thresholds; outliers are not filtered. RSS is sampled after the single idle reconciliation, at
 process exit. Healthy, 100ms slow and unavailable transport fixtures each receive
 1,000 bounded synchronous event/tick offers; the audit verifies transport was
 actually exercised. Separate child processes measure 30 full serialized
