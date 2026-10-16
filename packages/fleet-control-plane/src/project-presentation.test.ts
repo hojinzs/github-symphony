@@ -45,11 +45,10 @@ it("excludes offline, stale and missing snapshots from fresh workspace work tota
   const missing = fixture({ snapshotStale: true });
   expect(summarizeProjects([fresh, offline, stale, missing])).toEqual({
     scope: "Workspace-wide · fresh observations only",
-    registered: 4,
     running: 2,
     activeWork: 3,
     unknownWork: 3,
-    historical: 2,
+    historical: 3,
   });
   const view = presentProject(offline);
   expect(view).toMatchObject({

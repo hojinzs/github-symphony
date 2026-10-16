@@ -375,10 +375,12 @@ passes the request pathname plus query and sends the returned status, headers
 and body. The dispatcher does not bind a port. Assets ship in this package's
 `assets/` directory; preserve that directory next to `dist/`.
 
-The fleet form supports search, environment/state filters, and numbered
+The fleet form supports search, environment/state filters, and Previous/Next
 pagination. Filters reset the page, counts refer to all matching rows, and the
-fresh-only summary explicitly remains workspace-wide. Process filters include
-retained historical observations. Pages are snapshots at request time; refresh
+fresh-only summary explicitly remains workspace-wide. Running/Stopped/Unknown process filters require fresh, online, managed
+observations. The stale filter and Offline / stale metric share one predicate:
+offline, stale observation/snapshot, or unmanaged. That metric covers all inventory,
+including unmanaged projects; running/work totals cover managed projects. Pages are snapshots at request time; refresh
 to fetch new observations. Native HTML forms and links work without JavaScript;
 the small local script adds a loading announcement during form navigation.
 

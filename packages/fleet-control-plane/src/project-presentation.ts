@@ -78,6 +78,16 @@ export function presentProject(project: ObservedProject) {
 
 export type ProjectPresentation = ReturnType<typeof presentProject>;
 
+/** Includes retained/unmanaged inventory so the summary and stale filter agree. */
+export function isHistoricalOrStale(project: ObservedProject): boolean {
+  return (
+    !project.managed ||
+    !project.fresh ||
+    project.snapshotStale ||
+    project.connection !== "online"
+  );
+}
+
 /** Caller supplies the complete workspace inventory, never a filtered page. */
 export function summarizeProjects(projects: readonly ObservedProject[]) {
   const managed = projects.filter((project) => project.managed);
@@ -89,7 +99,6 @@ export function summarizeProjects(projects: readonly ObservedProject[]) {
     .filter((project) => !project.snapshotHistorical);
   return {
     scope: "Workspace-wide · fresh observations only",
-    registered: managed.length,
     running: fresh.filter(
       (project) => project.observation.process.state === "running"
     ).length,
@@ -98,6 +107,6 @@ export function summarizeProjects(projects: readonly ObservedProject[]) {
       .reduce((sum, project) => sum + (project.activeWork ?? 0), 0),
     unknownWork:
       managed.length - work.filter((p) => p.activeWork !== undefined).length,
-    historical: managed.length - fresh.length,
+    historical: projects.filter(isHistoricalOrStale).length,
   };
 }

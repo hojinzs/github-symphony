@@ -10,6 +10,7 @@ import {
   renderProjectFeedback,
   type ProjectLinks,
 } from "./project-pages.js";
+import { isHistoricalOrStale } from "./project-presentation.js";
 import { projectStyles } from "./project-styles.js";
 
 export interface ProjectRouteOptions {
@@ -53,7 +54,7 @@ const states = [
 function matches(project: ObservedProject, state: string) {
   if (!state) return true;
   if (state === "offline") return project.connection === "offline";
-  if (state === "stale") return !project.fresh;
+  if (state === "stale") return isHistoricalOrStale(project);
   if (state === "unmanaged") return !project.managed;
   if (state === "invalid")
     return project.observation.validation.state === "invalid";
@@ -62,8 +63,13 @@ function matches(project: ObservedProject, state: string) {
       project.observation.validation.state === "invalid" &&
       project.observation.validation.diagnostic.code === "unsupported_protocol"
     );
-  // Process filters use the retained state, labeled as historical in the row.
-  return project.observation.process.state === state;
+  // A retained process observation is never a current running/stopped claim.
+  return (
+    project.managed &&
+    project.fresh &&
+    project.connection === "online" &&
+    project.observation.process.state === state
+  );
 }
 function validId(id: string) {
   try {
@@ -167,7 +173,7 @@ export function createProjectRoutes(
       )
         invalid();
       // Enumerate C06's cursor contract before applying UI filters so summary,
-      // filtered count and numbered pagination all share the same inventory.
+      // filtered count and Previous/Next pagination all share the same inventory.
       const all: ObservedProject[] = [];
       let cursor: string | undefined;
       do {

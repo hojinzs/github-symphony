@@ -223,3 +223,46 @@ it("counts online stale observations in the explicitly combined offline/stale me
   expect(html).toContain("1</strong> Offline / stale projects");
   expect(html).toContain("Last known running");
 });
+
+it("uses the same stale inventory for metric, filter, count and pagination", async () => {
+  const current = await observations.getProject(project.projectId);
+  const inventory = [
+    current,
+    { ...current, projectId: randomUUID(), snapshotStale: true },
+    { ...current, projectId: randomUUID(), fresh: false },
+    { ...current, projectId: randomUUID(), connection: "offline" as const },
+    { ...current, projectId: randomUUID(), managed: false },
+  ];
+  const pages = createProjectRoutes(
+    {
+      ...observations,
+      listProjects: async () => ({ items: inventory }),
+    },
+    { environments: async () => [], now: () => clock }
+  );
+  const stale = await pages({
+    method: "GET",
+    pathname: "/projects?state=stale&pageSize=1&page=4",
+  });
+  expect(stale?.body).toContain("4</strong> Offline / stale projects");
+  expect(stale?.body).toContain("All inventory · includes unmanaged");
+  expect(stale?.body).toContain("4–4 of 4 projects");
+  expect(stale?.body).toContain("2</strong> Running");
+  const running = await pages({
+    method: "GET",
+    pathname: "/projects?state=running",
+  });
+  expect(running?.body).toContain("1–2 of 2 projects");
+  for (const item of inventory) {
+    item.observation = {
+      ...item.observation,
+      process: { state: "stopped", observedAt: clock.toISOString() },
+    };
+  }
+  const stopped = await pages({
+    method: "GET",
+    pathname: "/projects?state=stopped",
+  });
+  expect(stopped?.body).toContain("1–2 of 2 projects");
+  expect(stopped?.body).not.toContain("Last known stopped");
+});
