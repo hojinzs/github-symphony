@@ -51,6 +51,9 @@ COPY --from=build --chown=node:node /app/e2e/fleet-commands-mutations.mjs /app/e
 COPY --from=build --chown=node:node /app/e2e/agent-executor-e2e.mjs /app/e2e/agent-executor-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/agent-executor-mutations.mjs /app/e2e/agent-executor-mutations.mjs
 
+COPY --from=build --chown=node:node /app/e2e/fleet-observations-e2e.mjs /app/e2e/fleet-observations-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-observations-mutations.mjs /app/e2e/fleet-observations-mutations.mjs
+
 COPY --from=build --chown=node:node /app/e2e/fleet-reads-e2e.mjs /app/e2e/fleet-reads-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-reads-mutations.mjs /app/e2e/fleet-reads-mutations.mjs
 

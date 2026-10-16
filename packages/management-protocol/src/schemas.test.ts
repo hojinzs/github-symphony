@@ -526,3 +526,34 @@ it("validates the independent submit-read response fixture", () => {
     { ...F.submittedRead, unexpected: true },
   ]);
 });
+
+it("round-trips C06 freshness and bounded scope warnings while accepting pre-projection aggregates", () => {
+  const base = {
+    projectId: F.projectId,
+    environmentId: F.environmentId,
+    localProjectId: F.observation.inventory.projects[0].localProjectId,
+    managed: true,
+    connection: "online",
+    lastReceivedAt: F.time,
+    observation: F.observation.inventory.projects[0],
+  };
+  const projected = {
+    ...base,
+    fresh: true,
+    snapshotStale: false,
+    warnings: [{ state: "identical", projectIds: [F.projectId] }],
+  };
+  expect(S.aggregateProjectSchema.parse(projected)).toEqual(projected);
+  expect(S.aggregateProjectSchema.parse(base)).toEqual(base);
+  rejects(S.aggregateProjectSchema, [
+    { ...projected, fresh: "true" },
+    {
+      ...projected,
+      warnings: [{ state: "disjoint", projectIds: [F.projectId] }],
+    },
+    {
+      ...projected,
+      warnings: [{ state: "unverified", projectIds: ["/path"] }],
+    },
+  ]);
+});

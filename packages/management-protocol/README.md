@@ -103,3 +103,10 @@ validation or Docker runtime integration is claimed by C01. It adds no CLI
 commands, runtime configuration or environment variables.
 
 Command and read expiry must follow submission. Claims cannot precede submission or follow expiry; completion cannot precede the original claim. Claim replay responses must carry the envelope session as their owning session. Terminal succeeded/failed records require evidence, and revoked environments must be offline. `SubmitReadResponse` and `submitReadResponseSchema` validate the read-submission response.
+
+C06 aggregate query projections add optional `fresh`, `snapshotStale` and
+`warnings` fields to `AggregateProject`. Prior v1 aggregate fixtures remain valid.
+Warnings use `identical` or `unverified`, at most two warning kinds and 100 related
+UUIDs per warning. Reported metadata can identify an identical scope but cannot
+prove disjoint provider pickup; an identical pair and an unverified comparison
+may coexist. The protocol contains no provider eligibility or scheduler policy.
