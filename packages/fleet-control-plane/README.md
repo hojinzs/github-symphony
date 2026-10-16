@@ -366,4 +366,33 @@ blocks Start while a verified running process can remain eligible for Stop;
 offline, stale, unmanaged and incompatible targets carry adjacent reasons.
 C17 owns command authorization and dispatch. Scope overlap stays advisory.
 These internal helpers do not install a fleet listener or alter per-project web
-behavior. Responsive route rendering is the remaining C16 delivery slice.
+behavior.
+
+`createProjectRoutes(observations, { environments, links?, now? })` returns a
+read-only request dispatcher for `GET /projects`, `GET /projects/:projectId`
+and allowlisted `/fleet-assets/*`. The consuming **private fleet HTTPS listener**
+passes the request pathname plus query and sends the returned status, headers
+and body. The dispatcher does not bind a port. Assets ship in this package's
+`assets/` directory; preserve that directory next to `dist/`.
+
+The fleet form supports search, environment/state filters, and numbered
+pagination. Filters reset the page, counts refer to all matching rows, and the
+fresh-only summary explicitly remains workspace-wide. Process filters include
+retained historical observations. Pages are snapshots at request time; refresh
+to fetch new observations. Native HTML forms and links work without JavaScript;
+the small local script adds a loading announcement during form navigation.
+
+`links` is the typed C17/C18/#1019 composition boundary: optional local-only
+environment, lifecycle, runs and commands destinations. Lifecycle links navigate
+to confirmation flows; they must never perform mutations on GET. Without a
+destination, an otherwise eligible action explains that it is not connected.
+Invalid workflow never independently disables eligible Stop. Command results
+and run/log history are sibling-owned and are not fabricated in this view.
+Only local asset, stylesheet and script sources are permitted by page CSP;
+names, paths, diagnostics, filters and URLs are HTML escaped.
+
+Verification: `node e2e/fleet-projects-e2e.mjs` and
+`node e2e/fleet-projects-mutations.mjs` after building, or
+`./e2e/run-fleet-projects-e2e.sh` for Linux Docker. These exercise actual
+enrollment, session, inventory and route services; the loopback HTTP fixture
+does not claim native lifecycle or production HTTPS deployment validation.

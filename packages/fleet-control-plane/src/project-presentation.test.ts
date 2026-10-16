@@ -104,3 +104,23 @@ it("keeps environment-qualified identity, unknown counts and advisory scope warn
   expect(presentProject(project).warnings[0]).toContain("Advisory only");
   expect(summarizeProjects([project]).unknownWork).toBe(1);
 });
+
+it("excludes retained work from a freshly stopped process", () => {
+  const stopped = fixture();
+  stopped.observation.process = {
+    state: "stopped",
+    observedAt: stopped.observation.observedAt,
+  };
+  expect(summarizeProjects([stopped]).activeWork).toBe(0);
+});
+
+it("labels recently unmanaged observations as historical immediately", () => {
+  const unmanaged = fixture({ managed: false });
+  expect(presentProject(unmanaged)).toMatchObject({
+    historical: true,
+    snapshotHistorical: true,
+    process: "running",
+    activeWork: 3,
+  });
+  expect(summarizeProjects([unmanaged]).running).toBe(0);
+});

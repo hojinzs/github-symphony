@@ -17,7 +17,8 @@ export function presentProject(project: ObservedProject) {
   const observation = project.observation;
   const snapshot = record(observation.snapshot);
   const summary = record(snapshot.summary);
-  const historical = !project.fresh || project.connection !== "online";
+  const historical =
+    !project.managed || !project.fresh || project.connection !== "online";
   const snapshotHistorical = historical || project.snapshotStale;
   const diagnostic =
     observation.validation.state === "invalid"
@@ -92,10 +93,9 @@ export function summarizeProjects(projects: readonly ObservedProject[]) {
     running: fresh.filter(
       (project) => project.observation.process.state === "running"
     ).length,
-    activeWork: work.reduce(
-      (sum, project) => sum + (project.activeWork ?? 0),
-      0
-    ),
+    activeWork: work
+      .filter((project) => project.process === "running")
+      .reduce((sum, project) => sum + (project.activeWork ?? 0), 0),
     unknownWork:
       managed.length - work.filter((p) => p.activeWork !== undefined).length,
     historical: managed.length - fresh.length,

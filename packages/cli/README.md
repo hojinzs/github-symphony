@@ -718,3 +718,10 @@ LaunchAgent and preserve management identity and managed orchestrators. Public
 agent command routing remains C13-owned. Login startup requires the real OS user
 home; no pre-login boot or logout survival is promised. See the management-agent
 package README for the typed configuration and TC-31 native validation.
+
+The internal [C16 fleet project UI](../fleet-control-plane/README.md#project-presentation-boundary-c16)
+exports read-only fleet/detail route composition with Graphite responsive rows,
+fresh-only workspace totals and historical offline labels. A consuming private
+fleet HTTPS listener supplies environment records and optional lifecycle/history
+links. This adds no fleet CLI command; `gh-symphony project` and per-project
+`--web` keep their existing behavior.
