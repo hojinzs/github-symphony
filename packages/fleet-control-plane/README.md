@@ -398,3 +398,13 @@ Verification: `node e2e/fleet-projects-e2e.mjs` and
 `./e2e/run-fleet-projects-e2e.sh` for Linux Docker. These exercise actual
 enrollment, session, inventory and route services; the loopback HTTP fixture
 does not claim native lifecycle or production HTTPS deployment validation.
+
+### Run/log presentation state (C18)
+
+`src/run-log-model.ts` owns browser-local bounded log state for a known
+environment/project/run/stream selection. It validates C10 protocol results,
+retains at most 256 KiB of UTF-8 text, fences late results after disconnect,
+and preserves historical content and its fetched timestamp. Rotation requires
+explicit reset, including after reconnect; reconnect never resumes follow.
+The read transport owns the 30-second request lifetime. This internal model
+does not install routes, persist raw logs, or perform lifecycle actions.
