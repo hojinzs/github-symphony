@@ -431,3 +431,17 @@ restart discards these receipts without changing durable commands. Native dialog
 enhancement traps focus, places initial focus on Cancel, supports Escape, and
 returns to the action anchor. Without enhancement the confirmation is still an
 explicit native POST form. Unknown outcomes offer no replay action.
+
+Native forms use `Referrer-Policy: same-origin` so Chromium retains the exact
+Origin on POST while cross-origin referrers remain suppressed. The C04 exact
+Origin check is unchanged. Command progress is refreshed explicitly through the
+Refresh link; unknown has no retry or replacement intent. Invalid workflow
+validation blocks Start but does not prevent an otherwise eligible Stop.
+
+C17 verification: [TC-34](../../e2e/scenarios/34-fleet-command-ui.md) covers
+21 real HTTPS assertions/probes plus native Chromium's 13 assertions/probes,
+including all approved command/recovery states and extra admission/error scenes at 1440/1024/390. Run
+`node e2e/fleet-command-ui-e2e.mjs`, `node e2e/fleet-command-ui-mutations.mjs`
+and `./e2e/run-fleet-command-ui-e2e.sh` after building. Native browser setup and
+artifact mutation commands are in the TC. Process observations and C08 result
+records are independent fixtures; no native lifecycle claim follows.

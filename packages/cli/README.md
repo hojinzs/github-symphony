@@ -802,3 +802,9 @@ fresh-only workspace totals and historical offline labels. A consuming private
 fleet HTTPS listener supplies environment records and optional lifecycle/history
 links. This adds no fleet CLI command; `gh-symphony project` and per-project
 `--web` keep their existing behavior.
+
+The C17 fleet lifecycle UI composition adds Stop confirmation, durable command
+history and reviewed unknown-outcome closure with a required reason. Current
+process observations remain independent from command outcomes. The internal
+fleet package exports a private-listener dispatcher; this adds no CLI command
+and preserves `gh-symphony project` and per-project `--web` behavior.

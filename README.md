@@ -1212,3 +1212,9 @@ provides responsive project inventory and runtime detail routes for a consuming
 private fleet HTTPS listener. It preserves historical offline observations and
 uses fresh data for workspace totals. Fleet listener composition is separate
 from the shipped per-project `--web` server.
+
+The C17 fleet lifecycle UI composition adds Stop confirmation, durable command
+history and reviewed unknown-outcome closure with a required reason. Current
+process observations remain independent from command outcomes. The internal
+fleet package exports a private-listener dispatcher; this adds no CLI command
+and preserves `gh-symphony project` and per-project `--web` behavior.
