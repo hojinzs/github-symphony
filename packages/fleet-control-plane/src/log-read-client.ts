@@ -40,7 +40,7 @@ export class BoundedLogReader {
     const fetchResponse = async (url: string, init?: RequestInit) => {
       let response: Response;
       try {
-        response = await this.fetcher(url, {
+        response = await this.fetcher.call(globalThis, url, {
           credentials: "same-origin",
           cache: "no-store",
           ...init,

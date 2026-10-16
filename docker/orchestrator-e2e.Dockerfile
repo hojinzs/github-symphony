@@ -60,6 +60,11 @@ COPY --from=build --chown=node:node /app/e2e/fleet-reads-mutations.mjs /app/e2e/
 COPY --from=build --chown=node:node /app/e2e/fleet-projects-e2e.mjs /app/e2e/fleet-projects-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-projects-mutations.mjs /app/e2e/fleet-projects-mutations.mjs
 
+COPY --from=build --chown=node:node /app/e2e/fleet-runs-fixture.mjs /app/e2e/fleet-runs-fixture.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-runs-e2e.mjs /app/e2e/fleet-runs-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-runs-browser.mjs /app/e2e/fleet-runs-browser.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-runs-mutations.mjs /app/e2e/fleet-runs-mutations.mjs
+
 # Copy seed data
 COPY --chown=node:node e2e/seed /e2e/seed
 

@@ -802,3 +802,11 @@ fresh-only workspace totals and historical offline labels. A consuming private
 fleet HTTPS listener supplies environment records and optional lifecycle/history
 links. This adds no fleet CLI command; `gh-symphony project` and per-project
 `--web` keep their existing behavior.
+
+The internal [C18 run/log view](../fleet-control-plane/README.md#runlog-presentation-state-c18)
+adds paged retained history, allowed-stream selection and bounded follow.
+The consuming private fleet listener mounts run/project/read dispatchers and
+ships `dist/browser/` with local assets. Reads are limited to known run IDs,
+256 KiB chunks and a 30-second lifetime. Rotation needs explicit reset;
+offline fetched content remains historical and reconnect leaves follow paused.
+This adds no CLI command or change to per-project `--web`.

@@ -29,6 +29,9 @@ export function mountRunLogPage(root: HTMLElement) {
   let checking = false;
 
   function render() {
+    root.querySelector("#history-status")!.textContent = model.online
+      ? "Recorded summaries"
+      : "Historical summaries";
     output.textContent = model.text;
     output.setAttribute("aria-busy", String(model.phase === "loading"));
     const historical = model.historical ? "Historical · " : "";
@@ -69,10 +72,13 @@ export function mountRunLogPage(root: HTMLElement) {
         ? "Follow"
         : "Follow paused · offline";
     follow.disabled = !model.online || model.phase === "reset-required";
-    read.disabled =
-      !model.online ||
-      model.phase === "loading" ||
-      model.phase === "reset-required";
+    read.disabled = !model.online || model.phase === "reset-required";
+    // Keep the initiating control focused while a read is pending. The reader
+    // fences duplicate submissions; aria-disabled exposes that busy state.
+    read.setAttribute(
+      "aria-disabled",
+      String(read.disabled || model.phase === "loading")
+    );
     reset.hidden = model.phase !== "reset-required";
     reset.disabled = !model.online;
     reconnect.hidden = model.online;
@@ -179,16 +185,20 @@ export function mountRunLogPage(root: HTMLElement) {
   const connectionTimer = setInterval(() => {
     void checkConnection();
   }, 5000);
-  window.addEventListener(
-    "pagehide",
-    () => {
-      clearInterval(followTimer);
-      clearInterval(connectionTimer);
-      reader.disconnect();
-      window.removeEventListener("offline", offline);
-      window.removeEventListener("online", checkConnection);
-    },
-    { once: true }
-  );
+  const restore = (event: PageTransitionEvent) => {
+    if (event.persisted) void checkConnection();
+  };
+  window.addEventListener("pageshow", restore);
+  window.addEventListener("pagehide", (event) => {
+    reader.disconnect();
+    // A cached page resumes these timers when restored. Preserve its fetched
+    // content, but recheck connection and leave follow paused on pageshow.
+    if (event.persisted) return;
+    clearInterval(followTimer);
+    clearInterval(connectionTimer);
+    window.removeEventListener("offline", offline);
+    window.removeEventListener("online", checkConnection);
+    window.removeEventListener("pageshow", restore);
+  });
   if (model.online) void reader.read();
 }

@@ -56,7 +56,7 @@ export function renderRunPage(
   const content = `<div class="run-page" id="run-page" data-project="${e(state.projectId)}" data-environment="${e(state.environmentId)}" data-online="${state.online}" data-observed="${e(state.lastObservedAt)}" data-csrf="${e(input.csrfToken)}">
 <div class="heading"><div><h1>Runs and logs</h1><small>${e(project.observation.displayName)} · ${e(environment)} · Recorded runs and log output</small></div><a href="${base}">Back to project</a></div>
 <small class="run-identity">Environment ${e(state.environmentId)} · Project ${e(state.projectId)}</small>
-<section class="history-panel" aria-labelledby="history-heading"><h2 id="history-heading">Recent runs</h2><small>${state.online ? "Recorded summaries" : "Historical summaries"} · Last observed <time datetime="${e(state.lastObservedAt)}">${e(state.lastObservedAt)}</time></small>
+<section class="history-panel" aria-labelledby="history-heading"><h2 id="history-heading">Recent runs</h2><small><span id="history-status">${state.online ? "Recorded summaries" : "Historical summaries"}</span> · Last observed <time id="history-observed" datetime="${e(state.lastObservedAt)}">${e(state.lastObservedAt)}</time></small>
 ${
   runs
     .slice((page - 1) * 25, page * 25)
@@ -83,6 +83,8 @@ ${
 }
 
 export const runStyles = `
+.shell:has(.run-page) .sidebar nav>.muted{display:flex;align-items:center;gap:10px;min-height:40px;padding:8px;border-radius:6px}
 .run-page{display:flex;flex-direction:column;gap:24px;min-width:0}.run-page h2{font-size:18px;line-height:26px;margin:0}.history-panel{display:flex;flex-direction:column;gap:16px;border-bottom:1px solid var(--oms-border-default);padding-bottom:8px}.timeline-item{display:grid;gap:4px;overflow-wrap:anywhere}.timeline-item>a{font-size:12px;color:var(--oms-text-secondary)}.timeline-item time,.run-identity{overflow-wrap:anywhere}.run-pagination{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.log-panel{background:var(--oms-nav-bg);border-bottom:1px solid var(--oms-border-default);padding:20px;border-radius:8px;display:flex;flex-direction:column;gap:16px;min-width:0}.log-toolbar{display:flex;align-items:end;gap:12px 16px;flex-wrap:wrap}.log-toolbar label{display:grid;gap:8px;flex:1;min-width:280px;color:var(--oms-text-secondary);font-size:12px}.log-toolbar select{width:100%;min-width:0;color:var(--oms-text-primary);font-size:13px}.log-toolbar button{min-height:44px}.log-badge{padding:8px;background:var(--oms-info-bg);color:var(--oms-focus);border-radius:4px;font-size:12px;min-height:40px}.log-panel pre{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px;line-height:20px;min-height:220px;max-height:60vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}.log-panel [hidden]{display:none}.log-panel [role=status]{color:var(--oms-text-secondary)}.log-panel [aria-busy=true]{opacity:.8}
-@media(max-width:650px){.log-toolbar label{min-width:0;flex-basis:100%}.log-toolbar select{max-width:100%}.log-toolbar button{max-width:100%}.run-identity{font-size:11px}.run-page .heading a{font-size:12px}}
+@media(max-width:1199px){.shell:has(.run-page) .sidebar{display:flex;flex-direction:column;align-items:stretch;gap:12px}.shell:has(.run-page) .sidebar .brand{margin:0;font-size:14px;font-weight:400}.shell:has(.run-page) .sidebar img{display:none}.shell:has(.run-page) .sidebar nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}}
+@media(max-width:650px){.shell:has(.run-page) .sidebar nav>.muted{font-size:11px;padding:4px 8px}.log-toolbar label{min-width:0;flex-basis:100%}.log-toolbar select{max-width:100%}.log-toolbar button{max-width:100%}.run-identity{font-size:11px}.run-page .heading a{font-size:12px}}
 `;

@@ -433,3 +433,17 @@ never HTML, with a 256 KiB retained UTF-8 view and no browser persistence.
 The browser bundle is built with esbuild into `dist/browser/`; ship it with
 the server output. C14 native keyboard controls, focus and polite status
 announcements are retained; log lines are outside the live region.
+
+When composing C06 target resolution into C10's `CommandPeers`, retain C06's
+shared-transaction contract. The read lane invokes target lookups outside its
+own transaction; wrap those lookups in `store.transaction` when
+`database.isTransaction` is false. The executable C18 listener fixture in
+`e2e/fleet-runs-fixture.mjs` demonstrates this adapter against actual services.
+
+Verification after building: `node e2e/fleet-runs-e2e.mjs` and
+`node e2e/fleet-runs-mutations.mjs`, or `./e2e/run-fleet-runs-e2e.sh` for Linux
+Docker. The real-browser walkthrough and copied-browser-artifact probes use
+`e2e/fleet-runs-browser.mjs` and `e2e/fleet-runs-mutations.mjs --browser`;
+see TC-34 in AGENT_TEST.md for external Playwright setup. Browser evidence covers
+native controls, visible focus, inert text, offline/expiry/reset recovery and
+1440/1024/390 geometry. Native service isolation remains outside C18.

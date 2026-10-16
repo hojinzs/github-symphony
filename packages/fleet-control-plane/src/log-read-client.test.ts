@@ -33,7 +33,9 @@ it("uses actual C10 acceptance and result routes, retaining cursor and explicit 
     );
     let rotate = false;
     const selections: unknown[] = [];
-    const fetcher: typeof fetch = async (input, init) => {
+    const fetcher: typeof fetch = async function (this: unknown, input, init) {
+      if (this !== globalThis)
+        throw new TypeError("Native fetch receiver required");
       const path = String(input);
       const result = await routes({
         method: init?.method ?? "GET",
