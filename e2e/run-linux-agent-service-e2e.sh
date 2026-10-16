@@ -15,6 +15,7 @@ cd "$ROOT_DIR"
 "${COMPOSE[@]}" build symphony-e2e
 "${COMPOSE[@]}" run --rm --no-deps --entrypoint bash symphony-e2e -lc '
 set -euo pipefail
+node --test /app/e2e/lib/json-journal.test.mjs
 node /app/e2e/linux-agent-service-e2e.mjs --simulate
 node /app/e2e/run-linux-agent-service-probes.mjs --simulate
 '

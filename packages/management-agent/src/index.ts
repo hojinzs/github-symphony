@@ -1,4 +1,8 @@
 export { AgentRegistry, localProjectId } from "./registry.js";
+export { CommandJournal } from "./journal.js";
+export type { JournalEntry, CommandResult } from "./journal.js";
+export { CommandExecutor } from "./executor.js";
+export type { CommandClient } from "./executor.js";
 export type {
   AgentIdentity,
   RegisteredProject,
@@ -36,7 +40,7 @@ export {
   reconnectDelay,
   observationPages,
 } from "./foreground.js";
-export type { ForegroundOptions } from "./foreground.js";
+export type { ForegroundOptions, ForegroundClient } from "./foreground.js";
 export { createInventorySnapshot } from "./inventory.js";
 export type { ProjectIdentityResolver } from "./inventory.js";
 

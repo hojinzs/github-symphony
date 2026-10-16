@@ -216,6 +216,15 @@ structural C03 isolated-launcher port and disables launchd process-group cleanup
 with `AbandonProcessGroup`. Service stop/restart/uninstall retain registry/journal
 and project lifetimes; native launchd evidence is separate from portable tests.
 
+C08's `management-agent/src/executor.ts` joins the journal to this adapter and
+the typed command client. Receipt precedes claim; a synced marker precedes
+invocation; saved results precede upload. Read-only reconciliation uses readiness,
+the journaled stop target and exit/lock evidence. Per-project serialization keeps
+effects isolated, and registry shutdown retains its lock through durable writes.
+The foreground delivery factory supplies the locked registry/current-session
+client and runs even on empty polls. Core dispatch and workflow policy remain
+outside this management executor.
+
 - Exporter credential ownership: `packages/orchestrator/src/exporter-environment.ts`
   uses core OTLP auth-reference provenance to strip final worker/hook environments.
   Name-only conflicts with agent/tracker credentials fail even for disabled OTLP;
@@ -311,6 +320,7 @@ No management protocol, tracker policy, or fleet behavior is added to
   C06 projection owner; C06 retains merge/pruning ownership. Registry and payload
   caps bound retained memory without shortening accepted result retention.
 - C05 management connection observability: `management-agent/src/foreground.ts` emits sanitized online/retrying state and `fleet-control-plane/src/sessions.ts` records receipt-based first signal, sequence and host/version metadata. Agent clocks cannot determine freshness; core scheduling is untouched.
+- C08 durable local execution evidence: `management-agent/src/journal.ts` persists command receipt, claim, effect marker, expected stop target, result and acknowledgment under the registry owner lock. Synced private-file replacement preserves replay fences across agent restart. This Execution/Integration/Observability management extension leaves dispatch and tracker policy in their existing layers.
 - Internal lifecycle owner: `packages/orchestrator/src/observability/lifecycle.ts` freezes startup transport settings, compares validated reload candidates privately (including header values), and exposes safe applied/pending descriptors. Disable edits retain the active startup provider until restart; revert clears pending state. Publication and shutdown failures remain isolated from coordination health. Shutdown stops offers and gives the owned pipeline one five-second deadline. The service initializes the SDK-free owner before dispatch and installs Logs at the existing post-append FS store boundary and Metrics at the committed snapshot/tick boundary. `observability/resource-validation.ts` applies provider resource limits before last-known-good persistence without loading the SDK. `observability/pipeline.ts` lazily composes both providers with one resource UUID, samples Logs loss deltas once into Metrics, and projects bounded per-signal diagnostics. Status uses an orchestrator-owned additive field preserved by existing readers; no core contract changes. The internal production capability defaults off until audited CLI delivery; tests may inject providers.
 
 - Bounded local management reads: `packages/management-agent/src/local-read.ts` (C09, #1013) projects run metadata and reads fixed contained streams through a trusted canonical-runtime resolver, with signed generation/byte cursors and a 256 KiB wire limit. This Integration/Observability management extension does not alter orchestration or the upstream specification.

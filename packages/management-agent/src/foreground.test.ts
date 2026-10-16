@@ -347,3 +347,28 @@ it("retries a transient delivery handler failure with a fresh snapshot", async (
   expect(diagnostics).toEqual(["local_port_failure"]);
   expect(waits).toContain(500);
 });
+
+it("creates the durable delivery handler with its locked registry and drains empty polls", async () => {
+  let delivered = 0;
+  let ownsRegistry = false;
+  await runForegroundAgent({
+    ...options(),
+    createDeliveryHandler: async ({ registry, client, session }) => {
+      expect(client).toBe(peer);
+      expect(session.environmentId).toBe(identity.environmentId);
+      expect(registry.identity?.agentId).toBe(identity.agentId);
+      try {
+        await AgentRegistry.open(join(root, "agent"));
+      } catch {
+        ownsRegistry = true;
+      }
+      return async (response) => {
+        expect(response.commands).toEqual([]);
+        expect(response.sessionId).toBe(session.sessionId);
+        delivered++;
+      };
+    },
+  });
+  expect(delivered).toBe(1);
+  expect(ownsRegistry).toBe(true);
+});

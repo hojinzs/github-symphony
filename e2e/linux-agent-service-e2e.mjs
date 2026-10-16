@@ -29,6 +29,8 @@ import {
   sessionRequestSchema,
 } from "../packages/management-protocol/dist/index.js";
 
+import { readJournal } from "./lib/json-journal.mjs";
+
 const self = fileURLToPath(import.meta.url);
 const cli = join(dirname(self), "../packages/cli/dist/index.js");
 const probe = process.env.C11_PLANT_FORBIDDEN;
@@ -682,8 +684,7 @@ const child=spawnSync(process.execPath,[${JSON.stringify(cli)},...process.argv.s
       commands.push(command);
       return join(dataDirectory, `fixture-journal-${command.commandId}.json`);
     };
-    const result = async (path) =>
-      JSON.parse(await readFile(path, "utf8").catch(() => "{}"));
+    const result = readJournal;
     const invalidJournal = submit(invalid.localProjectId);
     await until(
       async () => (await result(invalidJournal)).state === "failed",

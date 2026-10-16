@@ -667,7 +667,9 @@ unavailable. Read access survives invalid workflow and has no process effects.
 Raw logs may contain sensitive text and are restricted to trusted operator access.
 
 The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
-and foreground outbound HTTPS transport for application/service composition:
+and foreground outbound HTTPS transport for application/service composition.
+C08 adds `CommandJournal` and `CommandExecutor` for durable claim replay,
+verified lifecycle execution and read-only restart reconciliation:
 
 ```ts
 import {
@@ -675,6 +677,8 @@ import {
   createAgentTransport,
   enrollAgent,
   runForegroundAgent,
+  CommandJournal,
+  CommandExecutor,
 } from "@gh-symphony/cli/management-agent";
 ```
 
@@ -684,8 +688,11 @@ heartbeats and polling run independently with bounded reconnect backoff.
 Transient inventory/delivery adapter failures retry with sanitized diagnostics and
 fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
 until its first authenticated observation.
-This module adds no command or listener. Guided setup (C13, #1017) and command
-delivery retain their sibling boundaries; C06 supplies inventory projection.
+This module adds no command or listener. Guided setup (C13, #1017) and fleet
+route assembly retain their sibling boundaries; C06 supplies inventory projection.
+Use `createDeliveryHandler` to compose command and read handlers while the
+foreground runtime holds the registry lock. The factory handler receives empty
+polls too, allowing durable result retry and recovery without redelivery.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
 
 The same bundled module exports C11 `LinuxAgentService` and

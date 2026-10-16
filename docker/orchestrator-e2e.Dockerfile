@@ -48,6 +48,8 @@ COPY --from=build --chown=node:node /app/e2e/otlp-lifecycle-contract.mjs /app/e2
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-peer.mjs /app/e2e/fleet-commands-peer.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-e2e.mjs /app/e2e/fleet-commands-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-commands-mutations.mjs /app/e2e/fleet-commands-mutations.mjs
+COPY --from=build --chown=node:node /app/e2e/agent-executor-e2e.mjs /app/e2e/agent-executor-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/agent-executor-mutations.mjs /app/e2e/agent-executor-mutations.mjs
 
 COPY --from=build --chown=node:node /app/e2e/fleet-observations-e2e.mjs /app/e2e/fleet-observations-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-observations-mutations.mjs /app/e2e/fleet-observations-mutations.mjs
@@ -57,6 +59,9 @@ COPY --from=build --chown=node:node /app/e2e/fleet-reads-mutations.mjs /app/e2e/
 
 COPY --from=build --chown=node:node /app/e2e/linux-agent-service-e2e.mjs /app/e2e/linux-agent-service-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/run-linux-agent-service-probes.mjs /app/e2e/run-linux-agent-service-probes.mjs
+
+COPY --from=build --chown=node:node /app/e2e/lib/json-journal.mjs /app/e2e/lib/json-journal.mjs
+COPY --from=build --chown=node:node /app/e2e/lib/json-journal.test.mjs /app/e2e/lib/json-journal.test.mjs
 
 # Copy seed data
 COPY --chown=node:node e2e/seed /e2e/seed

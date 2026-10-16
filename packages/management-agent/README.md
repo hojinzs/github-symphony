@@ -1,8 +1,75 @@
 # Local management agent
 
 `@gh-symphony/management-agent` is an internal repository-local management
-extension (C03, #1007; Epic #983). It is separate from the shipped per-project
+extension (C03/C05/C08/C09; Epic #983). It is separate from the shipped per-project
 control-plane server and does not schedule or provision projects.
+
+### C08 durable command journal
+
+`CommandJournal.open(registry)` shares the registry's exclusive owner lock. The
+user-owned `commands.json` file has mode `0600`; atomic replacement syncs both
+the file and parent directory before acknowledging a write. Receipt, original
+claim, effect marker, expected stop target, result and upload acknowledgment
+survive reopening. The journal rejects conflicting command IDs, foreign enrolled
+owners, changed claim timestamps and replacement stop targets. Raw process
+identities stay local; management credentials are never copied into this file.
+
+`beginEffect(commandId)` requires a durable executing claim and returns true only
+once. A marker without a result deliberately prevents replay after a crash,
+including a crash before the actual invocation. Consumers must reconcile evidence
+and persist the result before publishing it. A verified result may resolve a
+previous unknown; terminal results remain immutable. Acknowledged terminal and
+retired records can be pruned after 30 days with `journal.prune()`; unresolved
+effects and acknowledged unknown results remain available for reconciliation.
+The embedder must schedule `journal.prune()` periodically (for example, daily)
+while holding the registry owner lock; neither the executor nor foreground loop
+automatically prunes records.
+Journal tests use real private files and close/reopen the registry rather than
+mocking persistence. Registry shutdown drains admitted journal writes before
+releasing the lifetime owner lock.
+
+`new CommandExecutor(registry, journal, lifecycleAdapter)` consumes the existing
+verified local lifecycle adapter. `handlePoll(response, client)` validates the
+session envelope, durably records incoming commands, and claims each original ID
+through the typed `claim` client before effects. Call it on empty polls too: pending
+receipts and results survive restart without needing another delivery. It
+serializes work per local project and bounds concurrent work to four projects.
+The fleet ledger owns the outstanding-command slot and authoritative expiry;
+the journal retains earlier receipts across expiry or explicit closure.
+
+Executing claim replay can begin once when no marker exists. Marker-bearing
+entries use `LocalLifecycleAdapter.reconcile` exclusively: readiness proves start;
+persisted stop-target exit, lock release and absence of a replacement prove stop.
+Recovery never spawns or signals. Runtime/PID/identity replacement fails with
+`superseded_target`; missing evidence stays unknown. The fleet owns execution
+claim expiry and preserves the original `claimedAt` across replay. An authoritative
+`executing` response grants a local observation window of at most 60 seconds;
+the agent never compares server timestamps with its own clock. A server-expired
+`unknown` replay cannot authorize a new effect.
+
+Results persist before publication and retry unchanged until a correlated
+acknowledgment. Unknown results can later resolve from verified evidence without
+repeating effects; explicit fleet closure retires them. Local exceptions produce
+fixed unresolved diagnostics rather than uploading exception text. Reconnected
+ownership must already be transferred by the fleet recovery boundary to the same
+enrolled agent; stale/foreign claims cannot authorize invocation or result upload.
+An expired unclaimed receipt is retired without a fabricated unknown result.
+Duplicate receipts use retained immutable command identity, so saved results can
+resend after a folder disappears or registration is removed. An invalid new or
+conflicting delivery reports its error after unrelated durable recovery drains;
+live allowlist checks remain mandatory before new lifecycle effects.
+The fleet's terminal/explicitly closed outcome takes precedence over a cached
+unknown; recovery does not overwrite that authoritative outcome. Malformed journal
+JSON reports a fixed diagnostic without echoing private process evidence.
+
+The foreground `createDeliveryHandler({ registry, client, session, signal })`
+factory composes this executor while the foreground runtime owns the registry.
+Use a full command client, open the journal on that registry, and return a handler
+that calls `executor.handlePoll(response, client)` and the separate read handler.
+The runtime invokes this handler even on empty polls; heartbeats remain independent
+of lifecycle work. This library boundary is shipped through the CLI's
+`management-agent` module. Fleet route assembly and native service lifecycle stay
+with their respective slices.
 
 `AgentRegistry.open(dataDirectory)` owns a canonical mode `0700` directory and
 uses the existing process-identity heartbeat lock. Call `close()` during shutdown;
@@ -53,7 +120,7 @@ service packaging. Detached spawning alone does not isolate systemd cgroups. C03
 does not install services or claim Linux/macOS service lifecycle validation.
 
 There is no new `gh-symphony agent` command yet. C05 provides enrollment transport
-and the foreground runtime below. Durable command claim/replay journaling,
+and the foreground runtime below. C08 supplies durable command execution;
 fleet route assembly and native service packaging remain separate boundaries. Keep registry/journal backups private because
 they contain credentials or raw local process evidence.
 
@@ -63,17 +130,18 @@ OS process/CWD and ownership records without mocking those probes.
 
 ### Verification and acceptance scope
 
-| Requirement                                   | Evidence                                                                                                                                                                         |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CP-02 canonical inventory/allowlist           | registry tests; TC-27 real prepared, invalid and aliased folders                                                                                                                 |
-| CP-01/14 identity, agent lock, access removal | two independent enrollment fixtures share a local ID with distinct environment identities; private persistent registry and lock tests; TC-27 close/reopen and process continuity |
-| CP-03 bounded verified lifecycle              | lifecycle mutations and real invalid-workflow stop with durable target journal                                                                                                   |
-| CP-04 local/manual start arbitration          | serialized starts and existing CLI canonical folder lock; TC-27 independent contender                                                                                            |
-| CP-15 non-secret metadata/credentials         | typed protocol peer fixture, inventory projections, executable child environment and TC-27 canaries                                                                              |
-| Applicable CP-08 recovery                     | exact C02 stop identity retained; TC-27 replacement ownership fault probe                                                                                                        |
+| Requirement                                   | Evidence                                                                                                                                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CP-02 canonical inventory/allowlist           | registry tests; TC-27 real prepared, invalid and aliased folders                                                                                                                          |
+| CP-01/14 identity, agent lock, access removal | two independent enrollment fixtures share a local ID with distinct environment identities; private persistent registry and lock tests; TC-27 close/reopen and process continuity          |
+| CP-03 bounded verified lifecycle              | lifecycle mutations and real invalid-workflow stop with durable target journal                                                                                                            |
+| CP-04 local/manual start arbitration          | serialized starts and existing CLI canonical folder lock; TC-27 independent contender                                                                                                     |
+| CP-15 non-secret metadata/credentials         | typed protocol peer fixture, inventory projections, executable child environment and TC-27 canaries                                                                                       |
+| Applicable CP-08 recovery                     | exact C02 stop identity retained; TC-27 replacement ownership fault probe                                                                                                                 |
+| CP-04–09/18/19 durable execution/recovery     | executor tests with actual journal/lifecycle and independent typed durable peer; TC-31 actual C07 ledger and separate CLI/agent processes, 23 reached assertions and six forbidden probes |
 
 TC-27 covers the local portions of operator inventory/start/stop/removal
-walkthroughs. Fleet authentication, claim journaling, transport/read handlers and
+walkthroughs. Fleet HTTP routing, read delivery handlers and
 native systemd/launchd service lifecycle are separate slices; the native launcher
 port requires verified isolation instead of assuming detached processes suffice.
 Cached aliases restart through their rechecked original path and config root to
