@@ -1206,3 +1206,9 @@ LaunchAgent and preserve management identity and managed orchestrators. Public
 agent command routing remains C13-owned. Login startup requires the real OS user
 home; no pre-login boot or logout survival is promised. See the management-agent
 package README for the typed configuration and TC-31 native validation.
+
+The repository-local [fleet project UI extension](packages/fleet-control-plane/README.md#project-presentation-boundary-c16)
+provides responsive project inventory and runtime detail routes for a consuming
+private fleet HTTPS listener. It preserves historical offline observations and
+uses fresh data for workspace totals. Fleet listener composition is separate
+from the shipped per-project `--web` server.

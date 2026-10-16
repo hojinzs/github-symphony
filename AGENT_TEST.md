@@ -705,3 +705,21 @@ filesystem composition through trusted HTTPS plus twenty copied-artifact probes.
 Run `node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs`
 after `pnpm build`; `./e2e/run-fleet-reads-e2e.sh` supplies isolated Linux Docker.
 Report native host and container evidence separately.
+
+## C16 fleet projects and runtime detail
+
+| Case                                                                                                                               | Executable evidence                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-33 — fleet identity, filtered paging, fresh-only totals, historical detail, offline actions, escaped inventory and local assets | `node e2e/fleet-projects-e2e.mjs` (11 reached assertions), `node e2e/fleet-projects-mutations.mjs` (11 isolated forbidden-outcome probes); `./e2e/run-fleet-projects-e2e.sh` for Linux Docker |
+
+After building, the C16 black-box fixture mounts the actual read-only dispatcher
+on a loopback HTTP test listener with actual C04 enrollment, C05 sessions and
+C06 SQLite inventory. It covers the C16 presentation portion of CP-01/03/05/10/17
+and U01/U04. Fixture host labels are not native OS acceptance. Production HTTPS,
+native process exit/recovery, command history and log reading remain owned by
+their consuming slices. Unit route tests additionally cover invalid workflow
+with eligible Stop, empty/error/loading output, invalid IDs and input rejection.
+For visual verification, check fleet and detail at 1440/1024/390px, including
+keyboard form submission, no horizontal overflow, readable paths, local SVG
+geometry, filter reset and historical offline labels. Native forms retain browser
+keyboard behavior; no custom menu or focus trap is introduced.
