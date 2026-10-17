@@ -21,6 +21,9 @@ header metadata rather than directories.
 
 ## Living documents
 
+- [Shared CLI command tree](../README.md#shared-cli-command-tree) — package installation, help/version and local project versus host agent versus fleet compatibility
+- [CLI operator reference](../packages/cli/README.md#shared-cli-command-tree) — matching command tree, prepared-folder registration and current management limits; [host agent recovery](../packages/cli/README.md#host-management-agent-c13)
+
 - [symphony-spec.md](symphony-spec.md) — upstream Symphony spec, synced verbatim from [openai/symphony `SPEC.md`](https://github.com/openai/symphony/blob/main/SPEC.md) @ `8001b52` (2026-08-12). **Read-only, never modify** — resync only via a dedicated PR
 - [architecture.md](architecture.md) — maps spec components (§3.1) and layers (§3.2) to packages. Organized as per-layer slices; PRs that move code across layers/packages update the matching slice
 - [configuration.md](configuration.md) — configuration and environment variable reference (env loading order, standalone projects, skill layering)
