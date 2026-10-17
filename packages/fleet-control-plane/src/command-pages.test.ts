@@ -117,7 +117,7 @@ it("names superseded targets and escapes diagnostics and evidence", () => {
 it("requires a reason and a second closure confirmation while retaining unknown audit", () => {
   const row = command("unknown");
   const html = recoveryPanel(row, 'csrf"value');
-  expect(html).toContain('name="reason" required maxlength="4096"');
+  expect(html).toContain('name="reason" required maxlength="2048"');
   expect(html).toContain(`/commands/${id}/closure-confirmation`);
   expect(html).toContain("second confirmation follows");
   expect(html).toContain("csrf&quot;value");

@@ -152,7 +152,8 @@ export function createCommandRoutes(
           );
         }
         if (url.search) invalid();
-        const session = browser.issueSession();
+        const session =
+          browser.reuseSession(request.cookie) ?? browser.issueSession();
         const extra = { "Set-Cookie": session.setCookie };
         if (projectMatch)
           return response(
@@ -210,6 +211,7 @@ export function createCommandRoutes(
         reason: body.reason,
         acknowledged: true,
       });
+      if (Buffer.byteLength(closure.reason, "utf8") > 2048) invalid();
       if (commandMatch[2] === "closure-confirmation") {
         for (const [key, value] of reviews)
           if (value.expires <= now()) reviews.delete(key);

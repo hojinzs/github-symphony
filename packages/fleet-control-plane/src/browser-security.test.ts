@@ -136,3 +136,34 @@ describe("private browser actor and CSRF boundary", () => {
     ).toBe("local-owner");
   });
 });
+
+it("reuses only a valid live cookie without renewing its deadline or bypassing CSRF", () => {
+  let time = 0;
+  const f = fixture({
+    now: () => time,
+    sessionLifetimeMs: 2000,
+    maximumSessions: 1,
+  });
+  time = 1000;
+  const reused = f.security.reuseSession(f.request.cookie)!;
+  expect(reused.sessionId).toBe(f.session.sessionId);
+  expect(reused.csrfToken).toBe(f.session.csrfToken);
+  expect(reused.expiresAt).toBe(f.session.expiresAt);
+  expect(reused.setCookie).toContain("Max-Age=1");
+  expect(() =>
+    f.security.resolveActor({ ...f.request, csrfToken: "wrong" })
+  ).toThrow();
+  for (const cookie of [
+    undefined,
+    "invalid",
+    `${f.request.cookie}; ${f.request.cookie}`,
+    [f.request.cookie],
+  ])
+    expect(f.security.reuseSession(cookie)).toBeUndefined();
+  time = 2000;
+  expect(f.security.reuseSession(f.request.cookie)).toBeUndefined();
+  expect(() => f.security.resolveActor(f.request)).toThrow();
+  const next = f.security.issueSession();
+  f.security.revokeSession(next.sessionId);
+  expect(f.security.reuseSession(next.setCookie.split(";")[0])).toBeUndefined();
+});

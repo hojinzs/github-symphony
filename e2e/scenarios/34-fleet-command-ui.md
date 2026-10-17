@@ -39,6 +39,19 @@ copied compiled artifacts and the same browser binary. The 13 assertions cover
 all approved command/recovery states and extra admission/error scenes at 1440/1024/390 and every image's loaded dimensions.
 Screenshots include history, stop, unknown and closure at each width.
 
+For Linux browser evidence, run the same browser commands in a Linux container
+with Node 24, OpenSSL, Playwright and Chromium installed outside the product.
+Set `C17_PLAYWRIGHT_MODULE` to that container's Playwright ESM entry and
+`C17_CHROME` to its Chromium binary. This is required for changes to dialog
+focus handling; the HTTPS-only Docker runner does not exercise browser focus.
+The focus probe removes the Tab handler and must fail the reached
+`modal focus containment` assertion. Host macOS success alone is insufficient.
+
+Route regression tests additionally exercise two-tab browsing beyond session
+registry capacity, closure Cancel/detail round trips, exact session expiry, and
+2049-byte ASCII/multibyte rejection before review with a 2048-byte accepted
+closure. The presentation test guards the textarea's matching 2048 limit.
+
 ## Cases
 
 | Case                    | Expected behavior                                                                                                                                                                                   |
@@ -53,7 +66,7 @@ Screenshots include history, stop, unknown and closure at each width.
 | History                 | Closed unknown remains visible; no success rewrite                                                                                                                                                  |
 | Invalid workflow        | Start rejected; eligible Stop still admitted by actual command service                                                                                                                              |
 | Ambiguous response      | Alert directs operator to inspect history before submitting new intent                                                                                                                              |
-| Dialog                  | Native modal isolation, initial Cancel focus, Shift+Tab containment, Escape returns focus to original action                                                                                        |
+| Dialog                  | Explicit forward/backward Tab wrapping on Linux and macOS Chromium, initial Cancel focus, Escape returns focus to original action                                                                   |
 | Validation and feedback | Inline reason error announced and focused; submission live region and busy state; no optimistic process update                                                                                      |
 | Responsive              | History, start/stop, six outcomes, superseded, closed unknown, invalid, closure, stale and error scenes at all three widths; no horizontal overflow, local assets retain exact intrinsic dimensions |
 

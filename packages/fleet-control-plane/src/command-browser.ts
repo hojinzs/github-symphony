@@ -1,4 +1,4 @@
-/** Progressive enhancement: native modal focus isolation, validation and no replay. */
+/** Progressive enhancement: explicit modal focus containment, validation and no replay. */
 export const commandBrowserScript = `
 const dialog=document.querySelector("dialog.command-dialog");
 if(dialog && typeof dialog.showModal==="function"){
@@ -6,6 +6,14 @@ if(dialog && typeof dialog.showModal==="function"){
   dialog.showModal();
   const cancel=dialog.querySelector("a[data-cancel]");
   cancel?.focus();
+  dialog.addEventListener("keydown",event=>{
+    if(event.key!=="Tab")return;
+    const controls=[...dialog.querySelectorAll('a[href],button,input,select,textarea,[tabindex]')].filter(el=>!el.disabled && el.tabIndex>=0 && el.getClientRects().length);
+    const first=controls[0],last=controls[controls.length-1];
+    if(!first){event.preventDefault();dialog.focus();return;}
+    if(event.shiftKey && document.activeElement===first){event.preventDefault();last.focus();}
+    else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first.focus();}
+  });
   dialog.addEventListener("cancel",event=>{event.preventDefault();if(cancel)location.assign(cancel.href);});
 }
 document.addEventListener("submit",event=>{

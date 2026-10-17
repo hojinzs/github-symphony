@@ -254,3 +254,102 @@ it("enforces required reason, reviewed second confirmation, expiry and durable u
     "Closed unresolved · outcome unknown"
   );
 });
+
+it("preserves two-tab forms and closure cancellation until the session expires", async () => {
+  const f = await fixture();
+  const path = `/projects/${f.projectId}/commands`;
+  const first = (await f.routes({ method: "GET", pathname: path + "/stop" }))!;
+  const csrf = /name="csrf" value="([^"]+)"/.exec(first.body)![1];
+  const cookie = first.headers["Set-Cookie"].split(";")[0];
+  // More than registry capacity worth of browsing must not evict this session.
+  for (let i = 0; i < 260; i++) {
+    const other = await f.routes({
+      method: "GET",
+      pathname: path + "/start",
+      cookie,
+    });
+    expect(other?.headers["Set-Cookie"].split(";")[0]).toBe(cookie);
+    expect(other?.body).toContain(`name="csrf" value="${csrf}"`);
+  }
+  const submitted = await f.post(
+    path,
+    { csrf, operation: "stop", idempotencyKey: "two-tabs" },
+    { cookie }
+  );
+  expect(submitted?.status).toBe(303);
+  const commandPath = submitted!.headers.Location;
+  const commandId = commandPath.split("/").at(-1)!;
+  await f.commands.claim(f.peer.identity, { ...f.envelope(), commandId });
+  f.advance(60_001);
+  const reviewed = await f.post(
+    commandPath + "/closure-confirmation",
+    { csrf, reason: "Inspected" },
+    { cookie }
+  );
+  const review = /name="review" value="([^"]+)"/.exec(reviewed!.body)![1];
+  const cancelled = await f.routes({
+    method: "GET",
+    pathname: commandPath,
+    cookie,
+  });
+  expect(cancelled?.headers["Set-Cookie"].split(";")[0]).toBe(cookie);
+  expect(
+    (
+      await f.post(
+        commandPath + "/close-unresolved",
+        { csrf, reason: "Inspected", acknowledge: "true", review },
+        { cookie }
+      )
+    )?.status
+  ).toBe(303);
+  f.advance(8 * 60 * 60_000);
+  const fresh = await f.routes({
+    method: "GET",
+    pathname: path + "/stop",
+    cookie,
+  });
+  expect(fresh?.headers["Set-Cookie"].split(";")[0]).not.toBe(cookie);
+  expect(
+    (
+      await f.post(
+        path,
+        { csrf, operation: "stop", idempotencyKey: "expired" },
+        { cookie }
+      )
+    )?.status
+  ).toBe(401);
+});
+
+it("rejects oversized UTF-8 reasons before review and accepts the exact byte boundary", async () => {
+  const f = await fixture();
+  const submitted = await f.commands.submitCommand(f.projectId, "byte-limit", {
+    operation: "stop",
+  });
+  await f.commands.claim(f.peer.identity, {
+    ...f.envelope(),
+    commandId: submitted.commandId,
+  });
+  f.advance(60_001);
+  const path = `/commands/${submitted.commandId}`;
+  for (const reason of ["a".repeat(2049), "é".repeat(1025)]) {
+    const rejected = await f.post(path + "/closure-confirmation", { reason });
+    expect(rejected?.status).toBe(400);
+    expect(rejected?.body).not.toContain('name="review"');
+  }
+  const reason = "é".repeat(1024);
+  const accepted = await f.post(path + "/closure-confirmation", { reason });
+  expect(accepted?.status).toBe(200);
+  const review = /name="review" value="([^"]+)"/.exec(accepted!.body)![1];
+  expect(
+    (
+      await f.post(path + "/close-unresolved", {
+        reason,
+        acknowledge: "true",
+        review,
+      })
+    )?.status
+  ).toBe(303);
+  expect(
+    (await f.commands.getCommand(submitted.commandId)).closure?.reason
+  ).toBe(reason);
+});

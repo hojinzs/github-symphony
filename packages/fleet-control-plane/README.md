@@ -425,10 +425,14 @@ operations itself. GET confirmations do not submit commands.
 The listener must parse bounded form bodies and reject duplicate keys, pass
 canonical Origin/cookie headers unchanged, and return the dispatcher's security
 headers. Each mutation requires an actual C04 browser session and matching CSRF.
+Command GETs reuse a valid browser cookie session without extending its deadline,
+so forms in other tabs and cancelled closure confirmations remain valid. Missing
+or expired sessions receive a new cookie. Closure reasons are limited to 2048
+UTF-8 bytes before review; the textarea also caps input at 2048 characters.
 The unresolved closure review issues an expiring receipt bound to command,
 reason, CSRF and cookie. Direct, changed or expired confirmation is rejected;
 restart discards these receipts without changing durable commands. Native dialog
-enhancement traps focus, places initial focus on Cancel, supports Escape, and
+enhancement explicitly wraps Tab and Shift+Tab focus, places initial focus on Cancel, supports Escape, and
 returns to the action anchor. Without enhancement the confirmation is still an
 explicit native POST form. Unknown outcomes offer no replay action.
 

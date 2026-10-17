@@ -24,6 +24,8 @@ export interface BrowserSecurityOptions {
 }
 export interface BrowserSecurity {
   issueSession(): BrowserSession;
+  /** Reuse an unexpired cookie session without extending its lifetime. */
+  reuseSession(cookie: BrowserRequest["cookie"]): BrowserSession | undefined;
   revokeSession(sessionId: string): void;
   resolveActor(request: BrowserRequest): typeof OPERATOR_ACTOR;
 }
@@ -71,7 +73,10 @@ export function createBrowserSecurity(
     throw new Error("Invalid browser session lifetime or capacity");
   }
   const now = options.now ?? Date.now;
-  const sessions = new Map<string, { csrf: Buffer; expiresAt: number }>();
+  const sessions = new Map<
+    string,
+    { csrf: Buffer; csrfToken: string; expiresAt: number }
+  >();
   return {
     issueSession() {
       const time = now();
@@ -86,6 +91,7 @@ export function createBrowserSecurity(
       const expiresAt = time + lifetime;
       sessions.set(digest(sessionId).toString("hex"), {
         csrf: digest(csrfToken),
+        csrfToken,
         expiresAt,
       });
       return {
@@ -93,6 +99,26 @@ export function createBrowserSecurity(
         csrfToken,
         expiresAt: new Date(expiresAt).toISOString(),
         setCookie: `${BROWSER_SESSION_COOKIE}=${sessionId}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(lifetime / 1000)}`,
+      };
+    },
+    reuseSession(cookie) {
+      let sessionId: string;
+      try {
+        sessionId = cookieToken(cookie);
+      } catch {
+        return undefined;
+      }
+      const key = digest(sessionId).toString("hex");
+      const session = sessions.get(key);
+      if (!session || session.expiresAt <= now()) {
+        sessions.delete(key);
+        return undefined;
+      }
+      return {
+        sessionId,
+        csrfToken: session.csrfToken,
+        expiresAt: new Date(session.expiresAt).toISOString(),
+        setCookie: `${BROWSER_SESSION_COOKIE}=${sessionId}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${Math.floor((session.expiresAt - now()) / 1000)}`,
       };
     },
     revokeSession(sessionId) {

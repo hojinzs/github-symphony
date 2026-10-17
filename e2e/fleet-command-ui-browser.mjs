@@ -32,12 +32,14 @@ try {
     "modal initial focus"
   );
   await page.keyboard.press("Shift+Tab");
-  check(
-    await page
-      .locator("dialog")
-      .evaluate((el) => el.contains(document.activeElement)),
-    "modal focus containment"
-  );
+  const backwardWrapped = await page
+    .locator('dialog button[type="submit"]')
+    .evaluate((el) => el === document.activeElement);
+  await page.keyboard.press("Tab");
+  const forwardWrapped = await page
+    .locator("[data-cancel]")
+    .evaluate((el) => el === document.activeElement);
+  check(backwardWrapped && forwardWrapped, "modal focus containment");
   await page.keyboard.press("Escape");
   const returned = await page
     .waitForURL("**#stop-action", { timeout: 3000 })

@@ -1155,5 +1155,7 @@ backend admission reasons; `commandProjectLinks` connects C16 navigation. Serve
 both dispatchers and preserve their response headers. Parse bounded form bodies
 and reject duplicate keys before dispatch. Command pages use same-origin
 referrers for native form Origin verification; cross-origin mutation remains
-rejected. Short-lived closure review receipts are discarded on restart without
+rejected. Command GETs reuse unexpired browser sessions without renewing their
+deadline; closure review rejects reasons over 2048 UTF-8 bytes before issuing
+a receipt. Short-lived closure review receipts are discarded on restart without
 changing durable unknown outcomes. See the fleet package README and TC-34.

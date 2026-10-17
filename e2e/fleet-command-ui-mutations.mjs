@@ -55,8 +55,8 @@ try {
         ],
         [
           "command-browser",
-          "dialog.showModal();",
-          "dialog.setAttribute('open','');",
+          'if(event.key!=="Tab")return;',
+          "return;",
           "modal focus containment",
         ],
         [
@@ -135,7 +135,7 @@ try {
         ],
         [
           "command-routes",
-          "const session = browser.issueSession();",
+          "const session = browser.reuseSession(request.cookie) ?? browser.issueSession();",
           'if(projectMatch) await commands.submitCommand(id,"forbidden-get",{operation:"stop"}); const session = browser.issueSession();',
           "inert GET",
         ],

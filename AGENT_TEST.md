@@ -732,7 +732,10 @@ keyboard behavior; no custom menu or focus trap is introduced.
 
 [TC-34](e2e/scenarios/34-fleet-command-ui.md) specifies test-only Playwright setup,
 all approved command/recovery states and extra admission/error scenes at 1440/1024/390, focus/validation/announcement checks,
-local asset geometry, and exact reached-assertion mutation requirements. Actual
+local asset geometry, and exact reached-assertion mutation requirements. Dialog
+changes require Linux Chromium evidence as well as any macOS run; TC-34 documents
+the container setup. Route regressions cover stable multi-tab sessions and
+UTF-8 closure limits before the second confirmation. Actual
 C04/C05/C06/C07 HTTPS/SQLite composition uses independent process/result protocol
 fixtures and a separately advanced C07 clock. Report actual host/browser OS
 separately from Linux Docker. Neither run proves native lifecycle isolation.
