@@ -6,6 +6,16 @@ const runner = fileURLToPath(
   new URL("./agent-executor-e2e.mjs", import.meta.url)
 );
 for (const [probe, label] of [
+  ["invalid-start", "CP03 invalid running workflow rejects fleet start"],
+  [
+    "unsafe-invalid-stop",
+    "CP03 invalid workflow unverified stop sends no signal",
+  ],
+  [
+    "invalid-stop-completion",
+    "CP03 invalid workflow verified fleet stop exits and releases locks",
+  ],
+
   [
     "duplicate-result",
     "CP07 duplicate result resends after managed folder disappears",

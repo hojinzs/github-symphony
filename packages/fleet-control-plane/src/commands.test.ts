@@ -96,6 +96,23 @@ it.each([
   }
 );
 
+it("accepts stop for an invalid workflow while retaining its target identity", async () => {
+  const f = await setup();
+  const p = f.project();
+  f.db.exec("UPDATE fixture_projects SET valid=0");
+  const api = f.service();
+  const accepted = await api.submitCommand(p, "invalid-stop", {
+    operation: "stop",
+  });
+  expect(await api.getCommand(accepted.commandId)).toMatchObject({
+    state: "accepted",
+    operation: "stop",
+    projectId: p,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+  });
+});
+
 it("rejects malformed submission, missing project and busy project/agent", async () => {
   const f = await setup();
   const api = f.service();

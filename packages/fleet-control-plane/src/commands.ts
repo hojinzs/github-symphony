@@ -317,7 +317,7 @@ export function createCommandService(
             "unsupported_protocol",
             "Target protocol is unsupported"
           );
-        if (!target.valid)
+        if (request.operation === "start" && !target.valid)
           throw new FleetError(
             "project_invalid",
             "Project configuration is invalid"

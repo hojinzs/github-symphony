@@ -104,6 +104,15 @@ if (process.argv.includes("--agent")) {
   }
   const driver = {
     ...local.reader,
+    async inspect(project) {
+      const observed = await local.reader.inspect(project);
+      return fault === "unverified-stop" && probe !== "unsafe-invalid-stop"
+        ? {
+            ...observed,
+            process: { state: "unknown", observedAt: new Date().toISOString() },
+          }
+        : observed;
+    },
     async start(...args) {
       if (fault === "marker") await checkpoint();
       process.send({ type: "effect", operation: "start" });
@@ -182,6 +191,7 @@ if (process.argv.includes("--agent")) {
     projectId,
     project;
   let observer, local, agent, pausedPid;
+  let reportedValid = true;
   let loseClaim = false,
     loseResult = false,
     expireClaim = false;
@@ -280,7 +290,7 @@ if (process.argv.includes("--agent")) {
                 sessionId: row.session_id,
                 online: row.online === 1,
                 managed: true,
-                valid: true,
+                valid: reportedValid,
                 supported: true,
               }
             : undefined;
@@ -559,6 +569,45 @@ if (process.argv.includes("--agent")) {
       "CP04 real daemon identity and readiness verified"
     );
 
+    // CP-03 / C07 #1011: publish the true invalid state, preserving process truth.
+    await writeFile(join(folder, "WORKFLOW.md"), "invalid workflow");
+    const invalidRunning = await status();
+    reportedValid = invalidRunning.validation.state === "valid";
+    if (probe === "invalid-start") reportedValid = true;
+    let rejectedStart = false;
+    try {
+      await submit("invalid-running-start");
+    } catch (error) {
+      rejectedStart = error.code === "project_invalid";
+    }
+    check(
+      !reportedValid &&
+        invalidRunning.process.state === "running" &&
+        rejectedStart,
+      "CP03 invalid running workflow rejects fleet start"
+    );
+
+    let stopSubmissionError;
+    try {
+      command = await submit("invalid-unverified-stop", "stop");
+    } catch (error) {
+      stopSubmissionError = error;
+    }
+    check(
+      !stopSubmissionError,
+      "CP03 invalid workflow permits fleet stop submission"
+    );
+    const beforeUnsafeStop = effects.length;
+    await agent.run(poll([command]), "unverified-stop");
+    const unverified = await commands.getCommand(command.commandId);
+    check(
+      unverified.state === "failed" &&
+        unverified.diagnostic.code === "process_unverified" &&
+        effects.length === beforeUnsafeStop &&
+        (await status()).process.state === "running",
+      "CP03 invalid workflow unverified stop sends no signal"
+    );
+
     command = await submit("lost-result", "stop");
     loseResult = true;
     check(
@@ -571,6 +620,18 @@ if (process.argv.includes("--agent")) {
         !(await entry(command.commandId)).acknowledged,
       "CP07 verified stop result is durable before acknowledgment"
     );
+    const stoppedInvalid = await status();
+    if (probe === "invalid-stop-completion")
+      stoppedInvalid.locksReleased = false;
+    check(
+      stoppedInvalid.validation.state === "invalid" &&
+        stoppedInvalid.process.state === "stopped" &&
+        stoppedInvalid.locksReleased &&
+        (await commands.getCommand(command.commandId)).state === "succeeded",
+      "CP03 invalid workflow verified fleet stop exits and releases locks"
+    );
+    await writeFile(join(folder, "WORKFLOW.md"), workflow);
+    reportedValid = true;
     await agent.close(true);
     store.close();
     openControl();
