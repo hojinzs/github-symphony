@@ -100,3 +100,40 @@ describe("completion renderer", () => {
     );
   });
 });
+
+it("reaches agent setup, enroll and nested service/project completion", () => {
+  for (const verb of ["setup", "enroll"]) {
+    expect(runBashCompletion(["gh-symphony", "agent", verb, ""], 3)).toEqual(
+      expect.arrayContaining(["--server", "--token-stdin", "--agent-config"])
+    );
+  }
+  for (const [group, verb] of [
+    ["service", "restart"],
+    ["project", "remove"],
+  ]) {
+    expect(
+      runBashCompletion(["gh-symphony", "agent", group!, ""], 3)
+    ).toContain(verb);
+    expect(
+      runBashCompletion(["gh-symphony", "agent", group!, verb!, ""], 4)
+    ).toContain("--agent-config");
+  }
+});
+
+it("renders fish agent subcommands and scoped nested flags", () => {
+  const output = renderCompletionScript("fish");
+  expect(output).not.toContain("__fish_seen_subcommand_from project' -a");
+  expect(output).toContain(
+    "__fish_seen_subcommand_from agent; and not __fish_seen_subcommand_from setup enroll run service project"
+  );
+  expect(output).toContain("-a 'setup'");
+  expect(output).toContain(
+    "__fish_seen_subcommand_from agent; and __fish_seen_subcommand_from service; and not __fish_seen_subcommand_from install start stop restart status uninstall"
+  );
+  expect(output).toContain(
+    "__fish_seen_subcommand_from agent; and __fish_seen_subcommand_from project; and __fish_seen_subcommand_from remove' -l agent-config"
+  );
+  expect(output).toContain(
+    "__fish_seen_subcommand_from agent; and __fish_seen_subcommand_from enroll' -l token-stdin"
+  );
+});

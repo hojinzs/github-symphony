@@ -71,3 +71,6 @@ export type {
   LaunchctlRunner,
   LaunchctlResult,
 } from "./macos-service.js";
+
+export { setupAgent } from "./setup.js";
+export type { SetupOptions, SetupService } from "./setup.js";

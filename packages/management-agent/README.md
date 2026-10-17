@@ -433,3 +433,14 @@ Call `install()` and `start()` with the updated absolute executable and
 entrypoint paths. Keep the existing config and private data directory: this
 repair preserves enrollment, allowlist and journal data and does not stop
 managed project orchestrators. Installation requires an executable `nodePath`.
+
+### Guided setup composition
+
+`setupAgent` coordinates a trusted local `SetupService` with the real
+`AgentRegistry` and enrollment client. It validates the HTTPS origin and saved
+identity, checks service prerequisites, reads a token only for a new enrollment,
+and persists identity before installing the service. An install/start failure can
+therefore resume without another token or changes to project registrations.
+The registry owner lock is released before service startup so the foreground
+agent can acquire it. Native service adapters retain OS lifecycle ownership;
+this coordinator does not start or stop projects.

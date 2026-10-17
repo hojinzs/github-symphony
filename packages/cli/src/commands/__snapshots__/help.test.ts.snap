@@ -19,6 +19,13 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
   [36mproject status[0m              Show standalone project orchestrator status
   [36mproject stop[0m                Stop the standalone project orchestrator
 
+[33m[1mHost management agent:[0m[0m
+  [36magent setup[0m                 Enroll, install and start the native user service
+  [36magent enroll[0m                Enroll only, with hidden token input
+  [36magent run[0m                   Run the management agent in the foreground
+  [36magent service <action>[0m      Install/start/stop/restart/status/uninstall the user service
+  [36magent project <action>[0m      Add/list/remove existing prepared-folder registrations
+
 [33m[1mMaintenance:[0m[0m
   [36mupgrade[0m                     Upgrade the CLI to the latest published version
   [36mcompletion <shell>[0m          Print shell completion (bash/zsh/fish)
@@ -54,6 +61,13 @@ Orchestration (standalone project):
   project start               Start the standalone project in the current folder
   project status              Show standalone project orchestrator status
   project stop                Stop the standalone project orchestrator
+
+Host management agent:
+  agent setup                 Enroll, install and start the native user service
+  agent enroll                Enroll only, with hidden token input
+  agent run                   Run the management agent in the foreground
+  agent service <action>      Install/start/stop/restart/status/uninstall the user service
+  agent project <action>      Add/list/remove existing prepared-folder registrations
 
 Maintenance:
   upgrade                     Upgrade the CLI to the latest published version
