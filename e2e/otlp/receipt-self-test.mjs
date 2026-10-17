@@ -8,6 +8,9 @@ const evidence = {
   manifests: {},
   events: {},
   workers: {},
+  outageDiagnostics: [
+    { event: "otlp-diagnostic", category: "transport", state: "failure" },
+  ],
 };
 const attr = (key, stringValue) => ({ key, value: { stringValue } });
 for (const [index, phase] of [

@@ -10,7 +10,14 @@ const attrs = (values = []) =>
       value.stringValue ?? value.intValue ?? value.boolValue,
     ])
   );
-export function verifyReceipt({ logs, metrics, manifests, events, workers }) {
+export function verifyReceipt({
+  logs,
+  metrics,
+  manifests,
+  events,
+  workers,
+  outageDiagnostics,
+}) {
   const check = (name, predicate) => {
     console.log(`reached: ${name}`);
     assert.ok(predicate, name);
@@ -104,6 +111,15 @@ export function verifyReceipt({ logs, metrics, manifests, events, workers }) {
     new Set(Object.values(manifests).map((manifest) => manifest.projectId))
       .size === 1
   );
+  check(
+    "outage export attempted",
+    outageDiagnostics.some(
+      (record) =>
+        record.event === "otlp-diagnostic" &&
+        record.category === "transport" &&
+        record.state === "failure"
+    )
+  );
   const outageId = manifests.outage.runId;
   check(
     "outage has no Collector receipt",
@@ -129,6 +145,15 @@ export async function loadEvidence(root) {
     manifests: {},
     events: {},
     workers: {},
+    outageDiagnostics: (await readFile(join(root, "outage/cli.log"), "utf8"))
+      .split("\n")
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line)];
+        } catch {
+          return [];
+        }
+      }),
   };
   for (const phase of ["plain", "authenticated", "restart", "outage"]) {
     evidence.manifests[phase] = JSON.parse(

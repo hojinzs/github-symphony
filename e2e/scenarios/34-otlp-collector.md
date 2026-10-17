@@ -27,13 +27,15 @@ No synthetic JSON is sent to stand in for SDK receipt.
    monotonic cumulative sum with positive data points.
 4. Endpoint interruption: stop the actual Collector, then dispatch another
    issue. File evidence and the completed stub worker must remain intact;
-   shutdown finishes within ten seconds. No receipt is claimed for this run.
+   shutdown finishes within ten seconds. The CLI log must contain an
+   `otlp-diagnostic` transport failure proving an attempted export. No receipt
+   is claimed for this run.
 
 Each successful-receiver case must contain timestamped Logs with its exact
 run ID and project/file-tracker Resource identity, and Metrics sharing its
 process UUID. `symphony.runtime.total` must be a gauge and
 `symphony.tick.outcomes` a cumulative monotonic sum. Do not sum history across
-process UUIDs. The runner then corrupts copied evidence with 16 forbidden-result
+process UUIDs. The runner then corrupts copied evidence with 17 forbidden-result
 probes; every probe must fail at its named reached assertion.
 
 ## Evidence and gates
@@ -41,6 +43,7 @@ probes; every probe must fail at its named reached assertion.
 The printed evidence directory retains `commit.txt`, `collector.yaml`, resolved
 image IDs (`images.json`), `collector.log`, `logs.jsonl`, `metrics.jsonl`, and
 per-case CLI logs, manifests, run metadata, worker logs and `events.ndjson`.
+Cleanup captures available image IDs before container removal on success or failure.
 Manifests record endpoint (without credentials), run/project IDs, completion
 time and shutdown result. Collector log timestamps and OTLP timestamps provide
 receipt attribution. Keep the directory with the command's complete output;

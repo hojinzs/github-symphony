@@ -9,6 +9,7 @@ export OTLP_EVIDENCE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/symphony-otlp-evidence.XX
 chmod 777 "$OTLP_EVIDENCE_DIR"
 COMPOSE=(docker compose --project-name "$COMPOSE_PROJECT_NAME" -f "$ROOT_DIR/docker-compose.e2e.yml" -f "$ROOT_DIR/docker-compose.e2e.otlp.yml")
 cleanup() {
+  "${COMPOSE[@]}" images --format json > "$OTLP_EVIDENCE_DIR/images.json" 2>/dev/null || true
   "${COMPOSE[@]}" logs --no-color collector > "$OTLP_EVIDENCE_DIR/collector.log" 2>&1 || true
   docker rm -f "${COMPOSE_PROJECT_NAME}-otlp-driver" >/dev/null 2>&1 || true
   "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 >/dev/null 2>&1 || true
@@ -32,5 +33,4 @@ done
 docker exec "${COMPOSE_PROJECT_NAME}-otlp-driver" node /app/e2e/otlp/dispatch.mjs outage
 node e2e/otlp/assert-receipt.mjs "$OTLP_EVIDENCE_DIR"
 node e2e/otlp/receipt-mutations.mjs "$OTLP_EVIDENCE_DIR"
-"${COMPOSE[@]}" images --format json > "$OTLP_EVIDENCE_DIR/images.json"
 echo 'OT-14 Collector Docker E2E passed'

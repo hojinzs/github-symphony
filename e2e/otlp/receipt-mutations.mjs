@@ -120,6 +120,12 @@ export function verifyMutations(original) {
     },
   ]);
   mutations.push([
+    "outage export attempted",
+    (e) => {
+      e.outageDiagnostics = [];
+    },
+  ]);
+  mutations.push([
     "outage has no Collector receipt",
     (e) => {
       const resource = structuredClone(
