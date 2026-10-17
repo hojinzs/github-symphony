@@ -764,6 +764,22 @@ keyboard form submission, no horizontal overflow, readable paths, local SVG
 geometry, filter reset and historical offline labels. Native forms retain browser
 keyboard behavior; no custom menu or focus trap is introduced.
 
+## C17 fleet lifecycle confirmation and recovery
+
+| Case                                                                                                   | Executable evidence                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-34 — stop impact, command states, stale eligibility, unknown closure, history and browser contracts | `node e2e/fleet-command-ui-e2e.mjs` (21 reached assertions), `node e2e/fleet-command-ui-mutations.mjs` (21 artifact probes); `./e2e/run-fleet-command-ui-e2e.sh` for Linux Docker; `node e2e/fleet-command-ui-browser.mjs` and `node e2e/fleet-command-ui-mutations.mjs --browser` for native Chromium (13 assertions/probes) |
+
+[TC-34](e2e/scenarios/34-fleet-command-ui.md) specifies test-only Playwright setup,
+all approved command/recovery states and extra admission/error scenes at 1440/1024/390, focus/validation/announcement checks,
+local asset geometry, and exact reached-assertion mutation requirements. Dialog
+changes require Linux Chromium evidence as well as any macOS run; TC-34 documents
+the container setup. Route regressions cover stable multi-tab sessions and
+UTF-8 closure limits before the second confirmation. Actual
+C04/C05/C06/C07 HTTPS/SQLite composition uses independent process/result protocol
+fixtures and a separately advanced C07 clock. Report actual host/browser OS
+separately from Linux Docker. Neither run proves native lifecycle isolation.
+
 ### Shared CLI guided agent setup (C13)
 
 | Scenario                                                                                                                                                                            | Executable evidence                                                                                                                                      |

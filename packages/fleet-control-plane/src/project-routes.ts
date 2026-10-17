@@ -40,7 +40,7 @@ const assets = new Set([
   "imgStateIndicator1",
   "imgSymbolClock3",
 ]);
-const script = `document.addEventListener("submit",event=>{if(event.target instanceof HTMLFormElement){document.body.classList.add("busy");document.querySelector("main")?.setAttribute("aria-busy","true");}});window.addEventListener("pageshow",()=>{document.body.classList.remove("busy");document.querySelector("main")?.removeAttribute("aria-busy");});`;
+const script = `document.addEventListener("submit",event=>{if(event.target instanceof HTMLFormElement){document.body.classList.add("busy");document.querySelector("main")?.setAttribute("aria-busy","true");}});window.addEventListener("pageshow",()=>{if(location.hash){document.getElementById(location.hash.slice(1))?.focus();}document.body.classList.remove("busy");document.querySelector("main")?.removeAttribute("aria-busy");});`;
 const states = [
   "running",
   "stopped",

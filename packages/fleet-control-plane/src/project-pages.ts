@@ -155,7 +155,7 @@ function action(
       ? "Lifecycle actions are not connected to this view."
       : undefined);
   const label = kind === "start" ? "Start project" : "Stop project";
-  return `<div>${disabledReason ? `<button disabled aria-describedby="${kind}-reason">${label}</button><small id="${kind}-reason">${e(disabledReason)}</small>` : link(destination, label, "button" + (kind === "stop" ? " destructive" : ""))}</div>`;
+  return `<div id="${kind}-action" tabindex="-1">${disabledReason ? `<button disabled aria-describedby="${kind}-reason">${label}</button><small id="${kind}-reason">${e(disabledReason)}</small>` : link(destination, label, "button" + (kind === "stop" ? " destructive" : ""))}</div>`;
 }
 export function renderProjectDetail(
   project: ObservedProject,

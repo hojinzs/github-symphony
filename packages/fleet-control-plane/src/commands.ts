@@ -1,3 +1,4 @@
+import { CLOSURE_REASON_MAX_BYTES } from "./command-limits.js";
 import { json } from "./json.js";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -317,7 +318,7 @@ export function createCommandService(
             "unsupported_protocol",
             "Target protocol is unsupported"
           );
-        if (!target.valid)
+        if (!target.valid && request.operation === "start")
           throw new FleetError(
             "project_invalid",
             "Project configuration is invalid"
@@ -434,7 +435,10 @@ export function createCommandService(
     async closeUnresolved(id, input) {
       const request = parse(closeUnresolvedRequestSchema, input);
       const reason = request.reason.trim();
-      if (!reason || Buffer.byteLength(reason, "utf8") > 2048)
+      if (
+        !reason ||
+        Buffer.byteLength(reason, "utf8") > CLOSURE_REASON_MAX_BYTES
+      )
         throw new FleetError(
           "invalid_input",
           "Closure requires a bounded nonempty reason"
