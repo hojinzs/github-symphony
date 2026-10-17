@@ -453,7 +453,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/31-macos-agent-service.md`               | C12 CP-22/23: native LaunchAgent retry, process-group isolation, stop/restart/crash/uninstall preservation, shared lock and five reached assertion probes; login/logout reported separately                                                     |
 | `e2e/scenarios/31-fleet-bounded-reads.md`               | C10 CP-12: HTTPS read admission/detail, actual C09 filesystem reads, history/expiry/offline/reset and nineteen reached forbidden-condition probes                                                                                               |
 | `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 24 reached assertions and 22 isolated forbidden-condition probes                             |
-| `e2e/scenarios/31-agent-durable-executor.md`            | C08 CP-04–09/18/19: real agent journal, C07 ledger, separate agent/CLI processes, crash boundaries, deferred exit and replacement recovery; 23 reached assertions and six forbidden-condition probes                                            |
+| `e2e/scenarios/31-agent-durable-executor.md`            | C08 CP-04–09/18/19: real agent journal, C07 ledger, separate agent/CLI processes, crash boundaries, deferred exit and replacement recovery; 27 reached assertions and nine forbidden-condition probes                                           |
 | `e2e/scenarios/31-linux-agent-user-service.md`          | C11 CP-22/23: retry/lock conflict, isolated project units, CLI continuity through service lifecycle and 20 fault probes; native and simulated evidence separated                                                                                |
 
 ## TC Writing Guide
@@ -616,11 +616,15 @@ on empty polls. [TC-31](e2e/scenarios/31-agent-durable-executor.md) runs the
 bundled executor/journal against real C07 SQLite storage and separate real
 agent/CLI daemon processes. After `pnpm build`, run
 `node e2e/agent-executor-e2e.mjs` and `node e2e/agent-executor-mutations.mjs`,
-or `./e2e/run-agent-executor-e2e.sh` for isolated Linux Docker. Six actual
+or `./e2e/run-agent-executor-e2e.sh` for isolated Linux Docker. Nine actual
 durable/runtime forbidden conditions must reach and fail their named assertions.
 Report actual host OS separately from container results. Session/project truth,
 deadline clock advancement and the deferred-exit driver are explicit fixtures;
 native-service isolation and fleet HTTP/UI acceptance remain outside C08.
+
+CP-03 regression (#1050): C08 composition also reports an invalid workflow for a
+real running daemon, rejects fleet start, rejects an unverified stop without a
+signal, and completes verified fleet stop only after exit and released locks.
 
 ### Fleet lifecycle command recovery cases (C07)
 

@@ -128,6 +128,8 @@ the tracker adapter:
 - Fleet management command coordination is a separate repository extension:
   `packages/fleet-control-plane/src/commands.ts` (C07, #1011) coordinates
   lifecycle submission, atomic claims/expiry, per-project fencing and recovery.
+  CP-03 workflow readiness gates start only; stop retains enrollment/session and
+  availability gates plus C03 local process/expected-target verification.
   It neither schedules issue work nor enters the orchestrator dispatch loop.
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`.
