@@ -126,15 +126,17 @@ Resolve open questions 1 and 2 of the design before the guard values are fixed.
   management agent already depends on. Resolve the exact location in the
   implementation plan.
 - Remove the intent when the signal fails after it was written (`EPERM`,
-  identity re-check rejection). An intent matches only an exit within the 60 s
-  stop timeout of `requestedAt`.
+  identity re-check rejection). After a successful signal, rewrite the intent
+  with `signaledAt`. An intent with `signaledAt` matches regardless of when the
+  exit is observed; one without it, older than 60 s, counts as aborted.
 - Delete the consumed intent on the next successful start.
 - Classify a preflight `fatal_startup` record (written by SL01) the same as an
   in-process validation failure.
 - `project status` shows last exit reason and start cause.
 - **Acceptance:** SL-05, SL-08 and SL-11 logic at unit level; intent written
   before the signal (fault-inject a crash between write and signal); intent
-  removed after a failed signal; stale intent ignored; records redacted.
+  removed after a failed signal; `signaledAt` intent still matches after a
+  reboot; stale intent ignored; records redacted.
 
 ## SL03 — Orchestrator OTLP start/stop log records
 

@@ -140,6 +140,7 @@ interface StopIntent {
   commandId?: UUID; // agent/Control Plane originated
   target: { pid: number; processIdentity: string; instanceId: UUID };
   force: boolean;
+  signaledAt?: UtcTimestamp; // set by an atomic rewrite after the signal succeeds
 }
 
 // Written by the orchestrator once its locks are held (beside the ready file).
@@ -204,10 +205,13 @@ The stop intent, not the exit record, is authoritative, because a forced stop,
 
 The stopper removes its intent when the signal fails after the intent was
 written (`process.kill` throws `EPERM`, or the identity re-check in
-`packages/cli/src/commands/stop.ts` rejects the target). As a backstop for a
-stopper that dies before cleanup, an intent matches only when the exit happens
-within the 60 s stop timeout of `requestedAt`. A later crash of the same
-instance is therefore an unintended exit and is restarted.
+`packages/cli/src/commands/stop.ts` rejects the target). After a successful
+signal the stopper rewrites the intent with `signaledAt`. An intent with
+`signaledAt` matches the exit however late the exit is observed, for example
+after `--force` while the agent was down followed by a reboot. An intent without
+`signaledAt` that is older than the 60 s stop timeout counts as aborted: it
+covers a stopper that died between writing the intent and signalling. A later
+crash of the same instance is then an unintended exit and is restarted.
 
 An intent whose target never matches a running instance (stop of an already
 stopped project, PID reuse) is ignored. The next successful start deletes the
