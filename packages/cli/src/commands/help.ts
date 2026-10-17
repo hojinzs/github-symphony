@@ -74,6 +74,32 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    title: "Host management agent",
+    entries: [
+      {
+        name: "agent setup",
+        description: "Enroll, install and start the native user service",
+      },
+      {
+        name: "agent enroll",
+        description: "Enroll only, with hidden token input",
+      },
+      {
+        name: "agent run",
+        description: "Run the management agent in the foreground",
+      },
+      {
+        name: "agent service <action>",
+        description:
+          "Install/start/stop/restart/status/uninstall the user service",
+      },
+      {
+        name: "agent project <action>",
+        description: "Add/list/remove existing prepared-folder registrations",
+      },
+    ],
+  },
+  {
     title: "Maintenance",
     entries: [
       {

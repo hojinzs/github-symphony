@@ -1225,6 +1225,35 @@ private fleet HTTPS listener. It preserves historical offline observations and
 uses fresh data for workspace totals. Fleet listener composition is separate
 from the shipped per-project `--web` server.
 
+The C17 fleet lifecycle UI composition adds Stop confirmation, durable command
+history and reviewed unknown-outcome closure with a required reason. Current
+process observations remain independent from command outcomes. The internal
+fleet package exports a private-listener dispatcher; this adds no CLI command
+and preserves `gh-symphony project` and per-project `--web` behavior.
+
+### Host management agent
+
+The shared Node.js 24+ CLI also routes host management commands:
+
+```bash
+gh-symphony --version
+gh-symphony agent --help
+gh-symphony agent setup --server https://symphony.lan
+gh-symphony agent service status
+```
+
+Setup reads a one-use token through a hidden prompt (or piped `--token-stdin`),
+saves enrollment and installs/starts the current user's Linux systemd service or
+macOS LaunchAgent. Partial setup resumes saved identity without another token.
+Service stop/restart/uninstall preserve managed orchestrators and agent data.
+Linux boot/logout persistence needs linger; macOS startup is at user login.
+Use `agent enroll` and `agent run` for foreground recovery. See the
+[CLI agent commands and current composition limits](packages/cli/README.md#host-management-agent-c13)
+and [private host configuration](docs/configuration.md#guided-agent-cli-configuration-c13).
+The existing `project` commands and per-project `--web` server retain their role;
+the fleet service is a separate management package. This feature ships through
+the C13 patch release; source-built package verification precedes npm publication.
+
 The [C18 run/log view](packages/fleet-control-plane/README.md#runlog-presentation-state-c18)
 adds known-run history and allowed-stream selection through the bounded read
 lane. Follow pauses on disconnect and rotation requires explicit cursor reset;

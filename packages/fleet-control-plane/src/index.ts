@@ -77,5 +77,13 @@ export {
   type FleetPage,
 } from "./project-pages.js";
 
+export {
+  createCommandRoutes,
+  commandProjectLinks,
+  type CommandRouteRequest,
+  type CommandRouteOptions,
+} from "./command-routes.js";
+export type { CommandContext } from "./command-pages.js";
+
 export { createRunRoutes } from "./run-routes.js";
 export { renderRunPage, runPageState, type RunPageState } from "./run-pages.js";
