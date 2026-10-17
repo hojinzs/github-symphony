@@ -65,6 +65,8 @@ export async function inspectOtlp(
   );
   const resolved = resolveOtlpConfiguration(policy, environment);
   if (resolved.enabled) {
+    // An unresolved project has no known identity. Empty defaults conservatively
+    // keep runtime-owned project keys reserved instead of allowing overrides.
     const identity = owner.resourceIdentity ?? {};
     resolveProjectResourceAttributes({
       version: identity["service.version"] ?? "",
