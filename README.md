@@ -201,13 +201,20 @@ values through this surface.
 
 ### Observability Surfaces
 
-Optional `observability.otlp` workflow policy is parsed without activating export.
+Optional `observability.otlp` workflow policy defaults to disabled. Set
+`enabled: true` with an HTTP/protobuf endpoint to export Logs and Metrics through
+the audited CLI pipeline. Ambient `OTEL_*` settings alone do not activate export.
 The orchestrator validates enabled transport settings before dispatch and excludes
 exporter credentials from workers and hooks. Exporter auth references must use
 separate names from agent/tracker credentials, even when OTLP is disabled.
 Durable local events and committed status remain authoritative; publication
-failures cannot fail a tick or mark coordination unhealthy. Network exporter
-support and activation are pending; see the
+failures cannot fail a tick or mark coordination unhealthy. CLI startup supplies
+the internal capability and release version after clean-install/performance gates;
+independent library owners retain the default rejection guard. Construction
+failures report once and exit with code 1, releasing locks and stopping the service.
+Valid OTLP edits require
+restart; additive JSON status reports applied versus pending settings and safe
+exporter health separately from coordination errors. See the
 [OTLP configuration contract](docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
 
 Use `gh-symphony project start --project-dir <path> --web` when you want the browser-based
@@ -1022,6 +1029,8 @@ Before shipping a change:
 ```bash
 pnpm lint
 pnpm test
+# Clean production tarball, lazy SDK chunks and worker boundary
+pnpm --filter @gh-symphony/cli test:package
 pnpm typecheck
 pnpm build
 ```
@@ -1094,10 +1103,10 @@ The internal [fleet services](packages/fleet-control-plane/README.md) adds priva
 and typed HTTPS-origin configuration for C04 (#1008). C07 (#1011) adds the
 internal lifecycle command ledger and recovery library: durable idempotency,
 claim deadlines, project fences, result reconciliation and audited unknown
-closure. Consumers supply authenticated session/project peers; fleet HTTP
-routing and new CLI commands remain separate. Its enrollment service
+closure. Consumers supply authenticated session/project peers; fleet listener
+installation and new CLI commands remain separate. Its enrollment service
 provides atomic one-use tokens, scoped credential verifiers and transactional
-revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and HTTP routing belong to later consumers;
+revocation, plus bounded same-origin browser sessions and CSRF validation. Fleet CLI commands and listener composition belong to later consumers;
 per-project `--web` retains its existing behavior.
 
 ## License
@@ -1124,3 +1133,94 @@ Responses contain at most 256 KiB of UTF-8 log text with a scoped byte cursor;
 rotation/truncation reports reset, and missing or escaping selections report
 unavailable. Read access survives invalid workflow and has no process effects.
 Raw logs may contain sensitive text and are restricted to trusted operator access.
+
+OTLP operational diagnostics are available through `gh-symphony doctor` and
+`gh-symphony doctor --otlp-probe` (explicit, bounded enabled connectivity check).
+`gh-symphony project status` shows applied versus pending exporter settings.
+See [CLI OTLP diagnostics](packages/cli/README.md#otlp-diagnostics) for credential
+safety, restart semantics and the production activation gate.
+
+For reproducible clean-install startup/RSS and healthy/slow/down offer measurements,
+see the [packed OTLP performance audit](packages/cli/README.md#packed-otlp-performance-audit).
+The audited CLI enables the complete Logs/Metrics pipeline through normal YAML policy.
+
+OTLP doctor probes own their HTTP sockets and destroy stalled connections at the
+three-second deadline, allowing the command to exit after reporting the result.
+
+The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
+and foreground outbound HTTPS transport for application/service composition.
+C08 adds `CommandJournal` and `CommandExecutor` for durable claim replay,
+verified lifecycle execution and read-only restart reconciliation:
+
+```ts
+import {
+  AgentRegistry,
+  createAgentTransport,
+  enrollAgent,
+  runForegroundAgent,
+  CommandJournal,
+  CommandExecutor,
+} from "@gh-symphony/cli/management-agent";
+```
+
+Enrollment persists a user-only identity and resumes without another token.
+Foreground consumers supply an AbortSignal and typed inventory/delivery adapters;
+heartbeats and polling run independently with bounded reconnect backoff.
+Transient inventory/delivery adapter failures retry with sanitized diagnostics and
+fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
+until its first authenticated observation.
+This module adds no command or listener. Guided setup (C13, #1017) and fleet
+route assembly retain their sibling boundaries; C06 supplies inventory projection.
+Use `createDeliveryHandler` to compose command and read handlers while the
+foreground runtime holds the registry lock. The factory handler receives empty
+polls too, allowing durable result retry and recovery without redelivery.
+Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
+
+The same bundled module exports C11 `LinuxAgentService` and
+`createLinuxProjectLaunchContext` for trusted Linux service composition. Install,
+start/restart/stop/status/uninstall manage only the user-owned agent unit; project
+daemons launch in separate retained systemd units. Before launch, empty retained
+units are reclaimed with identity/cgroup checks; live units remain untouched.
+Diagnosis rejects non-default manager XDG configuration and legacy/hybrid cgroups. Linux requires systemd 254+,
+a reachable user manager and cgroup v2 for isolated launch. Missing linger limits
+boot/logout startup; diagnosis explains `loginctl enable-linger` without changing
+privileges. See the [Linux adapter contract](packages/management-agent/README.md#linux-user-service-packaging-c11)
+for absolute paths, the C13 entrypoint boundary and installation recovery. Native
+OS validation remains separate from command-fixture evidence.
+
+The internal [fleet observation service](packages/fleet-control-plane/README.md) provides C06 cached inventory
+queries, receipt-based offline/stale state, paged project lists and advisory
+tracker-scope warnings. Complete uploads change membership atomically; partial
+uploads retain unseen projects. These library boundaries are separate from the
+existing `gh-symphony project` commands and per-project `--web` server; fleet HTTP
+and UI assembly remains a consumer integration.
+
+The bundled `@gh-symphony/cli/management-agent` module exports
+`createInventorySnapshot` for the foreground runner and its authenticated
+`ProjectIdentityResolver` composition port. It publishes current redacted
+allowlist data after recovery; it does not buffer old inventory across outages.
+
+Fleet project UUIDs follow enrollment generations: replacement agents allocate new
+identities while earlier observations remain stale history. Same-agent reconnects
+retain UUIDs. Allocation caps outstanding unpublished identities at 100 per
+environment; see the fleet service README for migration and recovery behavior.
+
+The [C10 fleet read lane](packages/fleet-control-plane/README.md#bounded-read-lane-c10) supplies bounded
+run/detail/log requests and route dispatch for a consuming private fleet service.
+It has no new CLI command; existing project and per-project web usage is unchanged.
+
+### macOS management-agent user service (C12)
+
+The bundled `@gh-symphony/cli/management-agent` module now exports
+`MacOSAgentService` and `launchMacOSProject` for local service composition.
+Install/start/status/stop/restart/uninstall operate only on the current user's
+LaunchAgent and preserve management identity and managed orchestrators. Public
+agent command routing remains C13-owned. Login startup requires the real OS user
+home; no pre-login boot or logout survival is promised. See the management-agent
+package README for the typed configuration and TC-31 native validation.
+
+The repository-local [fleet project UI extension](packages/fleet-control-plane/README.md#project-presentation-boundary-c16)
+provides responsive project inventory and runtime detail routes for a consuming
+private fleet HTTPS listener. It preserves historical offline observations and
+uses fresh data for workspace totals. Fleet listener composition is separate
+from the shipped per-project `--web` server.

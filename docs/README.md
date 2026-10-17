@@ -59,6 +59,9 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 | [2026-10-06-fleet-control-plane-c04-plan.md](designs/2026-10-06-fleet-control-plane-c04-plan.md)                             | Configuration, Integration, Observability                                  | Implemented, pending review (#1008)                       |
 | [2026-10-11-supervised-project-lifecycle-design.md](designs/2026-10-11-supervised-project-lifecycle-design.md)               | Configuration, Coordination, Observability, Execution                      | Draft                                                     |
 | [2026-10-11-supervised-project-lifecycle-issues.md](designs/2026-10-11-supervised-project-lifecycle-issues.md)               | Configuration, Coordination, Observability, Execution                      | Draft (plan; no issues created)                           |
+| [2026-10-12-macos-agent-service-c12-plan.md](designs/2026-10-12-macos-agent-service-c12-plan.md)                             | Configuration, Execution, Integration                                      | Implemented, pending review (#1016)                       |
+
+C11 Linux implementation: [user-service packaging plan](designs/2026-10-12-linux-agent-c11-plan.md) — Configuration, Execution, Integration; Implemented, native acceptance pending (#1015).
 
 ## reports/
 

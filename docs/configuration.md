@@ -796,18 +796,71 @@ values from leaking into new runs.
 | `SYMPHONY_CUMULATIVE_TOTAL_TOKENS`    | `0` on fresh worker start     | Worker/runtime | Internal          | Cumulative total tokens.                                  |
 | `SYMPHONY_LAST_TURN_SUMMARY`          | cleared on fresh worker start | Worker/runtime | Internal          | Last turn summary used for continuation/recovery context. |
 
-### OTLP workflow policy (exporter support pending)
+<a id="otlp-workflow-policy-exporter-support-pending"></a>
+
+### OTLP workflow policy
 
 The optional `observability.otlp` mapping is parsed structurally by the shared
 workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
 enable export. The orchestrator contains a pinned official Logs SDK and bounded
-HTTP/protobuf adapter available only through internal injection. Production
-activation remains pending until the complete pipeline and packaged audits pass;
-the internal initializer rejects enabled production policy before loading the SDK.
+HTTP/protobuf Logs and Metrics pipelines. The audited CLI startup supplies H's
+existing internal production capability and the CLI release version, permitting
+normal YAML enablement. Independent library owners still default to rejection
+before SDK loading; no runtime interface changed. A release with a failing packed
+or performance gate must retain the CLI rejection behavior. Startup construction
+failures report once, drain the service, release locks and exit with code 1.
+There is no user-facing activation flag or environment override. Tests can inject
+providers without enabling production.
+
+```yaml
+observability:
+  otlp:
+    enabled: true
+    endpoint: http://127.0.0.1:4318
+    headers:
+      Authorization: $COLLECTOR_AUTH
+```
+
+Set `COLLECTOR_AUTH` in the project's protected `.env` or process environment;
+use a dedicated name distinct from tracker/agent credentials. Logs and Metrics
+share the general endpoint, appending `/v1/logs` and `/v1/metrics`. `OTEL_SDK_DISABLED=true`
+vetoes enabled policy. Omitted policy or omitted/false enablement never loads the SDK.
 The SDK-free owner resolver remains a separate helper; shared loading never calls
 it. Optional
 SDK-free post-persistence publication hooks default to no-op and add no CLI
 flags or environment variables; they do not enable network export.
+
+The project owner freezes resolved transport, credentials and resource settings
+at the first usable workflow resolution. Normally this is startup; if the
+initial workflow is invalid and there is no last-known-good workflow, exporter
+initialization is deferred until a tick loads a usable workflow. Construction
+or capability failures are retained and never retried by that service instance.
+This preserves the repository's existing invalid-workflow recovery behavior
+(a local choice relative to the upstream startup-validation rule).
+Valid reloads continue applying reloadable workflow policy but stage
+changed OTLP settings as pending restart. Applied providers, resources and
+destinations remain unchanged, including when disabling export. The warning
+explicitly says the applied destination remains active until restart. Repeated
+identical candidates suppress warnings; reverting to applied settings clears
+pending state. Credential value changes participate in private memory comparison;
+no secret comparison digest is persisted or published. Invalid reloads keep the
+last-known-good workflow and leave applied/pending exporter settings unchanged.
+
+Committed project status and `/api/v1/state` have an additive `telemetry` field:
+`enabled`, `state`, `supportedSignals`, safe `applied`/`pending` descriptors,
+`restartRequired`, and per-signal `state`, `lastSuccessfulExportAt`, and bounded
+`dropped` counts. Endpoint/protocol/header names and validated resource metadata
+are visible; header values and remote error bodies are excluded. Exporter health
+never changes coordination `lastError`. Existing CLI JSON status preserves the
+extension; single-shot and TTY-watch CLI status render applied/pending settings and restart warnings.
+
+Shutdown closes offers and stops both signal timers, flushing providers
+concurrently with one shared deadline of at most five seconds. Expired requests
+are aborted and remaining telemetry discarded. Nothing replays persisted events
+or historical decisions after restart. Applied and pending exporter credential
+names remain excluded from workers/hooks for the lifetime of the project owner.
+Reload cannot repurpose an applied exporter name as agent/tracker authentication
+until restart; such a conflict follows the invalid-workflow reload path.
 
 Supported fields are `enabled` (boolean), `endpoint` (non-empty string),
 `protocol` (`http/protobuf`), `headers`, `resource_attributes`, and signal
@@ -855,7 +908,8 @@ references and ignores invalid ambient transport settings. Resources merge
 `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, then YAML; secret-bearing
 resources are rejected by the existing redactor, with only the offending key
 named in the error. Reserved identity key conflict validation and the 16 custom-key
-limit are pending orchestrator-owned identity integration in slice D (see the
+limit are validated by the SDK-free owner before last-known-good persistence and
+rechecked by orchestrator-owned providers (see the
 [design’s Resource identity section](designs/2026-10-04-otlp-export-design.md#resource-identity)).
 Safe diagnostics contain only
 endpoint, protocol, header names, resource metadata, auth-reference names and
@@ -944,6 +998,12 @@ The bundled `@gh-symphony/cli/management-local` factory accepts trusted local
 A native-service context requires `launchIsolatedProject`; OS-specific service
 packaging must independently verify that agent service stop/restart/uninstall
 preserves orchestrators. The default effect/observation deadline is 60 seconds.
+Fleet execution claim expiry uses the server clock. After an authoritative
+executing claim response, the agent bounds local observation using its own clock,
+without comparing the server's claimedAt to local time. The embedder schedules
+`CommandJournal.prune()` (for example, daily) under the registry owner lock to
+remove eligible acknowledged terminal/retired records after 30 days; unresolved
+effects and unknown outcomes remain retained.
 Management/broker variables beginning `GH_SYMPHONY_MANAGEMENT_`,
 `GH_SYMPHONY_AGENT_`, `GH_SYMPHONY_CONTROL_PLANE_`, or `SYMPHONY_ORCHESTRATOR_`
 are excluded from CLI subprocess environments. Any variable whose value contains
@@ -951,6 +1011,38 @@ the persisted or explicitly supplied management credential is also excluded.
 Project/runtime credentials continue to resolve locally; prompt and environment
 contents are never included in inventory. CLI/protocol versions stay distinct;
 inventory adds only a workflow digest and normalized non-secret tracker scope.
+
+### Agent outbound sessions (C05)
+
+C05 outbound transport accepts a canonical HTTPS origin, optional private CA trust,
+an AbortSignal and an absolute request deadline (default 30 seconds). It reads the
+saved credential from the management registry at request time, sends it only as
+an Authorization bearer header, and rejects redirects. The registry requires
+current-user ownership and exact 0700/0600 directory/file permissions; unsafe
+existing paths fail closed. No enrollment token is retained after exchange.
+The C08 command journal stores `commands.json` in the same private agent data
+directory as `registry.json`, with exact mode `0600`. Keep journal backups private:
+they include canonical paths and raw expected process identities, but no copied
+management credential. A malformed or unsafe journal fails closed; do not delete
+effect markers to retry an unresolved operation.
+Acknowledged terminal/retired journal records are eligible for pruning after
+30 days; unresolved entries remain. C08 consumers compose `CommandExecutor`
+through the foreground `createDeliveryHandler` option; a full command client is
+required for claims/results. There are no new environment variables or flags.
+
+See the [management agent boundary](../packages/management-agent/README.md#c05-outbound-enrollment-boundary).
+
+C05 foreground consumers provide a private registry directory, agent version,
+AbortSignal, HTTPS client factory and typed current-inventory/delivery adapters.
+The fixed default heartbeat is five seconds, poll maximum 25 seconds, receipt-based
+session lifetime 30 seconds, fast-poll pacing one second and reconnect ceiling
+30 seconds with exponential jitter. No environment variables are added.
+Fleet consumers call the C05 session expiry tick and startup recovery before
+serving requests; restart fences saved sessions but preserves enrollment.
+
+The CLI ships the runtime as `@gh-symphony/cli/management-agent`; C13 owns user
+command routing. Malformed registry JSON reports a fixed diagnostic without
+echoing credential bytes. Private CA trust never disables certificate verification.
 
 ### Bounded management reads (C09)
 
@@ -970,3 +1062,134 @@ without a cursor. Rotation/truncation resets to offset zero with `reset: true`.
 Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
+
+OTLP CLI validation uses the managed project's effective environment with the
+same resolver as startup. `doctor --otlp-probe` connects only when
+`observability.otlp.enabled` is true and `OTEL_SDK_DISABLED` does not veto it;
+plain `doctor` validates without OTLP connections. Credential ownership is checked
+before reading values, including disabled policies; shared agent/tracker auth
+references fail. Resource bounds and reserved metadata match startup validation. Probe requests have a 3s budget
+per signal and report HTTP outcomes, never credentials or Collector response
+bodies. Pending settings reported by `project status` require restart; the
+applied exporter continues until then. The audited CLI supplies the internal startup capability; the library default remains off.
+
+### Linux agent service adapter (C11)
+
+`LinuxServiceConfig` supplies absolute `homeDirectory`, `nodePath`, `entryPath`,
+`configPath` and `dataDirectory`. The trusted shared composition entry implements
+`--config`, `--data-dir` and `--native-service=linux`; C13 owns public CLI routing.
+No credential is serialized into the unit. The data directory must already exist
+with mode 0700. Unit/parent paths reject symlinks, foreign ownership and writable
+group/other directories; an existing definition must exactly match the requested
+configuration. Installation resumes saved identity and never reenrolls.
+
+`LinuxAgentService` defaults to absolute `/usr/bin/systemctl` and
+`/usr/bin/loginctl`; alternative absolute tool paths are trusted local options.
+Systemd 254+, a reachable user manager and unified cgroup v2 are required.
+Diagnosis rejects legacy/hybrid or unreadable hierarchy evidence and a manager
+`XDG_CONFIG_HOME` differing from `homeDirectory/.config`; unset/empty values
+use the default. Unsupported hosts use foreground recovery before unit creation.
+Entry/config paths must be regular files; pass `realpath` results for symlinked
+global CLI installations. Disabled/unknown linger
+limits startup after boot/logout; enabling linger is an explicit operator action.
+The agent unit uses five-second failure restart delay and five-start/minute limits.
+
+`createLinuxProjectLaunchContext` defaults to `/usr/bin/systemd-run`, requires
+cgroup v2 and execution from inside the agent unit, and consumes the C03 trusted
+launch request/deadline. Pass saved credentials through `managementCredentials`
+to strip value aliases as well as management/broker names. Sanitized project
+environment values are transferred by name; manager-only variables are explicitly
+unset. No new environment-variable configuration is introduced. The runner,
+platform and control-group readers are OS fixture seams; production must use
+actual host defaults. Uninstall preserves all agent and project runtime data.
+
+The Linux agent unit uses raw `WorkingDirectory=/` so the native parser receives
+an absolute path; configured entry/data/config paths remain absolute arguments.
+Lifecycle effects additionally require the manager's loaded `FragmentPath` to
+match the owned definition, `Transient=no`, and only OS-vendor type-wide
+`service.d/*.conf` drop-ins under `/usr/lib/systemd/user` or `/lib/systemd/user`.
+These OS-vendor directories are trusted; user and unit-specific overrides fail
+closed. Same-name
+transient units, alternative fragments and overrides are configuration conflicts
+requiring local repair, even when the filesystem definition is unchanged.
+
+Before a project launch, the Linux launcher attempts empty retained-unit
+reclamation within one second, inspecting at most eight UUID-named units.
+Transient oneshot/exited metadata, invocation identity, separated cgroup path
+and `populated 0` are required and rechecked before stop; uncertain or live units
+remain untouched. Cleanup failure does not change the requested launch result.
+The cgroup filesystem root and self-cgroup reader are trusted OS fixture seams;
+production uses `/sys/fs/cgroup` and `/proc/self/cgroup`.
+
+### Fleet cached observation query defaults (C06)
+
+The independent fleet observation library uses the C05 authenticated receipt and
+30-second exclusive-session timeout, never the agent's wall clock, for connection
+and project freshness. Project queries default to 25 rows and reject limits above
+100; cursors are tied to environment, process and connection filters. Complete
+inventory revisions contain at most 100 projects per agent; the publisher splits
+requests below the v1 4 MiB limit. A partial revision cannot remove unseen projects.
+These are v1 protocol defaults, not workflow policy or new environment variables.
+The existing per-project CLI/web configuration is unchanged. Consumer composition
+must authenticate server UUID allocation and share the SQLite transaction for
+observation acceptance and unclaimed-command invalidation.
+
+## Fleet read service limits (C10)
+
+The internal fleet read factory takes `maximumEntries` (default 1024, range
+1–10000), bounding pending and retained result records together. This is a
+library composition option; it adds no workflow field, CLI flag or environment
+variable. The v1 limits remain four pending reads per agent, one per project,
+30-second lifetime, 60-second terminal retention, 100 cached run summaries per
+project, and 256 KiB log chunks. Serialized log payloads (including cursors) are capped at 256 KiB plus 1 KiB
+of metadata overhead, in addition to the request-specific text bound.
+Non-log result payloads also have a 256 KiB JSON
+retention bound. A full registry returns `read_busy` without early eviction.
+The private listener enforces its existing request body bound and forwards
+historical/no-store headers from the detail dispatcher.
+
+### macOS agent service configuration (C12)
+
+The bundled `MacOSAgentService` accepts trusted absolute `nodePath`, `entrypoint`,
+`configPath`, `dataDirectory`, `home` and the current `uid`. `entrypoint` runs
+foreground and consumes `--config <configPath>`; command routing/setup is C13's
+boundary. Resolve the login user's home with `node:os.userInfo().homedir`, since
+worker `HOME` can be overridden. Alternate staging homes disable the reported
+login auto-start capability. Data directories require exact 0700 ownership;
+plist files are 0600 in `home/Library/LaunchAgents`. Existing symlinks/conflicting
+content fail closed. The default label is `com.github-symphony.management-agent`;
+a trusted local label override supports isolated embedding/OS fixtures.
+
+No new environment variables or project HTTP defaults are added. The plist
+contains only executable/config paths, logs to `agent.stdout.log` and
+`agent.stderr.log` in the private data directory, restarts unsuccessful exits
+with a ten-second throttle and allows twenty seconds for exit. Unload polls for
+removal within a twenty-five-second window; in-flight launchctl queries have
+their own ten-second command timeout. Embedders supply private CA/client/snapshot
+and journal ports to the existing foreground runtime. Uninstall retains all
+agent data; rotation and credential revocation are separate owner actions.
+
+Service actions require `gui/<uid>` login-session support. Auto-start covers
+user login, not pre-login boot or persistence after logout. Foreground execution
+is the supported alternative without a GUI session. Native C03 composition uses
+`launchIsolatedProject: launchMacOSProject`; Linux isolation remains C11-owned.
+
+A Node upgrade or moved CLI entrypoint can leave a conflicting saved definition.
+All adapter actions fail closed on that conflict, including stop and uninstall.
+To repair explicitly, use the current user's GUI session and first inspect the
+saved plist with `plutil -p "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`
+and `launchctl print "gui/$(id -u)/com.github-symphony.management-agent"`.
+Confirm the label and loaded path match your agent, and that the plist is a
+regular, non-symlink file owned by your UID with mode 0600. Use the real login
+home if `HOME` is overridden; substitute the configured label for an override.
+Do not remove or unload a foreign or unsafe definition.
+
+Run `launchctl bootout "gui/$(id -u)/com.github-symphony.management-agent"`
+if the job is loaded. Wait until `launchctl print` for that exact target reports
+that the service could not be found; a missing GUI domain or another command
+error does not confirm removal. Only then remove the inspected plist with
+`rm "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`.
+Call `install()` and `start()` with the updated absolute executable and
+entrypoint paths. Keep the existing config and private data directory: this
+repair preserves enrollment, allowlist and journal data and does not stop
+managed project orchestrators. Installation requires an executable `nodePath`.

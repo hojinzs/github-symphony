@@ -1,3 +1,4 @@
+import { renderOtlpStatus } from "../otlp-diagnostics.js";
 import type { GlobalOptions } from "../index.js";
 import {
   DEFAULT_POLL_INTERVAL_MS,
@@ -175,6 +176,16 @@ function renderLegacyStatus(
     }
     lines.push("");
   }
+
+  lines.push(
+    ...renderOtlpStatus(
+      (
+        snapshot as ProjectStatusSnapshot & {
+          telemetry?: Parameters<typeof renderOtlpStatus>[0];
+        }
+      ).telemetry
+    )
+  );
 
   // Summary stats
   const dispatchedStr = apply(`Dispatched   ${snapshot.summary.dispatched}`);
@@ -418,6 +429,14 @@ const handler = async (
                 lastTickLabel: relativeTime(snapshot.lastTickAt),
               },
             }) +
+            "\n" +
+            renderOtlpStatus(
+              (
+                snapshot as ProjectStatusSnapshot & {
+                  telemetry?: Parameters<typeof renderOtlpStatus>[0];
+                }
+              ).telemetry
+            ).join("\n") +
             "\n"
         );
       }

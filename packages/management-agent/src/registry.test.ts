@@ -60,6 +60,39 @@ afterEach(async () => {
 });
 
 describe("local management registry", () => {
+  it("holds the owner lock until admitted durable operations finish during close", async () => {
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const write = registry.whileOwned(async () => {
+      await barrier;
+      await writeFile(
+        join(registry.directory, "peer-durable-write"),
+        "committed",
+        { mode: 0o600 }
+      );
+    });
+    const closing = registry.close();
+    try {
+      const outcome = await Promise.race([
+        closing.then(() => "closed"),
+        new Promise<string>((resolve) =>
+          setTimeout(() => resolve("pending"), 50)
+        ),
+      ]);
+      expect(outcome).toBe("pending");
+      await expect(AgentRegistry.open(registry.directory)).rejects.toThrow();
+    } finally {
+      release();
+      await write;
+      await closing;
+    }
+    expect(
+      await readFile(join(registry.directory, "peer-durable-write"), "utf8")
+    ).toBe("committed");
+    registry = await AgentRegistry.open(registry.directory);
+  });
   it("deduplicates canonical folders and aliases, retaining the canonical CLI ID", async () => {
     expect(localProjectId("/srv/Prepared Project")).toBe(
       "prepared-project-016f786a"

@@ -60,9 +60,12 @@ export class LocalLifecycleAdapter {
     private options: { timeoutMs?: number; pollIntervalMs?: number } = {}
   ) {}
 
-  start(id: string): Promise<LifecycleResult> {
+  start(id: string, observationDeadline?: number): Promise<LifecycleResult> {
     return this.serialize(id, async () => {
-      const deadline = Date.now() + this.timeoutMs();
+      const deadline = Math.min(
+        Date.now() + this.timeoutMs(),
+        observationDeadline ?? Infinity
+      );
       const project = await this.registry.resolveManaged(id);
       const observed = await this.driver.inspect(project);
       if (observed.validation.state === "invalid")
@@ -108,10 +111,14 @@ export class LocalLifecycleAdapter {
   stop(
     id: string,
     journal: StopTargetJournal,
-    expected?: StopTarget
+    expected?: StopTarget,
+    observationDeadline?: number
   ): Promise<LifecycleResult> {
     return this.serialize(id, async () => {
-      const deadline = Date.now() + this.timeoutMs();
+      const deadline = Math.min(
+        Date.now() + this.timeoutMs(),
+        observationDeadline ?? Infinity
+      );
       const project = await this.registry.resolveManaged(id);
       const observed = await this.driver.inspect(project);
       if (expected && expected.canonicalPath !== project.canonicalPath)
@@ -178,6 +185,56 @@ export class LocalLifecycleAdapter {
         deadline
       );
       return result ?? unresolved(await this.driver.inspect(project));
+    });
+  }
+
+  /** Read-only recovery: never spawn, signal or choose a new stop target. */
+  reconcile(
+    id: string,
+    operation: "start" | "stop",
+    canonicalPath: string,
+    target?: StopTarget
+  ): Promise<LifecycleResult> {
+    return this.serialize(id, async () => {
+      const project = await this.registry.resolveManaged(id);
+      const current = await this.driver.inspect(project);
+      if (canonicalPath !== project.canonicalPath)
+        return failure(
+          current,
+          "superseded_target",
+          "Registered folder no longer matches durable command"
+        );
+      if (operation === "start")
+        return current.process.state === "running" && current.ready
+          ? success(current)
+          : unresolved(current);
+      if (!target) return unresolved(current);
+      if (target.canonicalPath !== canonicalPath)
+        return failure(
+          current,
+          "superseded_target",
+          "Stop target no longer matches durable folder"
+        );
+      if (current.process.state === "running") {
+        const observed = current.runtime && {
+          ...current.runtime,
+          canonicalPath,
+          pid: current.process.pid,
+          processIdentity: current.process.identity,
+        };
+        if (observed && !sameTarget(target, observed))
+          return failure(
+            current,
+            "superseded_target",
+            "Replacement process or runtime observed; recovery sent no signal"
+          );
+        return unresolved(current);
+      }
+      return current.process.state === "stopped" &&
+        current.locksReleased &&
+        (await this.driver.targetExited(target))
+        ? success(current)
+        : unresolved(current);
     });
   }
 

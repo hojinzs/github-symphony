@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  chmod,
   lstat,
   mkdir,
   open,
@@ -74,6 +73,7 @@ export function localProjectId(projectDirInput: string): string {
 export class AgentRegistry {
   private closed = false;
   private writes: Promise<unknown> = Promise.resolve();
+  private readonly ownedOperations = new Set<Promise<unknown>>();
   private constructor(
     readonly directory: string,
     private readonly lock: ProjectLockHandle,
@@ -82,8 +82,14 @@ export class AgentRegistry {
 
   static async open(directory: string): Promise<AgentRegistry> {
     await mkdir(directory, { recursive: true, mode: 0o700 });
+    const directoryMetadata = await lstat(directory);
+    if (
+      !directoryMetadata.isDirectory() ||
+      directoryMetadata.uid !== process.getuid?.() ||
+      (directoryMetadata.mode & 0o777) !== 0o700
+    )
+      throw new Error("Agent directory must be user-owned and private");
     const canonicalDirectory = await realpath(directory);
-    await chmod(canonicalDirectory, 0o700);
     const lock = await acquireProjectLock({
       runtimeRoot: canonicalDirectory,
       projectId: "management-agent",
@@ -96,7 +102,12 @@ export class AgentRegistry {
       let state: RegistryState = { version: 1, identity: null, projects: [] };
       try {
         const metadata = await lstat(path);
-        if (!metadata.isFile() || (metadata.mode & 0o077) !== 0) {
+        if (
+          !metadata.isFile() ||
+          metadata.nlink !== 1 ||
+          metadata.uid !== process.getuid?.() ||
+          (metadata.mode & 0o777) !== 0o600
+        ) {
           throw new Error("Agent registry must be a user-only regular file");
         }
         state = parseState(await readFile(path, "utf8"));
@@ -270,7 +281,16 @@ export class AgentRegistry {
     if (this.closed) return;
     this.closed = true;
     await this.writes;
+    await Promise.allSettled(this.ownedOperations);
     await releaseProjectLock(this.lock);
+  }
+  /** Keep the lifetime lock through a sibling's admitted durable filesystem write. */
+  whileOwned<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertOpen();
+    const task = Promise.resolve().then(operation);
+    this.ownedOperations.add(task);
+    void task.finally(() => this.ownedOperations.delete(task)).catch(() => {});
+    return task;
   }
   private assertOpen(): void {
     if (this.closed) throw new Error("Agent registry is closed");
@@ -314,7 +334,10 @@ function isMissing(error: unknown): boolean {
 function validateIdentity(identity: AgentIdentity): void {
   uuidSchema.parse(identity.environmentId);
   uuidSchema.parse(identity.agentId);
-  if (typeof identity.credential !== "string" || !identity.credential) {
+  if (
+    typeof identity.credential !== "string" ||
+    !/^[A-Za-z0-9_-]{1,256}$/.test(identity.credential)
+  ) {
     throw new Error("Invalid agent identity");
   }
   const origin = new URL(identity.serverOrigin);
@@ -322,7 +345,12 @@ function validateIdentity(identity: AgentIdentity): void {
     throw new Error("Invalid agent server origin");
 }
 function parseState(raw: string): RegistryState {
-  const value = JSON.parse(raw) as RegistryState;
+  let value: RegistryState;
+  try {
+    value = JSON.parse(raw) as RegistryState;
+  } catch {
+    throw new Error("Invalid agent registry");
+  }
   if (
     value.version !== 1 ||
     !Array.isArray(value.projects) ||

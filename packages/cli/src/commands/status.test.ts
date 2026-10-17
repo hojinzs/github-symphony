@@ -672,6 +672,68 @@ describe("status command", () => {
     }
   });
 
+  it.each([false, true])(
+    "renders applied and pending OTLP settings (watch=%s)",
+    async (watch) => {
+      const configDir = await createConfigFixture();
+      const statusPath = join(configDir, "status.json");
+      const snapshot = JSON.parse(await readFile(statusPath, "utf8"));
+      snapshot.telemetry = {
+        state: "healthy",
+        applied: {
+          enabled: true,
+          signals: { logs: { endpoint: "https://applied.example/v1/logs" } },
+        },
+        pending: { enabled: false, signals: {} },
+        restartRequired: true,
+      };
+      await writeFile(statusPath, JSON.stringify(snapshot));
+      const descriptor = Object.getOwnPropertyDescriptor(
+        process.stdout,
+        "isTTY"
+      );
+      Object.defineProperty(process.stdout, "isTTY", {
+        configurable: true,
+        value: true,
+      });
+      vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+      const stdout = captureWrites(process.stdout);
+      try {
+        if (watch) {
+          void statusCommand(["--watch"], {
+            configDir,
+            verbose: false,
+            json: false,
+            noColor: true,
+          });
+          await vi.waitFor(() =>
+            expect(stdout.output()).toContain("Pending: disabled")
+          );
+        } else {
+          await statusCommand([], {
+            configDir,
+            verbose: false,
+            json: false,
+            noColor: true,
+          });
+        }
+        expect(stdout.output()).toContain(
+          "Applied: enabled · logs: https://applied.example/v1/logs"
+        );
+        expect(stdout.output()).toContain("Pending: disabled");
+        expect(stdout.output()).toContain(
+          "Restart required; the applied exporter remains active until restart."
+        );
+      } finally {
+        if (watch) process.emit("SIGTERM", "SIGTERM");
+        stdout.restore();
+        if (descriptor)
+          Object.defineProperty(process.stdout, "isTTY", descriptor);
+        else delete (process.stdout as { isTTY?: boolean }).isTTY;
+      }
+    }
+  );
+
   it("renders project tokens from the flat runtime status snapshot", async () => {
     const configDir = await createConfigFixture();
     const stdout = captureWrites(process.stdout);

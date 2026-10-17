@@ -1,8 +1,75 @@
 # Local management agent
 
 `@gh-symphony/management-agent` is an internal repository-local management
-extension (C03, #1007; Epic #983). It is separate from the shipped per-project
+extension (C03/C05/C08/C09; Epic #983). It is separate from the shipped per-project
 control-plane server and does not schedule or provision projects.
+
+### C08 durable command journal
+
+`CommandJournal.open(registry)` shares the registry's exclusive owner lock. The
+user-owned `commands.json` file has mode `0600`; atomic replacement syncs both
+the file and parent directory before acknowledging a write. Receipt, original
+claim, effect marker, expected stop target, result and upload acknowledgment
+survive reopening. The journal rejects conflicting command IDs, foreign enrolled
+owners, changed claim timestamps and replacement stop targets. Raw process
+identities stay local; management credentials are never copied into this file.
+
+`beginEffect(commandId)` requires a durable executing claim and returns true only
+once. A marker without a result deliberately prevents replay after a crash,
+including a crash before the actual invocation. Consumers must reconcile evidence
+and persist the result before publishing it. A verified result may resolve a
+previous unknown; terminal results remain immutable. Acknowledged terminal and
+retired records can be pruned after 30 days with `journal.prune()`; unresolved
+effects and acknowledged unknown results remain available for reconciliation.
+The embedder must schedule `journal.prune()` periodically (for example, daily)
+while holding the registry owner lock; neither the executor nor foreground loop
+automatically prunes records.
+Journal tests use real private files and close/reopen the registry rather than
+mocking persistence. Registry shutdown drains admitted journal writes before
+releasing the lifetime owner lock.
+
+`new CommandExecutor(registry, journal, lifecycleAdapter)` consumes the existing
+verified local lifecycle adapter. `handlePoll(response, client)` validates the
+session envelope, durably records incoming commands, and claims each original ID
+through the typed `claim` client before effects. Call it on empty polls too: pending
+receipts and results survive restart without needing another delivery. It
+serializes work per local project and bounds concurrent work to four projects.
+The fleet ledger owns the outstanding-command slot and authoritative expiry;
+the journal retains earlier receipts across expiry or explicit closure.
+
+Executing claim replay can begin once when no marker exists. Marker-bearing
+entries use `LocalLifecycleAdapter.reconcile` exclusively: readiness proves start;
+persisted stop-target exit, lock release and absence of a replacement prove stop.
+Recovery never spawns or signals. Runtime/PID/identity replacement fails with
+`superseded_target`; missing evidence stays unknown. The fleet owns execution
+claim expiry and preserves the original `claimedAt` across replay. An authoritative
+`executing` response grants a local observation window of at most 60 seconds;
+the agent never compares server timestamps with its own clock. A server-expired
+`unknown` replay cannot authorize a new effect.
+
+Results persist before publication and retry unchanged until a correlated
+acknowledgment. Unknown results can later resolve from verified evidence without
+repeating effects; explicit fleet closure retires them. Local exceptions produce
+fixed unresolved diagnostics rather than uploading exception text. Reconnected
+ownership must already be transferred by the fleet recovery boundary to the same
+enrolled agent; stale/foreign claims cannot authorize invocation or result upload.
+An expired unclaimed receipt is retired without a fabricated unknown result.
+Duplicate receipts use retained immutable command identity, so saved results can
+resend after a folder disappears or registration is removed. An invalid new or
+conflicting delivery reports its error after unrelated durable recovery drains;
+live allowlist checks remain mandatory before new lifecycle effects.
+The fleet's terminal/explicitly closed outcome takes precedence over a cached
+unknown; recovery does not overwrite that authoritative outcome. Malformed journal
+JSON reports a fixed diagnostic without echoing private process evidence.
+
+The foreground `createDeliveryHandler({ registry, client, session, signal })`
+factory composes this executor while the foreground runtime owns the registry.
+Use a full command client, open the journal on that registry, and return a handler
+that calls `executor.handlePoll(response, client)` and the separate read handler.
+The runtime invokes this handler even on empty polls; heartbeats remain independent
+of lifecycle work. This library boundary is shipped through the CLI's
+`management-agent` module. Fleet route assembly and native service lifecycle stay
+with their respective slices.
 
 `AgentRegistry.open(dataDirectory)` owns a canonical mode `0700` directory and
 uses the existing process-identity heartbeat lock. Call `close()` during shutdown;
@@ -52,9 +119,9 @@ launcher must establish and verify OS isolation in the native service slice befo
 service packaging. Detached spawning alone does not isolate systemd cgroups. C03
 does not install services or claim Linux/macOS service lifecycle validation.
 
-There is no new `gh-symphony agent` command yet. Enrollment transport, durable
-command claim/replay journaling, outbound transport and native service packaging
-remain separate delivery boundaries. Keep registry/journal backups private because
+There is no new `gh-symphony agent` command yet. C05 provides enrollment transport
+and the foreground runtime below. C08 supplies durable command execution;
+fleet route assembly and native service packaging remain separate boundaries. Keep registry/journal backups private because
 they contain credentials or raw local process evidence.
 
 Run `pnpm --filter @gh-symphony/management-agent test` for registry, lifecycle and
@@ -63,17 +130,18 @@ OS process/CWD and ownership records without mocking those probes.
 
 ### Verification and acceptance scope
 
-| Requirement                                   | Evidence                                                                                                                                                                         |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CP-02 canonical inventory/allowlist           | registry tests; TC-27 real prepared, invalid and aliased folders                                                                                                                 |
-| CP-01/14 identity, agent lock, access removal | two independent enrollment fixtures share a local ID with distinct environment identities; private persistent registry and lock tests; TC-27 close/reopen and process continuity |
-| CP-03 bounded verified lifecycle              | lifecycle mutations and real invalid-workflow stop with durable target journal                                                                                                   |
-| CP-04 local/manual start arbitration          | serialized starts and existing CLI canonical folder lock; TC-27 independent contender                                                                                            |
-| CP-15 non-secret metadata/credentials         | typed protocol peer fixture, inventory projections, executable child environment and TC-27 canaries                                                                              |
-| Applicable CP-08 recovery                     | exact C02 stop identity retained; TC-27 replacement ownership fault probe                                                                                                        |
+| Requirement                                   | Evidence                                                                                                                                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CP-02 canonical inventory/allowlist           | registry tests; TC-27 real prepared, invalid and aliased folders                                                                                                                          |
+| CP-01/14 identity, agent lock, access removal | two independent enrollment fixtures share a local ID with distinct environment identities; private persistent registry and lock tests; TC-27 close/reopen and process continuity          |
+| CP-03 bounded verified lifecycle              | lifecycle mutations and real invalid-workflow stop with durable target journal                                                                                                            |
+| CP-04 local/manual start arbitration          | serialized starts and existing CLI canonical folder lock; TC-27 independent contender                                                                                                     |
+| CP-15 non-secret metadata/credentials         | typed protocol peer fixture, inventory projections, executable child environment and TC-27 canaries                                                                                       |
+| Applicable CP-08 recovery                     | exact C02 stop identity retained; TC-27 replacement ownership fault probe                                                                                                                 |
+| CP-04–09/18/19 durable execution/recovery     | executor tests with actual journal/lifecycle and independent typed durable peer; TC-31 actual C07 ledger and separate CLI/agent processes, 23 reached assertions and six forbidden probes |
 
 TC-27 covers the local portions of operator inventory/start/stop/removal
-walkthroughs. Fleet authentication, claim journaling, transport/read handlers and
+walkthroughs. Fleet HTTP routing, read delivery handlers and
 native systemd/launchd service lifecycle are separate slices; the native launcher
 port requires verified isolation instead of assuming detached processes suffice.
 Cached aliases restart through their rechecked original path and config root to
@@ -83,6 +151,27 @@ missing cached alias is excluded, so launch falls back to the canonical folder.
 Missing or inaccessible allowlisted folders return a sanitized `project_unmanaged`
 error. CLI status/stop report ambiguous or unreadable runtime lookup failures with
 a diagnostic and exit code 1.
+
+### C05 outbound enrollment boundary
+
+`createAgentTransport({ serverOrigin, identity, ca?, signal?, timeoutMs? })`
+implements the v1 typed client over verified HTTPS. The identity callback reads the
+saved registry at request time. Poll uses GET; credentials travel only in the
+Authorization header. Requests and responses are schema validated and correlated
+by request/environment/session identity. Redirects are rejected, bodies are bounded
+to 4 MiB, and the default absolute deadline is 30 seconds (25-second poll plus
+network margin). Private CA trust can be supplied; TLS verification stays enabled.
+Errors expose stable codes rather than peer messages or network errors.
+
+`enrollAgent(registry, client, serverOrigin, token)` exchanges a token once and
+durably saves identity. Retrying with saved identity requires no token and keeps
+the allowlist. A different origin is rejected. Existing registry directories and
+credential files must be owned by the current Unix user with exact 0700/0600
+permissions; symlinked directories and symlinked/hard-linked files fail closed.
+Unsafe permissions are rejected rather than repaired.
+
+These are internal library entry points composed by the foreground runtime below. The TLS tests use an ephemeral certificate and an independent HTTPS
+peer; they validate transport and persistence, not native service isolation.
 
 ## Bounded local reads (C09)
 
@@ -122,3 +211,225 @@ the canonical alias resolver. [TC-28](../../e2e/scenarios/28-bounded-local-reads
 exercises the bundled factory with a real CLI daemon and five fault probes.
 CP-12/15 and applicable U04/U07 reads are owned here; offline transport, read-lane
 scheduling, UI follow/disconnect and server retention are separate slices.
+
+### C05 foreground session loop
+
+`runForegroundAgent(options)` owns the local registry lock until shutdown. Supply
+the private registry directory, agent version, AbortSignal, a client factory,
+and a current `snapshot(registry, signal)` adapter. The factory receives the saved
+identity and a connection-scoped cancellation signal; it can create the HTTPS
+transport above. The snapshot adapter supplies validated redacted observations
+and server-assigned project UUIDs (C06 ownership).
+
+The first complete observation, including zero projects, precedes delivery polling.
+Observations run every five seconds independently of the one outstanding poll.
+Immediate poll responses are paced at one second. Complete current inventories
+split into bounded pages of a single revision; sequence numbers increase within
+the session. Failed connections discard the old snapshot and collect current
+state again. Network failures reuse the owned session. Expired-session rejection
+causes new negotiation and sequence reset; rejected enrollment credentials stop
+the agent. Consecutive failures use exponential jitter (0.5–1 times the current
+ceiling), capped at 30 seconds. A successful poll resets the backoff.
+
+`handlePoll(response, signal)` belongs to the sibling command journal/read owners.
+Nonempty delivery without that adapter fails explicitly; the transport cannot
+invoke project lifecycle effects by itself. `onConnection` emits only online/retrying
+state and sanitized codes. Abort cancels polls/backoff/heartbeat waits and releases
+the registry lock without signalling managed orchestrators. Embedders must pass
+the signal to their own client and snapshot/delivery operations too.
+
+This slice provides the foreground runtime library. Guided setup, fleet HTTP
+route assembly, inventory projection, delivery handlers and native service
+packaging retain their sibling ownership; no existing project/web command changes.
+
+The CLI ships these exports as `@gh-symphony/cli/management-agent` with TypeScript
+declarations; internal packages stay private. Malformed persisted JSON reports a
+fixed diagnostic without including rejected credential bytes.
+
+[TC-30](../../e2e/scenarios/30-agent-outbound-transport.md) tests actual bundled
+foreground/TLS/SQLite boundaries and a real local orchestrator. Host macOS and
+Linux Docker runs are separate OS evidence; native-service CP-22/23 remain out
+of scope.
+
+Snapshot and delivery-handler exceptions report the sanitized `local_port_failure`
+code and reconnect with capped backoff, retaining the owned session until the
+server rejects it. Each retry collects a fresh snapshot. Partial project failures
+should be represented in observations; the sibling command journal must fence
+repeated effects after a failed delivery handler. Peer schema/identity errors and
+invalid inventory remain fatal.
+
+If a session-negotiation response is lost after the server commits it, exclusivity
+can delay recovery until the 30-second session expiry plus reconnect backoff.
+
+## Linux user-service packaging (C11)
+
+The bundled `@gh-symphony/cli/management-agent` entry exports
+`LinuxAgentService`, `renderLinuxAgentUnit` and `createLinuxProjectLaunchContext`.
+These are Linux adapter APIs for the shared CLI composition slice (C13), rather
+than new public commands. A trusted entry module must consume `--config <absolute
+path> --data-dir <absolute path> --native-service=linux` and compose C05's
+`runForegroundAgent` with C03's local adapter. Pass the saved management
+credential to the launch context's `managementCredentials`; use that context in
+`createLocalManagementAdapter`. The registry's existing owner lock applies to
+foreground and service execution alike.
+
+```ts
+import {
+  LinuxAgentService,
+  createLinuxProjectLaunchContext,
+} from "@gh-symphony/cli/management-agent";
+
+const service = new LinuxAgentService({
+  homeDirectory: "/home/operator",
+  nodePath: "/opt/node/bin/node",
+  entryPath: "/opt/agent/entry.mjs", // trusted shared CLI composition entry
+  configPath: "/home/operator/.config/gh-symphony/agent.json",
+  dataDirectory: "/home/operator/.local/share/gh-symphony/agent",
+});
+const diagnosis = await service.install(); // enable and start; no enrollment
+console.log(diagnosis.linger, diagnosis.limitations);
+// Inside the agent service, after reading the saved identity:
+const launchContext = createLinuxProjectLaunchContext({
+  managementCredentials: [savedIdentity.credential],
+});
+```
+
+`homeDirectory` must be the actual user's home used by the user manager. The
+owned definition is `~/.config/systemd/user/gh-symphony-agent.service`, mode 0600.
+Node, entry, configuration and data paths must be absolute; unsafe paths and
+conflicting definitions are rejected. The manager must report the expected
+loaded `FragmentPath`, a non-transient unit and only vendor type-wide
+`service.d` drop-ins under `/usr/lib/systemd/user` or `/lib/systemd/user` before lifecycle
+effects; conflicting effective definitions require explicit local repair.
+`WorkingDirectory=/` is a raw absolute systemd setting; entry/config/data paths
+are supplied absolutely in the command. Directory components must be user-owned,
+non-symlink directories without group/other write access; the data directory
+must be exactly 0700. The unit uses no credential arguments, disables executable
+argument environment expansion, escapes percent specifiers and sends local
+stdout/stderr to the user journal. Unexpected exit restarts after five seconds,
+with at most five starts in a minute. No privileged/system-wide service is installed.
+
+Entry and configuration paths must be regular files, not symlinks. Resolve a
+global CLI entry first, for example `realpath "$(command -v gh-symphony)"`,
+and pass the resulting absolute path.
+
+`diagnose()` checks Linux, systemd 254+, the user manager, its
+`XDG_CONFIG_HOME` and the unified cgroup v2 hierarchy, then queries
+`loginctl show-user` for linger. Missing/unknown linger explicitly limits boot
+startup and persistence after logout. `loginctl enable-linger` may require local
+authorization; the adapter neither elevates nor changes linger. Unsupported
+managers, legacy/hybrid cgroups, unavailable hierarchy evidence and non-default
+manager `XDG_CONFIG_HOME` require foreground execution. An unset/empty manager
+value or the configured home directory’s `.config` is supported. The isolated launcher requires unified
+cgroup v2 ownership readback. Service status is local OS activation state, not a
+fleet first-signal/online claim.
+
+Installation retries preserve identity and registrations after enable/start
+failure. Identical unit configuration is idempotent; conflicting configuration
+requires local repair. `start`, `stop`, `restart`, `status` and `uninstall` target
+only the owned agent unit. Uninstall removes the definition and preserves the
+entire data directory, including identity, project allowlist and journal.
+
+The launcher uses a unique `gh-symphony-project-<UUID>.service`,
+`Type=oneshot`, `RemainAfterExit=yes`, and no stop dependency on the agent. It
+waits for startup completion, verifies `ExecMainCode/Status`, active/exited state
+and a disjoint control group. It rejects use outside the agent unit. Project
+credentials remain available to local CLI startup, while management/broker
+credentials and aliases are stripped from the supplied environment and inherited
+manager environment. Values are not put in systemd-run arguments. A timeout or
+uncertain OS result returns `exitCode: null`, never success or automatic replay.
+
+Each project start gets a fresh retained unit. Before launch, the adapter makes a
+bounded best-effort attempt to reclaim up to eight empty retained units. It checks
+the UUID name, transient oneshot/exited state, invocation identity, disjoint
+control group and `cgroup.events` `populated 0`, then repeats identity and emptiness
+observations before stopping. Populated, replaced, foreign and uncertain units
+are preserved; cleanup failure does not fail launch. This relies on the trusted
+operator account and never reuses a UUID unit. Agent lifecycle does not reclaim
+project units. Explicit project stop remains a C03 action. Machine shutdown or
+user-session teardown is outside the continuity guarantee.
+
+Run `pnpm --filter @gh-symphony/management-agent test` for configuration,
+installation recovery, subprocess boundaries and independent typed OS-command
+fixtures. Those fixtures are simulations, not native systemd acceptance.
+[TC-31](../../e2e/scenarios/31-linux-agent-user-service.md) runs actual C03/C05/C11
+composition, TLS delivery, managed daemon continuity and 20 reached fault
+probes. Use `--simulate` for ordinary host/Docker contract evidence and `--native`
+on a prepared Linux operator account for actual systemd/cgroup acceptance. Native
+acceptance remains a separate pre-release gate; simulations do not satisfy it.
+
+## C06 inventory publisher
+
+`createInventorySnapshot({ reader, cliVersion, resolveIdentities })` is directly
+compatible with `ForegroundOptions.snapshot`. It reads the current canonical
+registry on every call, preserves its explicit redaction, and joins server-issued
+UUIDs by local ID regardless of response order. Its `ProjectIdentityResolver`
+typed port must authenticate the enrolled environment and return one unique
+`ProjectIdentity` per requested local ID. Missing, foreign, duplicate or malformed
+bindings reject the whole publication with `invalid_inventory_identity`.
+
+The resolver is a consumer-owned transport/composition boundary; the publisher
+does not invent an allocation HTTP endpoint, infer global IDs from paths, or store
+previous inventory for later replay. Resolver outages propagate to C05 backoff;
+recovery publishes the current allowlist, including empty inventory after removal.
+The bundled `@gh-symphony/cli/management-agent` entry exports this factory and port.
+The existing `observationPages` helper splits its output into bounded complete
+revisions. Native-service launch isolation remains C03/C13 ownership.
+
+## C12 macOS user-service boundary
+
+`MacOSAgentService` and `launchMacOSProject` are exported through the bundled
+`@gh-symphony/cli/management-agent` module. C13 retains public command/setup
+routing. The adapter accepts trusted local `MacOSServiceConfig`: absolute Node,
+foreground entrypoint (consuming `--config <file>`), config and private data
+paths, current UID, and user home. Resolve the real OS home with
+`userInfo().homedir`; an overridden `HOME` may refer to a worker sandbox rather
+than the login user's home. Alternate staging homes report `autoStart.login =
+false`. The default label is `com.github-symphony.management-agent`.
+
+Call `install()` then `start()`; `status()`, `stop()`, `restart()` and
+`uninstall()` query/control only that job. Installation is private, idempotent
+for identical configuration, rejects symlinks/conflicts and preserves a failed
+bootstrap for retry. Unload polls for launchd removal within a 25-second window; an in-flight
+launchctl query has its own ten-second command timeout. Failed
+unload retains the definition; uninstall never deletes agent data. Credentials
+are read by the foreground entrypoint, not embedded in the plist. Unexpected
+nonzero exits restart with launchd's ten-second throttle; stdout/stderr remain
+under the user-only data directory. Log rotation belongs to the embedding owner.
+
+For C03's `native-service` launch context, supply
+`launchIsolatedProject: launchMacOSProject`. macOS project CLI invocations get a
+separate process group; the plist sets `AbandonProcessGroup` so launchd job exit
+cleanup does not capture managed projects. Foreground and service consumers use
+the same existing C03 lock. The directly launched agent stays foreground.
+
+Login auto-start requires the real user's `Library/LaunchAgents` directory.
+There is no pre-login boot startup, logout survival, privileged LaunchDaemon or
+promise of project persistence through machine/session teardown. `status()`
+rejects missing GUI-session support rather than reporting a stopped service.
+Use foreground execution for that environment.
+
+[TC-31](../../e2e/scenarios/31-macos-agent-service.md) exercises real launchd and
+prepared-project lifecycle with an independently typed C05 delivery fixture.
+Native macOS, portable contracts and Docker evidence are distinct. Login/logout
+remains an explicit manual walkthrough.
+
+A Node upgrade or moved CLI entrypoint can leave a conflicting saved definition.
+All adapter actions fail closed on that conflict, including stop and uninstall.
+To repair explicitly, use the current user's GUI session and first inspect the
+saved plist with `plutil -p "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`
+and `launchctl print "gui/$(id -u)/com.github-symphony.management-agent"`.
+Confirm the label and loaded path match your agent, and that the plist is a
+regular, non-symlink file owned by your UID with mode 0600. Use the real login
+home if `HOME` is overridden; substitute the configured label for an override.
+Do not remove or unload a foreign or unsafe definition.
+
+Run `launchctl bootout "gui/$(id -u)/com.github-symphony.management-agent"`
+if the job is loaded. Wait until `launchctl print` for that exact target reports
+that the service could not be found; a missing GUI domain or another command
+error does not confirm removal. Only then remove the inspected plist with
+`rm "$HOME/Library/LaunchAgents/com.github-symphony.management-agent.plist"`.
+Call `install()` and `start()` with the updated absolute executable and
+entrypoint paths. Keep the existing config and private data directory: this
+repair preserves enrollment, allowlist and journal data and does not stop
+managed project orchestrators. Installation requires an executable `nodePath`.

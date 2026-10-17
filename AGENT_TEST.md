@@ -266,7 +266,7 @@ Control worker behavior with the `STUB_SCENARIO` environment variable:
 | Hook-owned repository population and configuration faults                    | `packages/cli/src/workflow/default-hooks.test.ts` verifies `workflow init` writes an executable population hook, then executes it against a real bare fixture to prove a non-promisor clone, assigned-branch checkout, and fetchability from an external bare host repository; `packages/orchestrator/src/git.test.ts` verifies the core creates only directories and preserves reused contents; `packages/orchestrator/src/service.test.ts` covers fresh-hook cleanup, one-shot reuse, and missing-hook degradation without changing an issue retry count; `packages/cli/src/commands/{start,doctor}.test.ts` cover absent and non-executable paths.                                                                                                                                                                                                                                                                                                              | `./e2e/run-standalone-project-e2e.sh` first rejects a packaged standalone project with a missing hook, then dispatches two valid projects whose installed `after_create` hooks populate serviceable workspaces. It commits a worker blob in the hook-created beta workspace, performs the host-equivalent fetch into an external bare repository, and reads the fetched blob. A filtered-clone control missing the superseded policy blob must fail with the `lazy fetching disabled` / `bad pack header` signature.                                                                                            |
 | OTLP worker provenance and secret-free startup (OT-08/OT-09)                 | `packages/worker/src/token-usage.test.ts` covers measured zero, invalid counts, absolute totals and rejected generic/delta usage; `worker-protocol.test.ts` uses the production parser for all-zero counts. `pnpm test:worker-startup` verifies initialized versus measured zero, session/turn deltas, additive provenance, stripped-reference startup, absent exporter secrets and uninterpreted Claude usage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `pnpm e2e:claude` runs the same OT-08/OT-09 scenario with the built worker and real Codex stub; the separate Codex smoke-leg exception is tracked in #1003.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Direct agent-provider authentication                                         | `packages/runtime-codex/src/{launcher,runtime}.test.ts`, `packages/runtime-claude/src/{adapter,preflight}.test.ts`, and `packages/cli/src/commands/doctor.test.ts` verify direct provider variables and staged local logins remain supported while removed agent-broker variables cannot satisfy Codex launch or bare Claude preflight.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `pnpm e2e:claude` exercises the built worker/runtime boundary for both provider routes; provider login material remains unit-isolated because the Docker suite uses stub binaries.                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Agent-visible Symphony run context                                           | `packages/runtime-codex/src/runtime.test.ts`, `packages/core/src/runtime/custom-child-env.test.ts`, and `packages/worker/src/non-codex-runtime.test.ts` verify Codex, Claude, and custom children receive the assigned branch and issue context while tracker secrets and the seven-name custom-runtime credential backstop remain absent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Runtime child-environment composition is deterministic and unit-isolated; the standard Docker stub does not launch each supported external coding-agent binary.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Agent-visible Symphony run context                                           | `packages/runtime-codex/src/runtime.test.ts`, `packages/core/src/runtime/custom-child-env.test.ts`, and `packages/worker/src/non-codex-runtime.test.ts` verify Codex, Claude, and custom children receive the assigned branch and issue context while tracker secrets and the nineteen-name custom-runtime credential backstop remain absent.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Runtime child-environment composition is deterministic and unit-isolated; the standard Docker stub does not launch each supported external coding-agent binary.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Normalized per-state concurrency limits                                      | `packages/core/src/workflow-loader.test.ts` verifies trimmed/lowercased map keys and ignored invalid entries; `packages/orchestrator/src/dispatch.test.ts` verifies a padded mixed-case key caps matching tracker states.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | No Docker scenario remains for a same-project per-state cap; the deterministic loader and dispatch tests are authoritative. The standalone runner instead proves concurrent isolation between two project folders.                                                                                                                                                                                                                                                                                                                                                                                              |
 
 | Post-hook project environment snapshot | `packages/orchestrator/src/service.test.ts` verifies a `before_run` hook can refresh the managed project `.env`, the same-run worker and credential resolver observe the late value, hook inputs retain their existing merge behavior, and the run record stores only an environment digest. | `./e2e/run-standalone-project-e2e.sh` exercises the packaged hook-to-worker lifecycle; the credential mutation and digest secrecy assertions remain deterministic unit coverage. |
@@ -419,35 +419,42 @@ idle → [inject issue + refresh]
 
 ### Predefined Scenario Documents
 
-| File                                                    | Scenario                                                                                                                                                            |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `e2e/scenarios/01-happy-path.md`                        | Issue dispatch → worker completion → lifecycle observation                                                                                                          |
-| `e2e/scenarios/02-multi-issue.md`                       | Verify concurrency limit                                                                                                                                            |
-| `e2e/scenarios/03-stall-detection.md`                   | stall → SIGTERM → retry                                                                                                                                             |
-| `e2e/scenarios/04-fail-retry.md`                        | Failure → retry scheduling                                                                                                                                          |
-| `e2e/scenarios/05-before-remove-hook-failure.md`        | Verify a `before_remove` hook failure does not block workspace cleanup                                                                                              |
-| `e2e/scenarios/06-retry-title-preservation.md`          | Issue title preservation during retry/recovery                                                                                                                      |
-| `e2e/scenarios/07-release-missing-retry.md`             | Release a missing retry queue instead of restarting                                                                                                                 |
-| `e2e/scenarios/09-linear-sandbox.md`                    | Verify Linear sandbox lifecycle, confirmed per-turn state reads, dirty-workspace recovery, and reconciliation edge cases                                            |
-| `e2e/scenarios/10-http-auth-hardening.md`               | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                                                                      |
-| `e2e/scenarios/10-orchestrator-tracker-state.md`        | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                                                          |
-| `e2e/scenarios/12-transition-comment-race.md`           | Verify transition intent changes tracker state without orchestrator-authored comment metadata                                                                       |
-| `e2e/scenarios/13-api-progress-convergence.md`          | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                                                                    |
-| `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, workspace, and branch isolation) — `pnpm e2e:standalone-project`                                          |
-| `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                                                                      |
-| `e2e/scenarios/15-terminal-candidate-reconciliation.md` | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                                                          |
-| `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                                                          |
-| `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                                                                |
-| `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication                                                        |
-| `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry                                            |
-| `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                                                              |
-| `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe                         |
-| `e2e/scenarios/28-bounded-local-reads.md`               | C09 CP-12/15: contained known-run streams, bounded history/text, append/EOF/reset, unavailable/expired/revoked reads, safe metadata and five assertion probes       |
-| `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes |
-| `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                          |
-| `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                    |
-| `e2e/scenarios/29-fleet-command-recovery.md`            | C07 CP-06/07/09/18/19: SQLite claim races, restart/lost-result recovery, ownership fencing, audited closure and 17 reached forbidden-condition probes               |
-| `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution                                       |
+| File                                                    | Scenario                                                                                                                                                                                                                                        |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `e2e/scenarios/01-happy-path.md`                        | Issue dispatch → worker completion → lifecycle observation                                                                                                                                                                                      |
+| `e2e/scenarios/02-multi-issue.md`                       | Verify concurrency limit                                                                                                                                                                                                                        |
+| `e2e/scenarios/03-stall-detection.md`                   | stall → SIGTERM → retry                                                                                                                                                                                                                         |
+| `e2e/scenarios/04-fail-retry.md`                        | Failure → retry scheduling                                                                                                                                                                                                                      |
+| `e2e/scenarios/05-before-remove-hook-failure.md`        | Verify a `before_remove` hook failure does not block workspace cleanup                                                                                                                                                                          |
+| `e2e/scenarios/06-retry-title-preservation.md`          | Issue title preservation during retry/recovery                                                                                                                                                                                                  |
+| `e2e/scenarios/07-release-missing-retry.md`             | Release a missing retry queue instead of restarting                                                                                                                                                                                             |
+| `e2e/scenarios/09-linear-sandbox.md`                    | Verify Linear sandbox lifecycle, confirmed per-turn state reads, dirty-workspace recovery, and reconciliation edge cases                                                                                                                        |
+| `e2e/scenarios/10-http-auth-hardening.md`               | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                                                                                                                                                  |
+| `e2e/scenarios/10-orchestrator-tracker-state.md`        | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                                                                                                                                      |
+| `e2e/scenarios/12-transition-comment-race.md`           | Verify transition intent changes tracker state without orchestrator-authored comment metadata                                                                                                                                                   |
+| `e2e/scenarios/13-api-progress-convergence.md`          | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                                                                                                                                                |
+| `e2e/scenarios/13-standalone-project-model.md`          | Verify the standalone project model (project `.env`, MCP, workspace, and branch isolation) — `pnpm e2e:standalone-project`                                                                                                                      |
+| `e2e/scenarios/14-dispatch-start-failure-isolation.md`  | Verify one candidate's pre-spawn failure records retry state without starving later candidates                                                                                                                                                  |
+| `e2e/scenarios/15-terminal-candidate-reconciliation.md` | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                                                                                                                                      |
+| `e2e/scenarios/16-packaged-runtime-entrypoints.md`      | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                                                                                                                                      |
+| `e2e/scenarios/19-required-label-routability.md`        | Verify required-label filtering cancels active runs without workspace cleanup and exposes the reason                                                                                                                                            |
+| `e2e/scenarios/20-agent-child-isolation.md`             | Verify unconditional child credential/config isolation, host-only MCP tools, and worker-exit Git publication                                                                                                                                    |
+| `e2e/scenarios/17-registry-free-project-lifecycle.md`   | Verify packaged project start/status/stop use daemon PID records and project locks without creating an instance registry                                                                                                                        |
+| `e2e/scenarios/24-hook-configuration-fault.md`          | Verify a missing standalone-project hook is rejected before dispatch and its resolved path is reported                                                                                                                                          |
+| `e2e/scenarios/26-expected-target-local-stop.md`        | CP-08: verified graceful stop, replacement/PID-identity replay rejection, preserved ownership records, and forbidden-record assertion probe                                                                                                     |
+| `e2e/scenarios/28-bounded-local-reads.md`               | C09 CP-12/15: contained known-run streams, bounded history/text, append/EOF/reset, unavailable/expired/revoked reads, safe metadata and five assertion probes                                                                                   |
+| `e2e/scenarios/27-local-management-agent.md`            | C03 CP-01–04/14/15: real bundled local adapter, alias restart, invalid-workflow stop, replacement recovery, secret filtering, removal independence and fault probes                                                                             |
+| `e2e/scenarios/25-durable-publication.md`               | Verify durable local publication boundaries and default no-op CLI dispatch                                                                                                                                                                      |
+| `e2e/scenarios/28-fleet-enrollment-security.md`         | Verify private HTTPS/CSRF, durable enrollment, atomic exchange/revocation and reached forbidden-condition probes                                                                                                                                |
+| `e2e/scenarios/29-fleet-command-recovery.md`            | C07 CP-06/07/09/18/19: SQLite claim races, restart/lost-result recovery, ownership fencing, audited closure and 17 reached forbidden-condition probes                                                                                           |
+| `e2e/scenarios/29-otlp-lifecycle.md`                    | OT-03/10/11/12: gated/disabled startup, applied/pending status through HTTP, invalid reload/revert, health isolation, bounded shutdown, normal CLI YAML activation and three reached forbidden-condition probes                                 |
+| `e2e/scenarios/26-otlp-child-credentials.md`            | OT-09: disabled-policy exporter references stripped from captured workers/hooks/runtimes; shared auth names rejected without value resolution; audited enabled CLI startup completes one tick with code 0, applied telemetry and released locks |
+| `e2e/scenarios/30-agent-outbound-transport.md`          | C05: packaged foreground/TLS enrollment, exclusive sessions, first signal, restart/revocation, real orchestrator continuity and six reached forbidden-condition probes                                                                          |
+| `e2e/scenarios/31-macos-agent-service.md`               | C12 CP-22/23: native LaunchAgent retry, process-group isolation, stop/restart/crash/uninstall preservation, shared lock and five reached assertion probes; login/logout reported separately                                                     |
+| `e2e/scenarios/31-fleet-bounded-reads.md`               | C10 CP-12: HTTPS read admission/detail, actual C09 filesystem reads, history/expiry/offline/reset and nineteen reached forbidden-condition probes                                                                                               |
+| `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 24 reached assertions and 22 isolated forbidden-condition probes                             |
+| `e2e/scenarios/31-agent-durable-executor.md`            | C08 CP-04–09/18/19: real agent journal, C07 ledger, separate agent/CLI processes, crash boundaries, deferred exit and replacement recovery; 23 reached assertions and six forbidden-condition probes                                            |
+| `e2e/scenarios/31-linux-agent-user-service.md`          | C11 CP-22/23: retry/lock conflict, isolated project units, CLI continuity through service lifecycle and 20 fault probes; native and simulated evidence separated                                                                                |
 
 ## TC Writing Guide
 
@@ -482,6 +489,17 @@ Stop the container, reset fixtures
 - **Polling interval**: poll state at 1-second intervals, but set a maximum wait time
 - **Issue removal**: after observing worker completion, always remove issues to avoid retry loops
 - **STUB_SCENARIO**: pick the worker behavior matching the scenario (e.g. `STUB_SCENARIO=fail docker compose ...`)
+
+### macOS agent service cases (C12)
+
+[TC-31](e2e/scenarios/31-macos-agent-service.md) defines CP-22/23 and the separate
+manual login/logout walkthrough. After `pnpm build`, run
+`./e2e/run-macos-agent-service-e2e.sh` on macOS for native launchd, real
+prepared-project preservation and five reached forbidden-condition probes.
+Typecheck the independent peer fixture with the command in TC-31. Portable
+`management-agent` tests cover configuration/lifecycle/error contracts and
+mutation checks; they do not establish native OS acceptance. C05 Docker
+`./e2e/run-agent-transport-e2e.sh` remains the applicable dependency scenario.
 
 ### Management protocol contract cases (C01)
 
@@ -561,6 +579,49 @@ applicable U04/U07 retained history and log follow/reset paths through the bundl
 CLI factory, an actual daemon and independently persisted store records. Native
 service isolation and offline HTTP/UI behavior are outside this slice.
 
+### Agent outbound session cases (C05)
+
+Run `pnpm --filter @gh-symphony/management-agent test` and
+`pnpm --filter @gh-symphony/fleet-control-plane test`, included in `pnpm test`.
+`transport.test.ts` uses a real trusted TLS peer; `sessions.test.ts` uses actual
+C04 enrollment, real SQLite and an independent typed projection table.
+`foreground.test.ts` verifies receipt-independent reconnect, concurrent heartbeats,
+pacing, sequence reset and bounded paging through an independent v1 peer.
+Regression cases also cover restart/expiry before the first authenticated signal
+(remaining awaiting-signal) and transient failures in initial/heartbeat snapshots
+or delivery handlers (sanitized diagnostics, backoff and fresh snapshot recovery).
+The real C05/C07 composition case verifies current-session claim fencing and
+ownership transfer; foundation cases preserve populated v2 lifecycle data on the
+v3 session upgrade and reject reopening it with version-2 migrations.
+
+After `pnpm build`, run `node e2e/agent-transport-e2e.mjs` for host evidence and
+`./e2e/run-agent-transport-e2e.sh` for Linux Docker. TC-30 runs separate foreground
+and HTTPS peer processes plus a real prepared-project CLI daemon. Six forbidden
+conditions must reach and fail their assertions. Report actual macOS/Linux
+container evidence separately; this is not native systemd/launchd isolation or
+service lifecycle validation.
+
+### Agent durable executor cases (C08)
+
+`pnpm --filter @gh-symphony/management-agent test` covers real private journal
+files, restart of the registry owner, concurrent effect-marker writes, immutable
+claim/target/result boundaries, foreign identity and unsafe/corrupted files.
+`executor.test.ts` exercises the actual journal and lifecycle adapter against an
+independent typed durable claim/result peer. It covers lost responses, duplicate
+delivery, authoritative server expiry, agent/server clock skew in both directions,
+marker-only crashes, unknown resolution,
+readiness/exit/lock evidence, runtime replacement and same-agent ownership
+transfer. Foreground tests cover locked-registry handler composition and recovery
+on empty polls. [TC-31](e2e/scenarios/31-agent-durable-executor.md) runs the
+bundled executor/journal against real C07 SQLite storage and separate real
+agent/CLI daemon processes. After `pnpm build`, run
+`node e2e/agent-executor-e2e.mjs` and `node e2e/agent-executor-mutations.mjs`,
+or `./e2e/run-agent-executor-e2e.sh` for isolated Linux Docker. Six actual
+durable/runtime forbidden conditions must reach and fail their named assertions.
+Report actual host OS separately from container results. Session/project truth,
+deadline clock advancement and the deferred-exit driver are explicit fixtures;
+native-service isolation and fleet HTTP/UI acceptance remain outside C08.
+
 ### Fleet lifecycle command recovery cases (C07)
 
 `pnpm --filter @gh-symphony/fleet-control-plane test` includes real enrolled
@@ -578,3 +639,127 @@ boundaries. Every assertion prints its reached marker; 18 isolated mutations
 prove forbidden conditions fail. Report macOS tests and Linux container tests
 separately. These are ledger/protocol integration checks, not native OS
 orchestrator lifecycle or production agent-journal acceptance.
+
+### Clean OTLP package boundary cases (OT-03/OT-13)
+
+`pnpm --filter @gh-symphony/cli test:package` installs the built tarball outside
+the checkout with `npm install --omit=dev --ignore-scripts`. It imports the lazy
+SDK chunks in fresh processes, then uses an ESM loader to reject SDK evaluation
+by `--version` and the idle worker entry. Ambient OTLP endpoint configuration is
+present; run identity variables are removed from the worker probe. Existing MCP,
+management and credential-helper checks execute from that same installation.
+This is a package reachability test. The separate
+`packages/cli/scripts/otlp-package-audit.mjs` audit adds 30 counterbalanced clean-install
+startup/RSS samples per build, healthy/slow/down offer latency, disabled startup SDK and
+connection guards, and packed doctor network/credential checks. See the CLI
+README for arguments and baseline preparation. `package-performance.test.ts`
+guards the review thresholds and `index-otlp.test.ts` guards public probe flag
+forwarding. `start.test.ts` checks the capability/release composition;
+`status.test.ts` checks applied/pending rendering in single-shot and TTY watch. `otlp-runtime-audit.mjs` exercises the installed H capability, authenticated
+Logs/Metrics exports and release Resource, pending disable/endpoint reload,
+invalid last-known-good/revert, shared shutdown deadline, and 30 full reconciliation
+ticks per disabled baseline/candidate and enabled healthy/slow/down receiver.
+The final audit uses `--production-cli` to assert normal YAML-enabled startup.
+The default library guard stays off. Collector dogfood receipt is a separate Epic gate.
+
+The packed OTLP audit also starts a TCP peer that stalls TLS and verifies both
+probe timeouts and doctor process exit within five seconds (three-second probe
+budget plus CLI startup allowance).
+Its disabled startup loader rejects diagnostic-module evaluation as well as SDK
+evaluation, so status/probe initialization cannot enter the startup benchmark.
+Startup sampling counterbalances pair order: thirty fresh processes per build,
+with each build first in fifteen pairs. The report records the complete order;
+the audit rejects an unbalanced schedule without discarding timing outliers.
+
+### Fleet observation and inventory cases (C06)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes real C04 enrollment,
+C05 sequence/authentication and C07 command invalidation on SQLite; atomic/partial
+membership, rejected pages/identities/capacity, rollback, clock skew, snapshot/run
+retention, restart, scoped paging and normalized advisory warnings. Publisher
+unit cases in `management-agent/src/inventory.test.ts` use the real canonical
+registry and independent identity/reader fixtures, including leak canaries and
+outage/removal recovery. Protocol tests cover additive optional query projection
+fields while accepting prior v1 aggregate fixtures.
+
+[TC-31](e2e/scenarios/31-fleet-observations.md) defines the owned CP and operator
+walkthrough cases. After `pnpm build`, run `node e2e/fleet-observations-e2e.mjs`
+and `node e2e/fleet-observations-mutations.mjs`, or
+`./e2e/run-fleet-observations-e2e.sh` for isolated Linux Docker. The independent
+TLS peer and actual bundled publisher reach 24 assertions; 22 isolated artifact
+mutations must reach and fail their intended assertion. Actual macOS evidence
+must be reported separately from Linux/container simulations, production fleet
+HTTP/UI assembly and native-service acceptance.
+
+### Linux agent user-service cases (C11)
+
+Run `node --test e2e/lib/json-journal.test.mjs` to verify that polling retries
+missing/truncated fixture journals and observes the next complete result. The
+Docker C11 runner includes this deterministic journal-race regression.
+
+Run `pnpm --filter @gh-symphony/management-agent test`; the root `pnpm test`
+includes these cases. `linux-service.test.ts` verifies absolute paths and
+systemd quoting, linger/user-manager diagnosis, failed-install retry, foreign
+unit rejection, vendor type-wide drop-in acceptance versus targeted/user override
+rejection, XDG and legacy/hybrid cgroup diagnosis, lifecycle targeting and preserved data. `linux-launcher.test.ts`
+uses an independent typed OS-command peer to exercise retained oneshot startup,
+cgroup separation, failed execution, deadlines, credential filtering and unique
+unit names. Real filesystem cgroup-event fixtures additionally verify empty
+retained-unit reclamation, populated/replaced/uncertain unit preservation and
+cleanup failure isolation. TC-31 simulation adds two reached cleanup assertions
+and matching forbidden-condition probes. The subprocess test runs real Node children for bounded output,
+timeout and failed-spawn behavior. These are filesystem/process/OS-contract
+simulations on the host; they do not claim native systemd acceptance.
+
+CP-22/23 native acceptance requires a Linux systemd 254+ user manager and unified
+cgroup v2: start a real prepared project through the bundled C03 adapter from
+inside the actual agent service, read both control groups and project process
+identity, then stop/restart/uninstall the agent while verifying the project stays
+alive and its identity/registrations/journal remain intact. Exercise the same C05
+owner lock from a conflicting foreground process. Keep native OS evidence
+separate from ordinary Linux container simulations; a container without a real
+user manager cannot establish OS lifecycle isolation. Run `node e2e/linux-agent-service-e2e.mjs --simulate` and
+`node e2e/run-linux-agent-service-probes.mjs --simulate` for host contract evidence,
+or `./e2e/run-linux-agent-service-e2e.sh` for Docker. The Docker runtime image
+includes both C11 programs, so this runner checks the packaged CLI and all
+20 forbidden-condition probes inside Linux. Run both Node commands with
+`--native` on a prepared Linux operator account for actual systemd acceptance;
+the native runner refuses to replace a preexisting agent service.
+[TC-31](e2e/scenarios/31-linux-agent-user-service.md) specifies all normal, invalid,
+recovery and reached-probe cases. Docker preflight 69 is the documented worker
+exception; native preflight 69 records unavailable native acceptance, which must
+be confirmed separately before release.
+
+### Fleet bounded read service cases (C10)
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` covers independent read
+capacity alongside an actual lifecycle command, exact expiry, receipt-time
+completion, detail/run matching, UTF-8 request limits, reset preservation,
+canonical nested JSON replay (array order preserved), serialized log metadata
+bounds, detached detail methods, offline/restart outcomes, retained-registry admission and
+fail-closed synchronous authentication. `read-routes.test.ts` exercises actual
+C04 CSRF sessions with independent SQLite project/session tables and structured
+202/200/400/401/409 responses. No native service isolation claim follows from
+these tests. [TC-31](e2e/scenarios/31-fleet-bounded-reads.md) adds actual C09
+filesystem composition through trusted HTTPS plus twenty copied-artifact probes.
+Run `node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs`
+after `pnpm build`; `./e2e/run-fleet-reads-e2e.sh` supplies isolated Linux Docker.
+Report native host and container evidence separately.
+
+## C16 fleet projects and runtime detail
+
+| Case                                                                                                                               | Executable evidence                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-33 — fleet identity, filtered paging, fresh-only totals, historical detail, offline actions, escaped inventory and local assets | `node e2e/fleet-projects-e2e.mjs` (11 reached assertions), `node e2e/fleet-projects-mutations.mjs` (11 isolated forbidden-outcome probes); `./e2e/run-fleet-projects-e2e.sh` for Linux Docker |
+
+After building, the C16 black-box fixture mounts the actual read-only dispatcher
+on a loopback HTTP test listener with actual C04 enrollment, C05 sessions and
+C06 SQLite inventory. It covers the C16 presentation portion of CP-01/03/05/10/17
+and U01/U04. Fixture host labels are not native OS acceptance. Production HTTPS,
+native process exit/recovery, command history and log reading remain owned by
+their consuming slices. Unit route tests additionally cover invalid workflow
+with eligible Stop, empty/error/loading output, invalid IDs and input rejection.
+For visual verification, check fleet and detail at 1440/1024/390px, including
+keyboard form submission, no horizontal overflow, readable paths, local SVG
+geometry, filter reset and historical offline labels. Native forms retain browser
+keyboard behavior; no custom menu or focus trap is introduced.

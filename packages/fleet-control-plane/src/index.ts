@@ -5,6 +5,13 @@ export {
 } from "./config.js";
 export { openFleetStore, type FleetStore } from "./store.js";
 export {
+  createObservationService,
+  type ObservationService,
+  type ObservationOptions,
+  type ObservedProject,
+  type ScopeWarning,
+} from "./observations.js";
+export {
   applyMigrations,
   FLEET_MIGRATIONS,
   type Migration,
@@ -29,9 +36,43 @@ export {
   type BrowserSession,
 } from "./browser-security.js";
 export {
+  createSessionService,
+  SESSION_LIFETIME_MS,
+  type SessionService,
+  type SessionOptions,
+} from "./sessions.js";
+export {
   createCommandService,
   type CommandService,
   type CommandOptions,
   type CommandPeers,
   type CommandTarget,
 } from "./commands.js";
+export {
+  createReadService,
+  type ReadService,
+  type ReadOptions,
+} from "./reads.js";
+export {
+  createReadRoutes,
+  type ReadRouteRequest,
+  type ReadRouteResponse,
+} from "./read-routes.js";
+export {
+  presentProject,
+  summarizeProjects,
+  type ProjectPresentation,
+} from "./project-presentation.js";
+
+export {
+  createProjectRoutes,
+  type ProjectRouteOptions,
+  type ProjectRouteResponse,
+} from "./project-routes.js";
+export {
+  renderFleetPage,
+  renderProjectDetail,
+  renderProjectFeedback,
+  type ProjectLinks,
+  type FleetPage,
+} from "./project-pages.js";

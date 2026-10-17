@@ -1,3 +1,4 @@
+import { json } from "./json.js";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type {
@@ -21,7 +22,6 @@ import {
   resultRequestSchema,
   commandRecordSchema,
   type Schema,
-  type JsonValue,
 } from "@gh-symphony/management-protocol";
 import { FleetError } from "./enrollment.js";
 import type { FleetStore } from "./store.js";
@@ -73,7 +73,8 @@ export interface CommandService extends Pick<
   ): CommandRecord;
   /** Call inside the peer's revocation transaction; no nested transaction. */
   invalidateEnvironment(database: DatabaseSync, environmentId: UUID): undefined;
-  invalidateProject(projectId: UUID): void;
+  /** C06 removal may supply the already-open shared projection transaction. */
+  invalidateProject(projectId: UUID, database?: DatabaseSync): undefined;
   prune(): { commands: number; audits: number };
 }
 
@@ -83,15 +84,6 @@ function parse<T>(schema: Schema<T>, value: unknown): T {
   } catch {
     throw new FleetError("invalid_input", "Invalid command input");
   }
-}
-function json(value: JsonValue): string {
-  if (Array.isArray(value)) return `[${value.map(json).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${json(value[key])}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
 }
 
 /** Trusted library boundary. HTTP consumers must resolve local-owner/CSRF first. */
@@ -310,8 +302,14 @@ export function createCommandService(
         if (target.projectId !== projectId)
           throw new Error("Peer returned a different project identity");
         parse(uuidSchema, target.environmentId);
-        parse(uuidSchema, target.agentId);
-        parse(uuidSchema, target.sessionId);
+        const env = db
+          .prepare("SELECT enrollment FROM environments WHERE id=?")
+          .get(target.environmentId);
+        if (env?.enrollment !== "enrolled")
+          throw new FleetError(
+            "access_revoked",
+            "Target enrollment is not active"
+          );
         if (!target.managed)
           throw new FleetError("project_unmanaged", "Project is not managed");
         if (!target.supported)
@@ -326,18 +324,16 @@ export function createCommandService(
           );
         if (!target.online)
           throw new FleetError("agent_offline", "Target is offline");
-        const env = db
-          .prepare("SELECT enrollment FROM environments WHERE id=?")
-          .get(target.environmentId);
+        // Cached projects survive revocation or a missing session. Active-session
+        // identifiers are meaningful only for an enrolled, online target.
+        parse(uuidSchema, target.agentId);
+        parse(uuidSchema, target.sessionId);
         const agent = db
           .prepare(
             "SELECT agent_id FROM agent_credentials WHERE environment_id=?"
           )
           .get(target.environmentId);
-        if (
-          env?.enrollment !== "enrolled" ||
-          agent?.agent_id !== target.agentId
-        )
+        if (agent?.agent_id !== target.agentId)
           throw new FleetError(
             "access_revoked",
             "Target enrollment is not active"
@@ -623,18 +619,18 @@ export function createCommandService(
           .all(id)
       );
     },
-    invalidateProject(id) {
+    invalidateProject(id, database) {
       parse(uuidSchema, id);
-      store.transaction(() =>
+      const operation = () =>
         invalidate(
-          db,
+          database ?? db,
           db
             .prepare(
               "SELECT * FROM lifecycle_commands WHERE project_id=? AND state='accepted'"
             )
             .all(id)
-        )
-      );
+        );
+      return database ? operation() : store.transaction(operation);
     },
     prune() {
       return store.transaction(() => {

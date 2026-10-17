@@ -75,7 +75,7 @@ expired or revoked values fail closed. GET/HEAD resolves the private listener's
 local-owner read boundary; the consumer must keep that listener private.
 
 Defaults are eight hours and 256 sessions. Typed options allow lifetimes from
-one second through seven days and registry sizes from 1 through 10,000. Sessions
+one second through nineteen days and registry sizes from 1 through 10,000. Sessions
 are bounded in memory and disappear on restart; SQLite enrollment survives.
 At capacity, issuing a session evicts the oldest live session, whose next request
 fails as unauthenticated. Repeated issuance by anyone with listener access can
@@ -100,6 +100,43 @@ checks and eight forbidden-condition probes. `./e2e/run-fleet-enrollment-e2e.sh`
 runs both in Linux Docker. The independent HTTP/session/command fixture is test
 infrastructure, not a shipped fleet server. These checks do not validate native
 service isolation or management of actual orchestrator processes.
+
+## C05 exclusive sessions and authenticated first signal
+
+Migration 3 adds `agent_sessions` to the same SQLite connection, after C07's
+lifecycle command migration 2. Existing version-2 databases upgrade without
+changing command records; version-2 binaries reject a version-3 database. Construct
+`createSessionService(store, enrollment, { receiveObservation, now? })` with the
+same C04 store/enrollment connection. Session negotiation authenticates the
+environment/agent credential, validates v1, and atomically rejects another live
+session. A session expires after 30 seconds without observations; a replacement
+gets a new opaque UUID and resets sequence. Host/version metadata is projected
+through environment listing. Negotiation alone stays awaiting first signal
+(or offline for previously connected environments).
+
+`observe(identity, request)` calls C04's authenticated-signal transaction.
+Current session ownership is required even for zero projects. Freshness and
+expiry use server receipt time, never agent clocks. Increasing sequence invokes
+the required synchronous `receiveObservation(database, request)` sibling projection
+hook; duplicate/older sequences acknowledge contact without replacing inventory.
+Projection failure or an asynchronous/non-undefined hook rolls back sequence,
+session renewal and connection state together.
+
+Call `authenticateSession` before poll/claim/result work. Poll does not renew
+heartbeat freshness. Call `expire()` on the consuming fleet liveness tick and
+`recoverAfterRestart()` once before serving requests after process restart;
+persisted sessions are fenced. Previously observed environments become offline
+until a new authenticated observation; environments that have never sent a signal
+remain awaiting-signal through both expiry and restart. Enrollment/credentials
+survive this recovery.
+
+C04's revocation hook must compose `sessions.invalidate(database, environmentId)`
+with the command/projection owners' invalidation on that same transaction.
+Session invalidation makes no local process calls. TLS listener routing and the
+atomic inventory/query projection remain sibling-owned. Tests use real C04
+enrollment, migrations and SQLite plus an independent typed projection table.
+A composition regression wires the actual session verifier into C07 claims and
+ownership transfer, covering expired/replaced sessions and revoked credentials.
 
 ## Lifecycle command ledger (C07)
 
@@ -173,3 +210,191 @@ records the package boundaries. After `pnpm build`, run
 `./e2e/run-fleet-commands-e2e.sh` for isolated Linux Docker.
 [TC-29](../../e2e/scenarios/29-fleet-command-recovery.md) distinguishes
 ledger/journal-fixture integration evidence from native OS lifecycle validation.
+
+## C06 cached observations and atomic inventory
+
+`createObservationService(store, { invalidateProject, now? })` owns migration 4:
+server-issued UUIDs uniquely bind `(environmentId, localProjectId)`, completed
+inventory membership, bounded in-flight page identity sets, and latest project
+observations. Wire identities must be allocated with `identifyProjects` by trusted
+authenticated composition before upload. Production identity negotiation and HTTP
+route assembly remain typed consumer boundaries; this library does not expose an
+unauthenticated allocation route.
+
+Pass `receiveObservation` directly to the C05 session service on the same store.
+The callback requires an active shared transaction; sequence, authenticated
+receipt and projection commit or roll back together. Page zero begins a revision;
+remaining page indexes may arrive in any order. Page count, identities, duplicate
+pages and the 100-project aggregate limit are validated across pages. Only a
+complete revision changes managed membership. Existing project status can advance
+before completion; newly discovered projects appear after completion. Removed
+projects retain last-known data marked unmanaged. The required synchronous
+`invalidateProject(database, projectId)` peer expires unclaimed lifecycle commands
+on removal or reported folder loss without stopping any process.
+
+`listProjects` defaults to 25 rows (maximum 100) and uses project UUID keyset
+paging, with cursors scoped to environment/process/connection filters. Invalid
+cursors and filter changes return `cursor_reset`; invalid limits are rejected.
+`getProject` adds receipt freshness, snapshot staleness and advisory scope
+warnings to the protocol aggregate shape. `summary` counts only managed, fresh
+running observations; offline/removed historical running processes are excluded.
+Queries compute timeout freshness even before session-expiry maintenance runs.
+Restart recovery belongs to C05 and preserves cached project state as stale.
+
+Missing snapshots retain the last successful snapshot and its original timestamp,
+with an explicit stale diagnostic. Missing snapshots and empty run summaries never
+imply a stopped process. Normalized reported tracker metadata compares adapter,
+binding and repository plus sorted/deduplicated state and label sets across
+environments. Missing, stale or failed scope observations produce `unverified`
+warnings, as do differing state/label filters on the same adapter/binding/repository.
+Different adapter, binding or repository identities produce no warning; identical
+known scopes produce `identical` warnings. This does not
+reimplement provider eligibility, prevent starts, or provide global scheduling.
+
+`observations.test.ts` composes real C04 enrollment/C05 sessions with SQLite and
+typed independent project observations for CP-01/03/05/10/14/17/21. The management
+plane remains a repository-local extension; `docs/symphony-spec.md` is unchanged.
+
+The query projection fields are validated by the additive v1 aggregate protocol
+schema. An identical known pair and unverified comparisons can coexist. Related
+UUID lists are bounded to 100 per warning; they are examples of reported matches,
+not an exhaustive global ownership guarantee. Absence of a warning does not
+establish disjoint eligibility. Queries normalize scopes once, index identity and
+filter groups, and cache each environment lookup per projection. Comparisons use
+linear counts with bounded related-UUID lists rather than all-project pair scans. Cached run summaries retain local times/statuses
+and sort newest first. Default query pages include retained unmanaged history;
+`summary` counts only current managed projects.
+
+Wire the required invalidation peer as
+`(database, id) => commands.invalidateProject(id, database)`; C07 accepts the
+shared active transaction without nesting `BEGIN`. A peer failure rolls back
+command expiry, projection writes, authenticated sequence and contact together.
+Use `resolveTarget` as the C07 project peer on that same database.
+
+[TC-31](../../e2e/scenarios/31-fleet-observations.md) exercises real C04/C05/C06/C07
+composition, TLS transport and the bundled publisher. Production route/UI
+composition and native OS service acceptance are not supplied by these fixtures.
+
+Retained revoked projects return `access_revoked` for new command submissions.
+Enrollment and offline preconditions are checked before active-session UUIDs,
+since revocation intentionally deletes the session without deleting observations.
+
+Project UUIDs are scoped to environment, enrolled agent ID and canonical local
+project ID. Replacement enrollment creates new project identities; prior
+generation observations remain historical, unmanaged and stale, even during a
+partial replacement revision. Same-agent reconnects retain their UUIDs. Migration
+5 retains v4 history with an unknown generation and fences it until the current
+agent publishes newly allocated identities; it never infers ownership from a
+replacement credential.
+
+Identity allocation permits at most 100 outstanding unpublished mappings per
+environment across calls. Existing mappings and intentionally published history
+remain available at capacity. Overflow rolls back the entire allocation batch;
+completed publication releases pending capacity. Abandoned unpublished mappings
+from retired generations are reclaimed during allocation.
+
+## Bounded read lane (C10)
+
+`createReadService(store, { peers, now?, maximumEntries? })` exposes `submitRead`
+and `getRead` plus agent `poll` and `publishResult`. Supply the same authenticated
+project/session peers as the command ledger. Reads never acquire a lifecycle
+command slot. Admission requires a managed, valid, supported online target;
+four pending reads per agent and one per project are allowed. Requests expire
+at 30 seconds using server time. Terminal results remain in memory for 60 seconds,
+including logs; they never enter SQLite. The result registry defaults to 1024
+entries (configurable from 1 to 10000); full registries reject new reads with
+`read_busy` rather than evicting a result before its retention ends.
+
+Poll and result publication require the current enrolled session. Results must
+match the selected kind/run/stream and requested UTF-8 byte limit. Completion
+uses receipt time, and identical completed replay preserves that first receipt.
+Disconnection, removal or session replacement makes pending work unavailable.
+Expired reads stay expired despite late results. Call `recover()` when restarting
+an in-process service; a newly constructed service has no retained results and
+unknown IDs explicitly return unavailable. Already completed content retains
+its completion timestamp when disconnected; consuming views must display it
+as historical and pause follow. Local C09 adapters own file containment, rotation,
+truncation and cursor generation; the fleet service preserves reset diagnostics.
+
+`createReadRoutes(reads, browserSecurity)` supplies an HTTP-framework-independent
+request dispatcher for `POST /api/v1/projects/:id/reads` (202) and
+`GET /api/v1/reads/:id` (200). Mount it only behind the fleet private listener.
+POST resolves the actual local-owner CSRF session before parsing/admission.
+Errors use the v1 `{ error: { code, message, requestId } }` shape; unmatched routes
+return undefined for the owning server to dispatch. The listener must enforce
+its existing JSON body limit before invoking this dispatcher. Agent poll/results
+remain service composition boundaries shared with lifecycle commands.
+
+`getReadView(id)` returns the v1 result plus a historical flag based on the
+current project/session/connection projection. The detail dispatcher preserves
+the v1 JSON result and supplies `X-Symphony-Historical: true|false` and
+`Cache-Control: no-store`; mounting listeners must forward those headers.
+Completed results keep their first receipt timestamp. Non-log payload JSON is
+limited to 256 KiB before retention. Serialized log payloads, including cursors,
+are limited to 256 KiB plus 1 KiB of metadata overhead, in addition to the
+request-specific UTF-8 text limit. Read submission receipts contain only `readId`;
+completed JSON replays ignore object key order while preserving array order.
+
+Optional `receiveRunSummaries(database, projectId, runs, receivedAt)` hands
+validated completed summaries to C06 on the shared transaction connection,
+newest first and capped at 100. The projection owner must merge/prune its cached
+history to at most 100 per project, retain it offline and after restart, and
+label it using receipt/observation times. The hook must synchronously return
+undefined; failure rolls back its writes and leaves the read pending for retry.
+Identical completed replay does not invoke it twice. C10 never sends log text
+or arbitrary run detail to this persistence hook. Production observation/project
+projection remains C06-owned; independent SQLite fixture tables exercise this
+boundary while that sibling is unavailable.
+
+[TC-31](../../e2e/scenarios/31-fleet-bounded-reads.md) describes the built-service
+HTTPS/C04/C05/C09 contract and nineteen forbidden-condition probes. Run
+`node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs` after
+`pnpm build`, or `./e2e/run-fleet-reads-e2e.sh` for Linux Docker.
+
+## Project presentation boundary (C16)
+
+`src/project-presentation.ts` maps C06 `ObservedProject` values to fleet/detail
+widget data. Connection, process, health, agent observation time and receipt time
+stay separate. Historical process and snapshot values remain available with
+explicit historical flags; missing work counts remain unknown.
+`summarizeProjects` requires the complete workspace inventory and labels its
+scope; never pass a filtered page. Running totals require fresh managed process
+observations, while active-work totals also require a fresh snapshot.
+
+Start/Stop disabled reasons are presentation guidance only. Invalid workflow
+blocks Start while a verified running process can remain eligible for Stop;
+offline, stale, unmanaged and incompatible targets carry adjacent reasons.
+C17 owns command authorization and dispatch. Scope overlap stays advisory.
+These internal helpers do not install a fleet listener or alter per-project web
+behavior.
+
+`createProjectRoutes(observations, { environments, links?, now? })` returns a
+read-only request dispatcher for `GET /projects`, `GET /projects/:projectId`
+and allowlisted `/fleet-assets/*`. The consuming **private fleet HTTPS listener**
+passes the request pathname plus query and sends the returned status, headers
+and body. The dispatcher does not bind a port. Assets ship in this package's
+`assets/` directory; preserve that directory next to `dist/`.
+
+The fleet form supports search, environment/state filters, and Previous/Next
+pagination. Filters reset the page, counts refer to all matching rows, and the
+fresh-only summary explicitly remains workspace-wide. Running/Stopped/Unknown process filters require fresh, online, managed
+observations. The stale filter and Offline / stale metric share one predicate:
+offline, stale observation/snapshot, or unmanaged. That metric covers all inventory,
+including unmanaged projects; running/work totals cover managed projects. Pages are snapshots at request time; refresh
+to fetch new observations. Native HTML forms and links work without JavaScript;
+the small local script adds a loading announcement during form navigation.
+
+`links` is the typed C17/C18/#1019 composition boundary: optional local-only
+environment, lifecycle, runs and commands destinations. Lifecycle links navigate
+to confirmation flows; they must never perform mutations on GET. Without a
+destination, an otherwise eligible action explains that it is not connected.
+Invalid workflow never independently disables eligible Stop. Command results
+and run/log history are sibling-owned and are not fabricated in this view.
+Only local asset, stylesheet and script sources are permitted by page CSP;
+names, paths, diagnostics, filters and URLs are HTML escaped.
+
+Verification: `node e2e/fleet-projects-e2e.mjs` and
+`node e2e/fleet-projects-mutations.mjs` after building, or
+`./e2e/run-fleet-projects-e2e.sh` for Linux Docker. These exercise actual
+enrollment, session, inventory and route services; the loopback HTTP fixture
+does not claim native lifecycle or production HTTPS deployment validation.
