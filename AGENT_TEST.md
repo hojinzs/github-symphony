@@ -616,7 +616,7 @@ on empty polls. [TC-31](e2e/scenarios/31-agent-durable-executor.md) runs the
 bundled executor/journal against real C07 SQLite storage and separate real
 agent/CLI daemon processes. After `pnpm build`, run
 `node e2e/agent-executor-e2e.mjs` and `node e2e/agent-executor-mutations.mjs`,
-or `./e2e/run-agent-executor-e2e.sh` for isolated Linux Docker. Six actual
+or `./e2e/run-agent-executor-e2e.sh` for isolated Linux Docker. Nine actual
 durable/runtime forbidden conditions must reach and fail their named assertions.
 Report actual host OS separately from container results. Session/project truth,
 deadline clock advancement and the deferred-exit driver are explicit fixtures;

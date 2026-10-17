@@ -15,7 +15,6 @@ for (const [probe, label] of [
     "invalid-stop-completion",
     "CP03 invalid workflow verified fleet stop exits and releases locks",
   ],
-
   [
     "duplicate-result",
     "CP07 duplicate result resends after managed folder disappears",
