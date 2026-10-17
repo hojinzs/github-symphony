@@ -201,6 +201,11 @@ values through this surface.
 
 ### Observability Surfaces
 
+Doctor shares the runtime’s SDK-free OTLP credential ownership and resource validation.
+Remediation reports fixed validation reasons without endpoint or header values; unknown
+errors retain generic guidance. Custom resource values must be finite scalars, and
+`service.instance.id` is reserved for the runtime. Disabled checks never probe OTLP.
+
 Optional `observability.otlp` workflow policy defaults to disabled. Set
 `enabled: true` with an HTTP/protobuf endpoint to export Logs and Metrics through
 the audited CLI pipeline. Ambient `OTEL_*` settings alone do not activate export.
