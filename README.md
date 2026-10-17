@@ -1147,6 +1147,8 @@ safety, restart semantics and the production activation gate.
 
 For reproducible clean-install startup/RSS and healthy/slow/down offer measurements,
 see the [packed OTLP performance audit](packages/cli/README.md#packed-otlp-performance-audit).
+Shared-host investigations use the [startup repeatability procedure](packages/cli/README.md#startup-repeatability-on-shared-hosts),
+which retains failed runs and separates native macOS from Linux evidence.
 The audited CLI enables the complete Logs/Metrics pipeline through normal YAML policy.
 
 OTLP doctor probes own their HTTP sockets and destroy stalled connections at the

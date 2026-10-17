@@ -700,6 +700,11 @@ evaluation, so status/probe initialization cannot enter the startup benchmark.
 Startup sampling counterbalances pair order: thirty fresh processes per build,
 with each build first in fifteen pairs. The report records the complete order;
 the audit rejects an unbalanced schedule without discarding timing outliers.
+`otlp-host-context.test.ts` checks diagnostic CPU/load/memory snapshots. The audit
+retains chronological sample timestamps and before/after host context without
+using them in gate decisions. For shared-host repeatability and identical-build
+negative controls, follow the CLI README's startup repeatability procedure;
+retain every failed report and report macOS separately from Linux.
 
 ### Fleet observation and inventory cases (C06)
 
