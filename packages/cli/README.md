@@ -885,3 +885,12 @@ its `control-plane` command assembly are separate from this agent slice.
 The built package version is reported by `--version`; C13 is available in the
 source-built tarball until its patch release is published. Consolidated clean-host
 release installation and full native service acceptance remain the C19–C21 gates.
+
+The internal [C18 run/log view](../fleet-control-plane/README.md#runlog-presentation-state-c18)
+adds paged retained history, allowed-stream selection and bounded follow.
+The consuming private fleet listener mounts run/project/read dispatchers and
+ships `dist/browser/` with local assets. Reads are limited to known run IDs,
+256 KiB chunks and a 30-second lifetime. Rotation needs explicit reset;
+offline fetched content remains historical and reconnect leaves follow paused.
+An expired browser session preserves content and prompts a page reload.
+This adds no CLI command or change to per-project `--web`.

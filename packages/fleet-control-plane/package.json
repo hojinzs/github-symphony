@@ -19,12 +19,15 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && esbuild src/run-log-client.ts --bundle --platform=browser --format=iife --outfile=dist/browser/run-log-client.js",
     "lint": "eslint src --ext .ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@gh-symphony/management-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3"
   }
 }

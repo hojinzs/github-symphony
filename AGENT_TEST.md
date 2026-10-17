@@ -786,3 +786,30 @@ of both native adapters. Native host evidence must be distinguished from Linux
 Docker simulation. This does not establish native OS lifecycle isolation,
 complete fleet allocation/route assembly, browser interaction, or release dogfood
 acceptance; see the TC and CLI composition-limit documentation.
+
+## C18 run history and bounded logs
+
+| Case                                                                                                                                     | Executable evidence                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [TC-34 — project/run/stream identity, bounded reads, rotation/truncation, Unicode, offline and recovery](e2e/scenarios/34-fleet-runs.md) | `node e2e/fleet-runs-e2e.mjs` (17 reached assertions), `node e2e/fleet-runs-mutations.mjs` (17 forbidden-outcome probes); `./e2e/run-fleet-runs-e2e.sh` for Linux Docker       |
+| TC-34 browser — C14 keyboard/focus, historical text, read/session expiry and 1440/1024/390 layouts                                       | `node e2e/fleet-runs-browser.mjs` (23 reached assertions), `node e2e/fleet-runs-mutations.mjs --browser` (23 copied-browser/output probes); external Playwright setup in TC-34 |
+
+C18 composes real enrollment/session/inventory/read services on a test HTTPS
+listener with real registered filesystem logs. No API/read implementation is
+mocked. Native host/Chromium evidence is reported separately from Linux Docker
+composition, accelerated browser deadline and injected offline/cache lifecycle
+events. Native service isolation, human assistive-technology and production
+listener deployment remain outside this slice.
+
+### OT-14 Collector receipt and outage
+
+| Case                                                                                                              | Runnable scenario                                                                   | Evidence                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-34 / OT-14 — plain/authenticated Collector receipt, restart identity, endpoint interruption and graceful flush | `./e2e/run-otlp-collector-e2e.sh` ([procedure](e2e/scenarios/34-otlp-collector.md)) | Pinned Collector protobuf-derived Logs/Metrics JSON, per-phase dispatch/file/worker records, image/commit/config identity and 17 copied-evidence rejection probes; output directory printed by runner |
+
+The runner uses standalone project/file-tracker/stub fixtures and no real agent
+credentials. `node e2e/otlp/receipt-self-test.mjs` is a synthetic verifier test,
+not receipt evidence. Only prerequisite preflight status 69 qualifies for the
+unattended-worker exception above; post-preflight failures and status 125 do not.
+Operator/CI receipt confirmation remains required before Epic closure, separately
+from dogfood delivery proof.

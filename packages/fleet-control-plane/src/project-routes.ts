@@ -91,6 +91,13 @@ export function createProjectRoutes(
   observations: ObservationService,
   options: ProjectRouteOptions
 ) {
+  options = {
+    ...options,
+    links: {
+      runs: (id) => "/projects/" + encodeURIComponent(id) + "/runs",
+      ...options.links,
+    },
+  };
   const now = options.now ?? (() => new Date());
   function response(
     status: number,

@@ -1247,3 +1247,11 @@ and [private host configuration](docs/configuration.md#guided-agent-cli-configur
 The existing `project` commands and per-project `--web` server retain their role;
 the fleet service is a separate management package. This feature ships through
 the C13 patch release; source-built package verification precedes npm publication.
+
+The [C18 run/log view](packages/fleet-control-plane/README.md#runlog-presentation-state-c18)
+adds known-run history and allowed-stream selection through the bounded read
+lane. Follow pauses on disconnect and rotation requires explicit cursor reset;
+fetched content stays historical. Expired browser sessions pause follow and
+show reload guidance. Mount the run routes and browser assets beside
+the project and read dispatchers in the private fleet service. No fleet CLI
+command or per-project web behavior changes.
