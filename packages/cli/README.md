@@ -826,6 +826,77 @@ process observations remain independent from command outcomes. The internal
 fleet package exports a private-listener dispatcher; this adds no CLI command
 and preserves `gh-symphony project` and per-project `--web` behavior.
 
+## Host management agent (C13)
+
+Use the same Node.js 24+ CLI installation for local `project` commands and the
+host management agent:
+
+```bash
+npm install -g @gh-symphony/cli
+gh-symphony --version
+gh-symphony agent --help
+gh-symphony agent setup --help
+gh-symphony agent setup --server https://symphony.lan
+```
+
+Paste the one-use enrollment token at the hidden prompt. Automation may pipe one
+token using `--token-stdin`; never put a token in an argument. Setup checks native
+service prerequisites, saves enrollment, installs and starts the current user's
+service, and reports its stages and auto-start limits. If installation/start
+fails after enrollment, rerun the same setup command: saved identity resumes
+without another token, and project registrations stay intact. A different server
+is rejected; repair local configuration explicitly rather than replacing identity.
+An already-running agent owns the registry lock; use service status/stop before
+setup or foreground recovery.
+
+```bash
+gh-symphony agent enroll --server https://symphony.lan  # enrollment only
+gh-symphony agent service install                     # install without starting
+gh-symphony agent service start
+gh-symphony agent service status
+gh-symphony agent service restart
+gh-symphony agent service stop
+gh-symphony agent run                                 # foreground, same owner lock
+gh-symphony agent project add /srv/projects/prepared
+gh-symphony agent project list
+gh-symphony agent project remove <local-project-id>
+gh-symphony agent service uninstall
+```
+
+Stop the agent before editing its local folder allowlist, then start it again.
+Add registers an existing folder, including an unstarted/invalid workflow for
+local inspection; it does not create a project. Remove only revokes management.
+Service stop/restart/uninstall preserve identity, registrations and command journal.
+They do not stop project orchestrators. Linux requires systemd 254+ with a unified
+cgroup v2 user manager. Boot/logout persistence requires linger; setup reports
+`loginctl enable-linger` guidance without privilege elevation. Unsupported Linux
+managers use enroll plus foreground run. macOS LaunchAgents start at login, not
+before login, and stop at logout. Session teardown/machine shutdown preservation
+is not promised.
+
+Agent host configuration defaults to `~/.gh-symphony-agent/config.json`, with a
+private 0700 directory and 0600 file. `--agent-config <file>` selects another file
+on every leaf command. Setup/enroll create defaults once; subsequent invocations
+preserve them. The global `--config <dir>` selects the project runtime directory
+when those defaults are created. Set private CA trust and absolute executable,
+project-config and agent-data paths in that local file; see
+[agent configuration](../../docs/configuration.md#guided-agent-cli-configuration-c13).
+No token/credential is written into service arguments or this host-path config.
+
+This slice exposes the typed `AgentRuntimePorts.resolveIdentities` composition
+boundary in `@gh-symphony/cli/management-agent`. The v1 protocol has no fleet UUID
+allocation HTTP endpoint yet. Default `agent run` supports the enrolled zero-project
+first signal; registered-project publication reports
+`inventory_identity_allocation_unavailable` until that fleet composition is
+supplied. The typed fixture verifies actual inventory and bounded-read adapters;
+this is not a claim of complete fleet UI/runtime acceptance. Existing local
+`project` and per-project `--web` remain available. Fleet server deployment and
+its `control-plane` command assembly are separate from this agent slice.
+
+The built package version is reported by `--version`; C13 is available in the
+source-built tarball until its patch release is published. Consolidated clean-host
+release installation and full native service acceptance remain the C19–C21 gates.
+
 The internal [C18 run/log view](../fleet-control-plane/README.md#runlog-presentation-state-c18)
 adds paged retained history, allowed-stream selection and bounded follow.
 The consuming private fleet listener mounts run/project/read dispatchers and
@@ -834,3 +905,12 @@ ships `dist/browser/` with local assets. Reads are limited to known run IDs,
 offline fetched content remains historical and reconnect leaves follow paused.
 An expired browser session preserves content and prompts a page reload.
 This adds no CLI command or change to per-project `--web`.
+
+After a Node.js or CLI upgrade, saved agent `nodePath` and `cliPath` may point
+to removed version-specific files. Re-running setup preserves these paths.
+Stop the agent service, edit only these two absolute paths in the private
+`config.json` (preserving mode 0600 and the data directory), then rerun
+`agent setup --server <existing-origin>` to reinstall and start the service.
+Keep the registry and journal intact so enrollment and registrations resume.
+An unknown `agent project remove <id>` fails with `project_unmanaged`;
+use `agent project list` to find the registered ID.

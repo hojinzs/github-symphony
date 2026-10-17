@@ -403,3 +403,12 @@ it("reads manager XDG paths as JSON without shell quoting", async () => {
     expect((await adapter.diagnose()).supported).toBe(supported);
   }
 });
+
+it("defers service start until the setup owner releases its registry lock", async () => {
+  const adapter = service();
+  await adapter.install({ start: false });
+  expect(calls.some((call) => call.args.includes("enable"))).toBe(true);
+  expect(calls.some((call) => call.args.includes("start"))).toBe(false);
+  await adapter.start();
+  expect(calls.some((call) => call.args.includes("start"))).toBe(true);
+});
