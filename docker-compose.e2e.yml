@@ -9,7 +9,8 @@ services:
     volumes:
       - ./e2e/fixtures:/e2e/fixtures
     tmpfs:
-      - /e2e/work:size=100M,uid=1000,gid=1000,mode=1777
+      # Docker tmpfs defaults to noexec; workflow hooks must be executable.
+      - /e2e/work:exec,size=100M,uid=1000,gid=1000,mode=1777
     environment:
       STUB_SCENARIO: ${STUB_SCENARIO:-happy}
       E2E_REQUIRED_LABELS: ${E2E_REQUIRED_LABELS:-}

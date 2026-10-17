@@ -15,6 +15,15 @@ import { describe, expect, it } from "vitest";
 const root = resolve(import.meta.dirname, "../../..");
 
 describe("Claude Docker runner failure evidence", () => {
+  it("permits workflow hooks on the Codex workspace tmpfs", () => {
+    const compose = readFileSync(join(root, "docker-compose.e2e.yml"), "utf8");
+    const mount = compose
+      .split("\n")
+      .find((line) => line.trim().startsWith("- /e2e/work:"));
+    const options = mount?.split(":")[1].split(",");
+    expect(options).toContain("exec");
+    expect(options).not.toContain("noexec");
+  });
   it.each(["health", "refresh", "state", "success", "diagnostics-down"])(
     "retains evidence and cleans up for %s",
     (mode) => {

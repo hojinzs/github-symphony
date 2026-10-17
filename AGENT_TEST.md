@@ -333,6 +333,10 @@ pnpm e2e:claude
 
 This command builds both images before starting the two Docker paths in parallel,
 so the Claude monorepo build does not compete with the running Codex smoke leg.
+The Codex workspace tmpfs explicitly uses `exec`: Docker otherwise mounts it with
+`noexec`, which makes workflow hook preflight fail even for a mode-755 file.
+A health exec interrupted by that container exit can report 137 even when
+container State shows `OOMKilled=false` and `ExitCode=1`.
 Each run prints a unique `evidence/claude-docker.*` directory. Health, refresh,
 and state responses, stderr, and exit statuses are retained there. On failure,
 both projects' logs and container State (including `OOMKilled`, `ExitCode`, and
