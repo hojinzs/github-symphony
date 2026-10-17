@@ -225,6 +225,45 @@ try {
     ),
     false
   );
+  const doctorWorkflow = join(cliProject, "WORKFLOW.md");
+  for (const json of [false, true]) {
+    await writeFile(
+      doctorWorkflow,
+      `---\ntracker:\n  kind: file\n  provider:\n    path: ${issues}\nobservability:\n  otlp:\n    enabled: true\n    endpoint: $DOCTOR_ENDPOINT\n    headers:\n      Authorization: $H_CONTRACT_AUTH\n---\nWork.\n`
+    );
+    let diagnostic;
+    try {
+      diagnostic = await execute(
+        process.execPath,
+        [cli, "--config", cliConfig, ...(json ? ["--json"] : []), "doctor"],
+        {
+          cwd: cliProject,
+          env: {
+            ...env,
+            DOCTOR_ENDPOINT:
+              "http://endpoint-user:endpoint-password@localhost:4318",
+          },
+          timeout: 15000,
+        }
+      );
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      diagnostic = error;
+    }
+    let output = diagnostic.stdout + diagnostic.stderr;
+    if (probe === "doctor-secret") output += "endpoint-password";
+    if (probe === "doctor-reason")
+      output = output.replaceAll(
+        "valid HTTP(S) OTLP endpoint",
+        "invalid configuration"
+      );
+    reached(`doctor safe reason json=${json}`);
+    assert.match(output, /valid HTTP\(S\) OTLP endpoint/);
+    assert.doesNotMatch(
+      output,
+      /endpoint-user|endpoint-password|secret-project-auth/
+    );
+  }
   console.log("OTLP H/I lifecycle contract passed");
 } finally {
   await service?.shutdown();

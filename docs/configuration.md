@@ -1063,6 +1063,11 @@ Symlinked runtime/read targets are rejected. Missing runtime/history/log data
 reports unavailable rather than false empty success. The first-release raw-log
 trust boundary applies; metadata projection does not redact arbitrary log text.
 
+Doctor shares the runtime’s SDK-free OTLP credential ownership and resource validation.
+Remediation reports fixed validation reasons without endpoint or header values; unknown
+errors retain generic guidance. Custom resource values must be finite scalars, and
+`service.instance.id` is reserved for the runtime. Disabled checks never probe OTLP.
+
 OTLP CLI validation uses the managed project's effective environment with the
 same resolver as startup. `doctor --otlp-probe` connects only when
 `observability.otlp.enabled` is true and `OTEL_SDK_DISABLED` does not veto it;

@@ -1,12 +1,16 @@
 import {
-  WorkflowValidationError,
   isAgentChildCredentialEnvironmentName,
-  type WorkflowDefinition,
+  type WorkflowOtlpPolicy,
 } from "@gh-symphony/core";
+
+import { OtlpValidationError } from "./otlp-validation-error.js";
 
 /** Validate name-only ownership, then return exporter references for stripping. */
 export function validateExporterCredentialNames(
-  workflow: WorkflowDefinition,
+  workflow: {
+    observability?: { otlp?: WorkflowOtlpPolicy | null } | null;
+    runtime?: { auth: { env?: string | null } } | null;
+  },
   trackerSecretNames: readonly string[],
   retainedNames: ReadonlySet<string> = new Set()
 ): ReadonlySet<string> {
@@ -27,11 +31,7 @@ export function validateExporterCredentialNames(
         (required.has(name) || isAgentChildCredentialEnvironmentName(name))) ||
       (required.has(name) && isExporterCredentialName(name))
     ) {
-      throw new WorkflowValidationError(
-        "workflow_validation_error",
-        "observability.otlp.headers",
-        `Exporter credential reference ${JSON.stringify(name)} conflicts with agent/tracker authentication; use a distinct exporter credential name.`
-      );
+      throw new OtlpValidationError("credential-ownership");
     }
   }
   return names;
