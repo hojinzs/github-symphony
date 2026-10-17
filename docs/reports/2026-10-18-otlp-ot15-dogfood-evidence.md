@@ -4,7 +4,7 @@
 - Status: Complete — OT-15 delivery proof for [Epic #794](https://github.com/hojinzs/github-symphony/issues/794); unblocks [#998](https://github.com/hojinzs/github-symphony/issues/998)
 - Issue: [#1077](https://github.com/hojinzs/github-symphony/issues/1077) (operator-owned, not worker pickup)
 - Contract: [OTLP design OT-15](../designs/2026-10-04-otlp-export-design.md), [dogfood plan — Account and dispatch checks / Dogfood evidence after approval](../designs/2026-10-04-otlp-export-dogfood-plan.md)
-- Source revision under test: `ae2c39e6d3510f1d30ae4b5828275d0363df7a2b` (`origin/main` at launch, `gh-symphony v3.0.0`)
+- Source revision under test: `ae2c39e6d3510f1d30ae4b5828275d0363df7a2b` (`origin/main` when the build worktree was created at 2026-10-17 07:09Z, `gh-symphony v3.0.0`; see [Revision under test](#revision-under-test))
 - Symphony Layers: Coordination, Execution, Integration, Observability. Policy is the test repository's committed `WORKFLOW.md`.
 - Change classification: documentation only. No runtime, CLI, package, configuration, or `docs/symphony-spec.md` change.
 - Evidence bundles (Evidence Browser workspace `github-symphony`):
@@ -14,7 +14,7 @@
 ## Decision
 
 OT-15 passes. A dependency-ready, bot-assigned child was dispatched by an
-`--assigned-only` daemon built from current `main`. It was delivered through its
+`--assigned-only` daemon built from `main` `ae2c39e6`. It was delivered through its
 own workpad, assigned branch, PR, CI, human approval, Land, and merge, while its
 `epic` parent stayed active and was excluded by the pickup-label policy for the
 whole session. The OTLP exporter was disabled, as the issue allows; OT-15 does
@@ -22,6 +22,23 @@ not depend on OTLP receipt. OT-14 Collector evidence is recorded separately in
 [#997](https://github.com/hojinzs/github-symphony/issues/997) /
 [PR #1059](https://github.com/hojinzs/github-symphony/pull/1059) and is not
 merged into this record.
+
+## Revision under test
+
+`ae2c39e6` was `origin/main` when the build worktree was created (07:09Z), not
+at launch (16:23Z). Eight mainline commits landed in between (`1b60bb5a` …
+`a01a20b8`, the last at 16:16:53Z). `git diff ae2c39e6 a01a20b8` changes
+nothing under `packages/tracker-github`, `packages/worker`, `packages/core`, or
+`packages/runtime-codex`. It also leaves the CLI `project start` path untouched;
+CLI changes are limited to agent setup, doctor, help, completion, and OTLP
+diagnostics. In `packages/orchestrator` it touches only OTLP validation files
+(`exporter-environment.ts`, `otlp-validation*.ts`,
+`observability/resource-validation.ts`, and the package export map). The one
+function on the exporter-disabled dispatch path,
+`validateExporterCredentialNames`, only changes its error type, and this
+workflow declares no exporter credential references. The tested dispatch,
+pickup-label exclusion, and delivery path therefore matches `main` at launch.
+This record does not claim delivery on any later revision.
 
 ## Divergence from the issue as filed
 
@@ -95,4 +112,4 @@ read-only probe; see the launch bundle.
 
 The dogfood daemon was stopped after delivery (`project stop`, no remaining
 processes). The test repository and Project remain available so the evidence
-links stay valid. Remove the build worktree after this record merges.
+links stay valid. The build worktree is retained until this record merges.
