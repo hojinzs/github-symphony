@@ -605,34 +605,95 @@ gh-symphony project start --project-dir <path> --once
 
 JSON output includes the resolved auth source as `env` or `gh`.
 
-## Command Reference
+## Shared CLI command tree
 
+The published package is `@gh-symphony/cli`; its executable is `gh-symphony`.
+Use one Node.js 24+ installation per operator on Linux/macOS:
+
+```bash
+npm install -g @gh-symphony/cli
+gh-symphony --version
+gh-symphony version
+gh-symphony --help
+gh-symphony project start --help
+gh-symphony agent setup --help
 ```
-Setup:
-  setup               Generate WORKFLOW.md and initialize the cwd project
-  workflow init       Interactive repository setup wizard
-  workflow validate   Parse and strictly validate WORKFLOW.md
-  workflow preview    Render the final worker prompt from a sample or live issue
-  doctor              Run diagnostics, smoke checks, and optional remediation
-  config show         Show current configuration
-  config set          Set a configuration value
-  config edit         Open config in $EDITOR
 
-Orchestration (project):
-  project list        List cached projects as JSON
-  project start       Start the cwd project folder (`project start --help` lists runtime flags)
-  project status      Show the cwd project folder's status
-  project stop        Stop the cwd project folder's daemon
-  --project-dir <dir> Address an explicit project folder
+Help is available on each command group and leaf. `--version` and `version`
+report the installed package version; source-built features may precede the
+published npm release. After upgrading, check that version and restart existing
+daemons as described in the CLI migration note.
 
-Global Options:
-  --config <dir>      Config directory (default: initialized cwd runtime, then ~/.gh-symphony)
-  --verbose           Enable verbose output
-  --json              Output in JSON format
-  --no-color          Disable color output
-  --help, -h          Show help
-  --version, -V       Show version
+```text
+gh-symphony
+  setup
+  workflow init | validate | preview
+  doctor
+  config show | set | edit
+  project list | start | status | stop
+  agent setup | enroll | run
+  agent service install | start | stop | restart | status | uninstall
+  agent project add <folder> | list | remove <local-project-id>
+  upgrade
+  completion <shell>
+  version
+  help [command]
 ```
+
+### Current project and management compatibility
+
+| Surface               | Current scope                                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `project`             | Local orchestration of an existing project folder; `--project-dir <path>` selects the folder.                                                                                        |
+| `project start --web` | Existing per-project dashboard and API; separate from aggregate fleet management.                                                                                                    |
+| `agent`               | Host enrollment, user service and allowlist registration of existing prepared folders. It does not provision project folders or replace their `WORKFLOW.md`.                         |
+| `control-plane`       | Approved aggregate-management design, but no public CLI command or fleet listener assembly is currently shipped. Internal fleet packages are separate from `packages/control-plane`. |
+
+Existing local commands remain valid:
+
+```bash
+gh-symphony project start --project-dir /srv/projects/prepared --once
+gh-symphony project start --project-dir /srv/projects/prepared --web
+gh-symphony project status --project-dir /srv/projects/prepared
+gh-symphony project stop --project-dir /srv/projects/prepared
+```
+
+For an agent, use a separately supplied private HTTPS fleet endpoint and its
+one-use enrollment token. Setup prompts for the token without echo; automation
+may use `--token-stdin`. Never place the token in a command argument.
+
+```bash
+gh-symphony agent setup --server https://symphony.lan
+gh-symphony agent service status
+# Stop the agent before changing the folder allowlist.
+gh-symphony agent service stop
+gh-symphony agent project add /srv/projects/prepared
+gh-symphony agent project list
+gh-symphony agent service start
+```
+
+Registration does not validate a folder into a runnable project. An invalid or
+unstarted folder can be inventoried; fix its workflow before attempting start.
+Unknown removal IDs return `project_unmanaged`; obtain the ID from
+`agent project list`. If service installation fails after enrollment, repeat
+setup against the same server to resume the saved identity. Service
+stop/restart/uninstall preserve project orchestrators, registration and journal
+data. Linux requires systemd 254+ and unified cgroup v2; linger governs
+boot/logout persistence. macOS LaunchAgents start at login and stop at logout.
+Use `agent enroll` plus foreground `agent run` where native service prerequisites
+are unavailable.
+
+Current default agent composition supports the enrolled zero-project first
+signal. Publishing registered projects reports
+`inventory_identity_allocation_unavailable` until a fleet identity allocator is
+supplied. Do not interpret registration or static fleet UI samples as successful
+end-to-end management. Full native Linux/macOS acceptance is a separate release
+gate. Fleet management is a repository-local extension to Symphony, with no
+global scheduler, Docker management deployment, public/OIDC deployment or UI
+project provisioning in this release.
+
+Global options include `--config <dir>`, `--verbose`, `--json`,
+`--no-color`, `--help` and `--version`. See leaf help for supported flags.
 
 The internal [management protocol](../management-protocol/README.md) package defines the v1 agent/fleet
 transport boundary for the planned management extension. It adds no CLI commands;
@@ -657,7 +718,7 @@ Unreadable or ambiguous runtime lookup produces a diagnostic and exit code 1.
 A missing/invalid workflow remains
 visible and does not prevent verified expected-target stop. The bundled
 `@gh-symphony/cli/management-local` module supplies the local driver; this does
-not add an `agent` command or change the per-project `--web` server into a fleet
+not itself add public commands or change the per-project `--web` server into a fleet
 service. Native service launchers remain a separate implementation boundary.
 
 The bundled `@gh-symphony/cli/management-local` module also exports
@@ -813,7 +874,7 @@ The bundled `@gh-symphony/cli/management-agent` module now exports
 `MacOSAgentService` and `launchMacOSProject` for local service composition.
 Install/start/status/stop/restart/uninstall operate only on the current user's
 LaunchAgent and preserve management identity and managed orchestrators. Public
-agent command routing remains C13-owned. Login startup requires the real OS user
+agent command routing is provided by the shared CLI (C13). Login startup requires the real OS user
 home; no pre-login boot or logout survival is promised. See the management-agent
 package README for the typed configuration and TC-31 native validation.
 
