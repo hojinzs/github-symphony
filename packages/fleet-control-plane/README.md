@@ -514,7 +514,7 @@ assets, `/environments/state` polling and per-environment `/connection` reads.
 The listener supplies bounded, duplicate-key-free JSON and passes Origin,
 cookie and `X-CSRF-Token` headers as `origin`, `cookie`, `csrfToken`. POST
 `/environments` accepts only `{ name }`; POST `/environments/:id/regenerate`
-accepts `{}` for a pending unused enrollment; POST `/environments/:id/revoke`
+accepts `{}` for an unused enrollment or explicit replacement after revocation; POST `/environments/:id/revoke`
 requires `{ acknowledged: true }`. Every mutation validates the existing C04
 same-origin browser session. Reads never create or regenerate a token.
 
@@ -523,7 +523,9 @@ routes, supplying `{ environments: "/environments" }` in their links. It does
 not start a listener or change the shipped per-project `--web` service.
 `projectCounts()` returns an inventory-owned map: missing means unknown, and a
 known zero is displayed as zero. Supply counts only from complete authenticated
-inventory; transport success never depends on project readiness.
+inventory; transport success never depends on project readiness. Count-read failures
+fall back to unknown after enrollment mutations, so inventory outages cannot
+prevent revocation, connection reads or the environment list.
 
 The Graphite list and connection dialog support keyboard focus containment,
 Escape/close focus restoration, explicit clipboard success and manual fallback,
@@ -536,6 +538,10 @@ hidden terminal prompt. Enrolled hosts resume with their saved identity;
 regeneration never replaces an enrolled identity. Revocation ends management
 access while local execution continues. Browser session expiry requires page
 reload to renew the CSRF session; failed mutations are never automatically replayed.
+Successful list refresh clears stale alerts and retry controls. Online connection
+links use the project route’s `environment` filter. The revoked dialog does not
+offer token regeneration; explicit replacement calls follow the enrollment
+service’s transactional policy and never bypass the enrolled-identity guard.
 
 Linux requires current-user systemd and linger for boot/logout operation; macOS
 uses a login LaunchAgent. This UI does not install or validate native services.

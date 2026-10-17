@@ -1286,5 +1286,7 @@ token. Serve the returned no-store/CSP/security headers without weakening them.
 Use the configured HTTPS origin for the shell-quoted setup command; never put an
 enrollment token in an argument, URL, log or persistent browser storage.
 Inventory-owned project counts are independent from authenticated connectivity;
-a missing count means unknown, while a reported empty inventory is zero.
+a missing count means unknown, while a reported empty inventory is zero. A rejected
+`projectCounts()` read also means unknown and does not block enrollment mutations
+or connection/list reads.
 The dispatcher is a library boundary and is not mounted on per-project `--web`.

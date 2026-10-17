@@ -132,7 +132,6 @@ export function createEnvironmentRoutes(
       }
       // Authenticate before parsing any browser-supplied mutation payload.
       if (request.method === "POST") browser.resolveActor(request);
-      const counts = await options.projectCounts();
       let issued;
       if (request.method === "POST") {
         const body = object(request.body);
@@ -147,14 +146,6 @@ export function createEnvironmentRoutes(
           id = issued.environmentId;
         } else if (match[2] === "regenerate") {
           if (Object.keys(body).length) invalid();
-          const record = (await enrollment.listEnvironments()).find(
-            (env) => env.environmentId === id
-          );
-          if (record && record.enrollment !== "pending")
-            throw new FleetError(
-              "session_conflict",
-              "Only pending setup can regenerate a token"
-            );
           issued = await enrollment.regenerateEnrollment(id!);
         } else {
           if (Object.keys(body).length !== 1 || body.acknowledged !== true)
@@ -162,6 +153,10 @@ export function createEnvironmentRoutes(
           await enrollment.revoke(id!);
         }
       }
+      // Inventory is presentation data; its outage must not block management access.
+      const counts = await options
+        .projectCounts()
+        .catch(() => new Map<string, number>());
       const environments = await enrollment.listEnvironments();
       const rows = environmentRows(environments, counts);
       if (id) {

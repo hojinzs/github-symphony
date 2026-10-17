@@ -27,9 +27,11 @@ The approved Graphite handoff is the visual and state baseline.
 
 The setup command is `gh-symphony agent setup --server <configured-origin>`.
 Origin validation and shell-safe construction must precede rendering. Tokens
-belong in the hidden terminal prompt. Regeneration applies only to pending
-identities; enrolled hosts resume using their saved identity. Revocation ends
-management access while preserving local execution.
+belong in the hidden terminal prompt. The dialog offers regeneration for pending
+identities; enrolled hosts resume using their saved identity. The route delegates
+explicit replacement after revocation to the C04 transaction, avoiding a separate
+non-atomic pre-check. Revocation ends management access while preserving local
+execution.
 
 ## Verification plan
 
@@ -66,6 +68,7 @@ regressions. Responsive assertions inspect actual viewport bounds as well as
 scroll overflow; a forced oversized dialog must fail the named probe.
 
 The inventory owner supplies known counts via a typed callback. Missing counts
-remain unknown; zero reported projects is success. The consuming fleet listener
+remain unknown; count-read failure also degrades to unknown after mutations,
+preserving revocation and connection reads. Zero reported projects is success. The consuming fleet listener
 owns route assembly; no extra listener, scheduler policy or native service
 implementation is added by this slice.

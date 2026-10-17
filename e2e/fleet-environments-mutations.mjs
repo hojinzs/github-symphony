@@ -193,6 +193,16 @@ const cases = browserMode
         ],
       ],
       [
+        "closed list error recovery",
+        [
+          [
+            "environment-browser",
+            'if(status.getAttribute("role")==="alert"&&!dialog.open)announce("Environments updated.");',
+            "",
+          ],
+        ],
+      ],
+      [
         "row opener focus restored",
         [
           [
@@ -258,14 +268,7 @@ const cases = browserMode
       ],
       [
         "enrolled cannot regenerate",
-        [
-          [
-            "environment-routes",
-            'record && record.enrollment !== "pending"',
-            "false",
-          ],
-          ["enrollment", 'record.enrollment === "enrolled"', "false"],
-        ],
+        [["enrollment", 'record.enrollment === "enrolled"', "false"]],
       ],
       [
         "CP21 zero project success",
@@ -280,6 +283,10 @@ const cases = browserMode
             "Execution status unavailable.",
           ],
         ],
+      ],
+      [
+        "inventory outage preserves management",
+        [["environment-routes", ".catch(() => new Map())", ""]],
       ],
       [
         "read error recovery",

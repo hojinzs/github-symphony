@@ -310,10 +310,40 @@ try {
   );
   check(
     await page
-      .locator("[data-connect]")
-      .evaluate((el) => el === document.activeElement),
+      .waitForFunction(
+        () => document.activeElement?.matches("[data-connect]"),
+        null,
+        { timeout: 3000 }
+      )
+      .then(
+        () => true,
+        () => false
+      ),
     "row opener focus restored"
   );
+  let listRecovered = true;
+  for (const manual of [false, true]) {
+    f.failReads(true);
+    await page.locator('#environment-status[role="alert"]').waitFor();
+    listRecovered &&= await page.locator("main > [data-retry]").isVisible();
+    f.failReads(false);
+    if (manual) await page.locator("main > [data-retry]").click();
+    const recovered = await page
+      .waitForFunction(
+        () =>
+          document.getElementById("environment-status").getAttribute("role") ===
+          "status",
+        null,
+        { timeout: 7000 }
+      )
+      .then(
+        () => true,
+        () => false
+      );
+    listRecovered &&=
+      recovered && !(await page.locator("main > [data-retry]").isVisible());
+  }
+  check(listRecovered, "closed list error recovery");
   console.log(
     JSON.stringify({
       suite: "C15 Chromium",

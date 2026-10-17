@@ -62,7 +62,8 @@ export async function createHarness() {
   compose();
   const counts = new Map();
   let routes,
-    failReads = false;
+    failReads = false,
+    failCounts = false;
   const server = createServer(
     {
       key: readFileSync(join(dir, "key.pem")),
@@ -102,7 +103,10 @@ export async function createHarness() {
   routes = createEnvironmentRoutes(
     {
       createEnvironment: (...args) => enrollment.createEnvironment(...args),
-      listEnvironments: (...args) => enrollment.listEnvironments(...args),
+      listEnvironments: (...args) => {
+        if (failReads) throw Error("synthetic enrollment read fault");
+        return enrollment.listEnvironments(...args);
+      },
       regenerateEnrollment: (...args) =>
         enrollment.regenerateEnrollment(...args),
       revoke: (...args) => enrollment.revoke(...args),
@@ -112,13 +116,16 @@ export async function createHarness() {
       publicOrigin: origin,
       now,
       projectCounts: async () => {
-        if (failReads) throw Error("synthetic read fault");
+        if (failCounts) throw Error("synthetic inventory fault");
         return counts;
       },
     }
   );
   return {
     origin,
+    failCounts(value) {
+      failCounts = value;
+    },
     failReads(value) {
       failReads = value;
     },

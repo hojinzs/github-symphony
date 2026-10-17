@@ -39,7 +39,7 @@ export const environmentBrowserScript = `
     list.innerHTML=html;
     if(focused?.startsWith("environment-")&&!dialog.open)document.getElementById(focused)?.focus();
   }
-  async function refreshList(){try{const data=await request("/environments/state");updateRows(data.rows);}catch{if(!dialog.open)announce("Environments unavailable. Try again.",true);}}
+  async function refreshList(){try{const data=await request("/environments/state");updateRows(data.rows);if(status.getAttribute("role")==="alert"&&!dialog.open)announce("Environments updated.");}catch{if(!dialog.open)announce("Environments unavailable. Try again.",true);}}
   function install(data){
     active=data.environmentId;content.innerHTML=data.connection;updateRows(data.rows);
     content.querySelector("#connection-title")?.focus();feedback.textContent="";retries.forEach(el=>el.hidden=true);

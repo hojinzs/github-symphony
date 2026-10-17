@@ -13,6 +13,8 @@ import {
   createBrowserSecurity,
   type BrowserSession,
 } from "./browser-security.js";
+import { createProjectRoutes } from "./project-routes.js";
+import { createObservationService } from "./observations.js";
 import { createEnvironmentRoutes } from "./environment-routes.js";
 
 let dir: string;
@@ -22,6 +24,7 @@ let sessions: SessionService;
 let route: ReturnType<typeof createEnvironmentRoutes>;
 let browserSession: BrowserSession;
 let now: Date;
+let failCounts: boolean;
 const origin = "https://symphony.lan";
 const get = (pathname: string) => route({ method: "GET", pathname });
 function post(pathname: string, body: unknown) {
@@ -37,6 +40,7 @@ function post(pathname: string, body: unknown) {
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), "c15-routes-")));
   store = openFleetStore(dir);
+  failCounts = false;
   now = new Date("2026-10-17T12:00:00Z");
   enrollment = createEnrollmentService(store, {
     now: () => now,
@@ -54,7 +58,10 @@ beforeEach(() => {
   route = createEnvironmentRoutes(enrollment, browser, {
     publicOrigin: origin,
     now: () => now,
-    projectCounts: async () => new Map(),
+    projectCounts: async () => {
+      if (failCounts) throw new Error("inventory unavailable");
+      return new Map();
+    },
   });
 });
 afterEach(() => {
@@ -206,4 +213,91 @@ it("serves a safe empty list, local assets and recoverable service failures", as
   expect(failure?.body).toContain("Try again");
   expect(failure?.body).not.toContain(dir);
   store = openFleetStore(dir);
+});
+
+it("keeps enrollment reads and mutations available during an inventory outage", async () => {
+  failCounts = true;
+  const created = await post("/environments", { name: "outage host" });
+  expect(created?.status).toBe(201);
+  const id = JSON.parse(created!.body).environmentId;
+  expect((await post(`/environments/${id}/regenerate`, {}))?.status).toBe(200);
+  expect((await get(`/environments/${id}/connection`))?.status).toBe(200);
+  expect((await get("/environments/state"))?.status).toBe(200);
+  expect((await get("/environments"))?.status).toBe(200);
+  const revoked = await post(`/environments/${id}/revoke`, {
+    acknowledged: true,
+  });
+  expect(revoked?.status).toBe(200);
+  const data = JSON.parse(revoked!.body);
+  expect(data.stage).toBe("revoked");
+  expect(data.rows).toContain("<dt>Projects</dt><dd>—</dd>");
+  expect((await enrollment.listEnvironments())[0].enrollment).toBe("revoked");
+});
+
+it("delegates explicit replacement after revocation to the enrollment transaction", async () => {
+  const first = await enrollment.createEnvironment({
+    name: "replacement host",
+  });
+  await enrollment.revoke(first.environmentId);
+  const response = await post(
+    `/environments/${first.environmentId}/regenerate`,
+    {}
+  );
+  expect(response?.status).toBe(200);
+  const data = JSON.parse(response!.body);
+  const token = /id="enrollment-token"[^>]*>([^<]+)</.exec(data.connection)![1];
+  const identity = await enrollment.enroll({
+    protocolVersion: 1,
+    requestId: randomUUID(),
+    token,
+  });
+  expect(identity.environmentId).toBe(first.environmentId);
+});
+
+it("follows the online connection link through the real filtered project route", async () => {
+  const first = await enrollment.createEnvironment({ name: "online host" });
+  const identity = await enrollment.enroll({
+    protocolVersion: 1,
+    requestId: randomUUID(),
+    token: first.token,
+  });
+  const opened = await sessions.openSession(identity, {
+    protocolVersion: 1,
+    requestId: randomUUID(),
+    environmentId: identity.environmentId,
+    agentId: identity.agentId,
+    agentVersion: "fixture",
+    host: { hostname: "host", os: "linux" },
+  });
+  await sessions.observe(identity, {
+    protocolVersion: 1,
+    requestId: randomUUID(),
+    environmentId: identity.environmentId,
+    sessionId: opened.sessionId,
+    sequence: 0,
+    observedAt: now.toISOString(),
+    inventory: {
+      revisionId: randomUUID(),
+      pageIndex: 0,
+      pageCount: 1,
+      projects: [],
+    },
+  });
+  const online = JSON.parse(
+    (await get(`/environments/${first.environmentId}/connection`))!.body
+  );
+  const href = /href="([^"]+)">View projects/.exec(online.connection)![1];
+  const observations = createObservationService(store, {
+    now: () => now,
+    invalidateProject: () => undefined,
+  });
+  const projects = createProjectRoutes(observations, {
+    environments: enrollment.listEnvironments,
+    now: () => now,
+  });
+  const destination = await projects({ method: "GET", pathname: href });
+  expect(destination?.status).toBe(200);
+  expect(destination?.body).toContain(
+    `value="${first.environmentId}" selected`
+  );
 });

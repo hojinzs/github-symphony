@@ -45,10 +45,10 @@ node e2e/fleet-environments-mutations.mjs --browser
 | Keyboard / clipboard            | Initial focus, explicit forward/backward containment including disclosure, Escape and row opener restoration; separate copy success/manual failure fallback |
 | Responsive / assets             | Setup, reopened, enrolled, online, error and revoked at 1440/1024/390; no horizontal overflow; all local images load without distorted aspect ratios        |
 
-The HTTPS suite prints 12 reached assertions. Its mutation runner modifies copied
+The HTTPS suite prints 13 reached assertions. Its mutation runner modifies copied
 compiled production artifacts (never the checkout), requires the named assertion
 to be reached, and requires AssertionError rather than a startup error/timeout.
-The browser suite prints 25 reached assertions with matching artifact probes.
+The browser suite prints 26 reached assertions with matching artifact probes.
 These include deliberate secret retention, disabled focus containment, clipboard
 selection loss, forbidden status transitions, broken SVG content types and
 responsive overflow. Selected-assertion mode suppresses unrelated assertions only
@@ -56,7 +56,11 @@ so a probe must fail at its named contract. Normal runs assert every contract.
 
 The fixture is a real ephemeral private HTTPS server composing C04 enrollment,
 C05 sessions, C06 observations, C04 browser security and the C15 dispatcher.
-Fault injection only interrupts the independent inventory-count callback.
+Fault injection independently interrupts inventory-count reads and enrollment reads.
+Inventory outages preserve management access and show unknown counts. Enrollment
+read faults exercise modal errors and closed-list automatic/manual recovery;
+successful refresh must clear stale alerts and hide retries. Row focus restoration
+is checked with a bounded condition wait rather than a single timing sample.
 It does not install services, execute native project lifecycle commands, or claim
 systemd/LaunchAgent stop/restart/uninstall process preservation. Report macOS
 Chromium, Linux container Chromium and actual native OS service evidence separately.

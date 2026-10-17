@@ -87,6 +87,7 @@ try {
       online.connection.includes("0 projects"),
     "CP21 zero project success"
   );
+  f.failCounts(true);
   const revoked = await post(`/environments/${id}/revoke`, {
     acknowledged: true,
   });
@@ -96,6 +97,14 @@ try {
       revoked.body.includes("Local execution continues"),
     "revoked access semantics"
   );
+  check(
+    revoked.status === 200 &&
+      (await f.request(path)).status === 200 &&
+      (await f.request("/environments/state")).status === 200 &&
+      JSON.parse(revoked.body).rows.includes("<dt>Projects</dt><dd>—</dd>"),
+    "inventory outage preserves management"
+  );
+  f.failCounts(false);
   f.failReads(true);
   check(
     (await f.request("/environments/state")).status === 500,
