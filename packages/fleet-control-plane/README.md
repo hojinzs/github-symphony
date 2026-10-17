@@ -417,10 +417,11 @@ fleet listener. It handles `GET /projects/:projectId/runs` (optional known
 C16 project detail links to this destination by default. The listener must
 forward response headers including Set-Cookie and mount C10's submit/result
 routes, forwarding Origin, Cookie and X-CSRF-Token for submissions.
-The dispatcher reuses its single private operator session across page
-navigation until expiry so opening another run tab does not replace the cookie.
-Refresh the page after a session expires. No new listener or per-project
-server behavior is introduced.
+The dispatcher shares its private operator session across page navigation.
+Sessions renew on navigation after half their lifetime; reused cookies advertise
+only their remaining lifetime. If an open tab has an expired or replaced session,
+the UI pauses follow, preserves historical content and says to reload the page.
+No new listener or per-project server behavior is introduced.
 
 History uses C06's maximum 100 retained summaries, paged 25 at a time.
 Native run/stream selection starts a new bounded read; Follow/Pause is

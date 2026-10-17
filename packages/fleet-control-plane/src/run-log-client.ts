@@ -52,6 +52,7 @@ export function mountRunLogPage(root: HTMLElement) {
         "Log rotated or truncated. Reset the cursor explicitly; previously fetched content remains historical.",
       unavailable:
         "Log unavailable or missing file. Request a fresh read when available.",
+      "session-expired": "Session expired. Reload the page to continue.",
       expired: "Read expired after 30 seconds. Request a fresh read.",
       offline:
         "Follow paused while offline. Fetched content remains historical. Reconnect before requesting fresh detail.",
@@ -71,8 +72,10 @@ export function mountRunLogPage(root: HTMLElement) {
       : model.online
         ? "Follow"
         : "Follow paused · offline";
-    follow.disabled = !model.online || model.phase === "reset-required";
-    read.disabled = !model.online || model.phase === "reset-required";
+    follow.disabled =
+      model.sessionExpired || !model.online || model.phase === "reset-required";
+    read.disabled =
+      model.sessionExpired || !model.online || model.phase === "reset-required";
     // Keep the initiating control focused while a read is pending. The reader
     // fences duplicate submissions; aria-disabled exposes that busy state.
     read.setAttribute(

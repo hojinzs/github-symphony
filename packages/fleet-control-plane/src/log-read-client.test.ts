@@ -175,3 +175,56 @@ it("pauses follow immediately on network loss and agent-offline responses", asyn
     expect(model.historical).toBe(true);
   }
 });
+
+it("distinguishes an expired actual browser session and requires reload without losing text", async () => {
+  let now = Date.now();
+  const browser = createBrowserSecurity(
+    { publicOrigin: "https://fleet.example" },
+    { now: () => now, sessionLifetimeMs: 1000 }
+  );
+  const session = browser.issueSession();
+  const routes = createReadRoutes({} as never, browser);
+  const model = new RunLogModel(
+    {
+      environmentId: "env",
+      projectId: crypto.randomUUID(),
+      runId: "known",
+      stream: "worker",
+    },
+    ["known"]
+  );
+  model.text = "previously fetched";
+  model.fetchedAt = new Date(now).toISOString();
+  const fetchedAt = model.fetchedAt;
+  model.follow();
+  now += 1000;
+  const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+    const result = await routes({
+      method: "POST",
+      pathname: String(input),
+      body: JSON.parse(String(init?.body)),
+      cookie: session.setCookie.split(";")[0],
+      origin: "https://fleet.example",
+      csrfToken: new Headers(init?.headers).get("X-CSRF-Token") ?? undefined,
+    });
+    expect(result?.status).toBe(401);
+    return new Response(JSON.stringify(result?.body), {
+      status: result?.status,
+    });
+  });
+  const reader = new BoundedLogReader(model, session.csrfToken, fetcher);
+  await reader.read();
+  expect(model.phase).toBe("session-expired");
+  expect(model.text).toBe("previously fetched");
+  expect(model.fetchedAt).toBe(fetchedAt);
+  expect(model.historical).toBe(true);
+  expect(model.following).toBe(false);
+  model.disconnect();
+  model.reconnect();
+  model.reset();
+  model.follow();
+  await reader.read();
+  expect(model.phase).toBe("session-expired");
+  expect(model.following).toBe(false);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});

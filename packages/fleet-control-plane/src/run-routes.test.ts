@@ -76,11 +76,15 @@ it("renders retained C06 runs with safe known selection, paging and offline iden
         ],
       },
     });
-    const browser = createBrowserSecurity({
-      publicOrigin: "https://fleet.example",
-    });
+    const browser = createBrowserSecurity(
+      {
+        publicOrigin: "https://fleet.example",
+      },
+      { now: () => now.getTime(), sessionLifetimeMs: 8000 }
+    );
     const route = createRunRoutes(observations, browser, {
       environments: enrollment.listEnvironments,
+      now: () => now,
     });
     const path = "/projects/" + projectId + "/runs";
     const page = await route({ method: "GET", pathname: path });
@@ -93,6 +97,18 @@ it("renders retained C06 runs with safe known selection, paging and offline iden
     expect(page?.headers["Set-Cookie"]).toContain("HttpOnly");
     const secondTab = await route({ method: "GET", pathname: path });
     expect(secondTab?.headers["Set-Cookie"]).toBe(page?.headers["Set-Cookie"]);
+    now.setTime(now.getTime() + 1000);
+    const reused = await route({ method: "GET", pathname: path });
+    expect(reused?.headers["Set-Cookie"]).toContain("Max-Age=7");
+    expect(reused?.headers["Set-Cookie"].split(";")[0]).toBe(
+      page?.headers["Set-Cookie"].split(";")[0]
+    );
+    now.setTime(now.getTime() + 3000);
+    const renewed = await route({ method: "GET", pathname: path });
+    expect(renewed?.headers["Set-Cookie"]).toContain("Max-Age=8");
+    expect(renewed?.headers["Set-Cookie"].split(";")[0]).not.toBe(
+      page?.headers["Set-Cookie"].split(";")[0]
+    );
     expect(page?.headers["Content-Security-Policy"]).toContain(
       "connect-src 'self'"
     );

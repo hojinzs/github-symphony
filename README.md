@@ -1216,6 +1216,7 @@ from the shipped per-project `--web` server.
 The [C18 run/log view](packages/fleet-control-plane/README.md#runlog-presentation-state-c18)
 adds known-run history and allowed-stream selection through the bounded read
 lane. Follow pauses on disconnect and rotation requires explicit cursor reset;
-fetched content stays historical. Mount the run routes and browser assets beside
+fetched content stays historical. Expired browser sessions pause follow and
+show reload guidance. Mount the run routes and browser assets beside
 the project and read dispatchers in the private fleet service. No fleet CLI
 command or per-project web behavior changes.

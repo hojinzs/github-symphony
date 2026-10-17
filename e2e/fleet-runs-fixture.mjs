@@ -305,8 +305,9 @@ export async function createRunFixture({ runCount = 26 } = {}) {
         return (await observations.getProject(projectId)).observation
           .observedAt;
       },
-      hold(value) {
+      async hold(value) {
         hold = value;
+        if (!hold) await pump();
       },
       async offline(value) {
         online = !value;

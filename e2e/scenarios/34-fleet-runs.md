@@ -55,12 +55,12 @@ node e2e/fleet-runs-mutations.mjs --browser
 An installed Chrome can instead be selected using
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; no browser download is then needed.
 The browser consumes the actual HTTPS fixture and local bundled client.
-Its 21 reached assertions cover inert log text, known selection, stream change,
+Its 23 reached assertions cover inert log text, known selection, stream change,
 keyboard follow/pause, cached-page event restoration, rotation/reset focus,
 historical labels/timestamps, 1440/1024/390 horizontal containment and exact
 visible local SVG geometry, reconnect, missing-file recovery, expired reads,
-runtime errors and empty-history controls. It records full-page screenshots
-and OS/assertion metadata outside the checkout. Twenty-one copied-browser/output
+session-expiry reload guidance and recovery, runtime errors and empty-history controls. It records full-page screenshots
+and OS/assertion metadata outside the checkout. Twenty-three copied-browser/output
 mutations must reach and fail the named assertions.
 
 The 30-second browser read deadline uses Playwright's accelerated browser clock

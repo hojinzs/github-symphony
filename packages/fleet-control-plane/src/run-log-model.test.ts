@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   LIMITS,
   LOG_STREAMS,
@@ -74,6 +74,30 @@ describe("C18 bounded log state against independent protocol results", () => {
     expect(() =>
       model.receive(next.revision, chunk("x".repeat(262145)))
     ).toThrow();
+  });
+
+  it("trims full chunks with one encoding and preserves mixed UTF-8 boundaries", () => {
+    const model = new RunLogModel(identity, [identity.runId]);
+    load(model, chunk("x".repeat(LIMITS.logChunkBytes)));
+    const encode = vi.spyOn(TextEncoder.prototype, "encode");
+    try {
+      load(model, chunk("é🙂"));
+      // The protocol validator encodes the wire chunk once as well.
+      expect(encode).toHaveBeenCalledTimes(2);
+      expect(model.text).toBe("x".repeat(LIMITS.logChunkBytes - 6) + "é🙂");
+    } finally {
+      encode.mockRestore();
+    }
+    model.text = "";
+    load(model, chunk("\uFEFFlog"));
+    expect(model.text).toBe("\uFEFFlog");
+    // Each overflow cuts inside a 2-, 3- or 4-byte code point.
+    for (const point of ["é", "€", "🙂"]) {
+      const width = new TextEncoder().encode(point).length;
+      model.text = point + "x".repeat(LIMITS.logChunkBytes - width);
+      load(model, chunk("!"));
+      expect(model.text).toBe("x".repeat(LIMITS.logChunkBytes - width) + "!");
+    }
   });
 
   it("requires explicit rotation reset even across disconnect and reconnect", () => {

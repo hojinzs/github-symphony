@@ -19,7 +19,8 @@ export type LogPhase =
   | "reset-required"
   | "unavailable"
   | "expired"
-  | "offline";
+  | "offline"
+  | "session-expired";
 
 /** Browser-local state only: never persists raw logs or chooses filesystem paths. */
 export class RunLogModel {
@@ -34,6 +35,7 @@ export class RunLogModel {
   private revision = 0;
   private pending: number | undefined;
   private needsReset = false;
+  sessionExpired = false;
 
   constructor(identity: LogIdentity, knownRunIds: readonly string[]) {
     if (!knownRunIds.includes(identity.runId))
@@ -49,6 +51,7 @@ export class RunLogModel {
 
   begin(): { revision: number; selection: ReadSelection } | undefined {
     if (
+      this.sessionExpired ||
       !this.online ||
       this.pending !== undefined ||
       this.phase === "reset-required"
@@ -91,12 +94,13 @@ export class RunLogModel {
       }
       // Bound retained text as well as each wire chunk. Evict whole Unicode
       // code points so a byte limit never splits a surrogate pair.
-      const points = Array.from(this.text + payload.text);
-      let bytes = new TextEncoder().encode(points.join("")).length;
-      let start = 0;
-      while (bytes > LIMITS.logChunkBytes)
-        bytes -= new TextEncoder().encode(points[start++]).length;
-      this.text = points.slice(start).join("");
+      const bytes = new TextEncoder().encode(this.text + payload.text);
+      let start = Math.max(0, bytes.length - LIMITS.logChunkBytes);
+      // Skip continuation bytes so the retained suffix begins at a code point.
+      while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+      this.text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(
+        bytes.subarray(start)
+      );
       this.cursor = payload.cursor;
       this.fetchedAt = result.completedAt;
       this.historical = historical;
@@ -115,7 +119,16 @@ export class RunLogModel {
   }
 
   follow(): void {
-    if (this.online && this.phase !== "reset-required") this.following = true;
+    if (!this.sessionExpired && this.online && this.phase !== "reset-required")
+      this.following = true;
+  }
+
+  expireSession(): void {
+    this.sessionExpired = true;
+    this.pending = undefined;
+    this.following = false;
+    this.historical = true;
+    this.phase = "session-expired";
   }
 
   disconnect(): void {
@@ -123,7 +136,7 @@ export class RunLogModel {
     this.following = false;
     this.historical = true;
     this.pending = undefined;
-    this.phase = "offline";
+    this.phase = this.sessionExpired ? "session-expired" : "offline";
   }
 
   reconnect(): void {
@@ -134,7 +147,7 @@ export class RunLogModel {
   }
 
   reset(): void {
-    if (!this.online) return;
+    if (!this.online || this.sessionExpired) return;
     this.pending = undefined;
     this.needsReset = false;
     this.cursor = undefined;

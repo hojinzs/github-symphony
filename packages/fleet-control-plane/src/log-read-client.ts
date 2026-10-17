@@ -52,6 +52,8 @@ export class BoundedLogReader {
       }
       if (!response.ok) {
         const body = await response.json().catch(() => undefined);
+        if (response.status === 401 || body?.error?.code === "unauthenticated")
+          this.model.expireSession();
         if (
           response.status === 502 ||
           response.status === 503 ||

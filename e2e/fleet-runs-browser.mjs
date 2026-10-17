@@ -235,6 +235,34 @@ try {
     ) && !(await page.locator("#log-read").isDisabled()),
     "expired read retains content"
   );
+  await fixture.hold(false);
+  await page.clock.resume();
+  // Rotate the real HTTP cookie away: the actual C10 route must deny the old tab.
+  await context.clearCookies();
+  await page.locator("#log-follow").click();
+  await page.waitForFunction(() =>
+    document
+      .querySelector("#log-status")
+      .textContent.includes("Session expired")
+  );
+  await check(
+    (await page.locator("#log-status").textContent()) ===
+      "Session expired. Reload the page to continue." &&
+      (await page.locator("#log-content").textContent()).includes(
+        "new generation"
+      ) &&
+      (await page.locator("#log-read").isDisabled()) &&
+      (await page.locator("#log-follow").isDisabled()) &&
+      (await page.locator("#log-badge").textContent()).includes("Historical"),
+    "expired session pauses follow with reload guidance"
+  );
+  await page.reload();
+  await textIncludes("new generation");
+  await check(
+    !(await page.locator("#log-read").isDisabled()) &&
+      !(await page.locator("#log-follow").isDisabled()),
+    "reload restores browser session reads"
+  );
   await check(errors.length === 0, "no browser runtime errors");
   const empty = await createRunFixture({ runCount: 0 });
   try {

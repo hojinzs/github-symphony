@@ -29,6 +29,30 @@ const cases = browser
         bundle,
         [
           [
+            "Session expired. Reload the page to continue.",
+            "Session expired. Request another read.",
+          ],
+        ],
+        "expired session pauses follow with reload guidance",
+      ],
+      [
+        bundle,
+        [
+          [
+            "read.disabled = model.sessionExpired ||",
+            "read.disabled = globalThis.c18Reloaded || model.sessionExpired ||",
+          ],
+          [
+            "if (root) mountRunLogPage(root);",
+            'globalThis.c18Reloaded = sessionStorage.getItem("c18-loaded") === "yes"; sessionStorage.setItem("c18-loaded", "yes"); if (root) mountRunLogPage(root);',
+          ],
+        ],
+        "reload restores browser session reads",
+      ],
+      [
+        bundle,
+        [
+          [
             "output.textContent = model.text;",
             'output.textContent = model.text; root2.querySelector("#history-observed").setAttribute("datetime", lastObservedAt);',
           ],
@@ -218,7 +242,12 @@ const cases = browser
       ],
       [
         p("run-log-model"),
-        [['this.text = points.slice(start).join("");', 'this.text = "";']],
+        [
+          [
+            'this.text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes.subarray(start));',
+            'this.text = "";',
+          ],
+        ],
         "actual filesystem log",
       ],
       [
@@ -255,8 +284,8 @@ const cases = browser
         p("run-log-model"),
         [
           [
-            'this.text = points.slice(start).join("");',
-            'this.text = points.slice(start).join("").slice(0,1024);',
+            'this.text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes.subarray(start));',
+            'this.text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes.subarray(start)).slice(0,1024);',
           ],
         ],
         "UTF-8 byte bound",
@@ -293,12 +322,7 @@ const cases = browser
       ],
       [
         p("run-routes"),
-        [
-          [
-            'readFileSync(new URL("./browser/run-log-client.js", import.meta.url), "utf8")',
-            '""',
-          ],
-        ],
+        [['readAsset("./browser/run-log-client.js")', '""']],
         "local browser bundle",
       ],
     ];

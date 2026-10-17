@@ -809,4 +809,5 @@ The consuming private fleet listener mounts run/project/read dispatchers and
 ships `dist/browser/` with local assets. Reads are limited to known run IDs,
 256 KiB chunks and a 30-second lifetime. Rotation needs explicit reset;
 offline fetched content remains historical and reconnect leaves follow paused.
+An expired browser session preserves content and prompts a page reload.
 This adds no CLI command or change to per-project `--web`.

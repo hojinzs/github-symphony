@@ -20,9 +20,19 @@ export function createRunRoutes(
   browser: BrowserSecurity,
   options: ProjectRouteOptions
 ) {
-  // One private operator session per mounted dispatcher; navigation must not
-  // rotate the cookie underneath an already open log tab.
+  // Share a session across navigation until renewal is due. A tab holding an
+  // older CSRF token receives explicit reload guidance from the log reader.
   let pageSession: BrowserSession | undefined;
+  const assets = new Map<string, string>();
+  function readAsset(path: string): string {
+    let content = assets.get(path);
+    if (content === undefined) {
+      content = readFileSync(new URL(path, import.meta.url), "utf8");
+      assets.set(path, content);
+    }
+    return content;
+  }
+  let renewAt = 0;
   function response(
     status: number,
     body: string,
@@ -52,10 +62,7 @@ export function createRunRoutes(
     if (url.pathname === "/fleet-assets/runs.js")
       return response(
         200,
-        readFileSync(
-          new URL("./browser/run-log-client.js", import.meta.url),
-          "utf8"
-        ),
+        readAsset("./browser/run-log-client.js"),
         "text/javascript; charset=utf-8"
       );
     const asset =
@@ -65,10 +72,7 @@ export function createRunRoutes(
     if (asset)
       return response(
         200,
-        readFileSync(
-          new URL("../assets/runs/" + asset[1] + ".svg", import.meta.url),
-          "utf8"
-        ),
+        readAsset("../assets/runs/" + asset[1] + ".svg"),
         "image/svg+xml"
       );
     const match = /^\/projects\/([^/]+)\/runs(\/state)?$/.exec(url.pathname);
@@ -107,12 +111,13 @@ export function createRunRoutes(
           "application/json; charset=utf-8"
         );
       const environments = await options.environments();
-      if (
-        !pageSession ||
-        Date.parse(pageSession.expiresAt) <=
-          (options.now?.() ?? new Date()).getTime()
-      )
+      const now = (options.now?.() ?? new Date()).getTime();
+      if (!pageSession || now >= renewAt) {
         pageSession = browser.issueSession();
+        // Renew halfway through the actual session lifetime. Existing tabs
+        // retain their CSRF token and can reload if the shared cookie rotates.
+        renewAt = now + (Date.parse(pageSession.expiresAt) - now) / 2;
+      }
       const session = pageSession;
       const result = response(
         200,
@@ -130,7 +135,11 @@ export function createRunRoutes(
           options.links
         )
       );
-      result.headers["Set-Cookie"] = session.setCookie;
+      result.headers["Set-Cookie"] = session.setCookie.replace(
+        /Max-Age=\d+/,
+        "Max-Age=" +
+          Math.max(0, Math.floor((Date.parse(session.expiresAt) - now) / 1000))
+      );
       return result;
     } catch (error) {
       const status =
