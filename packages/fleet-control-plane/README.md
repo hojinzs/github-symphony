@@ -398,3 +398,53 @@ Verification: `node e2e/fleet-projects-e2e.mjs` and
 `./e2e/run-fleet-projects-e2e.sh` for Linux Docker. These exercise actual
 enrollment, session, inventory and route services; the loopback HTTP fixture
 does not claim native lifecycle or production HTTPS deployment validation.
+
+### Run/log presentation state (C18)
+
+`src/run-log-model.ts` owns browser-local bounded log state for a known
+environment/project/run/stream selection. It validates C10 protocol results,
+retains at most 256 KiB of UTF-8 text, fences late results after disconnect,
+and preserves historical content and its fetched timestamp. Rotation requires
+explicit reset, including after reconnect; reconnect never resumes follow.
+The read transport owns the 30-second request lifetime. This internal model
+does not install routes, persist raw logs, or perform lifecycle actions.
+
+`createRunRoutes(observations, browser, { environments, links?, now? })`
+mounts C18 beside `createProjectRoutes` and `createReadRoutes` on the private
+fleet listener. It handles `GET /projects/:projectId/runs` (optional known
+`run`, allowed `stream`, and positive `page`), `GET
+/projects/:projectId/runs/state`, and local `runs.css`/`runs.js` assets.
+C16 project detail links to this destination by default. The listener must
+forward response headers including Set-Cookie and mount C10's submit/result
+routes, forwarding Origin, Cookie and X-CSRF-Token for submissions.
+The dispatcher shares its private operator session across page navigation.
+Sessions renew on navigation after half their lifetime; reused cookies advertise
+only their remaining lifetime. If an open tab has an expired or replaced session,
+the UI pauses follow, preserves historical content and says to reload the page.
+No new listener or per-project server behavior is introduced.
+
+History uses C06's maximum 100 retained summaries, paged 25 at a time.
+Native run/stream selection starts a new bounded read; Follow/Pause is
+explicit, uses at most one request at a time, and is paced at one second.
+The 30-second deadline covers acceptance and polling, including a stalled
+network call. Rotation blocks further reads until Reset cursor. Offline
+and expired/unavailable states preserve fetched content and timestamps;
+reconnection checks observations and leaves follow paused. Logs are text,
+never HTML, with a 256 KiB retained UTF-8 view and no browser persistence.
+The browser bundle is built with esbuild into `dist/browser/`; ship it with
+the server output. C14 native keyboard controls, focus and polite status
+announcements are retained; log lines are outside the live region.
+
+When composing C06 target resolution into C10's `CommandPeers`, retain C06's
+shared-transaction contract. The read lane invokes target lookups outside its
+own transaction; wrap those lookups in `store.transaction` when
+`database.isTransaction` is false. The executable C18 listener fixture in
+`e2e/fleet-runs-fixture.mjs` demonstrates this adapter against actual services.
+
+Verification after building: `node e2e/fleet-runs-e2e.mjs` and
+`node e2e/fleet-runs-mutations.mjs`, or `./e2e/run-fleet-runs-e2e.sh` for Linux
+Docker. The real-browser walkthrough and copied-browser-artifact probes use
+`e2e/fleet-runs-browser.mjs` and `e2e/fleet-runs-mutations.mjs --browser`;
+see TC-34 in AGENT_TEST.md for external Playwright setup. Browser evidence covers
+native controls, visible focus, inert text, offline/expiry/reset recovery and
+1440/1024/390 geometry. Native service isolation remains outside C18.

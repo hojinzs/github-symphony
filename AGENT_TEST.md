@@ -764,6 +764,20 @@ keyboard form submission, no horizontal overflow, readable paths, local SVG
 geometry, filter reset and historical offline labels. Native forms retain browser
 keyboard behavior; no custom menu or focus trap is introduced.
 
+## C18 run history and bounded logs
+
+| Case                                                                                                                                     | Executable evidence                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [TC-34 — project/run/stream identity, bounded reads, rotation/truncation, Unicode, offline and recovery](e2e/scenarios/34-fleet-runs.md) | `node e2e/fleet-runs-e2e.mjs` (17 reached assertions), `node e2e/fleet-runs-mutations.mjs` (17 forbidden-outcome probes); `./e2e/run-fleet-runs-e2e.sh` for Linux Docker       |
+| TC-34 browser — C14 keyboard/focus, historical text, read/session expiry and 1440/1024/390 layouts                                       | `node e2e/fleet-runs-browser.mjs` (23 reached assertions), `node e2e/fleet-runs-mutations.mjs --browser` (23 copied-browser/output probes); external Playwright setup in TC-34 |
+
+C18 composes real enrollment/session/inventory/read services on a test HTTPS
+listener with real registered filesystem logs. No API/read implementation is
+mocked. Native host/Chromium evidence is reported separately from Linux Docker
+composition, accelerated browser deadline and injected offline/cache lifecycle
+events. Native service isolation, human assistive-technology and production
+listener deployment remain outside this slice.
+
 ### OT-14 Collector receipt and outage
 
 | Case                                                                                                              | Runnable scenario                                                                   | Evidence                                                                                                                                                                                              |
