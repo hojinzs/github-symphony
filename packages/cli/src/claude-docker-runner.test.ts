@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+const hasJq = spawnSync("jq", ["--version"]).status === 0;
+
 const root = resolve(import.meta.dirname, "../../..");
 
 describe("Claude Docker runner failure evidence", () => {
@@ -24,7 +26,9 @@ describe("Claude Docker runner failure evidence", () => {
     expect(options).toContain("exec");
     expect(options).not.toContain("noexec");
   });
-  it.each(["health", "refresh", "state", "success", "diagnostics-down"])(
+  it
+    .skipIf(!hasJq)
+    .each(["health", "refresh", "state", "success", "diagnostics-down"])(
     "retains evidence and cleans up for %s",
     (mode) => {
       const dir = mkdtempSync(join(tmpdir(), "symphony-runner-"));
@@ -43,6 +47,15 @@ describe("Claude Docker runner failure evidence", () => {
         ]) {
           copyFileSync(join(root, file), join(dir, file));
         }
+        // Exercise additional Compose options rather than depending on argv offsets.
+        const runner = join(dir, "test/e2e/claude/run-docker-e2e.sh");
+        writeFileSync(
+          runner,
+          readFileSync(runner, "utf8").replaceAll(
+            "-f docker-compose.e2e.yml)",
+            "-f docker-compose.e2e.yml -f override.yml)"
+          )
+        );
         writeFileSync(join(dir, "e2e/fixtures/happy-path.json"), "[]");
         writeFileSync(
           join(dir, "bin/docker"),
@@ -56,7 +69,12 @@ fi
 if [ "$1" = stats ]; then echo 'memory snapshot'; exit 0; fi
 if [ "$1" = events ]; then echo 'oom event'; exit 0; fi
 if [ "$1" = image ]; then exit 0; fi
-shift 5
+while (( $# > 0 )); do
+  case "$1" in
+    ps|logs|exec|build|up|down) break ;;
+  esac
+  shift
+done
 case "$1" in
   ps)
     if [ "\${2:-}" = --all ]; then echo container-id; fi

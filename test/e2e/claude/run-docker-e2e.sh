@@ -18,7 +18,7 @@ collect_diagnostics() {
   "$@" ps --all > "$evidence_dir/$label-ps.log" 2>&1 || true
   "$@" logs --no-color --timestamps > "$evidence_dir/$label-container.log" 2>&1 || true
   local ids
-  ids=$("$@" ps --all --quiet 2>"$evidence_dir/$label-ids-error.log") || true
+  ids=$("$@" ps --all --quiet 2>>"$evidence_dir/$label-ps.log") || true
   if [ -n "$ids" ]; then
     # Compose emits one container ID per line; intentional word splitting.
     docker inspect --format '{{json .State}}' $ids > "$evidence_dir/$label-state.json" 2>&1 || true
@@ -51,11 +51,10 @@ evidence_dir=$(mktemp -d "$root_dir/evidence/claude-docker.XXXXXX")
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "Docker E2E evidence: $evidence_dir"
 
-# Keep the memory-heavy Claude image build out of the running Codex smoke leg.
-# An exec status of 137 alone cannot establish whether the container was OOM-killed.
-
 echo "[]" > e2e/fixtures/issues.json
 trap cleanup EXIT
+# Keep the memory-heavy Claude image build out of the running Codex smoke leg.
+# An exec status of 137 alone cannot establish whether the container was OOM-killed.
 "${e2e_compose[@]}" build
 "${claude_compose[@]}" build
 "${e2e_compose[@]}" up -d --no-build
