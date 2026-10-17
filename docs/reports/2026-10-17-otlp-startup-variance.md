@@ -1,6 +1,7 @@
 # OTLP startup variance on shared macOS hosts (#1055)
 
-Status: Investigation complete; release acceptance remains unresolved.
+Status: Investigation complete; release acceptance remains unresolved and is tracked
+in [#1084](https://github.com/hojinzs/github-symphony/issues/1084).
 
 Symphony Layers: Observability, Configuration, Execution (audit boundaries only).
 

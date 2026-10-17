@@ -10,7 +10,7 @@
           "run": "audit",
           "auditExit": 1,
           "fullReportSha256": "b8311e06087820c1b9847f96d96b8a20f45b72b8ae8f7b6876630b3405ae024a",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-996.KhhWrw/audit.json",
+          "sourceReport": "audit.json",
           "runTimestamps": [],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -118,7 +118,7 @@
           "run": "audit-retry",
           "auditExit": 1,
           "fullReportSha256": "3b04d648860ca09fc4c5348819b94974d1e2b92cc96afd66b1984944688ee0ee",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-996.KhhWrw/audit-retry.json",
+          "sourceReport": "audit-retry.json",
           "runTimestamps": [],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -232,7 +232,7 @@
           "run": "comparison-1",
           "auditExit": 0,
           "fullReportSha256": "8a7d30b6fd4161ab719e51719b48caaccf6b9c4713304d42262817c72a598bd8",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/comparison-1.json",
+          "sourceReport": "comparison-1.json",
           "runTimestamps": ["2026-10-17T06:26:10Z", "2026-10-17T06:26:46Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -863,7 +863,7 @@
           "run": "control-1",
           "auditExit": 1,
           "fullReportSha256": "9be69a2bd31b4d3fb568c2d91db6ce827cf6edd36657887916a632f4c7c1ab49",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/control-1.json",
+          "sourceReport": "control-1.json",
           "runTimestamps": ["2026-10-17T06:26:46Z", "2026-10-17T06:27:22Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -1494,7 +1494,7 @@
           "run": "comparison-2",
           "auditExit": 0,
           "fullReportSha256": "2b71714757fcadb6135ce87b95c94140db36fd6ed774de0beb5784b0342a2d9c",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/comparison-2.json",
+          "sourceReport": "comparison-2.json",
           "runTimestamps": ["2026-10-17T06:27:22Z", "2026-10-17T06:27:56Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -2125,7 +2125,7 @@
           "run": "control-2",
           "auditExit": 0,
           "fullReportSha256": "4456ba3a9a3dc96494ec6db3de844ab9a277b8473ca80cf806e39bf97637f97c",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/control-2.json",
+          "sourceReport": "control-2.json",
           "runTimestamps": ["2026-10-17T06:27:56Z", "2026-10-17T06:28:32Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -2756,7 +2756,7 @@
           "run": "comparison-3",
           "auditExit": 0,
           "fullReportSha256": "240c7e0278c9af6e1b4ace144001c4794842ea76a3ad8633943fd1bc7b159144",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/comparison-3.json",
+          "sourceReport": "comparison-3.json",
           "runTimestamps": ["2026-10-17T06:28:32Z", "2026-10-17T06:29:07Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -3387,7 +3387,7 @@
           "run": "control-3",
           "auditExit": 0,
           "fullReportSha256": "ec2b593462c96cc7fd0174d6be551f24c847cf87d1b83aa756720d57a2753e8e",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/control-3.json",
+          "sourceReport": "control-3.json",
           "runTimestamps": ["2026-10-17T06:29:07Z", "2026-10-17T06:29:42Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -4024,7 +4024,7 @@
           "run": "comparison-1",
           "auditExit": 0,
           "fullReportSha256": "c18a5c2769b06f403c5e47dfef773ec0420e02e48956b8ca37bdd13dab45a053",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/linux/comparison-1.json",
+          "sourceReport": "comparison-1.json",
           "runTimestamps": ["2026-10-17T06:30:12Z", "2026-10-17T06:30:39Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -4655,7 +4655,7 @@
           "run": "control-1",
           "auditExit": 0,
           "fullReportSha256": "bd91fc665e3eaa2f1b96669bb734bcab1f98a962c3d1ab21ef43589462118372",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/linux/control-1.json",
+          "sourceReport": "control-1.json",
           "runTimestamps": ["2026-10-17T06:30:39Z", "2026-10-17T06:31:03Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -5286,7 +5286,7 @@
           "run": "comparison-2",
           "auditExit": 0,
           "fullReportSha256": "b88e772f67f264f5e738c1e0877db4e4b50fb945a02fd4ca67a522e482a6836d",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/linux/comparison-2.json",
+          "sourceReport": "comparison-2.json",
           "runTimestamps": ["2026-10-17T06:31:03Z", "2026-10-17T06:31:29Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -5917,7 +5917,7 @@
           "run": "control-2",
           "auditExit": 0,
           "fullReportSha256": "69f7b9aafa9e15c46216a98df40deee736679093cc644cb427f3569710f8984c",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/linux/control-2.json",
+          "sourceReport": "control-2.json",
           "runTimestamps": ["2026-10-17T06:31:29Z", "2026-10-17T06:31:54Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -6548,7 +6548,7 @@
           "run": "comparison-3",
           "auditExit": 1,
           "fullReportSha256": "6ec7d5290ef59016999b98030863856ba44fa090d97cc33bceb24b04fb5c8c38",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/linux/comparison-3.json",
+          "sourceReport": "comparison-3.json",
           "runTimestamps": ["2026-10-17T06:31:54Z", "2026-10-17T06:32:19Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -7179,7 +7179,7 @@
           "run": "control-3",
           "auditExit": 0,
           "fullReportSha256": "e94936ad435f6904a74162e2af8d604dcce5c8f1c5a3e59a02942af43d66addc",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/linux/control-3.json",
+          "sourceReport": "control-3.json",
           "runTimestamps": ["2026-10-17T06:32:19Z", "2026-10-17T06:32:43Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -7816,7 +7816,7 @@
           "run": "comparison-1",
           "auditExit": 0,
           "fullReportSha256": "8e5806cba8ed5ed1533fdd2f5404e5d7d1142f6871994de0f7307b065b524140",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/original-runs/comparison-1.json",
+          "sourceReport": "comparison-1.json",
           "runTimestamps": ["2026-10-17T06:33:07Z", "2026-10-17T06:33:43Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -7924,7 +7924,7 @@
           "run": "comparison-2",
           "auditExit": 0,
           "fullReportSha256": "2fe5057724ab7942ea06341e961756c6003904f781a2fb4324e68bde0a7d48ef",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/original-runs/comparison-2.json",
+          "sourceReport": "comparison-2.json",
           "runTimestamps": ["2026-10-17T06:33:43Z", "2026-10-17T06:34:18Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",
@@ -8032,7 +8032,7 @@
           "run": "comparison-3",
           "auditExit": 0,
           "fullReportSha256": "09e621f87e798894754b9c71209df036e3251e3b5318a6e6880a7721063ff06d",
-          "sourceReport": "/var/folders/vm/tn1q05bx5hxffc9f6v6p_1pc0000gn/T/symphony-1055.rZT1lK/original-runs/comparison-3.json",
+          "sourceReport": "comparison-3.json",
           "runTimestamps": ["2026-10-17T06:34:18Z", "2026-10-17T06:34:54Z"],
           "reachedAssertions": [
             "30 fresh-process disabled startup samples",

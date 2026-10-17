@@ -184,7 +184,7 @@ try {
   const startupHostBefore = hostContext();
   // Thirty fresh processes per build; each build runs first in fifteen pairs.
   for (let index = 0; index < 30; index++) {
-    for (const name of startupBuildOrder(index)) {
+    for (const [position, name] of startupBuildOrder(index).entries()) {
       const build = { baseline, candidate }[name];
       startupOrder.push(name);
       const startedAt = new Date().toISOString();
@@ -210,7 +210,7 @@ try {
       startupTimeline.push({
         pair: index,
         build: name,
-        position: startupTimeline.length % 2,
+        position,
         startedAt,
         elapsedMs,
       });
