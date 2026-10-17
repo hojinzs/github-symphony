@@ -1193,3 +1193,17 @@ Call `install()` and `start()` with the updated absolute executable and
 entrypoint paths. Keep the existing config and private data directory: this
 repair preserves enrollment, allowlist and journal data and does not stop
 managed project orchestrators. Installation requires an executable `nodePath`.
+
+### Fleet lifecycle UI composition (C17)
+
+C17 adds no workflow setting, product environment variable or CLI flag. The
+private fleet listener composes `createCommandRoutes` with C04 browser security,
+C07 command storage and a trusted context provider for C06 observations and
+backend admission reasons; `commandProjectLinks` connects C16 navigation. Serve
+both dispatchers and preserve their response headers. Parse bounded form bodies
+and reject duplicate keys before dispatch. Command pages use same-origin
+referrers for native form Origin verification; cross-origin mutation remains
+rejected. Command GETs reuse unexpired browser sessions without renewing their
+deadline; closure review rejects reasons over 2048 UTF-8 bytes before issuing
+a receipt. Short-lived closure review receipts are discarded on restart without
+changing durable unknown outcomes. See the fleet package README and TC-34.

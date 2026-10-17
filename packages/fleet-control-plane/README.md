@@ -399,6 +399,60 @@ Verification: `node e2e/fleet-projects-e2e.mjs` and
 enrollment, session, inventory and route services; the loopback HTTP fixture
 does not claim native lifecycle or production HTTPS deployment validation.
 
+### Lifecycle presentation compositions (C17)
+
+`src/command-pages.ts` contains typed command history, CommandProgress,
+RecoveryPanel and start/stop/unresolved-closure confirmation compositions.
+They consume protocol `CommandRecord` values separately from C16 project
+observations: accepted/executing never changes process state, superseded targets
+do not imply replacement-process termination, and audited closure preserves
+unknown with actor/time/reason. Unresolved recovery offers no replay control.
+`CommandContext.disabledReasons` carries service-owned admission reasons in
+addition to observation eligibility. Forms describe intent only; the consuming
+private fleet route must authenticate CSRF, validate input and recheck command
+admission. These compositions do not change the per-project web server. Graphite responsive styles cover desktop, tablet and phone widths.
+
+`createCommandRoutes(commands, browserSecurity, { context })` supplies the private
+fleet mount for GET `/projects/:id/commands`, `/projects/:id/commands/start|stop`
+and `/commands/:id`, and POST `/projects/:id/commands`,
+`/commands/:id/closure-confirmation` and `/commands/:id/close-unresolved`.
+Compose it with C16 `createProjectRoutes` using `commandProjectLinks` and serve
+both dispatchers on the private fleet listener. `context` provides current C06
+observations, environment name and backend admission reasons. C07 rechecks
+admission and persists command identity; this route never executes lifecycle
+operations itself. GET confirmations do not submit commands.
+
+The listener must parse bounded form bodies and reject duplicate keys, pass
+canonical Origin/cookie headers unchanged, and return the dispatcher's security
+headers. Each mutation requires an actual C04 browser session and matching CSRF.
+Session records keep only CSRF digests; a per-process HMAC key derives stable
+tokens for valid cookie holders. Restart invalidates these in-memory sessions.
+The command service, routes and form share one closure-reason byte limit.
+Command GETs reuse a valid browser cookie session without extending its deadline,
+so forms in other tabs and cancelled closure confirmations remain valid. Missing
+or expired sessions receive a new cookie. Closure reasons are limited to 2048
+UTF-8 bytes before review; the textarea also caps input at 2048 characters.
+The unresolved closure review issues an expiring receipt bound to command,
+reason, CSRF and cookie. Direct, changed or expired confirmation is rejected;
+restart discards these receipts without changing durable commands. Native dialog
+enhancement explicitly wraps Tab and Shift+Tab focus, places initial focus on Cancel, supports Escape, and
+returns to the action anchor. Without enhancement the confirmation is still an
+explicit native POST form. Unknown outcomes offer no replay action.
+
+Native forms use `Referrer-Policy: same-origin` so Chromium retains the exact
+Origin on POST while cross-origin referrers remain suppressed. The C04 exact
+Origin check is unchanged. Command progress is refreshed explicitly through the
+Refresh link; unknown has no retry or replacement intent. Invalid workflow
+validation blocks Start but does not prevent an otherwise eligible Stop.
+
+C17 verification: [TC-34](../../e2e/scenarios/34-fleet-command-ui.md) covers
+21 real HTTPS assertions/probes plus native Chromium's 13 assertions/probes,
+including all approved command/recovery states and extra admission/error scenes at 1440/1024/390. Run
+`node e2e/fleet-command-ui-e2e.mjs`, `node e2e/fleet-command-ui-mutations.mjs`
+and `./e2e/run-fleet-command-ui-e2e.sh` after building. Native browser setup and
+artifact mutation commands are in the TC. Process observations and C08 result
+records are independent fixtures; no native lifecycle claim follows.
+
 ### Run/log presentation state (C18)
 
 `src/run-log-model.ts` owns browser-local bounded log state for a known
