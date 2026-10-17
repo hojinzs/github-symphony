@@ -57,6 +57,12 @@ COPY --from=build --chown=node:node /app/e2e/fleet-observations-mutations.mjs /a
 COPY --from=build --chown=node:node /app/e2e/fleet-reads-e2e.mjs /app/e2e/fleet-reads-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-reads-mutations.mjs /app/e2e/fleet-reads-mutations.mjs
 
+COPY --from=build --chown=node:node /app/e2e/linux-agent-service-e2e.mjs /app/e2e/linux-agent-service-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/run-linux-agent-service-probes.mjs /app/e2e/run-linux-agent-service-probes.mjs
+
+COPY --from=build --chown=node:node /app/e2e/lib/json-journal.mjs /app/e2e/lib/json-journal.mjs
+COPY --from=build --chown=node:node /app/e2e/lib/json-journal.test.mjs /app/e2e/lib/json-journal.test.mjs
+
 COPY --from=build --chown=node:node /app/e2e/fleet-projects-e2e.mjs /app/e2e/fleet-projects-e2e.mjs
 COPY --from=build --chown=node:node /app/e2e/fleet-projects-mutations.mjs /app/e2e/fleet-projects-mutations.mjs
 

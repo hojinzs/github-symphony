@@ -1,0 +1,12 @@
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    user: "0:0"
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./e2e/otlp/collector.yaml:/etc/otelcol/config.yaml:ro
+      - ${OTLP_EVIDENCE_DIR:?set OTLP_EVIDENCE_DIR}:/evidence
+  symphony-e2e:
+    volumes:
+      - ./e2e/otlp:/app/e2e/otlp:ro
+      - ${OTLP_EVIDENCE_DIR:?set OTLP_EVIDENCE_DIR}:/evidence
