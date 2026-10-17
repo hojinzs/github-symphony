@@ -2,7 +2,7 @@
 
 - **Date:** 2026-10-11
 - **Status:** Draft — operator decisions D1–D4 recorded on 2026-10-11; architecture review pending
-- **Symphony Layers:** Configuration, Coordination, Observability; Execution at the host process lifecycle boundary
+- **Symphony Layers:** Configuration, Coordination, Integration, Observability; Execution at the host process lifecycle boundary
 - **Scope:** Proposed follow-up to the Control Plane Epic; this document does not describe shipped commands or APIs
 - **Tracking:** Follow-up Epic to be opened after [Epic #983](https://github.com/hojinzs/github-symphony/issues/983) completes
 - **Related documents:** [Control Plane and environment management agents](2026-10-04-control-plane-management-agents-design.md), [Orchestrator OpenTelemetry export](2026-10-04-otlp-export-design.md), [Standalone project model](2026-08-11-standalone-project-model-design.md), [single-repo orchestrator ADR](../adr/2026-05-04_single-repo-orchestrator.md)
@@ -106,14 +106,14 @@ stops it on its own. That is the #983 v1 behaviour.
 The rule is **latest human intent wins**. It applies only to supervised projects
 (`desired != unset`).
 
-| Event                                                                       | Effect on a supervised project                    |
-| --------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Control Plane start / stop command                                          | Set `running` / `stopped`, then reconcile at once |
-| `gh-symphony agent project start                                            | stop <id>`                                        | Same as above, locally                                                            |
-| Local `gh-symphony project stop` observed (matching stop intent, see below) | Set `stopped` (D2)                                |
-| Local `gh-symphony project start` observed (`startCause=operator`)          | Set `running`                                     |
-| Orchestrator exits for any other reason                                     | No change. Reconciler restarts it.                |
-| `agent project autostart <id> on                                            | off`, or the Control Plane toggle                 | `on`: set `running` if observed running, otherwise `stopped`. `off`: set `unset`. |
+| Event                                                                       | Effect on a supervised project                                                    |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Control Plane start / stop command                                          | Set `running` / `stopped`, then reconcile at once                                 |
+| `gh-symphony agent project start\|stop <id>`                                | Same as above, locally                                                            |
+| Local `gh-symphony project stop` observed (matching stop intent, see below) | Set `stopped` (D2)                                                                |
+| Local `gh-symphony project start` observed (`startCause=operator`)          | Set `running`                                                                     |
+| Orchestrator exits for any other reason                                     | No change. Reconciler restarts it.                                                |
+| `agent project autostart <id> on\|off`, or the Control Plane toggle         | `on`: set `running` if observed running, otherwise `stopped`. `off`: set `unset`. |
 
 Local actions on an `unset` project change nothing. The agent only reports them.
 
@@ -175,6 +175,12 @@ interface ExitRecord {
 }
 ```
 
+`instanceId` is absent when no orchestrator process was created. Workflow
+preflight (`preflightWorkflowStart` in `packages/cli/src/commands/start.ts`)
+fails in the CLI parent before any daemon or lock exists, so on a preflight
+failure the CLI parent itself writes `last-exit.json` with
+`reason: "fatal_startup"` and the validation diagnostic, then exits non-zero.
+
 `project start` gains `--start-cause <cause>` (hidden, default `operator`). The
 agent always passes it. The daemon parent forwards it to the child.
 
@@ -192,12 +198,21 @@ The stop intent, not the exit record, is authoritative, because a forced stop,
    The exit record, or its absence, only classifies the cause for backoff,
    crash-loop counting and telemetry.
 3. `fatal_startup` with a workflow validation diagnostic moves the project to
-   `blocked_config` rather than restarting it (see Reconciler).
+   `blocked_config` rather than restarting it (see Reconciler). This covers
+   both preflight failures written by the CLI parent and validation failures
+   inside the orchestrator.
+
+The stopper removes its intent when the signal fails after the intent was
+written (`process.kill` throws `EPERM`, or the identity re-check in
+`packages/cli/src/commands/stop.ts` rejects the target). As a backstop for a
+stopper that dies before cleanup, an intent matches only when the exit happens
+within the 60 s stop timeout of `requestedAt`. A later crash of the same
+instance is therefore an unintended exit and is restarted.
 
 An intent whose target never matches a running instance (stop of an already
-stopped project, PID reuse) is ignored. The next successful start archives the
-consumed intent to `lifecycle/history/` (bounded, last 20) so that a stale
-intent can never suppress a later restart.
+stopped project, PID reuse) is ignored. The next successful start deletes the
+consumed intent. Matching on `instanceId` already makes a stale intent
+harmless; deletion keeps the directory small.
 
 The agent learns of local actions it did not perform by observation, not
 notification. It reads the lifecycle records on its observation interval
@@ -373,24 +388,24 @@ reload.
 
 ## Test cases
 
-| ID    | Scenario                                                       | Expected                                                                            |
-| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| SL-01 | Supervised running project; host reboot; user logs in          | Agent boot pass restarts it with `boot_recovery`; journal origin `reconciler`       |
-| SL-02 | Unsupervised (`unset`) project; reboot                         | Not started; reported stopped                                                       |
-| SL-03 | Human runs `project stop` while agent is running               | Desired becomes `stopped`; no restart; journal origin `local-cli`                   |
-| SL-04 | Human runs `project stop` while agent is down, then reboot     | Boot pass applies the intent first; project stays stopped                           |
-| SL-05 | Human runs `project stop --force` (SIGKILL)                    | Intent recorded before signal; treated as operator stop despite missing exit record |
-| SL-06 | Orchestrator SIGKILLed with no intent                          | Restarted with `crash_recovery` after backoff                                       |
-| SL-07 | Six unintended exits in 10 min                                 | `crash_loop` after the fifth; released by explicit start or workflow change         |
-| SL-08 | Invalid `WORKFLOW.md` at boot                                  | `blocked_config`, no retries; fixed file releases and starts it                     |
-| SL-09 | Human runs `project start` on a project with desired `stopped` | Desired becomes `running`                                                           |
-| SL-10 | Control Plane stop races reconciler restart                    | Desired written before signal; no restart; single journal outcome                   |
-| SL-11 | Stale stop intent from a previous instance                     | Ignored; archived on next start; does not suppress restart                          |
-| SL-12 | Network unavailable for 3 min after login                      | Starts retry with backoff; no `crash_loop`; all projects up after network           |
-| SL-13 | Host sleep causes `lease_lost` exit                            | Restarted; no duplicate orchestrator                                                |
-| SL-14 | `agent setup --local`, later `agent enroll`                    | Same service; desired state preserved and first observation reports it              |
-| SL-15 | 13 supervised projects at boot                                 | At most 2 concurrent starts; all ready                                              |
-| SL-16 | Agent service stop/restart with supervised projects running    | Orchestrators keep running; restart adopts them without new starts                  |
+| ID    | Scenario                                                                                                                      | Expected                                                                            |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| SL-01 | Supervised running project; host reboot; user logs in                                                                         | Agent boot pass restarts it with `boot_recovery`; journal origin `reconciler`       |
+| SL-02 | Unsupervised (`unset`) project; reboot                                                                                        | Not started; reported stopped                                                       |
+| SL-03 | Human runs `project stop` while agent is running                                                                              | Desired becomes `stopped`; no restart; journal origin `local-cli`                   |
+| SL-04 | Human runs `project stop` while agent is down, then reboot                                                                    | Boot pass applies the intent first; project stays stopped                           |
+| SL-05 | Human runs `project stop --force` (SIGKILL)                                                                                   | Intent recorded before signal; treated as operator stop despite missing exit record |
+| SL-06 | Orchestrator SIGKILLed with no intent                                                                                         | Restarted with `crash_recovery` after backoff                                       |
+| SL-07 | Six unintended exits in 10 min                                                                                                | `crash_loop` after the fifth; released by explicit start or workflow change         |
+| SL-08 | Invalid `WORKFLOW.md` at boot                                                                                                 | `blocked_config`, no retries; fixed file releases and starts it                     |
+| SL-09 | Human runs `project start` on a project with desired `stopped`                                                                | Desired becomes `running`                                                           |
+| SL-10 | Control Plane stop races reconciler restart                                                                                   | Desired written before signal; no restart; single journal outcome                   |
+| SL-11 | Stale or aborted stop intent: previous instance, or signal failed after the intent was written and the instance later crashes | Ignored; deleted on next start; does not suppress restart                           |
+| SL-12 | Network unavailable for 3 min after login                                                                                     | Starts retry with backoff; no `crash_loop`; all projects up after network           |
+| SL-13 | Host sleep causes `lease_lost` exit                                                                                           | Restarted; no duplicate orchestrator                                                |
+| SL-14 | `agent setup --local`, later `agent enroll`                                                                                   | Same service; desired state preserved and first observation reports it              |
+| SL-15 | 13 supervised projects at boot                                                                                                | At most 2 concurrent starts; all ready                                              |
+| SL-16 | Agent service stop/restart with supervised projects running                                                                   | Orchestrators keep running; restart adopts them without new starts                  |
 
 ## Delivery slices
 

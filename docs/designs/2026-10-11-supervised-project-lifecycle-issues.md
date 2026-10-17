@@ -106,6 +106,9 @@ Resolve open questions 1 and 2 of the design before the guard values are fixed.
   beside the ready file.
 - Add hidden `project start --start-cause <operator|control_plane|agent_cli|boot_recovery|crash_recovery>`,
   default `operator`, forwarded from the daemon parent to the child.
+- On a workflow preflight failure (`preflightWorkflowStart`, before any daemon
+  exists), the CLI parent writes `lifecycle/last-exit.json` with
+  `reason: "fatal_startup"`, no `instanceId` and the validation diagnostic.
 - Resolve the `lifecycle/` directory through the same canonical runtime used by
   `resolveCanonicalRuntime` (design open question 4).
 - **Acceptance:** start record written for foreground and daemon modes. The cause
@@ -122,12 +125,16 @@ Resolve open questions 1 and 2 of the design before the guard values are fixed.
 - Add a shared, pure `classifyExit(start, intent, exit)` reader in a package the
   management agent already depends on. Resolve the exact location in the
   implementation plan.
-- Archive consumed intents to `lifecycle/history/` (last 20) on the next
-  successful start.
+- Remove the intent when the signal fails after it was written (`EPERM`,
+  identity re-check rejection). An intent matches only an exit within the 60 s
+  stop timeout of `requestedAt`.
+- Delete the consumed intent on the next successful start.
+- Classify a preflight `fatal_startup` record (written by SL01) the same as an
+  in-process validation failure.
 - `project status` shows last exit reason and start cause.
-- **Acceptance:** SL-05 and SL-11 logic at unit level; intent written before the
-  signal (fault-inject a crash between write and signal); stale intent ignored;
-  records redacted.
+- **Acceptance:** SL-05, SL-08 and SL-11 logic at unit level; intent written
+  before the signal (fault-inject a crash between write and signal); intent
+  removed after a failed signal; stale intent ignored; records redacted.
 
 ## SL03 — Orchestrator OTLP start/stop log records
 
