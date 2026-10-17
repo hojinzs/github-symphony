@@ -1230,6 +1230,12 @@ private fleet HTTPS listener. It preserves historical offline observations and
 uses fresh data for workspace totals. Fleet listener composition is separate
 from the shipped per-project `--web` server.
 
+The C17 fleet lifecycle UI composition adds Stop confirmation, durable command
+history and reviewed unknown-outcome closure with a required reason. Current
+process observations remain independent from command outcomes. The internal
+fleet package exports a private-listener dispatcher; this adds no CLI command
+and preserves `gh-symphony project` and per-project `--web` behavior.
+
 The [C18 run/log view](packages/fleet-control-plane/README.md#runlog-presentation-state-c18)
 adds known-run history and allowed-stream selection through the bounded read
 lane. Follow pauses on disconnect and rotation requires explicit cursor reset;
