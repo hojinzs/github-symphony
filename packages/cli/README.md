@@ -758,12 +758,24 @@ heartbeats and polling run independently with bounded reconnect backoff.
 Transient inventory/delivery adapter failures retry with sanitized diagnostics and
 fresh snapshots. Enrollment stays awaiting-signal through expiry or fleet restart
 until its first authenticated observation.
-This module adds no command or listener. Guided setup (C13, #1017), inventory projection,
-fleet route assembly and native service packaging retain their sibling boundaries.
+This module adds no command or listener. Guided setup (C13, #1017) and fleet
+route assembly retain their sibling boundaries; C06 supplies inventory projection.
 Use `createDeliveryHandler` to compose command and read handlers while the
 foreground runtime holds the registry lock. The factory handler receives empty
 polls too, allowing durable result retry and recovery without redelivery.
 Existing `gh-symphony project` and per-project `--web` commands keep their behavior.
+
+The same bundled module exports C11 `LinuxAgentService` and
+`createLinuxProjectLaunchContext` for trusted Linux service composition. Install,
+start/restart/stop/status/uninstall manage only the user-owned agent unit; project
+daemons launch in separate retained systemd units. Before launch, empty retained
+units are reclaimed with identity/cgroup checks; live units remain untouched.
+Diagnosis rejects non-default manager XDG configuration and legacy/hybrid cgroups. Linux requires systemd 254+,
+a reachable user manager and cgroup v2 for isolated launch. Missing linger limits
+boot/logout startup; diagnosis explains `loginctl enable-linger` without changing
+privileges. See the [Linux adapter contract](../management-agent/README.md#linux-user-service-packaging-c11)
+for absolute paths, the C13 entrypoint boundary and installation recovery. Native
+OS validation remains separate from command-fixture evidence.
 
 The internal [fleet observation service](../fleet-control-plane/README.md) provides C06 cached inventory
 queries, receipt-based offline/stale state, paged project lists and advisory

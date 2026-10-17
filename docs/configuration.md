@@ -1073,6 +1073,54 @@ per signal and report HTTP outcomes, never credentials or Collector response
 bodies. Pending settings reported by `project status` require restart; the
 applied exporter continues until then. The audited CLI supplies the internal startup capability; the library default remains off.
 
+### Linux agent service adapter (C11)
+
+`LinuxServiceConfig` supplies absolute `homeDirectory`, `nodePath`, `entryPath`,
+`configPath` and `dataDirectory`. The trusted shared composition entry implements
+`--config`, `--data-dir` and `--native-service=linux`; C13 owns public CLI routing.
+No credential is serialized into the unit. The data directory must already exist
+with mode 0700. Unit/parent paths reject symlinks, foreign ownership and writable
+group/other directories; an existing definition must exactly match the requested
+configuration. Installation resumes saved identity and never reenrolls.
+
+`LinuxAgentService` defaults to absolute `/usr/bin/systemctl` and
+`/usr/bin/loginctl`; alternative absolute tool paths are trusted local options.
+Systemd 254+, a reachable user manager and unified cgroup v2 are required.
+Diagnosis rejects legacy/hybrid or unreadable hierarchy evidence and a manager
+`XDG_CONFIG_HOME` differing from `homeDirectory/.config`; unset/empty values
+use the default. Unsupported hosts use foreground recovery before unit creation.
+Entry/config paths must be regular files; pass `realpath` results for symlinked
+global CLI installations. Disabled/unknown linger
+limits startup after boot/logout; enabling linger is an explicit operator action.
+The agent unit uses five-second failure restart delay and five-start/minute limits.
+
+`createLinuxProjectLaunchContext` defaults to `/usr/bin/systemd-run`, requires
+cgroup v2 and execution from inside the agent unit, and consumes the C03 trusted
+launch request/deadline. Pass saved credentials through `managementCredentials`
+to strip value aliases as well as management/broker names. Sanitized project
+environment values are transferred by name; manager-only variables are explicitly
+unset. No new environment-variable configuration is introduced. The runner,
+platform and control-group readers are OS fixture seams; production must use
+actual host defaults. Uninstall preserves all agent and project runtime data.
+
+The Linux agent unit uses raw `WorkingDirectory=/` so the native parser receives
+an absolute path; configured entry/data/config paths remain absolute arguments.
+Lifecycle effects additionally require the manager's loaded `FragmentPath` to
+match the owned definition, `Transient=no`, and only OS-vendor type-wide
+`service.d/*.conf` drop-ins under `/usr/lib/systemd/user` or `/lib/systemd/user`.
+These OS-vendor directories are trusted; user and unit-specific overrides fail
+closed. Same-name
+transient units, alternative fragments and overrides are configuration conflicts
+requiring local repair, even when the filesystem definition is unchanged.
+
+Before a project launch, the Linux launcher attempts empty retained-unit
+reclamation within one second, inspecting at most eight UUID-named units.
+Transient oneshot/exited metadata, invocation identity, separated cgroup path
+and `populated 0` are required and rechecked before stop; uncertain or live units
+remain untouched. Cleanup failure does not change the requested launch result.
+The cgroup filesystem root and self-cgroup reader are trusted OS fixture seams;
+production uses `/sys/fs/cgroup` and `/proc/self/cgroup`.
+
 ### Fleet cached observation query defaults (C06)
 
 The independent fleet observation library uses the C05 authenticated receipt and
