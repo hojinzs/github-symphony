@@ -81,6 +81,10 @@ Final reliability review evidence:
 - [2026-09-14-run-history-polling-cost.md](reports/2026-09-14-run-history-polling-cost.md) — baseline and shipped #896 optimization measurements
 - [2026-10-04-epic-890-final-review.md](reports/2026-10-04-epic-890-final-review.md) — completion evidence, approved scope changes, and fresh validation
 
+OTLP export release evidence ([Epic #794](https://github.com/hojinzs/github-symphony/issues/794)):
+
+- [2026-10-18-otlp-ot15-dogfood-evidence.md](reports/2026-10-18-otlp-ot15-dogfood-evidence.md) — OT-15 supervised dogfood delivery proof and parent exclusion (OT-14 Collector evidence: [#997](https://github.com/hojinzs/github-symphony/issues/997) / [PR #1059](https://github.com/hojinzs/github-symphony/pull/1059))
+
 ## adr/
 
 See the [adr/](adr/) directory for the ADR list. When a newer decision replaces
