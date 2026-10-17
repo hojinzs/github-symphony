@@ -671,6 +671,11 @@ Raw logs may contain sensitive text and are restricted to trusted operator acces
 
 ### OTLP diagnostics
 
+Doctor shares the runtime’s SDK-free OTLP credential ownership and resource validation.
+Remediation reports fixed validation reasons without endpoint or header values; unknown
+errors retain generic guidance. Custom resource values must be finite scalars, and
+`service.instance.id` is reserved for the runtime. Disabled checks never probe OTLP.
+
 `gh-symphony doctor` validates the project's `observability.otlp` settings using
 its effective environment without loading an OpenTelemetry SDK or contacting the
 Collector. Shared agent/tracker auth references fail before value resolution

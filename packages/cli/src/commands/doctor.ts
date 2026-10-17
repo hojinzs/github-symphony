@@ -1,4 +1,4 @@
-import { inspectOtlp } from "../otlp-diagnostics.js";
+import { inspectOtlp, otlpValidationRemediation } from "../otlp-diagnostics.js";
 import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
@@ -2348,13 +2348,13 @@ export async function runDoctorDiagnostics(
               details
             )
       );
-    } catch {
+    } catch (error) {
       checks.push(
         failCheck(
           "otlp",
           "OTLP configuration",
           "OTLP configuration is invalid.",
-          "Check observability.otlp and its referenced environment variables; credentials are not displayed."
+          otlpValidationRemediation(error)
         )
       );
     }

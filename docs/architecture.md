@@ -311,6 +311,14 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 6. Observability — events and status surfaces
 
+The orchestrator’s `@gh-symphony/orchestrator/otlp-validation` subpath exports
+`validateExporterCredentialNames`, `resolveProjectResourceAttributes`, and typed
+`OtlpValidationError` reasons. This SDK-free Observability boundary is shared by
+runtime startup/reload and CLI doctor; it does not evaluate the signal SDKs or
+network transports. Doctor maps typed failures to value-free remediation and
+keeps unknown failures generic. This repository OTLP extension does not change
+the upstream Symphony specification.
+
 - CLI OTLP diagnostics: `packages/cli/src/otlp-diagnostics.ts` validates with the SDK-free core resolver and performs only explicitly requested enabled HTTP probes with a three-second budget per signal. `doctor.ts` exposes safe descriptors and outcomes; `status.ts` renders applied/pending settings and restart requirements. `logs.ts` consumes the shared event severity contract, preserving existing filters.
 
 - Internal lifecycle owner: `packages/orchestrator/src/observability/lifecycle.ts` freezes startup transport settings, compares validated reload candidates privately (including header values), and exposes safe applied/pending descriptors. Disable edits retain the active startup provider until restart; revert clears pending state. Publication and shutdown failures remain isolated from coordination health. Shutdown stops offers and gives the owned pipeline one five-second deadline. The service initializes the SDK-free owner before dispatch and installs Logs at the existing post-append FS store boundary and Metrics at the committed snapshot/tick boundary. `observability/resource-validation.ts` applies provider resource limits before last-known-good persistence without loading the SDK. `observability/pipeline.ts` lazily composes both providers with one resource UUID, samples Logs loss deltas once into Metrics, and projects bounded per-signal diagnostics. Status uses an orchestrator-owned additive field preserved by existing readers; no core contract changes. The library production capability defaults off; audited CLI startup supplies the capability and its release version through H’s existing input. Tests may inject providers.
