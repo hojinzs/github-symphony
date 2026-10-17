@@ -763,3 +763,16 @@ For visual verification, check fleet and detail at 1440/1024/390px, including
 keyboard form submission, no horizontal overflow, readable paths, local SVG
 geometry, filter reset and historical offline labels. Native forms retain browser
 keyboard behavior; no custom menu or focus trap is introduced.
+
+### OT-14 Collector receipt and outage
+
+| Case                                                                                                              | Runnable scenario                                                                   | Evidence                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-34 / OT-14 — plain/authenticated Collector receipt, restart identity, endpoint interruption and graceful flush | `./e2e/run-otlp-collector-e2e.sh` ([procedure](e2e/scenarios/34-otlp-collector.md)) | Pinned Collector protobuf-derived Logs/Metrics JSON, per-phase dispatch/file/worker records, image/commit/config identity and 17 copied-evidence rejection probes; output directory printed by runner |
+
+The runner uses standalone project/file-tracker/stub fixtures and no real agent
+credentials. `node e2e/otlp/receipt-self-test.mjs` is a synthetic verifier test,
+not receipt evidence. Only prerequisite preflight status 69 qualifies for the
+unattended-worker exception above; post-preflight failures and status 125 do not.
+Operator/CI receipt confirmation remains required before Epic closure, separately
+from dogfood delivery proof.
