@@ -1230,3 +1230,11 @@ history and reviewed unknown-outcome closure with a required reason. Current
 process observations remain independent from command outcomes. The internal
 fleet package exports a private-listener dispatcher; this adds no CLI command
 and preserves `gh-symphony project` and per-project `--web` behavior.
+
+The [C18 run/log view](packages/fleet-control-plane/README.md#runlog-presentation-state-c18)
+adds known-run history and allowed-stream selection through the bounded read
+lane. Follow pauses on disconnect and rotation requires explicit cursor reset;
+fetched content stays historical. Expired browser sessions pause follow and
+show reload guidance. Mount the run routes and browser assets beside
+the project and read dispatchers in the private fleet service. No fleet CLI
+command or per-project web behavior changes.
