@@ -80,6 +80,12 @@ COPY --from=build --chown=node:node /app/e2e/fleet-runs-browser.mjs /app/e2e/fle
 COPY --from=build --chown=node:node /app/e2e/fleet-runs-mutations.mjs /app/e2e/fleet-runs-mutations.mjs
 
 # Copy seed data
+# C15 environment connection UI protocol and browser fixtures.
+COPY --from=build --chown=node:node /app/e2e/fleet-environments-harness.mjs /app/e2e/fleet-environments-harness.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-environments-e2e.mjs /app/e2e/fleet-environments-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-environments-mutations.mjs /app/e2e/fleet-environments-mutations.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-environments-browser.mjs /app/e2e/fleet-environments-browser.mjs
+
 COPY --chown=node:node e2e/seed /e2e/seed
 
 # Initialize bare git repo for E2E

@@ -87,3 +87,14 @@ export type { CommandContext } from "./command-pages.js";
 
 export { createRunRoutes } from "./run-routes.js";
 export { renderRunPage, runPageState, type RunPageState } from "./run-pages.js";
+
+export {
+  createEnvironmentRoutes,
+  type EnvironmentRouteOptions,
+  type EnvironmentRouteRequest,
+} from "./environment-routes.js";
+export {
+  presentEnvironment,
+  type EnvironmentPresentation,
+  type ConnectionStage,
+} from "./environment-presentation.js";

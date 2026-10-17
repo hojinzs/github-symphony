@@ -9,15 +9,15 @@ The approved Graphite handoff is the visual and state baseline.
 - `packages/fleet-control-plane/src/environment-presentation.ts` derives display
   stages from the protocol's `EnvironmentRecord` and an optional freshly issued
   `EnrollmentTokenResponse`. It owns no persistent state or authentication.
-- Planned `environment-pages.ts` and `environment-styles.ts` compose the list,
+- `environment-pages.ts` and `environment-styles.ts` compose the list,
   ConnectionCard and SetupPanel using shared Graphite foundations. Unknown host,
   OS, version and project count remain unknown rather than invented.
-- Planned `environment-routes.ts` mounts `/environments` and connection actions
+- `environment-routes.ts` mounts `/environments` and connection actions
   on the fleet listener, following the existing project/command route boundary.
   Reads use `EnrollmentService.listEnvironments`; mutations delegate to
   `createEnvironment`, `regenerateEnrollment` and `revoke` after existing browser
   session/origin/CSRF checks. GET never mutates enrollment.
-- Planned `environment-browser.ts` handles modal focus, Escape/close, clipboard
+- `environment-browser.ts` handles modal focus, Escape/close, clipboard
   success/failure, expiry and polling. Polling reads authoritative records; only
   the authenticated session service can produce an online transition. Secrets
   remain ephemeral and are cleared on close; no local/session storage or URL
@@ -50,3 +50,22 @@ upstream Symphony, whose non-goals exclude prescribing a rich fleet UI. No
 scheduler, tracker policy, workspace lifecycle or per-project web listener is
 changed. `docs/symphony-spec.md` remains untouched. This slice introduces no new
 upstream divergence beyond that documented management-plane extension.
+
+## Delivery evidence
+
+TC-35 (`e2e/scenarios/35-fleet-environments.md`) supplies reproducible private
+HTTPS and Chromium walkthroughs over real enrollment/session/observation services,
+plus mutations of isolated compiled production artifacts. Figma design context
+and screenshots were read for 29:372 (list), 29:792 (enrolled), 29:1600 (tablet)
+and 29:1679 (narrow). The runtime uses downloaded local Graphite assets and the
+shared page shell, with separate token and saved-identity setup states.
+
+A whole-branch review identified inaccessible wide-screen row labels and an
+inert retry action without an active environment. Both have dedicated browser
+regressions. Responsive assertions inspect actual viewport bounds as well as
+scroll overflow; a forced oversized dialog must fail the named probe.
+
+The inventory owner supplies known counts via a typed callback. Missing counts
+remain unknown; zero reported projects is success. The consuming fleet listener
+owns route assembly; no extra listener, scheduler policy or native service
+implementation is added by this slice.
