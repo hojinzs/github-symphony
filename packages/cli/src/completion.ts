@@ -1,4 +1,5 @@
 const TOP_LEVEL_COMMANDS = [
+  "agent",
   "workflow",
   "setup",
   "doctor",
@@ -26,6 +27,29 @@ const GLOBAL_OPTIONS = [
 const GLOBAL_OPTIONS_WITH_VALUES = ["--config", "--config-dir"] as const;
 
 const COMMAND_OPTIONS: Record<string, readonly string[]> = {
+  agent: ["setup", "enroll", "run", "service", "project"],
+  "agent:setup": [
+    "--server",
+    "--token-stdin",
+    "--agent-config",
+    ...GLOBAL_OPTIONS,
+  ],
+  "agent:enroll": [
+    "--server",
+    "--token-stdin",
+    "--agent-config",
+    ...GLOBAL_OPTIONS,
+  ],
+  "agent:run": ["--agent-config", ...GLOBAL_OPTIONS],
+  "agent:service": [
+    "install",
+    "start",
+    "stop",
+    "restart",
+    "status",
+    "uninstall",
+  ],
+  "agent:project": ["add", "list", "remove"],
   completion: ["bash", "zsh", "fish"],
   workflow: ["init", "validate", "preview"],
   "workflow:init": [

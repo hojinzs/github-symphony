@@ -1224,3 +1224,26 @@ provides responsive project inventory and runtime detail routes for a consuming
 private fleet HTTPS listener. It preserves historical offline observations and
 uses fresh data for workspace totals. Fleet listener composition is separate
 from the shipped per-project `--web` server.
+
+### Host management agent
+
+The shared Node.js 24+ CLI also routes host management commands:
+
+```bash
+gh-symphony --version
+gh-symphony agent --help
+gh-symphony agent setup --server https://symphony.lan
+gh-symphony agent service status
+```
+
+Setup reads a one-use token through a hidden prompt (or piped `--token-stdin`),
+saves enrollment and installs/starts the current user's Linux systemd service or
+macOS LaunchAgent. Partial setup resumes saved identity without another token.
+Service stop/restart/uninstall preserve managed orchestrators and agent data.
+Linux boot/logout persistence needs linger; macOS startup is at user login.
+Use `agent enroll` and `agent run` for foreground recovery. See the
+[CLI agent commands and current composition limits](packages/cli/README.md#host-management-agent-c13)
+and [private host configuration](docs/configuration.md#guided-agent-cli-configuration-c13).
+The existing `project` commands and per-project `--web` server retain their role;
+the fleet service is a separate management package. This feature ships through
+the C13 patch release; source-built package verification precedes npm publication.

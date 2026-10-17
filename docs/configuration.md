@@ -1193,3 +1193,57 @@ Call `install()` and `start()` with the updated absolute executable and
 entrypoint paths. Keep the existing config and private data directory: this
 repair preserves enrollment, allowlist and journal data and does not stop
 managed project orchestrators. Installation requires an executable `nodePath`.
+
+### Guided agent CLI configuration (C13)
+
+`gh-symphony agent setup --server https://symphony.lan` creates
+`~/.gh-symphony-agent/config.json` once. `agent enroll` creates the same defaults
+without installing a service. Every agent leaf command accepts
+`--agent-config <file>` to select a different private local configuration.
+The file is JSON, version 1, rejects unknown fields, and contains host paths only:
+
+```json
+{
+  "version": 1,
+  "dataDirectory": "/home/operator/.gh-symphony-agent",
+  "projectConfigDir": "/home/operator/.gh-symphony",
+  "nodePath": "/usr/bin/node",
+  "cliPath": "/usr/local/lib/node_modules/@gh-symphony/cli/dist/index.js",
+  "caFile": "/home/operator/private-ca.pem"
+}
+```
+
+All paths must be absolute without control characters. `caFile` is optional;
+when omitted, normal Node.js CA trust applies. A private CA never disables TLS
+verification. The generated executable paths resolve the actual Node binary and
+CLI file, rather than relying on the service PATH. The service entry is the
+bundled `agent-entry.js` next to `cliPath`. On macOS, use the actual user home and
+installed Node/CLI paths; the same JSON schema applies. No environment variables
+are added. The global `--config` is used for `projectConfigDir` only when creating
+defaults; edit this saved local config explicitly for later host changes.
+
+The config file must be a user-owned, single-link regular 0600 file (symlinks
+rejected), bounded to 16 KiB. Its generated containing directory and the agent
+data directory are 0700. `registry.json` retains server-assigned environment/agent
+identity and credential; `commands.json` retains the durable journal. Back up
+these private files together. Never delete journal effect markers to retry work.
+The enrollment token is neither persisted nor accepted as a command-line value.
+
+`setup` checks service prerequisites, resumes/enrolls, installs without starting
+under the owner lock, releases that lock, then starts the service. Installation
+and startup failures retain enrollment for retry. Lower-level `service install`
+only installs; `service start` starts it. Linux/macOS service adapters keep their
+existing absolute-path, ownership and isolation checks. Stop the service before
+editing registrations with `agent project add/list/remove` or running foreground
+recovery: all these commands intentionally share the C03 single-writer lock.
+A conflicting foreground invocation reports the existing owner rather than
+starting a second agent. Service uninstall preserves identity, registrations
+and journal; revocation is a separate server operation.
+
+`AgentRuntimePorts` is a trusted local typed composition port, not a field in this
+file. Until a fleet identity-allocation route is defined, default foreground and
+native entries publish zero-project first signal only; registered inventories
+report `inventory_identity_allocation_unavailable` and retry. Local fixture
+composition supplies server UUIDs to exercise actual inventory/read adapters.
+This explicit incomplete fleet assembly is outside C13 setup/service routing;
+no project UUIDs are minted locally and no new protocol route is invented here.
