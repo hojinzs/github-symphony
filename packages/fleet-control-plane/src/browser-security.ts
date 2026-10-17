@@ -1,4 +1,9 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { OPERATOR_ACTOR } from "@gh-symphony/management-protocol";
 import { resolveHttpsOrigin, type FleetConfig } from "./config.js";
 import { FleetError } from "./enrollment.js";
@@ -73,10 +78,15 @@ export function createBrowserSecurity(
     throw new Error("Invalid browser session lifetime or capacity");
   }
   const now = options.now ?? Date.now;
-  const sessions = new Map<
-    string,
-    { csrf: Buffer; csrfToken: string; expiresAt: number }
-  >();
+  // A process-local key reconstructs tokens for cookie holders; session records
+  // retain only token digests. Restart invalidates all browser sessions.
+  const csrfKey = randomBytes(32);
+  const deriveCsrfToken = (sessionId: string): string =>
+    createHmac("sha256", csrfKey)
+      .update("fleet-browser-csrf:v1:")
+      .update(sessionId)
+      .digest("base64url");
+  const sessions = new Map<string, { csrf: Buffer; expiresAt: number }>();
   return {
     issueSession() {
       const time = now();
@@ -87,11 +97,10 @@ export function createBrowserSecurity(
         sessions.delete(sessions.keys().next().value!);
       }
       const sessionId = randomBytes(32).toString("base64url");
-      const csrfToken = randomBytes(32).toString("base64url");
+      const csrfToken = deriveCsrfToken(sessionId);
       const expiresAt = time + lifetime;
       sessions.set(digest(sessionId).toString("hex"), {
         csrf: digest(csrfToken),
-        csrfToken,
         expiresAt,
       });
       return {
@@ -116,7 +125,7 @@ export function createBrowserSecurity(
       }
       return {
         sessionId,
-        csrfToken: session.csrfToken,
+        csrfToken: deriveCsrfToken(sessionId),
         expiresAt: new Date(session.expiresAt).toISOString(),
         setCookie: `${BROWSER_SESSION_COOKIE}=${sessionId}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${Math.floor((session.expiresAt - now()) / 1000)}`,
       };

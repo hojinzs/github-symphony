@@ -1,3 +1,4 @@
+import { CLOSURE_REASON_MAX_BYTES } from "./command-limits.js";
 import { commandBrowserScript } from "./command-browser.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -211,7 +212,8 @@ export function createCommandRoutes(
         reason: body.reason,
         acknowledged: true,
       });
-      if (Buffer.byteLength(closure.reason, "utf8") > 2048) invalid();
+      if (Buffer.byteLength(closure.reason, "utf8") > CLOSURE_REASON_MAX_BYTES)
+        invalid();
       if (commandMatch[2] === "closure-confirmation") {
         for (const [key, value] of reviews)
           if (value.expires <= now()) reviews.delete(key);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   createBrowserSecurity,
@@ -166,4 +167,27 @@ it("reuses only a valid live cookie without renewing its deadline or bypassing C
   const next = f.security.issueSession();
   f.security.revokeSession(next.sessionId);
   expect(f.security.reuseSession(next.setCookie.split(";")[0])).toBeUndefined();
+});
+
+it("derives stable keyed CSRF tokens and rejects cross-session tokens", () => {
+  const f = fixture();
+  const second = f.security.issueSession();
+  expect(f.session.csrfToken).not.toBe(f.session.sessionId);
+  expect(f.session.csrfToken).not.toBe(
+    createHash("sha256")
+      .update("fleet-browser-csrf:v1:")
+      .update(f.session.sessionId)
+      .digest("base64url")
+  );
+  expect(f.security.reuseSession(f.request.cookie)?.csrfToken).toBe(
+    f.session.csrfToken
+  );
+  expect(second.csrfToken).not.toBe(f.session.csrfToken);
+  expect(() =>
+    f.security.resolveActor({ ...f.request, csrfToken: second.csrfToken })
+  ).toThrow();
+  expect(() =>
+    createBrowserSecurity({ publicOrigin: origin }).resolveActor(f.request)
+  ).toThrow();
+  expect(f.security.resolveActor(f.request)).toBe("local-owner");
 });

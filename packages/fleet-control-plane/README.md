@@ -425,6 +425,9 @@ operations itself. GET confirmations do not submit commands.
 The listener must parse bounded form bodies and reject duplicate keys, pass
 canonical Origin/cookie headers unchanged, and return the dispatcher's security
 headers. Each mutation requires an actual C04 browser session and matching CSRF.
+Session records keep only CSRF digests; a per-process HMAC key derives stable
+tokens for valid cookie holders. Restart invalidates these in-memory sessions.
+The command service, routes and form share one closure-reason byte limit.
 Command GETs reuse a valid browser cookie session without extending its deadline,
 so forms in other tabs and cancelled closure confirmations remain valid. Missing
 or expired sessions receive a new cookie. Closure reasons are limited to 2048
