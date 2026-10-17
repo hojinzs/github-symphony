@@ -51,3 +51,10 @@ The contract closes both HTTP servers, shuts down providers and removes its
 own temporary directory. The Docker runner removes its isolated Compose project
 and image. An unavailable unattended-worker Docker prerequisite is accepted only
 when the runner's preflight returns status 69, as documented in AGENT_TEST.md.
+
+#1053 adds real bundled doctor text/JSON checks with credential-bearing endpoint
+environment values: fixed endpoint remediation must appear and endpoint/header
+credentials must remain absent. `doctor-secret` and `doctor-reason` probes reach
+and fail those assertions. Unit parity cases also cover SDK-free ownership, finite
+scalar resources and reserved instance identity; existing disabled and worker SDK
+package guards remain required.

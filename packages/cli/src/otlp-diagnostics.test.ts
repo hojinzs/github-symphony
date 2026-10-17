@@ -1,8 +1,16 @@
 import { spawn } from "node:child_process";
 import { createServer, type Socket } from "node:net";
 import { afterEach, expect, it, vi } from "vitest";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
-import { inspectOtlp, renderOtlpStatus } from "./otlp-diagnostics.js";
+import {
+  parseWorkflowMarkdown,
+  WorkflowValidationError,
+  type WorkflowOtlpPolicy,
+} from "@gh-symphony/core";
+import {
+  inspectOtlp,
+  renderOtlpStatus,
+  otlpValidationRemediation,
+} from "./otlp-diagnostics.js";
 
 const policy = () =>
   parseWorkflowMarkdown(`---
@@ -25,7 +33,7 @@ it("keeps probe transports unloaded for rendering and validation", async () => {
     `
       import { registerHooks } from "node:module";
       registerHooks({ resolve(specifier, context, next) {
-        if (/^(node:)?https?$/.test(specifier)) throw Error("FORBIDDEN_PROBE_TRANSPORT");
+        if (/^(node:)?https?$/.test(specifier) || specifier.startsWith("@opentelemetry/")) throw Error("FORBIDDEN_PROBE_TRANSPORT");
         return next(specifier, context);
       }});
       const { inspectOtlp, renderOtlpStatus } = await import(${JSON.stringify(new URL("./otlp-diagnostics.ts", import.meta.url).href)});
@@ -207,3 +215,128 @@ it("releases stalled TLS sockets so the probe process exits within its budget", 
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }, 10000);
+
+const identity = {
+  version: "1",
+  instanceId: "owned",
+  projectId: "p",
+  projectSlug: "p",
+  trackerKind: "file",
+};
+
+it.each([null, [], {}, NaN, Infinity, -Infinity].map((value) => [value]))(
+  "shares resource type/finiteness rejection for %s",
+  async (value) => {
+    const { resolveProjectResourceAttributes } =
+      await import("@gh-symphony/orchestrator/otlp-validation");
+    const attributes = {
+      custom: value,
+    } as unknown as WorkflowOtlpPolicy["resourceAttributes"];
+    expect(() =>
+      resolveProjectResourceAttributes({ ...identity, attributes })
+    ).toThrow("invalid or reserved");
+    await expect(
+      inspectOtlp(
+        { ...policy()!, resourceAttributes: attributes },
+        { COLLECTOR_SECRET: "secret" }
+      )
+    ).rejects.toThrow("invalid or reserved");
+  }
+);
+
+it.each(["", "owned", "foreign"])(
+  "reserves instance identity even for %s",
+  async (value) => {
+    const { resolveProjectResourceAttributes } =
+      await import("@gh-symphony/orchestrator/otlp-validation");
+    const attributes = { "service.instance.id": value };
+    expect(() =>
+      resolveProjectResourceAttributes({ ...identity, attributes })
+    ).toThrow("invalid or reserved");
+    await expect(
+      inspectOtlp(
+        { ...policy()!, resourceAttributes: attributes },
+        { COLLECTOR_SECRET: "secret" }
+      )
+    ).rejects.toThrow("invalid or reserved");
+  }
+);
+
+it("accepts finite scalar attributes and matching runtime identity", async () => {
+  const result = await inspectOtlp(
+    {
+      ...policy()!,
+      resourceAttributes: {
+        number: 0,
+        bool: false,
+        text: "ok",
+        "service.name": "gh-symphony",
+      },
+    },
+    { COLLECTOR_SECRET: "secret" }
+  );
+  expect(result.configuration.enabled).toBe(true);
+});
+
+it("renders only typed value-free remediation and keeps unknown failures generic", async () => {
+  const { OtlpValidationError } =
+    await import("@gh-symphony/orchestrator/otlp-validation");
+  const reasons = [
+    "credential-ownership",
+    "resource-limit",
+    "resource-attribute",
+  ] as const;
+  for (const reason of reasons) {
+    const remediation = otlpValidationRemediation(
+      new OtlpValidationError(reason)
+    );
+    expect(remediation).toMatch(/distinct exporter|16 custom|finite scalar/);
+  }
+  for (const [path, expected] of [
+    ["observability.otlp.endpoint", "HTTP(S)"],
+    ["OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"],
+    ["observability.otlp.headers", "unique OTLP headers"],
+    ["unknown", "configuration types"],
+  ]) {
+    const remediation = otlpValidationRemediation(
+      new WorkflowValidationError(
+        "workflow_validation_error",
+        path!,
+        "https://user:password@host/?token=secret Authorization=header-secret"
+      )
+    );
+    expect(remediation).toContain(expected);
+    expect(JSON.stringify({ remediation })).not.toMatch(
+      /password|token=secret|header-secret/
+    );
+  }
+  expect(otlpValidationRemediation(new Error("header-secret"))).toBe(
+    "Check observability.otlp and its referenced environment variables; credentials are not displayed."
+  );
+});
+
+it.each([
+  "OPENAI_API_KEY",
+  "TRACKER_SECRET",
+  "CUSTOM_AUTH",
+  "ANTHROPIC_API_KEY",
+])("shares credential ownership rejection for %s", async (name) => {
+  const { validateExporterCredentialNames } =
+    await import("@gh-symphony/orchestrator/otlp-validation");
+  const raw = { ...policy()!, enabled: false, authReferenceNames: [name] };
+  expect(() =>
+    validateExporterCredentialNames(
+      {
+        observability: { otlp: raw },
+        runtime: { auth: { env: "CUSTOM_AUTH" } },
+      },
+      ["TRACKER_SECRET"]
+    )
+  ).toThrow("distinct exporter credential name");
+  await expect(
+    inspectOtlp(raw, {}, true, vi.fn(), {
+      trackerSecretNames: ["TRACKER_SECRET"],
+      runtimeAuthName: "CUSTOM_AUTH",
+    })
+  ).rejects.toThrow("distinct exporter credential name");
+});

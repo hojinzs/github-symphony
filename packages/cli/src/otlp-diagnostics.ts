@@ -1,6 +1,11 @@
 import {
+  validateExporterCredentialNames,
+  resolveProjectResourceAttributes,
+  OtlpValidationError,
+} from "@gh-symphony/orchestrator/otlp-validation";
+import {
   resolveOtlpConfiguration,
-  isAgentChildCredentialEnvironmentName,
+  WorkflowValidationError,
   type WorkflowOtlpPolicy,
   type OtlpSafeDescriptor,
 } from "@gh-symphony/core";
@@ -51,54 +56,25 @@ export async function inspectOtlp(
     resourceIdentity?: Record<string, string>;
   } = {}
 ) {
-  // Match H's name-only startup check before reading values or contacting a
-  // receiver. Keep this CLI diagnostic boundary SDK-free and package-local.
-  const names = new Set(policy?.authReferenceNames ?? []);
-  const required = new Set([
-    ...(owner.trackerSecretNames ?? []),
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "SYMPHONY_ORCHESTRATOR_TOKEN",
-    ...(owner.runtimeAuthName ? [owner.runtimeAuthName] : []),
-  ]);
-  for (const name of new Set([...names, ...required])) {
-    if (
-      (names.has(name) &&
-        (required.has(name) || isAgentChildCredentialEnvironmentName(name))) ||
-      (required.has(name) &&
-        /^OTEL_EXPORTER_OTLP_(?:(?:LOGS|METRICS|TRACES)_)?(?:HEADERS|CLIENT_KEY|CLIENT_CERTIFICATE)$/.test(
-          name
-        ))
-    ) {
-      throw new Error(
-        "Exporter credential reference conflicts with agent/tracker authentication"
-      );
-    }
-  }
+  validateExporterCredentialNames(
+    {
+      observability: { otlp: policy },
+      runtime: { auth: { env: owner.runtimeAuthName } },
+    },
+    owner.trackerSecretNames ?? []
+  );
   const resolved = resolveOtlpConfiguration(policy, environment);
   if (resolved.enabled) {
-    const reserved: Record<string, string> = {
-      "service.name": "gh-symphony",
-      ...owner.resourceIdentity,
-    };
-    const custom = resolved.resourceAttributes;
-    if (
-      Object.keys(custom).filter((key) => !Object.hasOwn(reserved, key))
-        .length > 16
-    )
-      throw new Error("OTLP resource permits at most 16 custom attributes");
-    for (const [key, value] of Object.entries(custom)) {
-      if (
-        key === "service.instance.id" ||
-        (Object.hasOwn(reserved, key) &&
-          reserved[key as keyof typeof reserved] !== value) ||
-        /(?:^|\.)(?:issue|run|session|turn)(?:\.|$)/i.test(key)
-      ) {
-        throw new Error(
-          "OTLP custom resource attribute is invalid or reserved"
-        );
-      }
-    }
+    // An unresolved project has no known identity. Empty defaults conservatively
+    // keep runtime-owned project keys reserved instead of allowing overrides.
+    const identity = owner.resourceIdentity ?? {};
+    resolveProjectResourceAttributes({
+      version: identity["service.version"] ?? "",
+      projectId: identity["symphony.project.id"] ?? "",
+      projectSlug: identity["symphony.project.slug"] ?? "",
+      trackerKind: identity["symphony.tracker.kind"] ?? "",
+      attributes: resolved.resourceAttributes,
+    });
   }
   const outcomes: Partial<Record<"logs" | "metrics", string>> = {};
   if (probe && resolved.enabled) {
@@ -168,4 +144,19 @@ export function renderOtlpStatus(
       : []),
     "",
   ];
+}
+
+/** Only typed failures are actionable; never interpolate arbitrary error text. */
+export function otlpValidationRemediation(error: unknown): string {
+  if (error instanceof OtlpValidationError) return error.message;
+  if (error instanceof WorkflowValidationError) {
+    if (/(?:^|[._])endpoint$/i.test(error.path))
+      return "Set a valid HTTP(S) OTLP endpoint without user information, query or fragment; check its referenced environment variable.";
+    if (/(?:^|[._])protocol$/i.test(error.path))
+      return "Set the OTLP protocol to http/protobuf.";
+    if (/(?:^|[._])headers$/i.test(error.path))
+      return "Set valid, unique OTLP headers and check referenced environment variables; avoid reserved headers and line breaks.";
+    return "Check OTLP configuration types and referenced environment variables; credentials are not displayed.";
+  }
+  return "Check observability.otlp and its referenced environment variables; credentials are not displayed.";
 }

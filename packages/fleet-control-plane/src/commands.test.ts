@@ -569,3 +569,18 @@ it("retains a late reconciled result for ninety days after receipt", async () =>
   f.advance(90 * 24 * 60 * 60_000);
   expect(api.prune().commands).toBe(1);
 });
+
+it("permits Stop for an invalid workflow while rejecting Start", async () => {
+  const f = await setup();
+  const api = f.service();
+  const project = f.project();
+  f.db
+    .prepare("UPDATE fixture_projects SET valid=0 WHERE project_id=?")
+    .run(project);
+  await expect(
+    api.submitCommand(project, "invalid-start", { operation: "start" })
+  ).rejects.toMatchObject({ code: "project_invalid" });
+  await expect(
+    api.submitCommand(project, "invalid-stop", { operation: "stop" })
+  ).resolves.toMatchObject({ state: "accepted" });
+});
