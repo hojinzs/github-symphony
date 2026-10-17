@@ -76,25 +76,45 @@ it("deduplicates submission before offline checks and rejects conflicting reuse"
 });
 
 it.each([
-  ["online", "agent_offline"],
-  ["managed", "project_unmanaged"],
-  ["valid", "project_invalid"],
-  ["supported", "unsupported_protocol"],
+  ["online", "agent_offline", "start"],
+  ["online", "agent_offline", "stop"],
+  ["managed", "project_unmanaged", "start"],
+  ["managed", "project_unmanaged", "stop"],
+  ["valid", "project_invalid", "start"],
+  ["supported", "unsupported_protocol", "start"],
+  ["supported", "unsupported_protocol", "stop"],
 ] as const)(
-  "rejects unavailable target %s without recording a command",
-  async (column, code) => {
+  "rejects unavailable target %s (%s) for %s without recording a command",
+  async (column, code, operation) => {
     const f = await setup();
     const api = f.service();
     const p = f.project();
     f.db.exec(`UPDATE fixture_projects SET ${column}=0`);
     await expect(
-      api.submitCommand(p, "key", { operation: "start" })
+      api.submitCommand(p, "key", { operation })
     ).rejects.toMatchObject({ code });
     expect(
       f.db.prepare("SELECT count(*) AS n FROM lifecycle_commands").get()
     ).toEqual({ n: 0 });
   }
 );
+
+it("accepts stop for an invalid workflow while retaining its target identity", async () => {
+  const f = await setup();
+  const p = f.project();
+  f.db.exec("UPDATE fixture_projects SET valid=0");
+  const api = f.service();
+  const accepted = await api.submitCommand(p, "invalid-stop", {
+    operation: "stop",
+  });
+  expect(await api.getCommand(accepted.commandId)).toMatchObject({
+    state: "accepted",
+    operation: "stop",
+    projectId: p,
+    environmentId: f.identity.environmentId,
+    sessionId: f.identity.sessionId,
+  });
+});
 
 it("rejects malformed submission, missing project and busy project/agent", async () => {
   const f = await setup();

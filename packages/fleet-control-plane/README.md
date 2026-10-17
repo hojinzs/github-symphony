@@ -160,8 +160,11 @@ Actor/key deduplication happens before availability checks. A replay returns the
 original acceptance receipt (command ID and `accepted`), even if the durable
 command has since completed; `getCommand` supplies its current outcome.
 Different project/operation reuse conflicts. Fresh submissions reject offline,
-unmanaged, invalid, unsupported and revoked targets, outstanding project work
-and more than four active/unresolved commands per environment.
+unmanaged, unsupported and revoked targets, outstanding project work
+and more than four active/unresolved commands per environment. Workflow validity
+is required only for start (CP-03, C07 #1011). Stop remains eligible for an invalid
+workflow; the local adapter still verifies process ownership, expected target,
+exit and released locks before reporting success.
 
 Schema v2 enforces one outstanding command per project, including unresolved
 unknown records. A first claim and the 30-second expiry race in one immediate
