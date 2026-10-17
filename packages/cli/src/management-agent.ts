@@ -38,3 +38,12 @@ export type {
   MacOSProjectLaunch,
   LaunchctlRunner,
 } from "@gh-symphony/management-agent";
+
+export { setupAgent } from "@gh-symphony/management-agent";
+export type { SetupOptions, SetupService } from "@gh-symphony/management-agent";
+export { loadAgentConfig, defaultAgentConfigPath } from "./agent-config.js";
+export type { AgentHostConfig } from "./agent-config.js";
+export { createNativeAgentService } from "./agent-service.js";
+export type { NativeAgentService, NativeServiceHost } from "./agent-service.js";
+export { runAgentRuntime } from "./agent-runtime.js";
+export type { AgentRuntimePorts } from "./agent-runtime.js";

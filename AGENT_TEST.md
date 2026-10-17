@@ -768,6 +768,45 @@ keyboard form submission, no horizontal overflow, readable paths, local SVG
 geometry, filter reset and historical offline labels. Native forms retain browser
 keyboard behavior; no custom menu or focus trap is introduced.
 
+## C17 fleet lifecycle confirmation and recovery
+
+| Case                                                                                                   | Executable evidence                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-34 — stop impact, command states, stale eligibility, unknown closure, history and browser contracts | `node e2e/fleet-command-ui-e2e.mjs` (21 reached assertions), `node e2e/fleet-command-ui-mutations.mjs` (21 artifact probes); `./e2e/run-fleet-command-ui-e2e.sh` for Linux Docker; `node e2e/fleet-command-ui-browser.mjs` and `node e2e/fleet-command-ui-mutations.mjs --browser` for native Chromium (13 assertions/probes) |
+
+[TC-34](e2e/scenarios/34-fleet-command-ui.md) specifies test-only Playwright setup,
+all approved command/recovery states and extra admission/error scenes at 1440/1024/390, focus/validation/announcement checks,
+local asset geometry, and exact reached-assertion mutation requirements. Dialog
+changes require Linux Chromium evidence as well as any macOS run; TC-34 documents
+the container setup. Route regressions cover stable multi-tab sessions and
+UTF-8 closure limits before the second confirmation. Actual
+C04/C05/C06/C07 HTTPS/SQLite composition uses independent process/result protocol
+fixtures and a separately advanced C07 clock. Report actual host/browser OS
+separately from Linux Docker. Neither run proves native lifecycle isolation.
+
+### Shared CLI guided agent setup (C13)
+
+| Scenario                                                                                                                                                                            | Executable evidence                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [TC-34 — guided agent setup](e2e/scenarios/34-agent-guided-setup.md): help/version, private token enrollment/resume, foreground lock, registration and Linux/macOS service recovery | `node e2e/agent-setup-e2e.mjs`, `node e2e/agent-setup-probes.mjs` (11 reached forbidden-outcome probes), `./e2e/run-agent-setup-e2e.sh` for Linux Docker |
+
+`agent-input.test.ts` covers hidden raw-terminal input, cancellation/raw-mode
+restoration and bounded stdin without echo. `agent-config.test.ts` uses actual
+private files and rejects unsafe/symlinked configuration. `commands/agent.test.ts`
+uses the real command parser and registry for public routing, token-argument
+rejection and foreground conflicts. `agent-service.test.ts` composes actual native
+service adapters and setup against independent typed OS peers for both platforms;
+`agent-runtime.test.ts` composes actual inventory and bounded reads with a typed
+independent peer. The added Linux service test proves deferred start under setup
+ownership. Full `pnpm test` includes these cases.
+
+After building, the black-box scenario runs actual compiled CLI processes,
+HTTPS trust/enrollment and private persisted registry, then OS-command simulations
+of both native adapters. Native host evidence must be distinguished from Linux
+Docker simulation. This does not establish native OS lifecycle isolation,
+complete fleet allocation/route assembly, browser interaction, or release dogfood
+acceptance; see the TC and CLI composition-limit documentation.
+
 ## C18 run history and bounded logs
 
 | Case                                                                                                                                     | Executable evidence                                                                                                                                                            |
@@ -794,3 +833,7 @@ not receipt evidence. Only prerequisite preflight status 69 qualifies for the
 unattended-worker exception above; post-preflight failures and status 125 do not.
 Operator/CI receipt confirmation remains required before Epic closure, separately
 from dogfood delivery proof.
+
+C13 review regression: unknown local project removal must fail with
+`project_unmanaged`, emit no success record, and preserve the allowlist.
+The `unknown` forbidden-outcome probe reaches and rejects that assertion.

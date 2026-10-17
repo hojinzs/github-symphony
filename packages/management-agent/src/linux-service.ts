@@ -306,7 +306,9 @@ export class LinuxAgentService {
         `Agent service ${verb} failed; inspect the user journal and retry`
       );
   }
-  async install(): Promise<LinuxServiceDiagnosis> {
+  async install(
+    options: { start?: boolean } = {}
+  ): Promise<LinuxServiceDiagnosis> {
     await this.directories(true);
     const exists = await this.ownedUnit();
     const diagnosis = await this.diagnose();
@@ -337,7 +339,7 @@ export class LinuxAgentService {
     await this.command("daemon-reload", false);
     await this.requireOwned();
     await this.command("enable");
-    await this.start();
+    if (options.start !== false) await this.start();
     return diagnosis;
   }
   private async requireOwned(): Promise<void> {
