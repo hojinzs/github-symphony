@@ -13,6 +13,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./otlp-validation": {
+      "types": "./dist/otlp-validation.d.ts",
+      "import": "./dist/otlp-validation.js",
+      "default": "./dist/otlp-validation.js"
     }
   },
   "files": [

@@ -1,0 +1,122 @@
+import { CLOSURE_REASON_MAX_BYTES } from "./command-limits.js";
+import type {
+  CommandRecord,
+  LifecycleOperation,
+  Page,
+} from "@gh-symphony/management-protocol";
+import type { ObservedProject } from "./observations.js";
+import { escapeHtml as e, projectDocument } from "./project-pages.js";
+import { presentProject } from "./project-presentation.js";
+
+/** Presentation input only; the command service rechecks admission on submission. */
+export interface CommandContext {
+  project: ObservedProject;
+  environment: string;
+  /** Service-owned admission reasons (conflict, capacity, stale target, etc.). */
+  disabledReasons: Partial<Record<LifecycleOperation, string>>;
+}
+export interface CommandForm {
+  csrf: string;
+  idempotencyKey: string;
+}
+function commandDocument(title: string, content: string) {
+  return projectDocument(
+    title,
+    content +
+      '<p role="status" aria-live="polite" data-command-announcement></p>'
+  )
+    .replace(
+      "</head>",
+      '<script defer src="/fleet-assets/commands.js"></script></head>'
+    )
+    .replace('aria-current="page" href="/projects"', 'href="/projects"')
+    .replace(
+      '<span class="nav-item"><img alt="" src="/fleet-assets/imgSymbolLayers2.svg">Commands</span>',
+      '<span class="nav-item" aria-current="page"><img alt="" src="/fleet-assets/imgSymbolLayers2.svg">Commands</span>'
+    );
+}
+const time = (label: string, value: string | undefined) =>
+  `<div><dt>${label}</dt><dd>${value ? `<time datetime="${e(value)}">${e(value)}</time>` : "Not available"}</dd></div>`;
+const hidden = (name: string, value: string) =>
+  `<input type="hidden" name="${name}" value="${e(value)}">`;
+const base = (projectId: string) =>
+  `/projects/${encodeURIComponent(projectId)}/commands`;
+
+/** CommandProgress: outcome never changes the independently observed process. */
+export function commandProgress(command: CommandRecord): string {
+  const descriptions: Record<CommandRecord["state"], string> = {
+    accepted:
+      "Accepted. Waiting for the agent to claim this command; process state is unchanged until independently observed.",
+    executing:
+      "Executing. The agent claimed this command; a verified outcome has not arrived.",
+    succeeded:
+      "Verified command outcome: succeeded. Inspect current process observations separately.",
+    failed:
+      "Verified command outcome: failed. Review the diagnostic and evidence before a fresh command.",
+    expired:
+      "Expired before claim. This command did not authorize execution; a fresh command requires current eligibility.",
+    unknown:
+      "Outcome unknown. This command may have executed. Do not replay it or assume the process stopped.",
+  };
+  return `<section class="command-progress" aria-labelledby="outcome-${e(command.commandId)}"><h2 id="outcome-${e(command.commandId)}">${e(command.operation)} · ${e(command.state)}</h2><p role="status">${descriptions[command.state]}</p>${command.diagnostic ? `<p class="notice warning">${e(command.diagnostic.code)}: ${e(command.diagnostic.message)}</p>` : ""}${command.diagnostic?.code === "superseded_target" ? '<p class="notice warning">The target process was replaced. The replacement process was not stopped by this command.</p>' : ""}<dl class="command-times">${time("Submitted", command.submittedAt)}${time("Claim deadline", command.expiresAt)}${time("Claimed", command.claimedAt)}${time("Outcome verified", command.completedAt)}</dl>${command.evidence !== undefined ? `<details><summary>Last command evidence</summary><pre>${e(JSON.stringify(command.evidence, null, 2))}</pre></details>` : '<p class="muted">No command evidence received.</p>'}<small>Command ${e(command.commandId)} · Target session ${e(command.sessionId)}</small></section>`;
+}
+
+/** RecoveryPanel: closure releases the management slot, preserving unknown. */
+export function recoveryPanel(command: CommandRecord, csrf: string): string {
+  if (command.state !== "unknown") return "";
+  if (command.closure)
+    return `<section class="recovery-panel"><h2>Closed unresolved · outcome unknown</h2><p>Closure did not verify success or stop a process. A fresh command still needs current eligibility and process verification.</p><dl>${time("Closed", command.closure.closedAt)}<dt>Actor</dt><dd>${e(command.closure.actor)}</dd><dt>Reason</dt><dd>${e(command.closure.reason)}</dd></dl></section>`;
+  return `<section class="recovery-panel" aria-labelledby="recovery-title"><div class="notice warning"><h2 id="recovery-title">Outcome unknown</h2><p>The command may have executed. Reconnect the agent and inspect local process evidence. Await reconciliation when possible. There is no automatic replay.</p></div><small>Last claimed evidence: ${e(command.claimedAt ?? "Not available")} · ${e(command.operation)} · outcome not verified</small><details><summary>What unresolved closure changes</summary><p>Closing unresolved releases only the management command slot. It does not stop a process, release a host lock or change the unknown outcome.</p></details><form data-command-form method="post" action="/commands/${e(command.commandId)}/closure-confirmation">${hidden("csrf", csrf)}<label for="closure-reason">Resolution reason (required, maximum ${CLOSURE_REASON_MAX_BYTES} UTF-8 bytes)</label><textarea rows="1" id="closure-reason" name="reason" required maxlength="${CLOSURE_REASON_MAX_BYTES}" aria-describedby="closure-help closure-error"></textarea><p id="closure-error" data-reason-error role="alert" hidden></p><small id="closure-help">Record what you inspected and why the outcome remains unresolved. A second confirmation follows.</small><button type="submit">Review unresolved closure</button></form></section>`;
+}
+
+export function renderCommandDetail(
+  context: CommandContext,
+  command: CommandRecord,
+  csrf: string
+) {
+  const p = presentProject(context.project);
+  return commandDocument(
+    "Commands and recovery",
+    `<a href="${base(p.projectId)}">Back to command history</a><div><h1>Commands and recovery</h1><small>Track commands from submission to verified outcome.</small></div><p class="path">${e(p.name)} / ${e(context.environment)}</p>${recoveryPanel(command, csrf)}${command.state === "unknown" ? "<details><summary>Command timeline and evidence</summary>" : ""}${commandProgress(command)}${command.state === "unknown" ? "</details>" : ""}<section class="process-observation"><h2>Independent process observation</h2><p>${p.historical ? "Last known " : ""}${e(p.process)} · ${e(p.connection)}</p><dl>${time("Process observed", p.processObservedAt)}${time("Fleet received", p.receivedAt)}</dl><p>Command outcomes describe the original target and verification time. Current observations may describe a replacement process.</p></section><a class="button" href="/commands/${e(command.commandId)}">Refresh command and observations</a>`
+  );
+}
+
+export function renderCommandHistory(
+  context: CommandContext,
+  page: Page<CommandRecord>
+) {
+  const p = presentProject(context.project);
+  return commandDocument(
+    "Commands",
+    `<a href="/projects/${e(p.projectId)}">Back to project</a><h1>Commands · ${e(p.name)}</h1><p>${e(context.environment)} · ${e(p.localProjectId)}</p><section aria-label="Command history">${page.items.length ? page.items.map((command) => `<article class="command-history"><a href="/commands/${e(command.commandId)}">${e(command.operation)} · ${e(command.state)}${command.closure ? " · closed unresolved" : ""}</a><small>${e(command.commandId)}</small><dl>${time("Submitted", command.submittedAt)}${time("Outcome verified", command.completedAt)}</dl></article>`).join("") : '<p role="status">No commands yet.</p>'}</section>${page.nextCursor ? `<a class="button" href="${base(p.projectId)}?${e(new URLSearchParams({ cursor: page.nextCursor }).toString())}">Next commands</a>` : ""}`
+  );
+}
+
+/** Dialog composition; GET is inert. Only an explicit POST may submit intent. */
+export function renderCommandConfirmation(
+  context: CommandContext,
+  operation: LifecycleOperation,
+  form: CommandForm
+) {
+  const p = presentProject(context.project);
+  const reason =
+    context.disabledReasons[operation] ??
+    (operation === "start" ? p.startReason : p.stopReason);
+  const label = operation === "stop" ? "Stop project" : "Start project";
+  return commandDocument(
+    `${label} confirmation`,
+    `<a href="/projects/${e(p.projectId)}">Back to project</a><dialog open class="command-dialog" aria-labelledby="confirm-title"><h1 id="confirm-title">${label}?</h1><p>${e(p.name)} on ${e(context.environment)}</p><small>${e(p.localProjectId)} · ${e(p.path)}</small><p>${p.activeWork === undefined ? "Active run count unavailable" : `${p.activeWork} observed active runs`}${p.snapshotHistorical ? " · historical" : ""} · Snapshot ${e(p.snapshotObservedAt ?? "unavailable")}</p>${operation === "stop" ? '<p class="notice warning">Stopping interrupts active runs. In-flight work may be interrupted; inspect local recovery before restarting.</p>' : "<p>Start requests a locally verified process startup. Accepted does not mean running.</p>"}<form data-command-form method="post" action="${base(p.projectId)}">${hidden("csrf", form.csrf)}${hidden("idempotencyKey", form.idempotencyKey)}${hidden("operation", operation)}${reason ? `<p id="eligibility-reason" role="status">${e(reason)}</p>` : ""}<div class="actions"><a data-cancel class="button" href="/projects/${e(p.projectId)}#${operation}-action">Cancel</a><button type="submit"${operation === "stop" ? ' class="destructive"' : ""}${reason ? ' disabled aria-describedby="eligibility-reason"' : ""}>${label}</button></div></form></dialog>`
+  );
+}
+
+export function renderClosureConfirmation(
+  command: CommandRecord,
+  reason: string,
+  csrf: string,
+  review = ""
+) {
+  return commandDocument(
+    "Confirm unresolved closure",
+    `<dialog open class="command-dialog" aria-labelledby="closure-title"><h1 id="closure-title">Close this command unresolved?</h1><p>Command ${e(command.commandId)} · ${e(command.operation)} · outcome unknown</p><p class="notice warning">This acknowledgment does not confirm success or stop any process. The outcome and audit history remain unknown.</p><h2>Resolution reason</h2><p>${e(reason)}</p><form data-command-form method="post" action="/commands/${e(command.commandId)}/close-unresolved">${hidden("csrf", csrf)}${hidden("reason", reason)}${hidden("acknowledge", "true")}${hidden("review", review)}<div class="actions"><a data-cancel class="button" href="/commands/${e(command.commandId)}#closure-reason">Cancel</a><button type="submit" class="primary">Confirm close unresolved</button></div></form></dialog>`
+  );
+}

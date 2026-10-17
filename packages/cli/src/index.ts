@@ -34,6 +34,7 @@ export type CommandHandler = (
 ) => Promise<void>;
 
 type LoaderKey =
+  | "agent"
   | "workflow"
   | "setup"
   | "doctor"
@@ -44,6 +45,9 @@ type LoaderKey =
 
 type CliOptionValues = Partial<
   GlobalOptions & {
+    agentConfig?: string;
+    server?: string;
+    tokenStdin?: boolean;
     assignedOnly?: boolean;
     bindAll?: boolean;
     config?: string;
@@ -87,6 +91,7 @@ type CliOptionValues = Partial<
 
 const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
   {
+    agent: () => import("./commands/agent.js"),
     workflow: () => import("./commands/workflow.js"),
     setup: () => import("./commands/setup.js"),
     doctor: () => import("./commands/doctor.js"),
@@ -334,6 +339,89 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     "Use 'gh-symphony workflow init'.",
     markInvoked
   );
+
+  const agent = addGlobalOptions(
+    program.command("agent").description("Manage this host's management agent")
+  );
+  const agentOptions = (command: Command) =>
+    addGlobalOptions(command)
+      .option(
+        "--agent-config <file>",
+        "Private agent host configuration (default ~/.gh-symphony-agent/config.json)"
+      )
+      .allowExcessArguments(false);
+  const agentAction = (prefix: string[], positional?: string) =>
+    async function (this: Command, value?: string) {
+      markInvoked();
+      const values = this.optsWithGlobals<CliOptionValues>();
+      const args = [...prefix];
+      if (positional && typeof value === "string") args.push(value);
+      pushOption(args, "--agent-config", values.agentConfig);
+      pushOption(args, "--server", values.server);
+      pushOption(args, "--token-stdin", values.tokenStdin);
+      await invokeHandler("agent", args, values);
+    };
+  for (const verb of ["setup", "enroll"]) {
+    agentOptions(
+      agent
+        .command(verb)
+        .description(
+          verb === "setup"
+            ? "Enroll, install and start the user service (resumes saved identity)"
+            : "Enroll only; preserve saved identity on retry"
+        )
+    )
+      .requiredOption("--server <origin>", "Control Plane HTTPS origin")
+      .option(
+        "--token-stdin",
+        "Read one token from piped stdin instead of a hidden prompt"
+      )
+      .action(agentAction([verb]));
+  }
+  agentOptions(
+    agent
+      .command("run")
+      .description("Run the agent in the foreground with the shared owner lock")
+  ).action(agentAction(["run"]));
+  const agentService = addGlobalOptions(
+    agent
+      .command("service")
+      .description("Manage the current user's native agent service")
+  );
+  for (const verb of [
+    "install",
+    "start",
+    "stop",
+    "restart",
+    "status",
+    "uninstall",
+  ]) {
+    agentOptions(
+      agentService
+        .command(verb)
+        .description(
+          `${verb} the agent user service; preserve managed projects`
+        )
+    ).action(agentAction(["service", verb]));
+  }
+  const agentProject = addGlobalOptions(
+    agent
+      .command("project")
+      .description("Manage existing prepared-folder registrations")
+  );
+  agentOptions(
+    agentProject
+      .command("add <folder>")
+      .description("Allow management of an existing folder")
+  ).action(agentAction(["project", "add"], "folder"));
+  agentOptions(
+    agentProject.command("list").description("List locally registered folders")
+  ).action(agentAction(["project", "list"]));
+  agentOptions(
+    agentProject
+      .command("remove <local-project-id>")
+      .description("Revoke management without stopping work")
+  ).action(agentAction(["project", "remove"], "id"));
 
   const workflow = addGlobalOptions(
     program
@@ -705,6 +793,22 @@ export async function runCli(argv: string[]): Promise<void> {
   if (hasVersionFlag(argv)) {
     const versionModule = await COMMANDS.version();
     await versionModule.default([], resolveVersionOptions(argv));
+    return;
+  }
+
+  if (
+    extractNamespaceCommand(argv).namespace === "agent" &&
+    argv.some(
+      (argument) => argument === "--token" || argument.startsWith("--token=")
+    )
+  ) {
+    writeCliError({
+      code: "invalid_arguments",
+      message:
+        "Token arguments are not supported; use the hidden prompt or --token-stdin.",
+      json: argv.includes("--json"),
+      exitCode: 1,
+    });
     return;
   }
 
