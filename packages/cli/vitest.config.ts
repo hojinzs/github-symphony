@@ -31,6 +31,10 @@ export default defineConfig({
         packageRoot,
         "../extension-github-workflow/src/index.ts"
       ),
+      "@gh-symphony/orchestrator/otlp-validation": resolve(
+        packageRoot,
+        "../orchestrator/src/otlp-validation.ts"
+      ),
       "@gh-symphony/orchestrator": resolve(
         packageRoot,
         "../orchestrator/src/index.ts"

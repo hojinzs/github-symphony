@@ -566,6 +566,75 @@ describe("runDoctorDiagnostics", () => {
     }
   );
 
+  it.each([false, true])(
+    "keeps actionable OTLP remediation value-free in output (json=%s)",
+    async (json) => {
+      const configDir = await mkdtemp(join(tmpdir(), "doctor-otlp-safe-"));
+      const workspaceDir = join(configDir, "workspaces");
+      await prepareDoctorPaths(configDir, workspaceDir);
+      const { repoDir, pathEnv } = await createWorkflowFixture();
+      const workflowPath = join(repoDir, "WORKFLOW.md");
+      const output = captureWrites(process.stdout);
+      const previousExitCode = process.exitCode;
+      try {
+        for (const [endpoint, headers, expected] of [
+          [
+            "http://endpoint-user:endpoint-password@localhost:4318",
+            "Authorization: $DOCTOR_HEADER",
+            "valid HTTP(S) OTLP endpoint",
+          ],
+          [
+            "http://localhost:4318",
+            "Authorization: $DOCTOR_HEADER",
+            "unique OTLP headers",
+          ],
+          [
+            "http://localhost:4318",
+            "Authorization: $OPENAI_API_KEY",
+            "distinct exporter credential name",
+          ],
+        ]) {
+          vi.stubEnv("DOCTOR_ENDPOINT", endpoint);
+          vi.stubEnv("DOCTOR_HEADER", "header-secret\r\nforbidden");
+          await writeFile(
+            workflowPath,
+            `---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nobservability:\n  otlp:\n    enabled: true\n    endpoint: $DOCTOR_ENDPOINT\n    headers:\n      ${headers}\n---\nWork.\n`
+          );
+          await withCwd(repoDir, () =>
+            runDoctorCommand(
+              [],
+              { ...baseOptions(configDir), json },
+              {
+                ...authDependencies(),
+                inspectManagedProjectSelection: async () => ({
+                  kind: "resolved",
+                  projectId: "tenant-a",
+                  projectConfig: {
+                    ...createProjectConfig(workspaceDir),
+                    projectDir: repoDir,
+                    workflowSource: { type: "external", path: workflowPath },
+                  },
+                }),
+                getProjectDetail: (async () =>
+                  createProjectDetail() as never) as never,
+                execFileSync: (() => "git version 2.43.0") as never,
+                pathEnv,
+              }
+            )
+          );
+          expect(output.output()).toContain(expected);
+          expect(output.output()).not.toMatch(
+            /endpoint-user|endpoint-password|header-secret/
+          );
+        }
+      } finally {
+        output.restore();
+        process.exitCode = previousExitCode;
+        vi.unstubAllEnvs();
+      }
+    }
+  );
+
   it("warns when a project workflow is a stale copy of committed repository policy", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

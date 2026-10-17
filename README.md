@@ -201,6 +201,11 @@ values through this surface.
 
 ### Observability Surfaces
 
+Doctor shares the runtime’s SDK-free OTLP credential ownership and resource validation.
+Remediation reports fixed validation reasons without endpoint or header values; unknown
+errors retain generic guidance. Custom resource values must be finite scalars, and
+`service.instance.id` is reserved for the runtime. Disabled checks never probe OTLP.
+
 Optional `observability.otlp` workflow policy defaults to disabled. Set
 `enabled: true` with an HTTP/protobuf endpoint to export Logs and Metrics through
 the audited CLI pipeline. Ambient `OTEL_*` settings alone do not activate export.
@@ -1142,6 +1147,8 @@ safety, restart semantics and the production activation gate.
 
 For reproducible clean-install startup/RSS and healthy/slow/down offer measurements,
 see the [packed OTLP performance audit](packages/cli/README.md#packed-otlp-performance-audit).
+Shared-host investigations use the [startup repeatability procedure](packages/cli/README.md#startup-repeatability-on-shared-hosts),
+which retains failed runs and separates native macOS from Linux evidence.
 The audited CLI enables the complete Logs/Metrics pipeline through normal YAML policy.
 
 OTLP doctor probes own their HTTP sockets and destroy stalled connections at the

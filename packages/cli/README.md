@@ -671,6 +671,11 @@ Raw logs may contain sensitive text and are restricted to trusted operator acces
 
 ### OTLP diagnostics
 
+Doctor shares the runtime’s SDK-free OTLP credential ownership and resource validation.
+Remediation reports fixed validation reasons without endpoint or header values; unknown
+errors retain generic guidance. Custom resource values must be finite scalars, and
+`service.instance.id` is reserved for the runtime. Disabled checks never probe OTLP.
+
 `gh-symphony doctor` validates the project's `observability.otlp` settings using
 its effective environment without loading an OpenTelemetry SDK or contacting the
 Collector. Shared agent/tracker auth references fail before value resolution
@@ -711,7 +716,11 @@ counterbalances 30 fresh processes per build on the same empty file-tracker
 project (each build runs first in fifteen pairs), and writes
 raw startup/RSS samples, loaded modules, sizes and threshold results to the
 external JSON report, including the complete startup order. All samples count
-toward the unchanged thresholds; outliers are not filtered. RSS is sampled after the single idle reconciliation, at
+toward the unchanged thresholds; outliers are not filtered. Reports also retain
+candidate tarball SHA-256, chronological pair/position/start timestamps and elapsed
+times, plus host load averages, memory and cumulative CPU counters immediately
+before and after startup sampling. These are diagnostic observations only; they
+never override a failing gate. No process command lines or host identity are collected. RSS is sampled after the single idle reconciliation, at
 process exit. Healthy, 100ms slow and unavailable transport fixtures each receive
 1,000 bounded synchronous event/tick offers; the audit verifies transport was
 actually exercised. Separate child processes measure 30 full serialized
@@ -918,3 +927,33 @@ terminal prompt. Close/reopen preserves the environment without recovering the
 old secret. Enrolled hosts resume setup with their saved identity; an online
 host with zero projects is successful. This slice adds no fleet listener command
 and does not change per-project `--web` behavior.
+
+#### Startup repeatability on shared hosts
+
+Before measuring, finish builds/installs and avoid overlapping audits or test
+suites. On macOS use an otherwise idle host, stable power/thermal conditions and
+the same Node executable, baseline archive and candidate build. Do not stop other
+users' processes to manufacture a quiet interval. Record OS/architecture, Node,
+source SHAs, tarball hashes, start time and any known concurrent workload outside
+the checkout. A container is not a macOS scheduling control.
+
+Predeclare three complete sequential audit runs with distinct external report
+paths; retain every exit code and report, including failures. Inspect
+`startupTimeline` by pair and position together with `startupHost` before/after
+load and CPU deltas. Correlated stalls support a host-interference hypothesis,
+but neither correlation nor load averages prove causation. The 30-sample p95 is
+the 29th sorted sample, so two slow samples can move it substantially.
+
+For a negative control, pack the built candidate first and run the same protocol
+using that tarball as the baseline input, the candidate source directory and SHA
+as the baseline metadata, and the same capability flag. The audit packs the
+unchanged candidate source again; verify matching tarball hashes in the report.
+This identical-build comparison tests measurement repeatability; it does not
+measure growth against the pre-SDK baseline. Keep the
+baseline/candidate comparison separate. If noise remains, preserve failures and
+repeat the predeclared set on a quieter host; never select only passing runs,
+remove samples, increase thresholds or convert a failed activation gate to a
+pass. Persistent candidate-only slowdown under controlled conditions warrants
+profiling the package. Unresolved variance leaves activation acceptance open.
+Report native macOS and Linux/container evidence in separate tables, including
+unavailable environments explicitly. Linux success cannot clear a macOS failure.

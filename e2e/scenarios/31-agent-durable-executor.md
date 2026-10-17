@@ -58,12 +58,12 @@ assembly or a native systemd/launchd service test.
 
 ## Expected
 
-- Baseline prints 23 reached assertions and `agent executor black-box passed`,
+- Baseline prints 27 reached assertions and `agent executor black-box passed`,
   identifying the actual host OS and the simulated peer/clock boundaries.
 - CP-04/05/06/07/08/09/18/19 and applicable U04 lifecycle/U07 recovery library
   paths use actual durable agent and fleet records. Existing local CLI readiness,
   locks and expected-target shutdown remain authoritative.
-- All six probes fail at their named assertions. An unrelated exception or
+- All nine probes fail at their named assertions. An unrelated exception or
   timeout does not count as mutation evidence.
 - Unit tests separately cover foreign ownership, terminal/unknown replay,
   readiness absence, held locks, target PID/runtime reuse, authoritative execution
@@ -78,3 +78,8 @@ The runner terminates only its test agents at intentional crash boundaries,
 resumes any paused test daemon, gracefully stops the current managed daemon with
 the verified local adapter, closes SQLite/registry owners and removes temporary
 directories. The Docker runner tears down its worktree-scoped Compose project.
+
+CP-03 / #1050 / C07 #1011: invalidate the workflow of a real running daemon;
+report invalid readiness to C07, reject start, reject an unverified stop without
+an effect, then submit and execute verified stop through the real C03 adapter.
+Verify the workflow stays invalid, the process exits and locks are released.

@@ -13,6 +13,9 @@
         "../extension-github-workflow/src/index.ts"
       ],
       "@gh-symphony/orchestrator": ["../orchestrator/src/index.ts"],
+      "@gh-symphony/orchestrator/otlp-validation": [
+        "../orchestrator/src/otlp-validation.ts"
+      ],
       "@gh-symphony/runtime-claude": ["../runtime-claude/src/index.ts"],
       "@gh-symphony/runtime-codex": ["../runtime-codex/src/index.ts"],
       "@gh-symphony/tool-github-graphql": [
