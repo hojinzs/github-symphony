@@ -81,6 +81,8 @@ the tracker adapter:
 
 - Fleet HTTPS origin, explicit private bind and absolute user-owned persistence configuration: `packages/fleet-control-plane/src/config.ts` (C04, #1008). This is independent of workflow configuration.
 
+- C11 Linux service configuration: `packages/management-agent/src/linux-service.ts` owns absolute paths, user-unit rendering, identity-preserving installation recovery and linger/XDG/unified-cgroup diagnosis. Shared public command routing remains in C13.
+
 - macOS management service configuration: `management-agent/src/macos-service.ts` validates trusted absolute host paths/current UID and owns a private user LaunchAgent definition (C12, #1016).
 - Local management allowlist and enrollment persistence: `packages/management-agent` (C03, #1007), with canonical folder IDs and a user-only registry; the CLI remains responsible for workflow validation.
 - Management v1 identity, capacity, wire contracts and strict runtime schemas: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
@@ -201,7 +203,14 @@ Configuration removal does not signal or delete project processes or runtimes.
 `packages/management-agent/src/lifecycle.ts` serializes per-project operations,
 requires consumer-owned durable stop-target persistence and independently verifies
 readiness/exit/lock release through the CLI driver. `cli-process.ts` bounds calls
-and strips management credentials from child environments. On macOS it creates
+and strips management credentials from child environments.
+C11 `linux-launcher.ts` implements the C03 native-service callback using a separate
+retained systemd oneshot unit, reclaims empty retained units with invocation/cgroup
+checks before launch, verifies disjoint cgroup v2 ownership and startup
+execution status, and never propagates agent lifecycle operations to project units.
+`linux-systemd.ts` owns bounded local OS subprocess calls.
+
+On macOS the CLI driver creates
 a separate project CLI process group. C12 `macos-service.ts` supplies the
 structural C03 isolated-launcher port and disables launchd process-group cleanup
 with `AbandonProcessGroup`. Service stop/restart/uninstall retain registry/journal
@@ -271,7 +280,7 @@ No management protocol, tracker policy, or fleet behavior is added to
   effects remain consumer-owned.
 
 - Fleet SQLite schema migrations, private filesystem checks and transaction boundaries: `packages/fleet-control-plane` (C04, #1008). Atomic one-use enrollment, credential authentication and revocation invoke peer-owned session/command writes in the same SQLite transaction. First-signal updates require the current session owner's verifier. HTTP consumers remain separate; this package does not dispatch workers or stop orchestrators.
-- `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. The local `packages/management-agent` registry adds canonical allowlist inventory and typed lifecycle/reader boundaries. `packages/cli/src/management-local.ts` implements the concrete local driver and `createLocalReadAdapter` canonical-runtime read factory; `local-project-runtime.ts` resolves canonical folders through existing cached aliases and runtime ownership evidence. The CLI bundles this driver under the `management-local` module entry. C05 bundles `management-agent` with enrollment and the foreground HTTPS runtime; C04/C05 fleet services retain a separate store/session boundary. C06 `fleet-control-plane/src/observations.ts` owns server UUID allocation and inventory projection; route assembly and delivery execution remain sibling-owned. Native-service consumers must provide a separately verified isolated project launcher; C03 rejects a service launch context without that boundary.
+- `packages/management-protocol` defines validated agent/fleet and operator transport boundaries without tracker, scheduler, HTTP or storage dependencies. The existing `packages/control-plane` remains the per-project server. The local `packages/management-agent` registry adds canonical allowlist inventory and typed lifecycle/reader boundaries. `packages/cli/src/management-local.ts` implements the concrete local driver and `createLocalReadAdapter` canonical-runtime read factory; `local-project-runtime.ts` resolves canonical folders through existing cached aliases and runtime ownership evidence. The CLI bundles this driver under the `management-local` module entry. C05 bundles `management-agent` with enrollment and the foreground HTTPS runtime; C04/C05 fleet services retain a separate store/session boundary. C06 `fleet-control-plane/src/observations.ts` owns server UUID allocation and inventory projection; route assembly and delivery execution remain sibling-owned. C11 adds the Linux user-service adapter and isolated launch context to the bundled `management-agent` export. C03 still rejects a service context without an explicit isolation boundary; C12 supplies the macOS user-service adapter and isolated launch context.
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; candidate polling excludes terminal states and can include other non-terminal items. It derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason. State-list filtering preserves the exact malformed-item count and bounded diagnostic samples so startup cleanup remains observable.
 - Tracker adapters expose state reads and mutations to the Coordination layer, but the orchestrator does not author issue comments. Status reports, blocker notices, and other tracker comments are worker-owned operations; GitHub approval-workflow comments remain in `packages/extension-github-workflow`.

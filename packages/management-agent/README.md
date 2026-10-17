@@ -261,6 +261,103 @@ invalid inventory remain fatal.
 If a session-negotiation response is lost after the server commits it, exclusivity
 can delay recovery until the 30-second session expiry plus reconnect backoff.
 
+## Linux user-service packaging (C11)
+
+The bundled `@gh-symphony/cli/management-agent` entry exports
+`LinuxAgentService`, `renderLinuxAgentUnit` and `createLinuxProjectLaunchContext`.
+These are Linux adapter APIs for the shared CLI composition slice (C13), rather
+than new public commands. A trusted entry module must consume `--config <absolute
+path> --data-dir <absolute path> --native-service=linux` and compose C05's
+`runForegroundAgent` with C03's local adapter. Pass the saved management
+credential to the launch context's `managementCredentials`; use that context in
+`createLocalManagementAdapter`. The registry's existing owner lock applies to
+foreground and service execution alike.
+
+```ts
+import {
+  LinuxAgentService,
+  createLinuxProjectLaunchContext,
+} from "@gh-symphony/cli/management-agent";
+
+const service = new LinuxAgentService({
+  homeDirectory: "/home/operator",
+  nodePath: "/opt/node/bin/node",
+  entryPath: "/opt/agent/entry.mjs", // trusted shared CLI composition entry
+  configPath: "/home/operator/.config/gh-symphony/agent.json",
+  dataDirectory: "/home/operator/.local/share/gh-symphony/agent",
+});
+const diagnosis = await service.install(); // enable and start; no enrollment
+console.log(diagnosis.linger, diagnosis.limitations);
+// Inside the agent service, after reading the saved identity:
+const launchContext = createLinuxProjectLaunchContext({
+  managementCredentials: [savedIdentity.credential],
+});
+```
+
+`homeDirectory` must be the actual user's home used by the user manager. The
+owned definition is `~/.config/systemd/user/gh-symphony-agent.service`, mode 0600.
+Node, entry, configuration and data paths must be absolute; unsafe paths and
+conflicting definitions are rejected. The manager must report the expected
+loaded `FragmentPath`, a non-transient unit and only vendor type-wide
+`service.d` drop-ins under `/usr/lib/systemd/user` or `/lib/systemd/user` before lifecycle
+effects; conflicting effective definitions require explicit local repair.
+`WorkingDirectory=/` is a raw absolute systemd setting; entry/config/data paths
+are supplied absolutely in the command. Directory components must be user-owned,
+non-symlink directories without group/other write access; the data directory
+must be exactly 0700. The unit uses no credential arguments, disables executable
+argument environment expansion, escapes percent specifiers and sends local
+stdout/stderr to the user journal. Unexpected exit restarts after five seconds,
+with at most five starts in a minute. No privileged/system-wide service is installed.
+
+Entry and configuration paths must be regular files, not symlinks. Resolve a
+global CLI entry first, for example `realpath "$(command -v gh-symphony)"`,
+and pass the resulting absolute path.
+
+`diagnose()` checks Linux, systemd 254+, the user manager, its
+`XDG_CONFIG_HOME` and the unified cgroup v2 hierarchy, then queries
+`loginctl show-user` for linger. Missing/unknown linger explicitly limits boot
+startup and persistence after logout. `loginctl enable-linger` may require local
+authorization; the adapter neither elevates nor changes linger. Unsupported
+managers, legacy/hybrid cgroups, unavailable hierarchy evidence and non-default
+manager `XDG_CONFIG_HOME` require foreground execution. An unset/empty manager
+value or the configured home directory’s `.config` is supported. The isolated launcher requires unified
+cgroup v2 ownership readback. Service status is local OS activation state, not a
+fleet first-signal/online claim.
+
+Installation retries preserve identity and registrations after enable/start
+failure. Identical unit configuration is idempotent; conflicting configuration
+requires local repair. `start`, `stop`, `restart`, `status` and `uninstall` target
+only the owned agent unit. Uninstall removes the definition and preserves the
+entire data directory, including identity, project allowlist and journal.
+
+The launcher uses a unique `gh-symphony-project-<UUID>.service`,
+`Type=oneshot`, `RemainAfterExit=yes`, and no stop dependency on the agent. It
+waits for startup completion, verifies `ExecMainCode/Status`, active/exited state
+and a disjoint control group. It rejects use outside the agent unit. Project
+credentials remain available to local CLI startup, while management/broker
+credentials and aliases are stripped from the supplied environment and inherited
+manager environment. Values are not put in systemd-run arguments. A timeout or
+uncertain OS result returns `exitCode: null`, never success or automatic replay.
+
+Each project start gets a fresh retained unit. Before launch, the adapter makes a
+bounded best-effort attempt to reclaim up to eight empty retained units. It checks
+the UUID name, transient oneshot/exited state, invocation identity, disjoint
+control group and `cgroup.events` `populated 0`, then repeats identity and emptiness
+observations before stopping. Populated, replaced, foreign and uncertain units
+are preserved; cleanup failure does not fail launch. This relies on the trusted
+operator account and never reuses a UUID unit. Agent lifecycle does not reclaim
+project units. Explicit project stop remains a C03 action. Machine shutdown or
+user-session teardown is outside the continuity guarantee.
+
+Run `pnpm --filter @gh-symphony/management-agent test` for configuration,
+installation recovery, subprocess boundaries and independent typed OS-command
+fixtures. Those fixtures are simulations, not native systemd acceptance.
+[TC-31](../../e2e/scenarios/31-linux-agent-user-service.md) runs actual C03/C05/C11
+composition, TLS delivery, managed daemon continuity and 20 reached fault
+probes. Use `--simulate` for ordinary host/Docker contract evidence and `--native`
+on a prepared Linux operator account for actual systemd/cgroup acceptance. Native
+acceptance remains a separate pre-release gate; simulations do not satisfy it.
+
 ## C06 inventory publisher
 
 `createInventorySnapshot({ reader, cliVersion, resolveIdentities })` is directly
