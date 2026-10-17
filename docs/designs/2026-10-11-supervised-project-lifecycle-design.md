@@ -228,6 +228,12 @@ if desired == stopped and running:
     expected-target stop (write StopIntent requestedBy=agent first)
 ```
 
+Reconciler starts use the same isolated launch path as other agent starts: a
+separate transient systemd user service per project on Linux (C11) and a
+separate process group with `AbandonProcessGroup` on macOS (C12). Orchestrators
+therefore never run inside the agent's own unit or process group, and agent
+restart or crash leaves them running.
+
 `start` of an already running project is a success. The existing start locks
 refuse a duplicate with "already running", so a race with a human `project start`
 cannot produce two orchestrators.
@@ -352,7 +358,7 @@ reload.
 
 ## Compatibility and migration
 
-- Amends the #983 design statement on reboot (lines 77–79) for the next release.
+- Amends the #983 design statement on reboot (lines 77–78) for the next release.
   It does not change CP-23: agent service lifecycle still never signals
   orchestrators.
 - Registry `version: 1 → 2`: existing entries migrate to `desired: "unset"` (D1).
@@ -414,6 +420,9 @@ OTLP start/stop records are wanted earlier.
    verify before choosing the 5 min grace window.
 2. OS termination grace at shutdown/logout on macOS and under systemd user
    sessions, measured against the 10 s worker termination plus 5 s OTLP flush.
+   Shipped C11/C12 values: the Linux agent unit uses `TimeoutStopSec=15s`, while
+   project transient units use the user manager default; the macOS agent uses
+   `ExitTimeOut=20`, which does not cover the abandoned project process groups.
    If it is shorter, shutdown records may be lost. Classification still works
    because it relies on the stop intent.
 3. Should `boot_recovery` be distinguished from an agent-only restart? With
