@@ -84,6 +84,7 @@ the tracker adapter:
 - C11 Linux service configuration: `packages/management-agent/src/linux-service.ts` owns absolute paths, user-unit rendering, identity-preserving installation recovery and linger/XDG/unified-cgroup diagnosis. Shared public command routing remains in C13.
 
 - macOS management service configuration: `management-agent/src/macos-service.ts` validates trusted absolute host paths/current UID and owns a private user LaunchAgent definition (C12, #1016).
+- C13 guided setup: `management-agent/src/setup.ts` sequences enrollment and native service installation through a typed service port, preserves identity on partial failure and releases the registry lock before service startup. This repository-local Configuration/Integration extension leaves upstream orchestration unchanged.
 - Local management allowlist and enrollment persistence: `packages/management-agent` (C03, #1007), with canonical folder IDs and a user-only registry; the CLI remains responsible for workflow validation.
 - Management v1 identity, capacity, wire contracts and strict runtime schemas: `packages/management-protocol`, a dependency-free repository-local extension (C01, #1005; Epic #983). It preserves upstream workflow configuration ownership.
 
