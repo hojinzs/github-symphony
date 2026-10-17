@@ -45,6 +45,21 @@ export { createInventorySnapshot } from "./inventory.js";
 export type { ProjectIdentityResolver } from "./inventory.js";
 
 export {
+  LinuxAgentService,
+  LINUX_AGENT_UNIT,
+  renderLinuxAgentUnit,
+} from "./linux-service.js";
+export type {
+  LinuxServiceConfig,
+  LinuxServiceOptions,
+  LinuxServiceDiagnosis,
+} from "./linux-service.js";
+export { createLinuxProjectLaunchContext } from "./linux-launcher.js";
+export type {
+  LinuxProjectLaunchRequest,
+  LinuxProjectLauncherOptions,
+} from "./linux-launcher.js";
+export {
   MacOSAgentService,
   runLaunchctl,
   launchMacOSProject,

@@ -454,6 +454,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/31-fleet-bounded-reads.md`               | C10 CP-12: HTTPS read admission/detail, actual C09 filesystem reads, history/expiry/offline/reset and nineteen reached forbidden-condition probes                                                                                               |
 | `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 24 reached assertions and 22 isolated forbidden-condition probes                             |
 | `e2e/scenarios/31-agent-durable-executor.md`            | C08 CP-04–09/18/19: real agent journal, C07 ledger, separate agent/CLI processes, crash boundaries, deferred exit and replacement recovery; 23 reached assertions and six forbidden-condition probes                                            |
+| `e2e/scenarios/31-linux-agent-user-service.md`          | C11 CP-22/23: retry/lock conflict, isolated project units, CLI continuity through service lifecycle and 20 fault probes; native and simulated evidence separated                                                                                |
 
 ## TC Writing Guide
 
@@ -690,6 +691,45 @@ mutations must reach and fail their intended assertion. Actual macOS evidence
 must be reported separately from Linux/container simulations, production fleet
 HTTP/UI assembly and native-service acceptance.
 
+### Linux agent user-service cases (C11)
+
+Run `node --test e2e/lib/json-journal.test.mjs` to verify that polling retries
+missing/truncated fixture journals and observes the next complete result. The
+Docker C11 runner includes this deterministic journal-race regression.
+
+Run `pnpm --filter @gh-symphony/management-agent test`; the root `pnpm test`
+includes these cases. `linux-service.test.ts` verifies absolute paths and
+systemd quoting, linger/user-manager diagnosis, failed-install retry, foreign
+unit rejection, vendor type-wide drop-in acceptance versus targeted/user override
+rejection, XDG and legacy/hybrid cgroup diagnosis, lifecycle targeting and preserved data. `linux-launcher.test.ts`
+uses an independent typed OS-command peer to exercise retained oneshot startup,
+cgroup separation, failed execution, deadlines, credential filtering and unique
+unit names. Real filesystem cgroup-event fixtures additionally verify empty
+retained-unit reclamation, populated/replaced/uncertain unit preservation and
+cleanup failure isolation. TC-31 simulation adds two reached cleanup assertions
+and matching forbidden-condition probes. The subprocess test runs real Node children for bounded output,
+timeout and failed-spawn behavior. These are filesystem/process/OS-contract
+simulations on the host; they do not claim native systemd acceptance.
+
+CP-22/23 native acceptance requires a Linux systemd 254+ user manager and unified
+cgroup v2: start a real prepared project through the bundled C03 adapter from
+inside the actual agent service, read both control groups and project process
+identity, then stop/restart/uninstall the agent while verifying the project stays
+alive and its identity/registrations/journal remain intact. Exercise the same C05
+owner lock from a conflicting foreground process. Keep native OS evidence
+separate from ordinary Linux container simulations; a container without a real
+user manager cannot establish OS lifecycle isolation. Run `node e2e/linux-agent-service-e2e.mjs --simulate` and
+`node e2e/run-linux-agent-service-probes.mjs --simulate` for host contract evidence,
+or `./e2e/run-linux-agent-service-e2e.sh` for Docker. The Docker runtime image
+includes both C11 programs, so this runner checks the packaged CLI and all
+20 forbidden-condition probes inside Linux. Run both Node commands with
+`--native` on a prepared Linux operator account for actual systemd acceptance;
+the native runner refuses to replace a preexisting agent service.
+[TC-31](e2e/scenarios/31-linux-agent-user-service.md) specifies all normal, invalid,
+recovery and reached-probe cases. Docker preflight 69 is the documented worker
+exception; native preflight 69 records unavailable native acceptance, which must
+be confirmed separately before release.
+
 ### Fleet bounded read service cases (C10)
 
 `pnpm --filter @gh-symphony/fleet-control-plane test` covers independent read
@@ -737,3 +777,16 @@ mocked. Native host/Chromium evidence is reported separately from Linux Docker
 composition, accelerated browser deadline and injected offline/cache lifecycle
 events. Native service isolation, human assistive-technology and production
 listener deployment remain outside this slice.
+
+### OT-14 Collector receipt and outage
+
+| Case                                                                                                              | Runnable scenario                                                                   | Evidence                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-34 / OT-14 — plain/authenticated Collector receipt, restart identity, endpoint interruption and graceful flush | `./e2e/run-otlp-collector-e2e.sh` ([procedure](e2e/scenarios/34-otlp-collector.md)) | Pinned Collector protobuf-derived Logs/Metrics JSON, per-phase dispatch/file/worker records, image/commit/config identity and 17 copied-evidence rejection probes; output directory printed by runner |
+
+The runner uses standalone project/file-tracker/stub fixtures and no real agent
+credentials. `node e2e/otlp/receipt-self-test.mjs` is a synthetic verifier test,
+not receipt evidence. Only prerequisite preflight status 69 qualifies for the
+unattended-worker exception above; post-preflight failures and status 125 do not.
+Operator/CI receipt confirmation remains required before Epic closure, separately
+from dogfood delivery proof.
