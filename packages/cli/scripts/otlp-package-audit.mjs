@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { hostContext } from "./otlp-host-context.mjs";
 import { createHash } from "node:crypto";
 import {
   performanceGates,
@@ -179,11 +180,14 @@ try {
   await workflow();
   const measurements = {};
   const startupOrder = [];
+  const startupTimeline = [];
+  const startupHostBefore = hostContext();
   // Thirty fresh processes per build; each build runs first in fifteen pairs.
   for (let index = 0; index < 30; index++) {
     for (const name of startupBuildOrder(index)) {
       const build = { baseline, candidate }[name];
       startupOrder.push(name);
+      const startedAt = new Date().toISOString();
       const started = performance.now();
       const result = await run(process.execPath, [
         "--import",
@@ -201,10 +205,19 @@ try {
       const rss = Number(result.stderr.match(/AUDIT_RSS=(\d+)/)?.[1]);
       assert.ok(rss > 0);
       const sample = (measurements[name] ??= { startupMs: [], rssBytes: [] });
-      sample.startupMs.push(performance.now() - started);
+      const elapsedMs = performance.now() - started;
+      sample.startupMs.push(elapsedMs);
+      startupTimeline.push({
+        pair: index,
+        build: name,
+        position: startupTimeline.length % 2,
+        startedAt,
+        elapsedMs,
+      });
       sample.rssBytes.push(rss);
     }
   }
+  const startupHostAfter = hostContext();
   reached("30 fresh-process disabled startup samples");
   reached("counterbalanced startup order assertion");
   for (const name of ["baseline", "candidate"]) {
@@ -554,6 +567,9 @@ try {
   report = {
     baselineTarball,
     baselineCommit: process.argv[5],
+    candidateTarballSha256: createHash("sha256")
+      .update(await readFile(join(root, pack.filename)))
+      .digest("hex"),
     baselineTarballSha256: createHash("sha256")
       .update(await readFile(baselineTarball))
       .digest("hex"),
@@ -570,6 +586,8 @@ try {
     candidate: current,
     measurements,
     startupOrder,
+    startupTimeline,
+    startupHost: { before: startupHostBefore, after: startupHostAfter },
     offer,
     tickMeasurements,
     gates,

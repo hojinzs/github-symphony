@@ -399,7 +399,9 @@ initialization. CLI packaging audits run from production-only tarball installs
 and measure disabled startup/RSS and synchronous offer thresholds separately from
 package bytes, and measure full reconciliation ticks under healthy/slow/down
 receivers. Startup pairs counterbalance which build runs first, retaining all
-thirty samples per build and recording the complete order. Slice I passed those gates before supplying H’s existing startup
+thirty samples per build and recording the complete order. Audit-only host
+load/memory/CPU snapshots and per-sample timestamps provide scheduling context;
+these observations never filter samples or change activation gates. Slice I passed those gates before supplying H’s existing startup
 capability and CLI release version; independent library owners keep the guard. These diagnostics follow upstream observability expectations without
 changing coordination or tracker contracts.
 
