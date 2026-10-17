@@ -478,6 +478,94 @@ beforeEach(() => {
 });
 
 describe("runDoctorDiagnostics", () => {
+  it.each(["OPENAI_API_KEY", "CUSTOM_AGENT_AUTH", "GITHUB_GRAPHQL_TOKEN"])(
+    "rejects shared %s exporter credentials before probing",
+    async (name) => {
+      const configDir = await mkdtemp(join(tmpdir(), "doctor-otlp-owner-"));
+      const workspaceDir = join(configDir, "workspaces");
+      await prepareDoctorPaths(configDir, workspaceDir);
+      const { repoDir, pathEnv } = await createWorkflowFixture();
+      const workflowPath = join(repoDir, "WORKFLOW.md");
+      await writeFile(
+        workflowPath,
+        `---\ntracker:\n  kind: github-project\nruntime:\n  kind: custom\n  command: fake-agent\n  auth:\n    env: CUSTOM_AGENT_AUTH\nobservability:\n  otlp:\n    enabled: true\n    endpoint: http://127.0.0.1:4318\n    headers:\n      Authorization: $${name}\n---\nWork.\n`
+      );
+      vi.stubEnv(name, "private-export-sentinel");
+      const request = vi.fn(async () => new Response(null, { status: 200 }));
+      const report = await withCwd(repoDir, () =>
+        runDoctorDiagnostics(baseOptions(configDir), ["--otlp-probe"], {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: {
+              ...createProjectConfig(workspaceDir),
+              projectDir: repoDir,
+              workflowSource: { type: "external", path: workflowPath },
+            },
+          }),
+          getProjectDetail: (async () =>
+            createProjectDetail() as never) as never,
+          execFileSync: (() => "git version 2.43.0") as never,
+          fetchImpl: request,
+          pathEnv,
+        })
+      );
+      expect(report.checks.find((check) => check.id === "otlp")?.status).toBe(
+        "fail"
+      );
+      expect(request).not.toHaveBeenCalled();
+      expect(JSON.stringify(report)).not.toContain("private-export-sentinel");
+      vi.unstubAllEnvs();
+    }
+  );
+
+  it.each([
+    "      service.name: conflicting\n",
+    Array.from(
+      { length: 17 },
+      (_, index) => `      custom${index}: value\n`
+    ).join(""),
+    "      issue.id: forbidden\n",
+  ])(
+    "rejects startup-incompatible resource metadata before probing (%s)",
+    async (attributes) => {
+      const configDir = await mkdtemp(join(tmpdir(), "doctor-otlp-resource-"));
+      const workspaceDir = join(configDir, "workspaces");
+      await prepareDoctorPaths(configDir, workspaceDir);
+      const { repoDir, pathEnv } = await createWorkflowFixture();
+      const workflowPath = join(repoDir, "WORKFLOW.md");
+      await writeFile(
+        workflowPath,
+        `---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nobservability:\n  otlp:\n    enabled: true\n    endpoint: http://127.0.0.1:4318\n    resource_attributes:\n${attributes}---\nWork.\n`
+      );
+      const request = vi.fn(async () => new Response(null, { status: 200 }));
+      const report = await withCwd(repoDir, () =>
+        runDoctorDiagnostics(baseOptions(configDir), ["--otlp-probe"], {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: {
+              ...createProjectConfig(workspaceDir),
+              projectDir: repoDir,
+              workflowSource: { type: "external", path: workflowPath },
+            },
+          }),
+          getProjectDetail: (async () =>
+            createProjectDetail() as never) as never,
+          execFileSync: (() => "git version 2.43.0") as never,
+          fetchImpl: request,
+          pathEnv,
+        })
+      );
+      expect(report.checks.find((check) => check.id === "otlp")?.status).toBe(
+        "fail"
+      );
+      expect(request).not.toHaveBeenCalled();
+    }
+  );
+
   it("warns when a project workflow is a stale copy of committed repository policy", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

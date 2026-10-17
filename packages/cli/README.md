@@ -521,14 +521,17 @@ gh-symphony doctor --project-dir <projectDir>
 
 ## Diagnostics
 
-Optional `observability.otlp` workflow policy is parsed without activating export.
+Optional `observability.otlp` workflow policy defaults to disabled. Set
+`enabled: true` with an HTTP/protobuf endpoint to export Logs and Metrics through
+the audited CLI pipeline. Ambient `OTEL_*` settings alone do not activate export.
 The orchestrator validates enabled transport settings before dispatch and excludes
 exporter credentials from workers and hooks. Exporter auth references must use
 separate names from agent/tracker credentials, even when OTLP is disabled.
 Durable local events and committed status remain authoritative; publication
-failures cannot fail a tick or mark coordination unhealthy. Production enablement
-is explicitly unsupported until packaged audits pass. Rejected startup reports
-the error once and exits with code 1, releasing locks and stopping the service.
+failures cannot fail a tick or mark coordination unhealthy. CLI startup supplies
+the internal capability and release version after clean-install/performance gates;
+independent library owners retain the default rejection guard. Construction
+failures report once and exit with code 1, releasing locks and stopping the service.
 Valid OTLP edits require
 restart; additive JSON status reports applied versus pending settings and safe
 exporter health separately from coordination errors. See the
@@ -666,6 +669,73 @@ rotation/truncation reports reset, and missing or escaping selections report
 unavailable. Read access survives invalid workflow and has no process effects.
 Raw logs may contain sensitive text and are restricted to trusted operator access.
 
+### OTLP diagnostics
+
+`gh-symphony doctor` validates the project's `observability.otlp` settings using
+its effective environment without loading an OpenTelemetry SDK or contacting the
+Collector. Shared agent/tracker auth references fail before value resolution
+or probing, including disabled policy. Enabled resource metadata uses the startup
+limits and reserved identity checks. `doctor --otlp-probe` explicitly sends an empty protobuf export request
+for each enabled signal, with a three-second budget per signal. Disabled policy
+and `OTEL_SDK_DISABLED=true` skip all OTLP connections. Reports include safe
+endpoints, header names and HTTP outcomes; they omit credentials and remote
+response bodies. HTTP success alone does not prove telemetry receipt.
+
+`gh-symphony project status` displays applied and pending exporter settings and
+whether a restart is required. The applied exporter remains active until restart,
+even when the pending policy disables export. JSON status retains the additive
+`telemetry` projection. Existing `logs --level` filters retain their severity
+mapping. The audited CLI now supports production YAML enablement for Logs and Metrics.
+
+### Clean package boundary check
+
+Run `pnpm --filter @gh-symphony/cli test:package` to build and install the npm
+tarball into a temporary production-only installation. The check resolves the
+bundled lazy OpenTelemetry SDK chunks, rejects SDK evaluation by the CLI version
+command and idle worker entry, and executes the installed management, MCP and
+credential-helper entries. It reports tarball bytes separately from runtime
+performance. Startup/RSS/offer benchmarks and packed lifecycle/reload checks are
+separate release gates; the smoke check alone is insufficient release evidence.
+
+### Packed OTLP performance audit
+
+After `pnpm build`, run from `packages/cli`:
+
+```bash
+node scripts/otlp-package-audit.mjs /absolute/baseline.tgz /tmp/otlp-report.json /absolute/baseline-source <baseline-commit-sha> --production-cli
+```
+
+Build the baseline from a separate source archive and pack it before running the
+comparison. The audit installs both tarballs with production dependencies only,
+counterbalances 30 fresh processes per build on the same empty file-tracker
+project (each build runs first in fifteen pairs), and writes
+raw startup/RSS samples, loaded modules, sizes and threshold results to the
+external JSON report, including the complete startup order. All samples count
+toward the unchanged thresholds; outliers are not filtered. RSS is sampled after the single idle reconciliation, at
+process exit. Healthy, 100ms slow and unavailable transport fixtures each receive
+1,000 bounded synchronous event/tick offers; the audit verifies transport was
+actually exercised. Separate child processes measure 30 full serialized
+reconciliation ticks for disabled baseline/candidate and enabled healthy/slow/down
+receivers. The audit verifies authenticated protobuf exports with the CLI release
+version, applied/pending disable/endpoint reloads, invalid last-known-good recovery,
+revert, bounded shutdown, and normal YAML-enabled CLI startup.
+
+The audit also rejects SDK evaluation and receiver connections for disabled or
+omitted enable policy and the SDK-disabled veto. Packed doctor checks verify
+validation-only network silence, disabled explicit probes, both enabled signal
+probes, and credential-free output. A failing startup/RSS/offer threshold returns
+a nonzero exit status. Tarball, installed dependency and ESM bytes are reported
+separately, without a size threshold. A release must keep the CLI capability off
+if any packaged or performance gate fails. The `--production-cli` audit argument
+checks the final startup composition; omit it when auditing a candidate whose
+production capability is still off. These loopback fixtures prove shipped
+behavior, while actual Collector dogfood receipt remains a separate Epic gate.
+
+OTLP doctor probes own their HTTP sockets and destroy stalled connections at the
+three-second deadline, allowing the command to exit after reporting the result.
+HTTP/TLS probe transports load only for an explicit enabled probe; status
+rendering and validation-only diagnostics leave them unloaded.
+
 The bundled `@gh-symphony/cli/management-agent` module provides C05 enrollment
 and foreground outbound HTTPS transport for application/service composition.
 C08 adds `CommandJournal` and `CommandExecutor` for durable claim replay,
@@ -737,3 +807,10 @@ LaunchAgent and preserve management identity and managed orchestrators. Public
 agent command routing remains C13-owned. Login startup requires the real OS user
 home; no pre-login boot or logout survival is promised. See the management-agent
 package README for the typed configuration and TC-31 native validation.
+
+The internal [C16 fleet project UI](../fleet-control-plane/README.md#project-presentation-boundary-c16)
+exports read-only fleet/detail route composition with Graphite responsive rows,
+fresh-only workspace totals and historical offline labels. A consuming private
+fleet HTTPS listener supplies environment records and optional lifecycle/history
+links. This adds no fleet CLI command; `gh-symphony project` and per-project
+`--web` keep their existing behavior.

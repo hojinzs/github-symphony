@@ -2,7 +2,11 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
-import { formatEventMessage, type OrchestratorEvent } from "@gh-symphony/core";
+import {
+  formatEventMessage,
+  getEventSeverity,
+  type OrchestratorEvent,
+} from "@gh-symphony/core";
 import type { GlobalOptions } from "../index.js";
 import { orchestratorLogPath } from "../config.js";
 import {
@@ -232,20 +236,9 @@ function getProjectId(event: LoggedEvent): string | undefined {
 }
 
 function getLevel(event: LoggedEvent): LogLevel {
-  switch (event.event) {
-    case "run-failed":
-    case "turn_failed":
-    case "worker-error":
-    case "hook-failed":
-      return "error";
-    case "run-suppressed":
-    case "run-retried":
-    case "run-finalization-deferred":
-    case "run-ownership-skipped":
-      return "warn";
-    default:
-      return "info";
-  }
+  return getEventSeverity(
+    String(event.event)
+  ).severityText.toLowerCase() as LogLevel;
 }
 
 function parseLogLevel(level: string | undefined): LogLevel | undefined {

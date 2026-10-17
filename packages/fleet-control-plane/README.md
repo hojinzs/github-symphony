@@ -350,3 +350,51 @@ boundary while that sibling is unavailable.
 HTTPS/C04/C05/C09 contract and nineteen forbidden-condition probes. Run
 `node e2e/fleet-reads-e2e.mjs` and `node e2e/fleet-reads-mutations.mjs` after
 `pnpm build`, or `./e2e/run-fleet-reads-e2e.sh` for Linux Docker.
+
+## Project presentation boundary (C16)
+
+`src/project-presentation.ts` maps C06 `ObservedProject` values to fleet/detail
+widget data. Connection, process, health, agent observation time and receipt time
+stay separate. Historical process and snapshot values remain available with
+explicit historical flags; missing work counts remain unknown.
+`summarizeProjects` requires the complete workspace inventory and labels its
+scope; never pass a filtered page. Running totals require fresh managed process
+observations, while active-work totals also require a fresh snapshot.
+
+Start/Stop disabled reasons are presentation guidance only. Invalid workflow
+blocks Start while a verified running process can remain eligible for Stop;
+offline, stale, unmanaged and incompatible targets carry adjacent reasons.
+C17 owns command authorization and dispatch. Scope overlap stays advisory.
+These internal helpers do not install a fleet listener or alter per-project web
+behavior.
+
+`createProjectRoutes(observations, { environments, links?, now? })` returns a
+read-only request dispatcher for `GET /projects`, `GET /projects/:projectId`
+and allowlisted `/fleet-assets/*`. The consuming **private fleet HTTPS listener**
+passes the request pathname plus query and sends the returned status, headers
+and body. The dispatcher does not bind a port. Assets ship in this package's
+`assets/` directory; preserve that directory next to `dist/`.
+
+The fleet form supports search, environment/state filters, and Previous/Next
+pagination. Filters reset the page, counts refer to all matching rows, and the
+fresh-only summary explicitly remains workspace-wide. Running/Stopped/Unknown process filters require fresh, online, managed
+observations. The stale filter and Offline / stale metric share one predicate:
+offline, stale observation/snapshot, or unmanaged. That metric covers all inventory,
+including unmanaged projects; running/work totals cover managed projects. Pages are snapshots at request time; refresh
+to fetch new observations. Native HTML forms and links work without JavaScript;
+the small local script adds a loading announcement during form navigation.
+
+`links` is the typed C17/C18/#1019 composition boundary: optional local-only
+environment, lifecycle, runs and commands destinations. Lifecycle links navigate
+to confirmation flows; they must never perform mutations on GET. Without a
+destination, an otherwise eligible action explains that it is not connected.
+Invalid workflow never independently disables eligible Stop. Command results
+and run/log history are sibling-owned and are not fabricated in this view.
+Only local asset, stylesheet and script sources are permitted by page CSP;
+names, paths, diagnostics, filters and URLs are HTML escaped.
+
+Verification: `node e2e/fleet-projects-e2e.mjs` and
+`node e2e/fleet-projects-mutations.mjs` after building, or
+`./e2e/run-fleet-projects-e2e.sh` for Linux Docker. These exercise actual
+enrollment, session, inventory and route services; the loopback HTTP fixture
+does not claim native lifecycle or production HTTPS deployment validation.

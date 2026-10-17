@@ -819,6 +819,29 @@ Handle {{issue.identifier}}.\n`,
     expect(process.exitCode).toBe(1);
   });
 
+  it("supplies the audited OTLP production capability and CLI version", async () => {
+    vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    acquireProjectLock.mockResolvedValue({
+      lockPath: "/tmp/lock",
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: new Date().toISOString(),
+    });
+    const stdout = captureWrites(process.stdout);
+    try {
+      await startModule.default(["--once"], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+    }
+    expect(serviceDependencies.at(-1)).toMatchObject({
+      telemetry: { productionCapability: true, version: "0.0.20" },
+    });
+  });
+
   it("runs a single orchestration tick and exits naturally with --once", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",

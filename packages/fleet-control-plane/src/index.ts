@@ -58,3 +58,21 @@ export {
   type ReadRouteRequest,
   type ReadRouteResponse,
 } from "./read-routes.js";
+export {
+  presentProject,
+  summarizeProjects,
+  type ProjectPresentation,
+} from "./project-presentation.js";
+
+export {
+  createProjectRoutes,
+  type ProjectRouteOptions,
+  type ProjectRouteResponse,
+} from "./project-routes.js";
+export {
+  renderFleetPage,
+  renderProjectDetail,
+  renderProjectFeedback,
+  type ProjectLinks,
+  type FleetPage,
+} from "./project-pages.js";

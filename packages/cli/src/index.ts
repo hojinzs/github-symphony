@@ -51,6 +51,7 @@ type CliOptionValues = Partial<
     dryRun?: boolean;
     file?: string;
     fix?: boolean;
+    otlpProbe?: boolean;
     follow?: boolean;
     force?: boolean;
     http?: string | boolean;
@@ -452,6 +453,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--project-id <projectId>", "Project identifier")
       .option("--project-dir <path>", "Standalone project folder")
       .option(
+        "--otlp-probe",
+        "Probe enabled OTLP signals with bounded requests"
+      )
+      .option(
         "--fix",
         "Apply safe remediation steps and print manual follow-ups"
       )
@@ -475,6 +480,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--project-dir", values.projectDir);
+    pushOption(args, "--otlp-probe", values.otlpProbe);
     pushOption(args, "--fix", values.fix);
     pushOption(args, "--smoke", values.smoke);
     pushOption(args, "--bundle", values.bundle);
