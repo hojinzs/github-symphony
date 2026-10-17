@@ -505,3 +505,45 @@ Docker. The real-browser walkthrough and copied-browser-artifact probes use
 see TC-34 in AGENT_TEST.md for external Playwright setup. Browser evidence covers
 native controls, visible focus, inert text, offline/expiry/reset recovery and
 1440/1024/390 geometry. Native service isolation remains outside C18.
+
+## Environment connection UI (C15)
+
+`createEnvironmentRoutes(enrollment, browserSecurity, { publicOrigin,
+projectCounts, now? })` supplies the private fleet `/environments` page, local
+assets, `/environments/state` polling and per-environment `/connection` reads.
+The listener supplies bounded, duplicate-key-free JSON and passes Origin,
+cookie and `X-CSRF-Token` headers as `origin`, `cookie`, `csrfToken`. POST
+`/environments` accepts only `{ name }`; POST `/environments/:id/regenerate`
+accepts `{}` for an unused enrollment or explicit replacement after revocation; POST `/environments/:id/revoke`
+requires `{ acknowledged: true }`. Every mutation validates the existing C04
+same-origin browser session. Reads never create or regenerate a token.
+
+Mount this dispatcher on the consuming fleet HTTPS listener alongside project
+routes, supplying `{ environments: "/environments" }` in their links. It does
+not start a listener or change the shipped per-project `--web` service.
+`projectCounts()` returns an inventory-owned map: missing means unknown, and a
+known zero is displayed as zero. Supply counts only from complete authenticated
+inventory; transport success never depends on project readiness. Count-read failures
+fall back to unknown after enrollment mutations, so inventory outages cannot
+prevent revocation, connection reads or the environment list.
+
+The Graphite list and connection dialog support keyboard focus containment,
+Escape/close focus restoration, explicit clipboard success and manual fallback,
+expiry cleanup and automatic current-session first-signal transitions. Creation
+persists a name-only record. Closing clears the displayed secret and preserves
+the record; reopening offers a fresh token rather than recovering the old one.
+Tokens expire after ten minutes and are copied separately from
+`gh-symphony agent setup --server '<configured-origin>'`, then pasted into the
+hidden terminal prompt. Enrolled hosts resume with their saved identity;
+regeneration never replaces an enrolled identity. Revocation ends management
+access while local execution continues. Browser session expiry requires page
+reload to renew the CSRF session; failed mutations are never automatically replayed.
+Successful list refresh clears stale alerts and retry controls. Online connection
+links use the project route’s `environment` filter. The revoked dialog does not
+offer token regeneration; explicit replacement calls follow the enrollment
+service’s transactional policy and never bypass the enrolled-identity guard.
+
+Linux requires current-user systemd and linger for boot/logout operation; macOS
+uses a login LaunchAgent. This UI does not install or validate native services.
+[TC-35](../../e2e/scenarios/35-fleet-environments.md) records HTTPS, browser,
+responsive and mutation verification separately from actual native OS acceptance.

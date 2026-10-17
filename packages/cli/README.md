@@ -919,6 +919,15 @@ Keep the registry and journal intact so enrollment and registrations resume.
 An unknown `agent project remove <id>` fails with `project_unmanaged`;
 use `agent project list` to find the registered ID.
 
+The internal [C15 environment UI](../fleet-control-plane/README.md#environment-connection-ui-c15)
+adds list/connection route composition for a consuming private fleet listener.
+The dialog copies `gh-symphony agent setup --server '<configured-origin>'` and
+the ten-minute single-use token separately; paste the token into the hidden
+terminal prompt. Close/reopen preserves the environment without recovering the
+old secret. Enrolled hosts resume setup with their saved identity; an online
+host with zero projects is successful. This slice adds no fleet listener command
+and does not change per-project `--web` behavior.
+
 #### Startup repeatability on shared hosts
 
 Before measuring, finish builds/installs and avoid overlapping audits or test

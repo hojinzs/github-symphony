@@ -1275,3 +1275,18 @@ Stop the agent service, edit only these two absolute paths in the private
 Keep the registry and journal intact so enrollment and registrations resume.
 An unknown `agent project remove <id>` fails with `project_unmanaged`;
 use `agent project list` to find the registered ID.
+
+### Environment connection UI composition (C15)
+
+`createEnvironmentRoutes` consumes the existing fleet `publicOrigin` and C04
+browser security service. It adds no environment variables or workflow keys.
+The private HTTPS listener supplies bounded JSON (reject duplicate keys), exact
+Origin, cookie and `X-CSRF-Token`; mutations require a valid session-bound CSRF
+token. Serve the returned no-store/CSP/security headers without weakening them.
+Use the configured HTTPS origin for the shell-quoted setup command; never put an
+enrollment token in an argument, URL, log or persistent browser storage.
+Inventory-owned project counts are independent from authenticated connectivity;
+a missing count means unknown, while a reported empty inventory is zero. A rejected
+`projectCounts()` read also means unknown and does not block enrollment mutations
+or connection/list reads.
+The dispatcher is a library boundary and is not mounted on per-project `--web`.

@@ -481,6 +481,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/31-fleet-observations.md`                | C06: atomic inventory revisions, real enrollment/session/command composition, TLS publisher, freshness/restart, paging and tracker-scope warnings; 24 reached assertions and 22 isolated forbidden-condition probes                             |
 | `e2e/scenarios/31-agent-durable-executor.md`            | C08 CP-04–09/18/19: real agent journal, C07 ledger, separate agent/CLI processes, crash boundaries, deferred exit and replacement recovery; 27 reached assertions and nine forbidden-condition probes                                           |
 | `e2e/scenarios/31-linux-agent-user-service.md`          | C11 CP-22/23: retry/lock conflict, isolated project units, CLI continuity through service lifecycle and 20 fault probes; native and simulated evidence separated                                                                                |
+| `e2e/scenarios/35-fleet-environments.md`                | C15 CP-20/21: persisted setup, token fencing, authenticated zero-project success, responsive dialogs and keyboard/clipboard; 12 HTTPS and 25 browser assertions with matching artifact probes                                                   |
 
 ## TC Writing Guide
 
@@ -868,3 +869,16 @@ from dogfood delivery proof.
 C13 review regression: unknown local project removal must fail with
 `project_unmanaged`, emit no success record, and preserve the allowlist.
 The `unknown` forbidden-outcome probe reaches and rejects that assertion.
+
+## C15 environments and connection UI
+
+| Scenario                                                                                                                      | Executable evidence                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [TC-35 — persisted connection, token fencing, CP-20/21, zero projects and revocation](e2e/scenarios/35-fleet-environments.md) | `node e2e/fleet-environments-e2e.mjs` (13 reached assertions), `node e2e/fleet-environments-mutations.mjs` (13 compiled-artifact probes); `bash e2e/run-fleet-environments-e2e.sh` for isolated Linux Docker     |
+| TC-35 browser — create/reopen/expiry/error/revoked, keyboard, clipboard and 1440/1024/390                                     | `node e2e/fleet-environments-browser.mjs` (26 reached assertions), `node e2e/fleet-environments-mutations.mjs --browser` (26 probes); `C15_BROWSER=1 bash e2e/run-fleet-environments-e2e.sh` adds Linux Chromium |
+
+Use external Playwright and a local Chromium binary as described in TC-35. Test-only
+`C15_*` variables do not configure the product. Report actual host OS, container
+simulation and native service validation separately. This verifies the library
+route/browser/service composition, not production listener assembly or native
+systemd/LaunchAgent acceptance owned by C13.

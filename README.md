@@ -1268,3 +1268,11 @@ fetched content stays historical. Expired browser sessions pause follow and
 show reload guidance. Mount the run routes and browser assets beside
 the project and read dispatchers in the private fleet service. No fleet CLI
 command or per-project web behavior changes.
+
+The internal [C15 environment UI](packages/fleet-control-plane/README.md#environment-connection-ui-c15)
+provides a Graphite host list and connection dialog for a consuming private fleet
+listener. Name-only creation persists the host record; setup commands and
+single-use tokens are copied separately. Enrolled hosts wait for their first
+authenticated signal, and an online host with zero projects is a successful
+connection. This library slice adds no fleet server command; existing per-project
+commands and `--web` behavior remain available.
