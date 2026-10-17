@@ -99,6 +99,10 @@ const handler: CommandHandler = async (args, options) => {
       if (args[1] === "add") print(await registry.add(args[2]!));
       else if (args[1] === "list") print(registry.list());
       else if (args[1] === "remove") {
+        if (
+          !registry.list().some((project) => project.localProjectId === args[2])
+        )
+          throw new Error("project_unmanaged");
         await registry.remove(args[2]!);
         print({ removed: args[2], process: "unaffected" });
       }

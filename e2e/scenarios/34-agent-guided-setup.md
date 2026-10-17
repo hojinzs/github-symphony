@@ -40,3 +40,7 @@ The default runtime's registered-project inventory requires the explicit typed
 fleet identity resolver; C13 neither invents an allocation route nor claims full
 fleet acceptance. Its typed fixture exercises actual inventory/local-read
 composition. Docker preflight exit 69 follows AGENT_TEST.md's worker exception.
+
+C13 review regression: unknown local project removal must fail with
+`project_unmanaged`, emit no success record, and preserve the allowlist.
+The `unknown` forbidden-outcome probe reaches and rejects that assertion.

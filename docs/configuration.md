@@ -1247,3 +1247,12 @@ report `inventory_identity_allocation_unavailable` and retry. Local fixture
 composition supplies server UUIDs to exercise actual inventory/read adapters.
 This explicit incomplete fleet assembly is outside C13 setup/service routing;
 no project UUIDs are minted locally and no new protocol route is invented here.
+
+After a Node.js or CLI upgrade, saved agent `nodePath` and `cliPath` may point
+to removed version-specific files. Re-running setup preserves these paths.
+Stop the agent service, edit only these two absolute paths in the private
+`config.json` (preserving mode 0600 and the data directory), then rerun
+`agent setup --server <existing-origin>` to reinstall and start the service.
+Keep the registry and journal intact so enrollment and registrations resume.
+An unknown `agent project remove <id>` fails with `project_unmanaged`;
+use `agent project list` to find the registered ID.

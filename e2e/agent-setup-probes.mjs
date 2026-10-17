@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const assertions = {
+  unknown: "unknown removal fails without claiming success",
   help: "shared install help and version",
   resume: "CP-22 saved enrollment resumes without token input",
   identity: "CP-22 conflicting server preserves identity",

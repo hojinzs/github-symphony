@@ -141,3 +141,20 @@ it("reports the shared foreground owner conflict without changing identity", asy
     await registry.close();
   }
 });
+
+it("rejects unknown removal without revoking a registered folder", async () => {
+  const { root, directory, config } = await fixture();
+  const folder = join(root, "prepared");
+  await mkdir(folder);
+  const registry = await AgentRegistry.open(directory);
+  const added = await registry.add(folder);
+  await registry.close();
+  const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+  await expect(
+    runCli(["agent", "project", "remove", "typo", "--agent-config", config])
+  ).rejects.toThrow("project_unmanaged");
+  expect(output).not.toHaveBeenCalled();
+  const reopened = await AgentRegistry.open(directory);
+  expect(reopened.list()).toEqual([added]);
+  await reopened.close();
+});

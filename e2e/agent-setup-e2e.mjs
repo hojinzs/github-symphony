@@ -265,6 +265,17 @@ try {
     [project],
     "allowlist"
   );
+  const unknown = await run(["agent", "project", "remove", "typo", ...flags]);
+  check(
+    "unknown removal fails without claiming success",
+    unknown.code !== 0 &&
+      unknown.stderr.includes("project_unmanaged") &&
+      !unknown.stdout.includes("removed"),
+    true,
+    "unknown"
+  );
+  const retained = await run(["agent", "project", "list", ...flags, "--json"]);
+  assert.deepEqual(JSON.parse(retained.stdout), [project]);
   await run(["agent", "project", "remove", project.localProjectId, ...flags]);
   registry = await AgentRegistry.open(directory);
   assert.equal(registry.list().length, 0);

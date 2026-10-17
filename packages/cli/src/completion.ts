@@ -103,6 +103,19 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   "config:edit": [...GLOBAL_OPTIONS],
 };
 
+for (const verb of COMMAND_OPTIONS["agent:service"] ?? []) {
+  COMMAND_OPTIONS[`agent:service:${verb}`] = [
+    "--agent-config",
+    ...GLOBAL_OPTIONS,
+  ];
+}
+for (const verb of COMMAND_OPTIONS["agent:project"] ?? []) {
+  COMMAND_OPTIONS[`agent:project:${verb}`] = [
+    "--agent-config",
+    ...GLOBAL_OPTIONS,
+  ];
+}
+
 function quoteWords(values: readonly string[]): string {
   return values.join(" ");
 }
@@ -110,7 +123,8 @@ function quoteWords(values: readonly string[]): string {
 function renderBashCasePatterns(): string {
   return Object.entries(COMMAND_OPTIONS)
     .map(([key, values]) => {
-      const [command, subcommand] = key.split(":");
+      const [command, ...segments] = key.split(":");
+      const subcommand = segments.join(":");
       if (!subcommand) {
         if (command === "completion") {
           return `    completion)\n      COMPREPLY=( $(compgen -W "${quoteWords(values)}" -- "$cur") )\n      return\n      ;;`;
@@ -145,7 +159,7 @@ function renderFishLines(): string {
 
   for (const subcommand of COMMAND_OPTIONS.project ?? []) {
     lines.push(
-      `complete -c gh-symphony -f -n '__fish_seen_subcommand_from project' -a '${subcommand}'`
+      `complete -c gh-symphony -f -n '__fish_seen_subcommand_from project; and not __fish_seen_subcommand_from agent' -a '${subcommand}'`
     );
   }
 
@@ -167,6 +181,28 @@ function renderFishLines(): string {
     );
   }
 
+  for (const [context, values] of Object.entries(COMMAND_OPTIONS)) {
+    if (context !== "agent" && !context.startsWith("agent:")) continue;
+    const tokens = context.split(":");
+    const condition = tokens
+      .map((token) => `__fish_seen_subcommand_from ${token}`)
+      .join("; and ");
+    const children = values.filter((value) => !value.startsWith("-"));
+    const exclusion = children.length
+      ? `; and not __fish_seen_subcommand_from ${children.join(" ")}`
+      : "";
+    for (const value of values) {
+      const argument = value.startsWith("--")
+        ? `-l ${value.slice(2)}`
+        : value.startsWith("-")
+          ? `-s ${value.slice(1)}`
+          : `-a '${value}'`;
+      lines.push(
+        `complete -c gh-symphony -f -n '${condition}${exclusion}' ${argument}`
+      );
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -179,6 +215,7 @@ export function renderCompletionScript(shell: "bash" | "zsh" | "fish"): string {
 _gh_symphony_find_context() {
   GH_SYMPHONY_COMMAND=""
   GH_SYMPHONY_SUBCOMMAND=""
+  GH_SYMPHONY_AGENT_GROUP=""
 
   local idx=1
   local token=""
@@ -208,6 +245,8 @@ _gh_symphony_find_context() {
           GH_SYMPHONY_COMMAND="\${token}"
         elif [[ -z "\${GH_SYMPHONY_SUBCOMMAND}" ]]; then
           GH_SYMPHONY_SUBCOMMAND="\${token}"
+        elif [[ "\${GH_SYMPHONY_COMMAND}" == "agent" && -z "\${GH_SYMPHONY_AGENT_GROUP}" ]]; then
+          GH_SYMPHONY_AGENT_GROUP="\${token}"
         fi
         ;;
     esac
@@ -232,10 +271,14 @@ _gh_symphony_completion() {
     return
   fi
 
-  if [[ "\${path}" == "workflow" || "\${path}" == "project" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
+  if [[ "\${path}" == "agent" || "\${path}" == "workflow" || "\${path}" == "project" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
     if [[ -n "\${GH_SYMPHONY_SUBCOMMAND}" ]]; then
       path="\${path}:\${GH_SYMPHONY_SUBCOMMAND}"
     fi
+  fi
+
+  if [[ ( "\${path}" == "agent:service" || "\${path}" == "agent:project" ) && -n "\${GH_SYMPHONY_AGENT_GROUP}" ]]; then
+    path="\${path}:\${GH_SYMPHONY_AGENT_GROUP}"
   fi
 
   case "\${path}" in

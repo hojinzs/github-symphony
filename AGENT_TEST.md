@@ -768,7 +768,7 @@ keyboard behavior; no custom menu or focus trap is introduced.
 
 | Scenario                                                                                                                                                                            | Executable evidence                                                                                                                                      |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [TC-34 — guided agent setup](e2e/scenarios/34-agent-guided-setup.md): help/version, private token enrollment/resume, foreground lock, registration and Linux/macOS service recovery | `node e2e/agent-setup-e2e.mjs`, `node e2e/agent-setup-probes.mjs` (10 reached forbidden-outcome probes), `./e2e/run-agent-setup-e2e.sh` for Linux Docker |
+| [TC-34 — guided agent setup](e2e/scenarios/34-agent-guided-setup.md): help/version, private token enrollment/resume, foreground lock, registration and Linux/macOS service recovery | `node e2e/agent-setup-e2e.mjs`, `node e2e/agent-setup-probes.mjs` (11 reached forbidden-outcome probes), `./e2e/run-agent-setup-e2e.sh` for Linux Docker |
 
 `agent-input.test.ts` covers hidden raw-terminal input, cancellation/raw-mode
 restoration and bounded stdin without echo. `agent-config.test.ts` uses actual
@@ -813,3 +813,7 @@ not receipt evidence. Only prerequisite preflight status 69 qualifies for the
 unattended-worker exception above; post-preflight failures and status 125 do not.
 Operator/CI receipt confirmation remains required before Epic closure, separately
 from dogfood delivery proof.
+
+C13 review regression: unknown local project removal must fail with
+`project_unmanaged`, emit no success record, and preserve the allowlist.
+The `unknown` forbidden-outcome probe reaches and rejects that assertion.
