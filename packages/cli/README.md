@@ -622,7 +622,7 @@ gh-symphony agent setup --help
 Help is available on each command group and leaf. `--version` and `version`
 report the installed package version; source-built features may precede the
 published npm release. After upgrading, check that version and restart existing
-daemons as described in the CLI migration note.
+daemons as described in the [CLI migration note](#repository-command-migration).
 
 ```text
 gh-symphony
@@ -693,7 +693,9 @@ global scheduler, Docker management deployment, public/OIDC deployment or UI
 project provisioning in this release.
 
 Global options include `--config <dir>`, `--verbose`, `--json`,
-`--no-color`, `--help` and `--version`. See leaf help for supported flags.
+`--no-color`, `--help` and `--version`. All `project` subcommands also accept
+`--project-dir <path>`, even where leaf help does not list it (including
+`project status` and `project stop`). See leaf help for the remaining flags.
 
 The internal [management protocol](../management-protocol/README.md) package defines the v1 agent/fleet
 transport boundary for the planned management extension. It adds no CLI commands;

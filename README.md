@@ -70,7 +70,7 @@ gh-symphony agent setup --help
 Help is available on each command group and leaf. `--version` and `version`
 report the installed package version; source-built features may precede the
 published npm release. After upgrading, check that version and restart existing
-daemons as described in the CLI migration note.
+daemons as described in the [CLI migration note](packages/cli/README.md#repository-command-migration).
 
 ```text
 gh-symphony
