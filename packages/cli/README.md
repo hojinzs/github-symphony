@@ -693,9 +693,9 @@ global scheduler, Docker management deployment, public/OIDC deployment or UI
 project provisioning in this release.
 
 Global options include `--config <dir>`, `--verbose`, `--json`,
-`--no-color`, `--help` and `--version`. All `project` subcommands also accept
-`--project-dir <path>`, even where leaf help does not list it (including
-`project status` and `project stop`). See leaf help for the remaining flags.
+`--no-color`, `--help` and `--version`. `project start`, `project status` and
+`project stop` also accept `--project-dir <path>`, even where leaf help does
+not list it (`status` and `stop`). See leaf help for the remaining flags.
 
 The internal [management protocol](../management-protocol/README.md) package defines the v1 agent/fleet
 transport boundary for the planned management extension. It adds no CLI commands;
