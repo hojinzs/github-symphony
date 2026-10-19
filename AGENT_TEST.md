@@ -908,9 +908,9 @@ installation/lifecycle acceptance. The dedicated [TC-36 production listener scen
 adds built CLI setup, real HTTPS/SQLite, first signal, shutdown/restart and trusted
 reverse-proxy assembly:
 
-| Scenario                                  | Executable evidence                                                                                                                                                                                                           |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| TC-36 — production fleet listener and CLI | `node e2e/fleet-listener-e2e.mjs` (22 assertions); `node e2e/fleet-listener-mutations.mjs` (22 reached forbidden observations and ten copied-artifact behavior probes); `bash e2e/run-fleet-listener-e2e.sh` for Linux Docker |
+| Scenario                                  | Executable evidence                                                                                                                                                                                                              |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-36 — production fleet listener and CLI | `node e2e/fleet-listener-e2e.mjs` (24 assertions); `node e2e/fleet-listener-mutations.mjs` (24 reached forbidden observations and twelve copied-artifact behavior probes); `bash e2e/run-fleet-listener-e2e.sh` for Linux Docker |
 
 Actual built `agent setup` uses an isolated native OS-command peer, followed by
 the actual installed agent entry against the production listener. This is

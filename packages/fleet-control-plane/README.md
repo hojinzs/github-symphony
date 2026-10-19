@@ -601,8 +601,10 @@ the browser Origin; arbitrary forwarded identity headers are never trusted.
 Browser mutations require the configured Origin and the session CSRF token
 (header for JSON, hidden field for command forms). Agent endpoints reject browser
 cookies/Origin and require their own bearer credential, derived enrolled agent
-identity and exclusive session. JSON and form bodies are bounded; duplicate
-fields are rejected. No permissive CORS headers are emitted. Empty inventories
+identity and exclusive session. Browser JSON/form and unauthenticated enrollment
+bodies are capped at 16 KiB. Browser duplicate fields are rejected; agent bodies
+use the protocol JSON parser semantics, with other agent bodies capped at 4 MiB.
+No permissive CORS headers are emitted. Empty inventories
 are accepted for the first authenticated signal; the separate project identity
 allocation route (#1061) is not added here.
 

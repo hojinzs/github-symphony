@@ -31,6 +31,8 @@ const assertions = [
   "cross origin rejected",
   "configured Host required",
   "duplicate body rejected",
+  "enrollment body capped",
+  "agent protocol JSON semantics",
   "browser actor cannot authenticate agent",
   "persisted browser environment",
   "CLI setup against production listener",
@@ -78,6 +80,12 @@ try {
     .filter((name) => name.endsWith(".js"))
     .map((name) => join(copy, "dist", name));
   const mutations = [
+    [
+      "enrollment body capped",
+      'agent && url.pathname !== "/api/v1/agents/enroll"',
+      "agent && true",
+    ],
+    ["agent protocol JSON semantics", "if (!agent) {", "if (true) {"],
     ["foreground readiness", 'from "node:sqlite"', 'from "sqlite"'],
     [
       "foreground readiness",

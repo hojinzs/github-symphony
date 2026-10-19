@@ -69,9 +69,9 @@ function denied(): never {
 
 async function readBody(
   req: IncomingMessage,
-  agent: boolean
+  agent: boolean,
+  maximum: number
 ): Promise<unknown> {
-  const maximum = agent ? LIMITS.observationBodyBytes : 16 * 1024;
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -92,11 +92,14 @@ async function readBody(
     invalid("Use application/json or a browser form");
   try {
     const value: unknown = JSON.parse(raw);
-    // JSON.parse validates JSON syntax; YAML's flow parser additionally rejects
-    // duplicate decoded object keys (including nested/escaped spellings).
-    const document = parseDocument(raw, { schema: "json", uniqueKeys: true });
-    if (document.errors.length || document.warnings.length)
-      invalid("Ambiguous JSON object");
+    // Only bounded browser mutations need duplicate decoded-key rejection.
+    // Agent bodies use the protocol's JSON semantics; parsing large inventory
+    // payloads again as YAML would block the listener's event loop.
+    if (!agent) {
+      const document = parseDocument(raw, { schema: "json", uniqueKeys: true });
+      if (document.errors.length || document.warnings.length)
+        invalid("Ambiguous JSON object");
+    }
     return value;
   } catch {
     return invalid("Malformed or duplicate-key JSON body");
@@ -391,7 +394,13 @@ export async function startFleetServer(file: string): Promise<FleetServer> {
           return;
         }
         sessions.expire();
-        const body = await readBody(req, agent);
+        const largeAgentBody =
+          agent && url.pathname !== "/api/v1/agents/enroll";
+        const body = await readBody(
+          req,
+          agent,
+          largeAgentBody ? LIMITS.observationBodyBytes : 16 * 1024
+        );
         if (agent) {
           sendJson(200, await agentRoute(req, url, body, signal));
           return;

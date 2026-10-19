@@ -57,7 +57,9 @@ directory. Only a sanitized report is printed.
 | missing CSRF rejected                   | Browser mutation without the session token returns 401 and no permissive CORS header.                                                         |
 | cross origin rejected                   | Valid cookie/token from a different origin still returns 401 and no permissive CORS header.                                                   |
 | configured Host required                | A different Host is rejected even on health.                                                                                                  |
-| duplicate body rejected                 | Duplicate JSON keys are rejected rather than interpreted differently across layers.                                                           |
+| duplicate body rejected                 | Duplicate browser JSON keys are rejected rather than interpreted differently across layers.                                                   |
+| enrollment body capped                  | Unauthenticated enrollment over 16 KiB is rejected by the byte limit before parsing.                                                          |
+| agent protocol JSON semantics           | Larger agent JSON follows protocol semantics without the browser YAML duplicate-key scan.                                                     |
 | browser actor cannot authenticate agent | Browser session/cookie/actor cannot substitute for agent authentication.                                                                      |
 | persisted browser environment           | Actual browser mutation creates a durable environment and separate one-use enrollment token.                                                  |
 | CLI setup against production listener   | Built `agent setup` enrolls over trusted HTTPS, writes the private registry and reaches the simulated native manager's start operation.       |
@@ -78,13 +80,13 @@ separate #1061 slice.
 
 ## Mutation and assertion evidence
 
-The mutation command first plants a forbidden observation at each of the 22
+The mutation command first plants a forbidden observation at each of the 24
 named assertion boundaries. Each run must exit nonzero with both its exact
 `reached:` marker and the named `AssertionError`; a timeout, crash or earlier
 failure is rejected as invalid evidence. This verifies every assertion executes.
 
 It then copies the built CLI and assets into a temporary package, links its
-existing runtime dependencies, and mutates that copy only. Ten real behavior
+existing runtime dependencies, and mutates that copy only. Twelve real behavior
 probes must reach and fail the appropriate normal black-box assertion:
 
 | Compiled/package mutation                            | Required failing assertion           |
@@ -98,6 +100,8 @@ probes must reach and fail the appropriate normal black-box assertion:
 | Remove startup session recovery                      | saved agent reconnects after restart |
 | Invent a nonzero count for completed empty inventory | CP21 zero project signal             |
 | Leave accepted pre-TLS sockets open at shutdown      | SIGTERM closes storage               |
+| Remove enrollment-specific small body cap            | enrollment body capped               |
+| Apply YAML duplicate-key scan to agent JSON          | agent protocol JSON semantics        |
 | Empty a packaged SVG                                 | packaged local assets                |
 
 Every copied artifact is restored or deleted in `finally`; production source is
@@ -109,7 +113,7 @@ configuration or deployment options.
 
 The positive report includes actual host platform, Node version, built entry
 SHA-256, the explicit native-service simulation boundary and all assertion
-names. The mutation runner requires 22 reached negative probes and ten compiled
+names. The mutation runner requires 24 reached negative probes and twelve compiled
 behavior failures. The Docker runner must end with
 `C23 production fleet listener Docker E2E passed`. Keep complete command output
 outside the checkout, for example `/tmp/c23-evidence/`; report actual macOS/Linux

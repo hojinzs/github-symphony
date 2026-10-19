@@ -299,6 +299,32 @@ it("rejects cross-origin, missing CSRF, duplicate bodies and browser identity on
   expect((await f.request("/environments")).body).not.toContain("Forbidden");
 });
 
+it("caps enrollment bodies and delegates agent JSON semantics to the protocol", async () => {
+  const f = await fixture();
+  await f.start();
+  const oversized = await f.request("/api/v1/agents/enroll", {
+    method: "POST",
+    raw: " ".repeat(16 * 1024) + "{}",
+  });
+  expect(oversized.status).toBe(400);
+  expect(JSON.parse(oversized.body).error.message).toBe(
+    "Request body exceeds fleet byte limit"
+  );
+  // Agent JSON follows JSON.parse, as in the protocol parser. Unlike browser
+  // mutations, it must not pass through the expensive YAML duplicate-key scan.
+  const agent = await f.request("/api/v1/agents/sessions", {
+    method: "POST",
+    raw: '{"protocolVersion":1,"protocolVersion":0}',
+  });
+  expect(JSON.parse(agent.body).error.code).toBe("unsupported_protocol");
+  // The same size remains valid for agent traffic other than enrollment.
+  const larger = await f.request("/api/v1/agents/sessions", {
+    method: "POST",
+    raw: " ".repeat(16 * 1024) + '{"protocolVersion":0}',
+  });
+  expect(JSON.parse(larger.body).error.code).toBe("unsupported_protocol");
+});
+
 it("fails without port fallback and reports unsafe storage and TLS material", async () => {
   const f = await fixture();
   await f.start();

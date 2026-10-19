@@ -309,6 +309,24 @@ transport:
     raw: '{"name":"one","name":"two"}',
   });
   check("duplicate body rejected", duplicate.status === 400);
+  const oversizedEnrollment = await request(origin, "/api/v1/agents/enroll", {
+    method: "POST",
+    raw: " ".repeat(16 * 1024) + "{}",
+  });
+  check(
+    "enrollment body capped",
+    oversizedEnrollment.status === 400 &&
+      JSON.parse(oversizedEnrollment.body).error.message ===
+        "Request body exceeds fleet byte limit"
+  );
+  const agentJson = await request(origin, "/api/v1/agents/sessions", {
+    method: "POST",
+    raw: " ".repeat(16 * 1024) + '{"protocolVersion":1,"protocolVersion":0}',
+  });
+  check(
+    "agent protocol JSON semantics",
+    JSON.parse(agentJson.body).error.code === "unsupported_protocol"
+  );
   const browserAgent = await request(origin, "/api/v1/agents/sessions", {
     method: "POST",
     headers: browser,
