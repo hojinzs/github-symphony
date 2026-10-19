@@ -1,6 +1,6 @@
 # Orchestrator OpenTelemetry export
 
-- **Status:** Draft
+- **Status:** Shipped (implementation); [release verification and documentation closeout #998](../reports/2026-10-19-otlp-release-verification.md). Original proposal below is historical.
 - **Date:** 2026-10-04
 - **Symphony Layers:** Configuration, Observability (primary); Coordination, Execution, Integration (boundary effects); Policy (dogfood planning only)
 - **Tracking Epic:** [#794](https://github.com/hojinzs/github-symphony/issues/794)

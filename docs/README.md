@@ -48,8 +48,8 @@ Provider-specific compact adapter profiles and host-side agent-tool contracts:
 | [2026-08-11-agent-bootstrap-plugin-pm-steward-design.md](designs/2026-08-11-agent-bootstrap-plugin-pm-steward-design.md)     | Policy, Configuration, Coordination, Observability                         | Draft                                                     |
 | [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (plan)                                                                     | Active                                                    |
 | [2026-09-14-orchestrator-extraction-scope.md](designs/2026-09-14-orchestrator-extraction-scope.md)                           | Configuration, Coordination, Execution, Integration, Observability         | Shipped (PR #973)                                         |
-| [2026-10-04-otlp-export-design.md](designs/2026-10-04-otlp-export-design.md)                                                 | Configuration, Observability, Coordination, Execution, Integration, Policy | Draft                                                     |
-| [2026-10-04-otlp-export-dogfood-plan.md](designs/2026-10-04-otlp-export-dogfood-plan.md)                                     | Configuration, Observability, Coordination, Execution, Integration, Policy | Draft (plan; no issues created)                           |
+| [2026-10-04-otlp-export-design.md](designs/2026-10-04-otlp-export-design.md)                                                 | Configuration, Observability, Coordination, Execution, Integration, Policy | Shipped implementation; docs closeout pending #998        |
+| [2026-10-04-otlp-export-dogfood-plan.md](designs/2026-10-04-otlp-export-dogfood-plan.md)                                     | Configuration, Observability, Coordination, Execution, Integration, Policy | Shipped implementation; docs closeout pending #998        |
 | [2026-10-04-control-plane-management-agents-design.md](designs/2026-10-04-control-plane-management-agents-design.md)         | Configuration, Coordination, Execution, Integration, Observability         | Approved (#984 / PR #982)                                 |
 | [2026-10-05-ohmysymphony-c22-redesign-plan.md](designs/2026-10-05-ohmysymphony-c22-redesign-plan.md)                         | Configuration, Integration, Observability                                  | Approved — Graphite delivery plan                         |
 | [2026-10-05-ohmysymphony-c22-design-handoff.md](designs/2026-10-05-ohmysymphony-c22-design-handoff.md)                       | Configuration, Integration, Observability                                  | Approved — Graphite full-system design                    |
@@ -91,3 +91,6 @@ OTLP export release evidence ([Epic #794](https://github.com/hojinzs/github-symp
 
 See the [adr/](adr/) directory for the ADR list. When a newer decision replaces
 an older one, they are linked via the `Supersedes` header.
+
+OTLP closeout: [accepted ADR](adr/2026-10-19_workflow-owned-otlp-export.md) and
+[first-release verification](reports/2026-10-19-otlp-release-verification.md).

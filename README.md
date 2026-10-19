@@ -220,7 +220,9 @@ failures report once and exit with code 1, releasing locks and stopping the serv
 Valid OTLP edits require
 restart; additive JSON status reports applied versus pending settings and safe
 exporter health separately from coordination errors. See the
-[OTLP configuration contract](docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
+[OTLP configuration contract](docs/configuration.md#otlp-workflow-policy).
+
+OTLP release references: [accepted extension ADR](docs/adr/2026-10-19_workflow-owned-otlp-export.md) · [release checklist and independent evidence](docs/reports/2026-10-19-otlp-release-verification.md) · [token support, cardinality and loss expectations](docs/configuration.md#otlp-token-support-and-cardinality).
 
 Use `gh-symphony project start --project-dir <path> --web` when you want the browser-based
 control-plane dashboard. It starts the orchestrator and serves the React SPA at
