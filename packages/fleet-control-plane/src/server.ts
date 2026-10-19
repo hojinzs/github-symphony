@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import type { Socket } from "node:net";
 import { readFileSync } from "node:fs";
 import {
   createServer as createHttpServer,
@@ -473,6 +474,13 @@ export async function startFleetServer(file: string): Promise<FleetServer> {
       });
     }
     failedServer = server;
+    // HTTP connection tracking starts after TLS negotiation. Track raw sockets
+    // as well so an unfinished handshake cannot outlive the shutdown deadline.
+    const sockets = new Set<Socket>();
+    server.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    });
     server.headersTimeout = 10_000;
     server.requestTimeout = 30_000;
     await new Promise<void>((resolve, reject) => {
@@ -498,7 +506,10 @@ export async function startFleetServer(file: string): Promise<FleetServer> {
       close() {
         closing ??= (async () => {
           shutdown.abort();
-          const force = setTimeout(() => server.closeAllConnections(), 5_000);
+          const force = setTimeout(() => {
+            for (const socket of sockets) socket.destroy();
+            server.closeAllConnections();
+          }, 5_000);
           force.unref();
           try {
             await new Promise<void>((resolve, reject) =>

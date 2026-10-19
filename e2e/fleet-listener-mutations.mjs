@@ -111,6 +111,11 @@ try {
     ],
     ["CP21 zero project signal", "count(p.project_id) AS n", "99 AS n"],
   ];
+  mutations.push([
+    "SIGTERM closes storage",
+    "for (const socket of sockets) socket.destroy();",
+    "/* stalled TLS socket left open */",
+  ]);
   for (const [label, from, to] of mutations) {
     // Select the fleet assembly chunk, avoiding agent/lifecycle chunks sharing
     // generic signal/error handling statements. These are build artifacts only.

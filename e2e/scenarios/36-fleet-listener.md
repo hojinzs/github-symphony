@@ -66,7 +66,7 @@ directory. Only a sanitized report is printed.
 | SIGINT drains listener                  | Foreground process exits normally on SIGINT and the socket is closed.                                                                         |
 | restart preserves environments          | Same configuration restarts with the saved environment.                                                                                       |
 | saved agent reconnects after restart    | The saved credential establishes a different session and authenticates a new signal; a retained online label alone cannot satisfy this check. |
-| SIGTERM closes storage                  | SIGTERM exits normally with the persisted database available after process exit.                                                              |
+| SIGTERM closes storage                  | SIGTERM exits normally, closes a raw TCP peer stalled before TLS negotiation, and leaves the database available after process exit.           |
 | trusted HTTPS proxy boundary            | Trusted TLS proxy reaches backend health with public Host; direct backend Host is rejected.                                                   |
 | diagnostics do not expose secrets       | Captured CLI/server/agent diagnostics contain neither the token nor the agent credential.                                                     |
 
@@ -84,7 +84,7 @@ named assertion boundaries. Each run must exit nonzero with both its exact
 failure is rejected as invalid evidence. This verifies every assertion executes.
 
 It then copies the built CLI and assets into a temporary package, links its
-existing runtime dependencies, and mutates that copy only. Nine real behavior
+existing runtime dependencies, and mutates that copy only. Ten real behavior
 probes must reach and fail the appropriate normal black-box assertion:
 
 | Compiled/package mutation                            | Required failing assertion           |
@@ -97,6 +97,7 @@ probes must reach and fail the appropriate normal black-box assertion:
 | Remove the SIGINT handler                            | SIGINT drains listener               |
 | Remove startup session recovery                      | saved agent reconnects after restart |
 | Invent a nonzero count for completed empty inventory | CP21 zero project signal             |
+| Leave accepted pre-TLS sockets open at shutdown      | SIGTERM closes storage               |
 | Empty a packaged SVG                                 | packaged local assets                |
 
 Every copied artifact is restored or deleted in `finally`; production source is
@@ -108,7 +109,7 @@ configuration or deployment options.
 
 The positive report includes actual host platform, Node version, built entry
 SHA-256, the explicit native-service simulation boundary and all assertion
-names. The mutation runner requires 22 reached negative probes and nine compiled
+names. The mutation runner requires 22 reached negative probes and ten compiled
 behavior failures. The Docker runner must end with
 `C23 production fleet listener Docker E2E passed`. Keep complete command output
 outside the checkout, for example `/tmp/c23-evidence/`; report actual macOS/Linux

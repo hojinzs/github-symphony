@@ -19,7 +19,7 @@ import {
   createServer as createHttpsServer,
 } from "node:https";
 import { request as httpRequest } from "node:http";
-import { createServer as createTcpServer } from "node:net";
+import { createServer as createTcpServer, connect } from "node:net";
 import { platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +38,7 @@ const completed = [];
 let transcript = "";
 let proxy;
 let server;
+let stalledPeer;
 function check(name, actual) {
   console.log(`reached: ${name}`);
   assert.equal(process.env.C23_PLANT === name ? false : actual, true, name);
@@ -465,7 +466,11 @@ transport:
   );
   check("saved agent reconnects after restart", reconnected);
   await stop(agent, "SIGTERM");
+  stalledPeer = connect(config.port, "127.0.0.1");
+  await once(stalledPeer, "connect");
+  await delay(20); // Accepted TCP peer deliberately sends no TLS handshake.
   const secondStop = await stop(server, "SIGTERM");
+  stalledPeer.destroy();
   check(
     "SIGTERM closes storage",
     secondStop.code === 0 &&
@@ -547,6 +552,7 @@ transport:
     )
   );
 } finally {
+  stalledPeer?.destroy();
   for (const processChild of children) processChild.kill("SIGKILL");
   await Promise.allSettled(
     [...children].map((processChild) => once(processChild, "close"))

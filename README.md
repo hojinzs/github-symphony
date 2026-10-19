@@ -1200,7 +1200,7 @@ queries, receipt-based offline/stale state, paged project lists and advisory
 tracker-scope warnings. Complete uploads change membership atomically; partial
 uploads retain unseen projects. These library boundaries are separate from the
 existing `gh-symphony project` commands and per-project `--web` server; fleet HTTP
-and UI assembly remains a consumer integration.
+and UI assembly is supplied by the separate `control-plane run` command (C23).
 
 The bundled `@gh-symphony/cli/management-agent` module exports
 `createInventorySnapshot` for the foreground runner and its authenticated

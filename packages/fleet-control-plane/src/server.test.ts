@@ -11,7 +11,7 @@ import {
   chmodSync,
 } from "node:fs";
 import { request as httpsRequest } from "node:https";
-import { createServer } from "node:net";
+import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startFleetServer, type FleetServer } from "./server.js";
@@ -516,3 +516,31 @@ it("routes authenticated inventory, command claims/results and bounded reads on 
   ).toBe(200);
   expect((await f.request(pollPath(), { headers: auth })).status).toBe(401);
 });
+
+it("closes stalled TLS handshakes within the shutdown deadline", async () => {
+  const f = await fixture();
+  const server = await f.start();
+  const peer = connect(f.input.port, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    peer.once("connect", resolve);
+    peer.once("error", reject);
+  });
+  // Allow the server's connection callback to run without sending TLS bytes.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const closing = server.close();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let closedInTime = false;
+  try {
+    closedInTime = await Promise.race([
+      closing.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), 6_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    peer.destroy();
+    await closing;
+  }
+  expect(closedInTime).toBe(true);
+}, 8_000);

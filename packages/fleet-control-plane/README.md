@@ -205,7 +205,8 @@ at least 90 days after its receipt audit, even when its observation is older.
 Unresolved command records and their
 audits remain fenced and retained. History is newest-first with bounded pages
 and project-bound command-ID cursors. Pruned cursors are rejected explicitly.
-No new fleet listener or CLI command is shipped by this library slice.
+C07 remains a service library; the production listener and CLI are assembled by
+the separate C23 `/runtime` entry described below.
 
 The [C07 implementation plan](../../docs/designs/2026-10-09-control-plane-c07-plan.md)
 records the package boundaries. After `pnpm build`, run
@@ -609,7 +610,7 @@ No port fallback is attempted. Storage permissions, TLS files/certificate errors
 and bind failures stop startup with diagnostics. Recovery happens only after the
 bind succeeds, so a conflicting startup cannot expire the running listener's
 sessions. Shutdown cancels long polls, stops accepting requests, drains handlers
-(with a five-second connection deadline) and closes SQLite before returning.
+(with a five-second connection deadline, including unfinished TLS handshakes) and closes SQLite before returning.
 Restart preserves environments and invalidates prior sessions; agents reconnect
 using their saved enrollment credential. Stop the process and wait for exit
 before copying the database for backup.
