@@ -30,6 +30,11 @@ COPY --from=build --chown=node:node /app/packages /app/packages
 COPY --from=build --chown=node:node /app/node_modules /app/node_modules
 COPY --from=build --chown=node:node /app/package.json /app/package.json
 
+# C23 production fleet CLI/HTTPS assembly and isolated OS-command peer.
+COPY --from=build --chown=node:node /app/e2e/fleet-listener-e2e.mjs /app/e2e/fleet-listener-e2e.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-listener-mutations.mjs /app/e2e/fleet-listener-mutations.mjs
+COPY --from=build --chown=node:node /app/e2e/fleet-listener-os-peer.mjs /app/e2e/fleet-listener-os-peer.mjs
+
 # Copy compiled stub worker
 COPY --from=build --chown=node:node /app/e2e-compiled/stub-worker.js /app/e2e/stub-worker.js
 COPY --from=build --chown=node:node /app/e2e/host-dynamic-tool-e2e.mjs /app/e2e/host-dynamic-tool-e2e.mjs

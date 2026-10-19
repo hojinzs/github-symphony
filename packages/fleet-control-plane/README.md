@@ -2,7 +2,8 @@
 
 Internal repository extension for #1008 (C04, Epic #983), separate from the
 per-project `@gh-symphony/control-plane` HTTP server. Requires Node.js 24 on
-Linux/macOS. No fleet command or listener is installed by this package.
+Linux/macOS. C23 (#1089) supplies the production listener and foreground lifecycle
+through the shared `gh-symphony control-plane run --config <file>` command.
 
 ## Configuration and storage
 
@@ -62,7 +63,7 @@ operator audit request IDs are NULL because these methods have no request identi
 Exchange audits the new agent identity and the supplied enrollment request ID. Audits contain no raw
 tokens or credentials and commit with the mutation. These library methods are a
 trusted server boundary: consuming browser routes must resolve their actor with
-`createBrowserSecurity` before invoking them. No HTTP listener is provided here.
+`createBrowserSecurity` before invoking them. `startFleetServer` supplies this boundary in production.
 
 ## Browser access boundary
 
@@ -204,7 +205,8 @@ at least 90 days after its receipt audit, even when its observation is older.
 Unresolved command records and their
 audits remain fenced and retained. History is newest-first with bounded pages
 and project-bound command-ID cursors. Pruned cursors are rejected explicitly.
-No new fleet listener or CLI command is shipped by this library slice.
+C07 remains a service library; the production listener and CLI are assembled by
+the separate C23 `/runtime` entry described below.
 
 The [C07 implementation plan](../../docs/designs/2026-10-09-control-plane-c07-plan.md)
 records the package boundaries. After `pnpm build`, run
@@ -547,3 +549,79 @@ Linux requires current-user systemd and linger for boot/logout operation; macOS
 uses a login LaunchAgent. This UI does not install or validate native services.
 [TC-35](../../e2e/scenarios/35-fleet-environments.md) records HTTPS, browser,
 responsive and mutation verification separately from actual native OS acceptance.
+
+## Runnable configuration contract (C23)
+
+`loadRunnableFleetConfig(file)` from `@gh-symphony/fleet-control-plane/runtime` loads the separate fleet YAML file; it does not
+read or alter a project's `WORKFLOW.md`. The production listener and CLI wiring are supplied in C23 (#1089). The
+configuration contract is:
+
+```yaml
+publicOrigin: https://symphony.lan:4690
+# Defaults: dataDir: ~/.gh-symphony-control-plane (expanded from the service user's home)
+#           bindAddress: 127.0.0.1
+#           port: 4690
+dataDir: /home/operator/.gh-symphony-control-plane
+bindAddress: 127.0.0.1
+port: 4690
+transport:
+  mode: tls
+  certFile: ./tls/server-chain.pem
+  keyFile: ./tls/server-key.pem
+  # caFile: ./tls/private-ca.pem  # optional TLS CA material
+```
+
+TLS file paths resolve relative to the YAML file, while `dataDir` must be
+absolute. Unknown fields, duplicate YAML keys, invalid ports and non-HTTPS
+origins are rejected. Only literal loopback, RFC1918 IPv4 or IPv6 ULA binds are
+supported; wildcard/public binds and DNS bind names are rejected. Port conflicts
+must fail rather than select another port.
+
+For a trusted local reverse proxy terminating HTTPS, use
+`transport: { mode: trusted-proxy }`, with `bindAddress` restricted to
+`127.0.0.1` or `::1`. The configured `publicOrigin` remains the externally visible
+HTTPS origin. The operator must restrict access to the proxy to the private
+network, preserve the public host/origin, and prevent bypass of the HTTPS
+boundary. This first release has no human login: network access grants operator
+access. Agent clients must trust the private CA separately; CA configuration is
+not a substitute for agent enrollment/session authentication.
+
+## Production listener and lifecycle (C23)
+
+The `/runtime` entry keeps transport/YAML out of pure service consumers.
+`startFleetServer(file)` composes enrollment, sessions, observations, lifecycle
+commands, bounded reads and Environments/Projects/Runs pages on one private
+listener. It returns an idempotent asynchronous `close()` method.
+`runFleetControlPlane(file)` adds foreground SIGINT/SIGTERM handling and emits a
+single JSON `fleet-ready` event after successful bind and recovery. `GET /healthz`
+returns `{"status":"ready"}`. All requests, including health, require the Host
+header of the configured public origin. Behind a proxy, preserve that Host and
+the browser Origin; arbitrary forwarded identity headers are never trusted.
+
+Browser mutations require the configured Origin and the session CSRF token
+(header for JSON, hidden field for command forms). Agent endpoints reject browser
+cookies/Origin and require their own bearer credential, derived enrolled agent
+identity and exclusive session. Browser JSON/form and unauthenticated enrollment
+bodies are capped at 16 KiB. Browser duplicate fields are rejected; agent bodies
+use the protocol JSON parser semantics, with other agent bodies capped at 4 MiB.
+No permissive CORS headers are emitted. Empty inventories
+are accepted for the first authenticated signal; the separate project identity
+allocation route (#1061) is not added here.
+
+No port fallback is attempted. Storage permissions, TLS files/certificate errors
+and bind failures stop startup with diagnostics. Recovery happens only after the
+bind succeeds, so a conflicting startup cannot expire the running listener's
+sessions. Shutdown cancels long polls, stops accepting requests, drains handlers
+(with a five-second connection deadline, including unfinished TLS handshakes) and closes SQLite before returning.
+Restart preserves environments and invalidates prior sessions; agents reconnect
+using their saved enrollment credential. Stop the process and wait for exit
+before copying the database for backup.
+
+C23's [TC-36 production subprocess scenario](../../e2e/scenarios/36-fleet-listener.md)
+runs the built CLI, real HTTPS/SQLite, actual CLI agent setup and first signal,
+restart, shutdown and trusted proxy. Its native service manager is an independent
+OS peer, not a native-supervision acceptance claim. Run
+`node e2e/fleet-listener-e2e.mjs` and `node e2e/fleet-listener-mutations.mjs` after
+building, or `bash e2e/run-fleet-listener-e2e.sh` for Linux Docker. Report host OS
+and container evidence separately. Completed empty current-session inventories
+show zero projects; incomplete inventories remain unknown.

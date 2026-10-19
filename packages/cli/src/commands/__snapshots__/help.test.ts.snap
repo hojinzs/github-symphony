@@ -19,6 +19,9 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
   [36mproject status[0m              Show standalone project orchestrator status
   [36mproject stop[0m                Stop the standalone project orchestrator
 
+[33m[1mFleet control plane:[0m[0m
+  [36mcontrol-plane run[0m           Run the private fleet HTTPS service (--config <file>)
+
 [33m[1mHost management agent:[0m[0m
   [36magent setup[0m                 Enroll, install and start the native user service
   [36magent enroll[0m                Enroll only, with hidden token input
@@ -61,6 +64,9 @@ Orchestration (standalone project):
   project start               Start the standalone project in the current folder
   project status              Show standalone project orchestrator status
   project stop                Stop the standalone project orchestrator
+
+Fleet control plane:
+  control-plane run           Run the private fleet HTTPS service (--config <file>)
 
 Host management agent:
   agent setup                 Enroll, install and start the native user service

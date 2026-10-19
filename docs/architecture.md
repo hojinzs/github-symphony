@@ -79,6 +79,7 @@ the tracker adapter:
 
 ### 2. Configuration — typed parsing and validation
 
+- C23 runnable fleet file configuration: `packages/fleet-control-plane/src/runnable-config.ts` owns strict YAML loading, TLS material paths, fixed backend port and the loopback-only trusted-proxy boundary (#1089). It does not add a dependency to orchestration core.
 - Fleet HTTPS origin, explicit private bind and absolute user-owned persistence configuration: `packages/fleet-control-plane/src/config.ts` (C04, #1008). This is independent of workflow configuration.
 
 - C11 Linux service configuration: `packages/management-agent/src/linux-service.ts` owns absolute paths, user-unit rendering, identity-preserving installation recovery and linger/XDG/unified-cgroup diagnosis. C13 routes these commands through `cli/src/agent-service.ts`, using deferred install/start so the registry lock is released before native startup.
@@ -124,6 +125,8 @@ the tracker adapter:
   status renderers label it without exposing environment names or values.
 
 ### 3. Coordination — the orchestrator
+
+- C23 fleet service assembly is a separate management-plane extension: `packages/fleet-control-plane/src/server.ts` composes enrollment, session, observation, command and read peers on one SQLite connection. It adapts C06 transaction-requiring target reads for C10 consumers and performs session recovery after successful bind. Neither fleet service nor agent becomes an orchestrator dependency.
 
 - Fleet management command coordination is a separate repository extension:
   `packages/fleet-control-plane/src/commands.ts` (C07, #1011) coordinates
@@ -268,6 +271,8 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
+- C23 `@gh-symphony/fleet-control-plane/runtime` owns the private HTTP(S) listener, trusted-proxy boundary, agent credentials, browser Host/Origin/CSRF route composition and bounded connection/store shutdown (including unfinished TLS handshakes). CLI `commands/control-plane.ts` only forwards the file; its build packages local browser assets. The per-project `control-plane` listener remains independent.
+
 - C05 outbound runtime: `packages/management-agent/src/transport.ts` validates verified HTTPS messages, bounds bodies and correlates identity; `foreground.ts` holds the local registry lock and runs independent observation/poll loops with capped reconnect jitter. The published `@gh-symphony/cli/management-agent` entry is built from `packages/cli/src/management-agent.ts`. C06 `management-agent/src/inventory.ts` supplies the redacted current registry snapshot and consumes a typed server UUID resolver; command/read delivery remains a sibling port.
 
 - C12 macOS OS adapter: `management-agent/src/macos-service.ts` executes absolute `/bin/launchctl` in the current GUI user domain, confirms load/removal and keeps user diagnostics; C13 `agent-service.ts` composes this adapter through the shared public commands.
@@ -315,6 +320,8 @@ No management protocol, tracker policy, or fleet behavior is added to
   independently constructed agent-child boundary.
 
 ### 6. Observability — events and status surfaces
+
+- C23 fleet foreground startup emits `fleet-ready` and serves configured-Host `/healthz` only after successful bind and recovery. Configuration, storage, TLS and bind failures exit with contextual diagnostics, without port fallback. These fleet signals do not change orchestrator status or telemetry contracts.
 
 Release measurement policy is repository-local: CLI audit scripts retain raw
 startup/RSS/offer observations; `packages/cli/scripts/otlp-series.mjs` evaluates

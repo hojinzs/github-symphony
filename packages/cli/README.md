@@ -793,7 +793,7 @@ queries, receipt-based offline/stale state, paged project lists and advisory
 tracker-scope warnings. Complete uploads change membership atomically; partial
 uploads retain unseen projects. These library boundaries are separate from the
 existing `gh-symphony project` commands and per-project `--web` server; fleet HTTP
-and UI assembly remains a consumer integration.
+and UI assembly is supplied by the separate `control-plane run` command (C23).
 
 The bundled `@gh-symphony/cli/management-agent` module exports
 `createInventorySnapshot` for the foreground runner and its authenticated
@@ -984,3 +984,35 @@ samples or filter outliers. Report native macOS and Linux/container separately;
 both must pass independently before declaring activation approved. Approval
 does not flip runtime defaults; activation is a separate change. Persistent
 candidate-only slowdown warrants profiling the package.
+
+## Fleet control plane (C23)
+
+```bash
+gh-symphony help control-plane
+gh-symphony control-plane run --config ./control-plane.yaml
+```
+
+This foreground command serves the fleet management UI/APIs and the outbound
+agent protocol, separate from the per-project `--web` server on `:4680`. Use the
+[fleet YAML example](../fleet-control-plane/README.md#runnable-configuration-contract-c23)
+with an HTTPS public origin, TLS certificate/key and private data directory.
+Defaults are `127.0.0.1:4690` and `~/.gh-symphony-control-plane/`; public/wildcard
+binds are rejected and occupied ports fail without fallback. TLS paths resolve
+relative to the file. With a trusted HTTPS reverse proxy, choose
+`transport: { mode: trusted-proxy }` and retain a loopback backend; preserve the
+configured public Host and browser Origin. There is no human login in this
+private-network release.
+
+Wait for the JSON `fleet-ready` event, then open the configured HTTPS origin at
+`/environments`; `/projects` links to project details and Runs. `GET /healthz`
+returns `{"status":"ready"}` and requires the configured Host (including its
+port). For a local proxy backend check, use `curl -H 'Host: symphony.lan'
+http://127.0.0.1:4690/healthz`. Trust your private CA on the browser and configure
+the agent's `caFile` when needed; never disable certificate verification.
+
+SIGINT/SIGTERM cancels long polls, drains the listener and closes storage. Wait
+for exit before backing up `fleet.sqlite`; restart preserves saved environments,
+while agents reopen sessions using their persisted credentials. Zero-project
+agents can enroll and report their first signal. Authenticated project identity
+allocation remains the separate #1061 slice. The packaged CLI includes fleet
+SVG assets and the bounded-log browser script; no CDN is required.

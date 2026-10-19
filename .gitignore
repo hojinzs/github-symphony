@@ -19,3 +19,6 @@ e2e/fixtures/issues.json
 e2e/fixtures/issues.json.tmp.*
 e2e/fixtures/.fixture-write-probe.*
 e2e/fixtures/required-label-removed.signal
+
+# Fleet browser assets copied by the CLI build
+packages/cli/assets/
