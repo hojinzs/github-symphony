@@ -956,9 +956,11 @@ Metric attributes use fixed bounded enums rather than issue/run/session/turn IDs
 model names or arbitrary tracker labels. For example, aggregate running counts
 by project/process resource identity rather than adding `issue_id=998` as a
 metric label. Put correlation IDs in structured Logs. At most 16 custom scalar
-resource keys are allowed; reserved identity and issue/run/session/turn resource
-keys are rejected. Each owner has a fresh process UUID: select the latest
-incarnation per project for history gauges rather than summing across UUIDs.
+resource keys are allowed; reserved identity keys do not count toward this limit.
+Reserved identity keys are accepted when they match the runtime-owned value and
+rejected when they conflict; `service.instance.id` is always rejected.
+Issue/run/session/turn resource keys are always rejected. Each owner has a fresh
+process UUID: select the latest incarnation per project for history gauges rather than summing across UUIDs.
 `total` tokens are an alternative aggregate; do not add them to input/output.
 
 Graceful shutdown is a bounded best effort, not a delivery acknowledgement.
