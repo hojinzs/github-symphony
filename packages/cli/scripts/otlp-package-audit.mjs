@@ -450,7 +450,11 @@ try {
       if (index % 100 === 0)
         await new Promise((resolveYield) => setImmediate(resolveYield));
     }
-    offer[mode] = { samples: times.length, p95Ms: percentile(times, 0.95) };
+    offer[mode] = {
+      samples: times.length,
+      timesMs: times,
+      p95Ms: percentile(times, 0.95),
+    };
     await pipeline.shutdown(Date.now() + 5000);
     assert.ok(transportCalls > 0, `${mode} receiver was never exercised`);
   }
@@ -603,7 +607,7 @@ try {
   );
   assert.ok(
     Object.values(gates).every(Boolean),
-    "Performance gate failed; production activation must remain off"
+    "Per-run performance gate failed; evaluate the complete platform series separately"
   );
 } finally {
   server.closeAllConnections();

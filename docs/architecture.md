@@ -316,6 +316,12 @@ No management protocol, tracker policy, or fleet behavior is added to
 
 ### 6. Observability — events and status surfaces
 
+Release measurement policy is repository-local: CLI audit scripts retain raw
+startup/RSS/offer observations; `packages/cli/scripts/otlp-series.mjs` evaluates
+the predeclared six-run platform series under the owner-approved #1084 median
+startup policy. This tooling does not activate exporters or alter Symphony core
+scheduling. macOS and Linux acceptance remain independent.
+
 The orchestrator’s `@gh-symphony/orchestrator/otlp-validation` subpath exports
 `validateExporterCredentialNames`, `resolveProjectResourceAttributes`, and typed
 `OtlpValidationError` reasons. This SDK-free Observability boundary is shared by
