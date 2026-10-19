@@ -9,7 +9,6 @@ import type {
 } from "@gh-symphony/core";
 import {
   NonRetryableTrackerAdapterError,
-  resolvePickupLabelDispatchReason,
   WorkflowValidationError,
 } from "@gh-symphony/core";
 import {
@@ -106,8 +105,9 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 
   async listIssues(project, dependencies = {}) {
-    const issues = await listProjectIssues(project, dependencies);
-    return applyPickupLabelDispatchability(issues, project);
+    return listProjectIssues(project, dependencies, {
+      applyPickupLabels: true,
+    });
   },
 
   async listIssuesByStates(project, states, dependencies = {}) {
@@ -438,32 +438,15 @@ export async function findGithubProjectIssue(
   );
 }
 
-function applyPickupLabelDispatchability(
-  issues: TrackedIssueList,
-  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0]
-): TrackedIssueList {
-  const result = issues.map((issue) => {
-    const dispatchReason = resolvePickupLabelDispatchReason(issue, project);
-    if (!issue.dispatchable || !dispatchReason) {
-      return issue;
-    }
-
-    return { ...issue, dispatchable: false, dispatchReason };
-  }) as TrackedIssueList;
-  result.rateLimits = issues.rateLimits;
-  result.skippedItemCount = issues.skippedItemCount;
-  result.skippedItems = issues.skippedItems;
-  return result;
-}
-
 async function listProjectIssues(
   project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
   dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {},
-  options: { filterTerminalStates?: boolean } = {}
+  options: { filterTerminalStates?: boolean; applyPickupLabels?: boolean } = {}
 ) {
   const trackerConfig = {
     ...resolveGitHubTrackerConfig(project, dependencies),
     filterTerminalStates: options.filterTerminalStates ?? true,
+    pickupLabelTracker: options.applyPickupLabels ? project.tracker : undefined,
   };
   const loadProjectIssues = () =>
     fetchGithubProjectIssues(trackerConfig, dependencies.fetchImpl);
@@ -593,13 +576,16 @@ function resolveRepositoryFilter(
 }
 
 function buildProjectItemsCacheKey(
-  config: ReturnType<typeof resolveGitHubTrackerConfig>,
+  config: ReturnType<typeof resolveGitHubTrackerConfig> & {
+    pickupLabelTracker?: OrchestratorTrackerConfig;
+  },
   _dependencies: OrchestratorTrackerDependencies
 ): string {
   return JSON.stringify({
     adapter: "github-project",
     apiUrl: config.apiUrl,
     assignedOnly: config.assignedOnly ?? false,
+    pickupLabels: config.pickupLabelTracker?.settings?.pickupLabels ?? null,
     priority: config.priority ?? null,
     priorityFieldName: config.priorityFieldName ?? null,
     blockerCheckStates: config.blockerCheckStates ?? [],
