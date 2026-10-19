@@ -74,6 +74,8 @@ C11 Linux implementation: [user-service packaging plan](designs/2026-10-12-linux
 | [2026-07-19-github-api-rate-limit-audit.md](reports/2026-07-19-github-api-rate-limit-audit.md)                       | Partially implemented (R1.5 shipped)                                                                                                                        |
 | [2026-08-28-upstream-spec-drift-research.md](reports/2026-08-28-upstream-spec-drift-research.md)                     | Complete (Epic #651 scope) — see its documented carve-outs; C1–C13/D1–D8 follow-up shipped in [#675](https://github.com/hojinzs/github-symphony/issues/675) |
 
+- [2026-10-19-otlp-release-acceptance.md](reports/2026-10-19-otlp-release-acceptance.md) — #1084 ordinary-host native macOS series, complete evidence and independent retained Linux failure; activation remains off.
+
 - [2026-10-17-otlp-startup-variance.md](reports/2026-10-17-otlp-startup-variance.md) — #1055 artifact-controlled macOS repeatability, retained failures and separate Linux evidence; activation acceptance remains unresolved.
 
 Final reliability review evidence:
