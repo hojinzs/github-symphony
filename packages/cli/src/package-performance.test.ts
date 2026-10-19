@@ -3,7 +3,11 @@ import { describe, it, expect } from "vitest";
 const { performanceGates, startupBuildOrder } = await import(
   new URL("../scripts/otlp-performance-gates.mjs", import.meta.url).href
 );
-const baseline = { startupP95Ms: 100, rssMedianBytes: 80 * 1024 * 1024 };
+const baseline = {
+  startupP95Ms: 1000,
+  startupMedianMs: 100,
+  rssMedianBytes: 80 * 1024 * 1024,
+};
 const offers = {
   healthy: { p95Ms: 0.1 },
   slow: { p95Ms: 0.2 },
@@ -26,21 +30,24 @@ describe("packed OTLP release performance gates", () => {
 
   it("allows the larger 10ms startup allowance, including its boundary", () => {
     expect(
-      performanceGates(baseline, { ...baseline, startupP95Ms: 110 }, offers)
+      performanceGates(baseline, { ...baseline, startupMedianMs: 110 }, offers)
         .startup
     ).toBe(true);
   });
   it("rejects startup beyond the absolute allowance", () => {
     expect(
-      performanceGates(baseline, { ...baseline, startupP95Ms: 110.01 }, offers)
-        .startup
+      performanceGates(
+        baseline,
+        { ...baseline, startupMedianMs: 110.01 },
+        offers
+      ).startup
     ).toBe(false);
   });
   it("uses the larger five-percent allowance on slower baselines", () => {
     expect(
       performanceGates(
-        { ...baseline, startupP95Ms: 1000 },
-        { ...baseline, startupP95Ms: 1050 },
+        { ...baseline, startupMedianMs: 1000 },
+        { ...baseline, startupMedianMs: 1050 },
         offers
       ).startup
     ).toBe(true);

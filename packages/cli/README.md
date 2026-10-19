@@ -959,11 +959,26 @@ as the baseline metadata, and the same capability flag. The audit packs the
 unchanged candidate source again; verify matching tarball hashes in the report.
 This identical-build comparison tests measurement repeatability; it does not
 measure growth against the pre-SDK baseline. Keep the
-baseline/candidate comparison separate. A failed identical-artifact control
-under ordinary conditions is a finding about gate sensitivity and remains a
-failed gate, without a waiver. If noise remains, preserve every failure and
-report the unresolved acceptance; never select only passing runs, remove samples,
-increase thresholds or convert a failed activation gate to a pass. Persistent
-candidate-only slowdown under controlled conditions warrants profiling the package. Unresolved variance leaves activation acceptance open.
-Report native macOS and Linux/container evidence in separate tables, including
-unavailable environments explicitly. Linux success cannot clear a macOS failure.
+baseline/candidate comparison separate. Under the owner's #1084 policy revision,
+startup passes per run when candidate median minus baseline median is at most
+`max(10 ms, baseline median * 0.05)`. RSS growth remains at most 5 MiB median;
+each healthy/slow/down offer p95 remains strictly below 1 ms. Every per-run
+failure retains its report and nonzero exit. New reports retain raw offer
+`timesMs` as well as startup/RSS samples.
+
+Evaluate the complete six-report series separately with
+`evaluateSeries` in `scripts/otlp-series.mjs`, passing reports in declared order.
+At least two of three comparisons must pass startup, none may exceed twice its
+allowance, and RSS/offer must pass in every comparison. All identical-artifact
+controls must pass; failed controls are gate-sensitivity findings, never waivers.
+Startup p95 deltas remain informational: flag a comparison above the largest
+absolute control p95 delta in its series without failing it for that flag.
+
+Acceptance uses the latest complete predeclared series for the current candidate
+on each platform. Preserve historical failures unchanged and label older-build
+failures “superseded by a later series on a different candidate” only once that
+platform has a qualifying later series. Never select only passing runs, remove
+samples or filter outliers. Report native macOS and Linux/container separately;
+both must pass independently before declaring activation approved. Approval
+does not flip runtime defaults; activation is a separate change. Persistent
+candidate-only slowdown warrants profiling the package.
