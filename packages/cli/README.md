@@ -931,14 +931,23 @@ and does not change per-project `--web` behavior.
 #### Startup repeatability on shared hosts
 
 Before measuring, finish builds/installs and avoid overlapping audits or test
-suites. On macOS use an otherwise idle host, stable power/thermal conditions and
-the same Node executable, baseline archive and candidate build. Do not stop other
-users' processes to manufacture a quiet interval. Record OS/architecture, Node,
-source SHAs, tarball hashes, start time and any known concurrent workload outside
-the checkout. A container is not a macOS scheduling control.
+suites from this checkout. On macOS use the ordinary host as-is; do not stop or
+disable background services to manufacture an idle interval. Use the same Node
+executable, baseline archive and candidate build throughout the series, with
+stable power/thermal conditions. At the start and end of **each complete audit**,
+record load averages, CPU idle, memory pressure and swap, power/thermal state,
+and notable concurrent workload outside the checkout. Retain command failures
+or unavailable host metrics explicitly. Record OS/architecture, Node executable
+and version, source SHAs, tarball hashes and timestamps. A container is not a
+macOS scheduling control.
 
-Predeclare three complete sequential audit runs with distinct external report
-paths; retain every exit code and report, including failures. Inspect
+Predeclare three complete baseline/candidate audits and three separate
+identical-artifact controls, alternating comparison 1, control 1, comparison 2,
+control 2, comparison 3, control 3, with distinct external report paths. Within
+each audit, preserve the driver's alternating baseline/candidate pair order
+(AB, BA, AB, BA) so both artifacts encounter changing background load; do not
+run all baseline samples before all candidate samples. Retain every exit code,
+report and sample, including failures. Inspect
 `startupTimeline` by pair and position together with `startupHost` before/after
 load and CPU deltas. Correlated stalls support a host-interference hypothesis,
 but neither correlation nor load averages prove causation. The 30-sample p95 is
@@ -950,10 +959,11 @@ as the baseline metadata, and the same capability flag. The audit packs the
 unchanged candidate source again; verify matching tarball hashes in the report.
 This identical-build comparison tests measurement repeatability; it does not
 measure growth against the pre-SDK baseline. Keep the
-baseline/candidate comparison separate. If noise remains, preserve failures and
-repeat the predeclared set on a quieter host; never select only passing runs,
-remove samples, increase thresholds or convert a failed activation gate to a
-pass. Persistent candidate-only slowdown under controlled conditions warrants
-profiling the package. Unresolved variance leaves activation acceptance open.
+baseline/candidate comparison separate. A failed identical-artifact control
+under ordinary conditions is a finding about gate sensitivity and remains a
+failed gate, without a waiver. If noise remains, preserve every failure and
+report the unresolved acceptance; never select only passing runs, remove samples,
+increase thresholds or convert a failed activation gate to a pass. Persistent
+candidate-only slowdown under controlled conditions warrants profiling the package. Unresolved variance leaves activation acceptance open.
 Report native macOS and Linux/container evidence in separate tables, including
 unavailable environments explicitly. Linux success cannot clear a macOS failure.
