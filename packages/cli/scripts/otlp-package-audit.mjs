@@ -607,7 +607,7 @@ try {
   );
   assert.ok(
     Object.values(gates).every(Boolean),
-    "Performance gate failed; production activation must remain off"
+    "Per-run performance gate failed; evaluate the complete platform series separately"
   );
 } finally {
   server.closeAllConnections();

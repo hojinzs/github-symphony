@@ -714,9 +714,9 @@ Build the baseline from a separate source archive and pack it before running the
 comparison. The audit installs both tarballs with production dependencies only,
 counterbalances 30 fresh processes per build on the same empty file-tracker
 project (each build runs first in fifteen pairs), and writes
-raw startup/RSS samples, loaded modules, sizes and threshold results to the
+raw startup/RSS/offer samples, loaded modules, sizes and threshold results to the
 external JSON report, including the complete startup order. All samples count
-toward the unchanged thresholds; outliers are not filtered. Reports also retain
+toward the documented decision rule; outliers are not filtered. Reports also retain
 candidate tarball SHA-256, chronological pair/position/start timestamps and elapsed
 times, plus host load averages, memory and cumulative CPU counters immediately
 before and after startup sampling. These are diagnostic observations only; they
@@ -734,8 +734,10 @@ omitted enable policy and the SDK-disabled veto. Packed doctor checks verify
 validation-only network silence, disabled explicit probes, both enabled signal
 probes, and credential-free output. A failing startup/RSS/offer threshold returns
 a nonzero exit status. Tarball, installed dependency and ESM bytes are reported
-separately, without a size threshold. A release must keep the CLI capability off
-if any packaged or performance gate fails. The `--production-cli` audit argument
+separately, without a size threshold. Release approval follows the separate
+[platform-series decision rule](#startup-repeatability-on-shared-hosts); per-run
+failures retain nonzero exits even when the complete series passes. Packaged
+functional failures still prevent approval. The `--production-cli` audit argument
 checks the final startup composition; omit it when auditing a candidate whose
 production capability is still off. These loopback fixtures prove shipped
 behavior, while actual Collector dogfood receipt remains a separate Epic gate.
