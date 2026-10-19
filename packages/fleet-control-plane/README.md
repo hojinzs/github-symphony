@@ -613,3 +613,12 @@ sessions. Shutdown cancels long polls, stops accepting requests, drains handlers
 Restart preserves environments and invalidates prior sessions; agents reconnect
 using their saved enrollment credential. Stop the process and wait for exit
 before copying the database for backup.
+
+C23's [TC-36 production subprocess scenario](../../e2e/scenarios/36-fleet-listener.md)
+runs the built CLI, real HTTPS/SQLite, actual CLI agent setup and first signal,
+restart, shutdown and trusted proxy. Its native service manager is an independent
+OS peer, not a native-supervision acceptance claim. Run
+`node e2e/fleet-listener-e2e.mjs` and `node e2e/fleet-listener-mutations.mjs` after
+building, or `bash e2e/run-fleet-listener-e2e.sh` for Linux Docker. Report host OS
+and container evidence separately. Completed empty current-session inventories
+show zero projects; incomplete inventories remain unknown.

@@ -164,7 +164,12 @@ export async function startFleetServer(file: string): Promise<FleetServer> {
         new Map(
           store.database
             .prepare(
-              "SELECT environment_id, count(*) AS n FROM observed_projects WHERE published=1 AND managed=1 GROUP BY environment_id"
+              `SELECT r.environment_id, count(p.project_id) AS n
+               FROM inventory_revisions r
+               JOIN agent_sessions s ON s.environment_id=r.environment_id AND s.session_id=r.session_id
+               LEFT JOIN observed_projects p ON p.environment_id=r.environment_id
+                 AND p.agent_id=s.agent_id AND p.published=1 AND p.managed=1
+               WHERE r.complete=1 GROUP BY r.environment_id`
             )
             .all()
             .map((row) => [String(row.environment_id), Number(row.n)])

@@ -903,5 +903,17 @@ service imports retain their dependency boundary. Run
 `bash e2e/run-fleet-environments-e2e.sh` to verify C15 compatibility and its
 thirteen reached assertions/artifact mutations on Linux Docker. Report native
 Linux/macOS foreground evidence separately from Docker and from native service
-installation/lifecycle acceptance. C23's dedicated production subprocess scenario
-is tracked by #1089 in addition to these library/packaging regressions.
+installation/lifecycle acceptance. The dedicated [TC-36 production listener scenario](e2e/scenarios/36-fleet-listener.md)
+adds built CLI setup, real HTTPS/SQLite, first signal, shutdown/restart and trusted
+reverse-proxy assembly:
+
+| Scenario                                  | Executable evidence                                                                                                                                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| TC-36 — production fleet listener and CLI | `node e2e/fleet-listener-e2e.mjs` (22 assertions); `node e2e/fleet-listener-mutations.mjs` (22 reached forbidden observations and nine copied-artifact behavior probes); `bash e2e/run-fleet-listener-e2e.sh` for Linux Docker |
+
+Actual built `agent setup` uses an isolated native OS-command peer, followed by
+the actual installed agent entry against the production listener. This is
+transport/setup composition evidence, not native systemd/LaunchAgent lifecycle
+acceptance. The proxy fixture terminates TLS only; it never replaces fleet APIs.
+The scenario prints actual platform and binary identity and deletes private test
+credentials. See TC-36 for every named assertion, mutation and OS boundary.

@@ -183,10 +183,25 @@ it("serves private HTTPS pages, enrolls and records a zero-project first signal 
     inventory: {
       revisionId: randomUUID(),
       pageIndex: 0,
-      pageCount: 1,
+      pageCount: 2,
       projects: [],
     },
   };
+  expect(
+    (
+      await f.request("/api/v1/agents/observations", {
+        method: "POST",
+        headers: auth,
+        body: signal,
+      })
+    ).status
+  ).toBe(200);
+  const partial = await f.request(`/environments/${id}/connection`);
+  expect(JSON.parse(partial.body).connection).toContain(
+    "Project inventory has not been reported"
+  );
+  signal.sequence = 1;
+  signal.inventory.pageIndex = 1;
   expect(
     (
       await f.request("/api/v1/agents/observations", {
@@ -208,6 +223,7 @@ it("serves private HTTPS pages, enrolls and records a zero-project first signal 
   ).toBe(200);
   const online = await f.request(`/environments/${id}/connection`);
   expect(JSON.parse(online.body).stage).toBe("online");
+  expect(JSON.parse(online.body).connection).toContain("No projects yet");
   await server.close();
   await expect(f.request("/healthz")).rejects.toThrow();
   await f.start();
@@ -389,6 +405,12 @@ it("routes authenticated inventory, command claims/results and bounded reads on 
       })
     ).status
   ).toBe(200);
+  expect(
+    JSON.parse(
+      (await f.request(`/environments/${enrolled.environmentId}/connection`))
+        .body
+    ).connection
+  ).toContain("1 projects reported");
   expect((await f.request(`/projects/${projectId}`)).body).toContain(
     "Runnable project"
   );
