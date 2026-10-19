@@ -1294,7 +1294,7 @@ The dispatcher is a library boundary and is not mounted on per-project `--web`.
 ### Fleet runnable configuration (C23)
 
 The fleet management plane has a separate YAML configuration contract owned by
-`@gh-symphony/fleet-control-plane` (`loadRunnableFleetConfig`); it is independent
+`@gh-symphony/fleet-control-plane` (`loadRunnableFleetConfig` from its `/runtime` entry); it is independent
 of workflow configuration and the per-project `:4680` server. See the
 [fleet package configuration example](../packages/fleet-control-plane/README.md#runnable-configuration-contract-c23).
 It requires an HTTPS `publicOrigin` and explicit `transport.mode` (`tls` with
@@ -1303,5 +1303,8 @@ It requires an HTTPS `publicOrigin` and explicit `transport.mode` (`tls` with
 `bindAddress` to `127.0.0.1`, and `port` to `4690`. Explicit data paths must be
 absolute; TLS paths resolve relative to the file. Unknown/duplicate fields,
 public/wildcard/DNS bind addresses, insecure origins and invalid ports fail
-validation. No environment variable overrides are introduced. Listener/CLI
-assembly is delivered separately within C23 (#1089).
+validation. No environment variable overrides are introduced. Start the listener with
+`gh-symphony control-plane run --config <file>`. The fleet command scopes
+`--config` to this file; it does not change the per-project configuration directory.
+The ready event and `/healthz` response are emitted only after successful bind
+and session recovery. SIGINT/SIGTERM drains the listener and closes SQLite.

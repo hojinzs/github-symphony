@@ -2,7 +2,8 @@
 
 Internal repository extension for #1008 (C04, Epic #983), separate from the
 per-project `@gh-symphony/control-plane` HTTP server. Requires Node.js 24 on
-Linux/macOS. No fleet command or listener is installed by this package.
+Linux/macOS. C23 (#1089) supplies the production listener and foreground lifecycle
+through the shared `gh-symphony control-plane run --config <file>` command.
 
 ## Configuration and storage
 
@@ -62,7 +63,7 @@ operator audit request IDs are NULL because these methods have no request identi
 Exchange audits the new agent identity and the supplied enrollment request ID. Audits contain no raw
 tokens or credentials and commit with the mutation. These library methods are a
 trusted server boundary: consuming browser routes must resolve their actor with
-`createBrowserSecurity` before invoking them. No HTTP listener is provided here.
+`createBrowserSecurity` before invoking them. `startFleetServer` supplies this boundary in production.
 
 ## Browser access boundary
 
@@ -550,9 +551,9 @@ responsive and mutation verification separately from actual native OS acceptance
 
 ## Runnable configuration contract (C23)
 
-`loadRunnableFleetConfig(file)` loads the separate fleet YAML file; it does not
-read or alter a project's `WORKFLOW.md`. The production listener and CLI wiring
-are being assembled in C23 (#1089). The configuration contract is:
+`loadRunnableFleetConfig(file)` from `@gh-symphony/fleet-control-plane/runtime` loads the separate fleet YAML file; it does not
+read or alter a project's `WORKFLOW.md`. The production listener and CLI wiring are supplied in C23 (#1089). The
+configuration contract is:
 
 ```yaml
 publicOrigin: https://symphony.lan:4690
@@ -583,3 +584,32 @@ network, preserve the public host/origin, and prevent bypass of the HTTPS
 boundary. This first release has no human login: network access grants operator
 access. Agent clients must trust the private CA separately; CA configuration is
 not a substitute for agent enrollment/session authentication.
+
+## Production listener and lifecycle (C23)
+
+The `/runtime` entry keeps transport/YAML out of pure service consumers.
+`startFleetServer(file)` composes enrollment, sessions, observations, lifecycle
+commands, bounded reads and Environments/Projects/Runs pages on one private
+listener. It returns an idempotent asynchronous `close()` method.
+`runFleetControlPlane(file)` adds foreground SIGINT/SIGTERM handling and emits a
+single JSON `fleet-ready` event after successful bind and recovery. `GET /healthz`
+returns `{"status":"ready"}`. All requests, including health, require the Host
+header of the configured public origin. Behind a proxy, preserve that Host and
+the browser Origin; arbitrary forwarded identity headers are never trusted.
+
+Browser mutations require the configured Origin and the session CSRF token
+(header for JSON, hidden field for command forms). Agent endpoints reject browser
+cookies/Origin and require their own bearer credential, derived enrolled agent
+identity and exclusive session. JSON and form bodies are bounded; duplicate
+fields are rejected. No permissive CORS headers are emitted. Empty inventories
+are accepted for the first authenticated signal; the separate project identity
+allocation route (#1061) is not added here.
+
+No port fallback is attempted. Storage permissions, TLS files/certificate errors
+and bind failures stop startup with diagnostics. Recovery happens only after the
+bind succeeds, so a conflicting startup cannot expire the running listener's
+sessions. Shutdown cancels long polls, stops accepting requests, drains handlers
+(with a five-second connection deadline) and closes SQLite before returning.
+Restart preserves environments and invalidates prior sessions; agents reconnect
+using their saved enrollment credential. Stop the process and wait for exit
+before copying the database for backup.

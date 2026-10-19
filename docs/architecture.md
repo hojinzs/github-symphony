@@ -79,6 +79,7 @@ the tracker adapter:
 
 ### 2. Configuration — typed parsing and validation
 
+- C23 fleet transport and assembly: `fleet-control-plane/src/server.ts` owns the HTTP(S) listener, agent credential/session boundary, browser route composition, foreground readiness and shutdown. CLI `commands/control-plane.ts` only forwards the file. C06 transaction-requiring target reads are adapted for C10 consumers on the same SQLite connection. This remains independent of the per-project `control-plane` server and orchestrator.
 - C23 runnable fleet file configuration: `packages/fleet-control-plane/src/runnable-config.ts` owns strict YAML loading, TLS material paths, fixed backend port and the loopback-only trusted-proxy boundary (#1089). It does not add a dependency to orchestration core.
 - Fleet HTTPS origin, explicit private bind and absolute user-owned persistence configuration: `packages/fleet-control-plane/src/config.ts` (C04, #1008). This is independent of workflow configuration.
 

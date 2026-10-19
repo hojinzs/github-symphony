@@ -53,6 +53,9 @@ importers:
       liquidjs:
         specifier: ^10.25.0
         version: 10.25.0
+      yaml:
+        specifier: ^2.8.1
+        version: 2.9.1
     devDependencies:
       '@gh-symphony/control-plane':
         specifier: workspace:*
@@ -63,6 +66,9 @@ importers:
       '@gh-symphony/dashboard':
         specifier: workspace:*
         version: link:../dashboard
+      '@gh-symphony/fleet-control-plane':
+        specifier: workspace:*
+        version: link:../fleet-control-plane
       '@gh-symphony/management-agent':
         specifier: workspace:*
         version: link:../management-agent

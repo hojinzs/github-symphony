@@ -1276,3 +1276,21 @@ single-use tokens are copied separately. Enrolled hosts wait for their first
 authenticated signal, and an online host with zero projects is a successful
 connection. This library slice adds no fleet server command; existing per-project
 commands and `--web` behavior remain available.
+
+### Fleet control plane
+
+Run the private management plane independently of per-project web servers:
+
+```bash
+gh-symphony control-plane run --config ./control-plane.yaml
+```
+
+The [fleet configuration example](packages/fleet-control-plane/README.md#runnable-configuration-contract-c23)
+selects direct TLS or an explicit trusted HTTPS reverse proxy, with a default
+loopback backend `127.0.0.1:4690` and private data directory
+`~/.gh-symphony-control-plane/`. Open the configured HTTPS origin for
+Environments, Projects and Runs after the `fleet-ready` event. `/healthz` supplies
+readiness; occupied ports fail without fallback. SIGINT/SIGTERM closes the
+listener and storage before exit. This first release relies on private-network
+access rather than human login. See the [CLI guide](packages/cli/README.md#fleet-control-plane-c23)
+for Host/Origin forwarding, CA trust and backup requirements.

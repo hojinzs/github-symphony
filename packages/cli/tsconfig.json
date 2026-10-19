@@ -31,6 +31,9 @@
       "@gh-symphony/management-agent": ["../management-agent/src/index.ts"],
       "@gh-symphony/management-protocol": [
         "../management-protocol/src/index.ts"
+      ],
+      "@gh-symphony/fleet-control-plane/runtime": [
+        "../fleet-control-plane/src/runtime.ts"
       ]
     }
   },

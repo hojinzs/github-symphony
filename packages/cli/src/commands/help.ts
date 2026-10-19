@@ -74,6 +74,15 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    title: "Fleet control plane",
+    entries: [
+      {
+        name: "control-plane run",
+        description: "Run the private fleet HTTPS service (--config <file>)",
+      },
+    ],
+  },
+  {
     title: "Host management agent",
     entries: [
       {

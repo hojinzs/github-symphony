@@ -882,3 +882,26 @@ Use external Playwright and a local Chromium binary as described in TC-35. Test-
 simulation and native service validation separately. This verifies the library
 route/browser/service composition, not production listener assembly or native
 systemd/LaunchAgent acceptance owned by C13.
+
+### C23 production fleet listener composition
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes real HTTPS
+composition in `src/server.test.ts`: browser environment creation, TLS trust,
+agent enrollment/session/zero-project CP-21, restart fencing and durable
+records; configured Host/Origin and missing-CSRF rejection; duplicate JSON;
+occupied-port failure without fallback, unsafe storage and TLS diagnostics;
+real command claim/result and independent bounded-read delivery. The sole seeded
+project record is C06's trusted mapping, since authenticated allocation belongs
+to #1061. No server, authentication or service implementation is mocked.
+
+`pnpm --filter @gh-symphony/cli test` includes fleet root/namespace help and
+required file routing while preserving the per-project configuration directory.
+Run `pnpm --filter @gh-symphony/cli test:package` to check a clean packed install;
+the build must preserve prefix-only `node:sqlite` and ship local SVG assets and
+the bounded-log browser script. The runnable fleet entry is `/runtime`, so pure
+service imports retain their dependency boundary. Run
+`bash e2e/run-fleet-environments-e2e.sh` to verify C15 compatibility and its
+thirteen reached assertions/artifact mutations on Linux Docker. Report native
+Linux/macOS foreground evidence separately from Docker and from native service
+installation/lifecycle acceptance. C23's dedicated production subprocess scenario
+is tracked by #1089 in addition to these library/packaging regressions.
