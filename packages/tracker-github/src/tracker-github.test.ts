@@ -5532,6 +5532,149 @@ describe("pickup label filtering", () => {
     }),
   ]);
 
+  it.each([
+    {
+      name: "excluded label",
+      labels: ["beta"],
+      include: [],
+      exclude: ["beta"],
+      assigned: true,
+      reasons: { pickupLabel: 1 },
+    },
+    {
+      name: "missing required label",
+      labels: [],
+      include: ["alpha"],
+      exclude: [],
+      assigned: true,
+      reasons: { pickupLabel: 1 },
+    },
+    {
+      name: "assignment before excluded label",
+      labels: ["beta"],
+      include: [],
+      exclude: ["beta"],
+      assigned: false,
+      reasons: { assignment: 1 },
+    },
+    {
+      name: "matching required label",
+      labels: ["alpha"],
+      include: ["alpha"],
+      exclude: [],
+      assigned: true,
+      reasons: {},
+    },
+  ])(
+    "counts $name once in the derivation event",
+    async ({ labels, include, exclude, assigned, reasons }) => {
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      try {
+        const config = makeProjectConfig();
+        config.tracker.settings = {
+          ...config.tracker.settings,
+          pickupLabels: { include, exclude },
+        } as never;
+        const issues = await adapter.listIssues(config, {
+          token: "dependencies-token",
+          assignedOnly: true,
+          fetchImpl: async (url) =>
+            String(url).endsWith("/user")
+              ? makeJsonResponse({ login: "machine-user" })
+              : makeJsonResponse(
+                  makeProjectItemsPayload([
+                    makeProjectItem({
+                      itemId: "item-label-event",
+                      issueId: "issue-label-event",
+                      number: 10,
+                      title: "Label policy",
+                      assignees: assigned ? ["machine-user"] : [],
+                      labels,
+                    }),
+                  ])
+                ),
+        });
+        const events = infoSpy.mock.calls
+          .map(([message]) => JSON.parse(String(message)))
+          .filter((event) => event.event === "tracker-dispatchability-derived");
+        expect(events).toEqual([
+          {
+            event: "tracker-dispatchability-derived",
+            projectId: "project-123",
+            currentUserLogin: "machine-user",
+            repository: { owner: "acme", name: "platform" },
+            includedCount: 1,
+            nonDispatchableCount: Object.keys(reasons).length,
+            nonDispatchableByReason: reasons,
+          },
+        ]);
+        expect(issues[0]?.dispatchable).toBe(Object.keys(reasons).length === 0);
+      } finally {
+        infoSpy.mockRestore();
+      }
+    }
+  );
+
+  it.each([
+    { name: "excluded label", include: [], exclude: ["beta"], count: 1 },
+    {
+      name: "missing required label",
+      include: ["alpha"],
+      exclude: [],
+      count: 1,
+    },
+    { name: "no label policy", include: [], exclude: [], count: 0 },
+  ])(
+    "reports unscoped $name without assigned-only mode",
+    async ({ include, exclude, count }) => {
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      try {
+        const config = makeProjectConfig();
+        config.tracker.settings = {
+          ...config.tracker.settings,
+          repository: "*",
+          pickupLabels: { include, exclude },
+        } as never;
+        const issues = await adapter.listIssues(config, {
+          token: "dependencies-token",
+          assignedOnly: false,
+          fetchImpl: async () =>
+            makeJsonResponse(
+              makeProjectItemsPayload([
+                makeProjectItem({
+                  itemId: "item-unscoped",
+                  issueId: "issue-unscoped",
+                  number: 10,
+                  title: "Unscoped label policy",
+                  assignees: [],
+                  labels: ["beta"],
+                }),
+              ])
+            ),
+        });
+        const events = infoSpy.mock.calls
+          .map(([message]) => JSON.parse(String(message)))
+          .filter((event) => event.event === "tracker-dispatchability-derived");
+        expect(events).toEqual(
+          count
+            ? [
+                {
+                  event: "tracker-dispatchability-derived",
+                  projectId: "project-123",
+                  includedCount: 1,
+                  nonDispatchableCount: 1,
+                  nonDispatchableByReason: { pickupLabel: 1 },
+                },
+              ]
+            : []
+        );
+        expect(issues[0]?.dispatchable).toBe(count === 0);
+      } finally {
+        infoSpy.mockRestore();
+      }
+    }
+  );
+
   it("keeps non-matching pickup-label issues visible but non-dispatchable", async () => {
     const config = makeProjectConfig();
     config.tracker.settings = {

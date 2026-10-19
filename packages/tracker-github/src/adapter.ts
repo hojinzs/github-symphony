@@ -7,6 +7,8 @@ import {
   type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
   normalizeLabels,
+  resolvePickupLabelDispatchReason,
+  type OrchestratorTrackerConfig,
   parseTrackerTimestamp,
 } from "@gh-symphony/core";
 import {
@@ -37,6 +39,8 @@ export type GitHubTrackerConfig = {
   filterTerminalStates?: boolean;
   pageSize?: number;
   assignedOnly?: boolean;
+  /** Candidate-only pickup policy, applied after provider eligibility rules. */
+  pickupLabelTracker?: OrchestratorTrackerConfig;
   repositoryFilter?: { owner: string; name: string } | null;
   timeoutMs?: number;
   priority?: WorkflowPriorityConfig | null;
@@ -623,6 +627,17 @@ export async function fetchProjectIssues(
     config.blockerCheckStates ?? [],
     config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE
   );
+  issues = issues.map((issue) => {
+    if (!issue.dispatchable || !config.pickupLabelTracker) {
+      return issue;
+    }
+    const dispatchReason = resolvePickupLabelDispatchReason(issue, {
+      tracker: config.pickupLabelTracker,
+    });
+    return dispatchReason
+      ? { ...issue, dispatchable: false, dispatchReason }
+      : issue;
+  });
   for (const issue of issues) {
     if (!issue.dispatchable) {
       const reason = getDispatchabilityReasonCategory(issue.dispatchReason);
@@ -1518,6 +1533,12 @@ function getDispatchabilityReasonCategory(
   if (reason?.startsWith("Blocked by unresolved GitHub issue")) {
     return "blocker";
   }
+  if (
+    reason?.startsWith("Issue has excluded pickup label") ||
+    reason?.startsWith("Issue is missing a required pickup label")
+  ) {
+    return "pickupLabel";
+  }
   return "forkPullRequest";
 }
 
@@ -1528,7 +1549,11 @@ function emitDispatchabilityDerivationEvent(input: {
   includedCount: number;
   nonDispatchableByReason: Record<string, number>;
 }): void {
-  if (!input.currentUserLogin && !input.repository) {
+  if (
+    !input.currentUserLogin &&
+    !input.repository &&
+    Object.keys(input.nonDispatchableByReason).length === 0
+  ) {
     return;
   }
 
