@@ -230,6 +230,10 @@ candidate listing only; they do not make an already-running issue non-routable
 or stop its worker. Use `required_labels` when the label must remain true
 throughout a run.
 
+GitHub logs pickup-label exclusions as `pickupLabel` in the single
+`tracker-dispatchability-derived` event, including with repository scope `"*"`
+and assigned-only mode disabled. Earlier eligibility reasons keep precedence.
+
 ## Label and Timestamp Normalization
 
 Core normalizes workflow pickup labels and tracker-provided labels before label

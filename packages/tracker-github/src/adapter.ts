@@ -1549,7 +1549,11 @@ function emitDispatchabilityDerivationEvent(input: {
   includedCount: number;
   nonDispatchableByReason: Record<string, number>;
 }): void {
-  if (!input.currentUserLogin && !input.repository) {
+  if (
+    !input.currentUserLogin &&
+    !input.repository &&
+    Object.keys(input.nonDispatchableByReason).length === 0
+  ) {
     return;
   }
 

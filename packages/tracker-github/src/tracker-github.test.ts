@@ -5615,6 +5615,66 @@ describe("pickup label filtering", () => {
     }
   );
 
+  it.each([
+    { name: "excluded label", include: [], exclude: ["beta"], count: 1 },
+    {
+      name: "missing required label",
+      include: ["alpha"],
+      exclude: [],
+      count: 1,
+    },
+    { name: "no label policy", include: [], exclude: [], count: 0 },
+  ])(
+    "reports unscoped $name without assigned-only mode",
+    async ({ include, exclude, count }) => {
+      const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+      try {
+        const config = makeProjectConfig();
+        config.tracker.settings = {
+          ...config.tracker.settings,
+          repository: "*",
+          pickupLabels: { include, exclude },
+        } as never;
+        const issues = await adapter.listIssues(config, {
+          token: "dependencies-token",
+          assignedOnly: false,
+          fetchImpl: async () =>
+            makeJsonResponse(
+              makeProjectItemsPayload([
+                makeProjectItem({
+                  itemId: "item-unscoped",
+                  issueId: "issue-unscoped",
+                  number: 10,
+                  title: "Unscoped label policy",
+                  assignees: [],
+                  labels: ["beta"],
+                }),
+              ])
+            ),
+        });
+        const events = infoSpy.mock.calls
+          .map(([message]) => JSON.parse(String(message)))
+          .filter((event) => event.event === "tracker-dispatchability-derived");
+        expect(events).toEqual(
+          count
+            ? [
+                {
+                  event: "tracker-dispatchability-derived",
+                  projectId: "project-123",
+                  includedCount: 1,
+                  nonDispatchableCount: 1,
+                  nonDispatchableByReason: { pickupLabel: 1 },
+                },
+              ]
+            : []
+        );
+        expect(issues[0]?.dispatchable).toBe(count === 0);
+      } finally {
+        infoSpy.mockRestore();
+      }
+    }
+  );
+
   it("keeps non-matching pickup-label issues visible but non-dispatchable", async () => {
     const config = makeProjectConfig();
     config.tracker.settings = {
