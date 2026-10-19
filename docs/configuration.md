@@ -1290,3 +1290,18 @@ a missing count means unknown, while a reported empty inventory is zero. A rejec
 `projectCounts()` read also means unknown and does not block enrollment mutations
 or connection/list reads.
 The dispatcher is a library boundary and is not mounted on per-project `--web`.
+
+### Fleet runnable configuration (C23)
+
+The fleet management plane has a separate YAML configuration contract owned by
+`@gh-symphony/fleet-control-plane` (`loadRunnableFleetConfig`); it is independent
+of workflow configuration and the per-project `:4680` server. See the
+[fleet package configuration example](../packages/fleet-control-plane/README.md#runnable-configuration-contract-c23).
+It requires an HTTPS `publicOrigin` and explicit `transport.mode` (`tls` with
+`certFile`/`keyFile`, optional `caFile`, or loopback-only `trusted-proxy`).
+`dataDir` defaults to the service user's `~/.gh-symphony-control-plane`,
+`bindAddress` to `127.0.0.1`, and `port` to `4690`. Explicit data paths must be
+absolute; TLS paths resolve relative to the file. Unknown/duplicate fields,
+public/wildcard/DNS bind addresses, insecure origins and invalid ports fail
+validation. No environment variable overrides are introduced. Listener/CLI
+assembly is delivered separately within C23 (#1089).

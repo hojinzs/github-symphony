@@ -79,6 +79,7 @@ the tracker adapter:
 
 ### 2. Configuration — typed parsing and validation
 
+- C23 runnable fleet file configuration: `packages/fleet-control-plane/src/runnable-config.ts` owns strict YAML loading, TLS material paths, fixed backend port and the loopback-only trusted-proxy boundary (#1089). It does not add a dependency to orchestration core.
 - Fleet HTTPS origin, explicit private bind and absolute user-owned persistence configuration: `packages/fleet-control-plane/src/config.ts` (C04, #1008). This is independent of workflow configuration.
 
 - C11 Linux service configuration: `packages/management-agent/src/linux-service.ts` owns absolute paths, user-unit rendering, identity-preserving installation recovery and linger/XDG/unified-cgroup diagnosis. C13 routes these commands through `cli/src/agent-service.ts`, using deferred install/start so the registry lock is released before native startup.

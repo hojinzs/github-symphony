@@ -98,3 +98,8 @@ export {
   type EnvironmentPresentation,
   type ConnectionStage,
 } from "./environment-presentation.js";
+
+export {
+  loadRunnableFleetConfig,
+  type RunnableFleetConfig,
+} from "./runnable-config.js";

@@ -547,3 +547,39 @@ Linux requires current-user systemd and linger for boot/logout operation; macOS
 uses a login LaunchAgent. This UI does not install or validate native services.
 [TC-35](../../e2e/scenarios/35-fleet-environments.md) records HTTPS, browser,
 responsive and mutation verification separately from actual native OS acceptance.
+
+## Runnable configuration contract (C23)
+
+`loadRunnableFleetConfig(file)` loads the separate fleet YAML file; it does not
+read or alter a project's `WORKFLOW.md`. The production listener and CLI wiring
+are being assembled in C23 (#1089). The configuration contract is:
+
+```yaml
+publicOrigin: https://symphony.lan:4690
+# Defaults: dataDir: ~/.gh-symphony-control-plane (expanded from the service user's home)
+#           bindAddress: 127.0.0.1
+#           port: 4690
+dataDir: /home/operator/.gh-symphony-control-plane
+bindAddress: 127.0.0.1
+port: 4690
+transport:
+  mode: tls
+  certFile: ./tls/server-chain.pem
+  keyFile: ./tls/server-key.pem
+  # caFile: ./tls/private-ca.pem  # optional TLS CA material
+```
+
+TLS file paths resolve relative to the YAML file, while `dataDir` must be
+absolute. Unknown fields, duplicate YAML keys, invalid ports and non-HTTPS
+origins are rejected. Only literal loopback, RFC1918 IPv4 or IPv6 ULA binds are
+supported; wildcard/public binds and DNS bind names are rejected. Port conflicts
+must fail rather than select another port.
+
+For a trusted local reverse proxy terminating HTTPS, use
+`transport: { mode: trusted-proxy }`, with `bindAddress` restricted to
+`127.0.0.1` or `::1`. The configured `publicOrigin` remains the externally visible
+HTTPS origin. The operator must restrict access to the proxy to the private
+network, preserve the public host/origin, and prevent bypass of the HTTPS
+boundary. This first release has no human login: network access grants operator
+access. Agent clients must trust the private CA separately; CA configuration is
+not a substitute for agent enrollment/session authentication.
