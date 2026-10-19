@@ -35,6 +35,7 @@ export type CommandHandler = (
 
 type LoaderKey =
   | "agent"
+  | "control-plane"
   | "workflow"
   | "setup"
   | "doctor"
@@ -92,6 +93,7 @@ type CliOptionValues = Partial<
 const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
   {
     agent: () => import("./commands/agent.js"),
+    "control-plane": () => import("./commands/control-plane.js"),
     workflow: () => import("./commands/workflow.js"),
     setup: () => import("./commands/setup.js"),
     doctor: () => import("./commands/doctor.js"),
@@ -339,6 +341,26 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     "Use 'gh-symphony workflow init'.",
     markInvoked
   );
+
+  const fleet = program
+    .command("control-plane")
+    .description("Run the private fleet management plane");
+  fleet
+    .command("run")
+    .description("Run the fleet HTTPS service in the foreground")
+    .option("--config <file>", "Fleet YAML configuration file (required)")
+    .allowExcessArguments(false)
+    .action(async function (this: Command) {
+      markInvoked();
+      const values = this.optsWithGlobals<CliOptionValues>();
+      if (!values.config)
+        this.error("required option '--config <file>' not specified");
+      await invokeHandler(
+        "control-plane",
+        ["run", "--config", values.config!],
+        { ...values, config: undefined, configDir: undefined }
+      );
+    });
 
   const agent = addGlobalOptions(
     program.command("agent").description("Manage this host's management agent")

@@ -883,3 +883,39 @@ Use external Playwright and a local Chromium binary as described in TC-35. Test-
 simulation and native service validation separately. This verifies the library
 route/browser/service composition, not production listener assembly or native
 systemd/LaunchAgent acceptance owned by C13.
+
+### C23 production fleet listener composition
+
+`pnpm --filter @gh-symphony/fleet-control-plane test` includes real HTTPS
+composition in `src/server.test.ts`: browser environment creation, TLS trust,
+agent enrollment/session/zero-project CP-21, restart fencing and durable
+records; configured Host/Origin and missing-CSRF rejection; duplicate JSON;
+occupied-port failure without fallback, unsafe storage and TLS diagnostics;
+bounded shutdown of peers stalled before TLS negotiation;
+real command claim/result and independent bounded-read delivery. The sole seeded
+project record is C06's trusted mapping, since authenticated allocation belongs
+to #1061. No server, authentication or service implementation is mocked.
+
+`pnpm --filter @gh-symphony/cli test` includes fleet root/namespace help and
+required file routing while preserving the per-project configuration directory.
+Run `pnpm --filter @gh-symphony/cli test:package` to check a clean packed install;
+the build must preserve prefix-only `node:sqlite` and ship local SVG assets and
+the bounded-log browser script. The runnable fleet entry is `/runtime`, so pure
+service imports retain their dependency boundary. Run
+`bash e2e/run-fleet-environments-e2e.sh` to verify C15 compatibility and its
+thirteen reached assertions/artifact mutations on Linux Docker. Report native
+Linux/macOS foreground evidence separately from Docker and from native service
+installation/lifecycle acceptance. The dedicated [TC-36 production listener scenario](e2e/scenarios/36-fleet-listener.md)
+adds built CLI setup, real HTTPS/SQLite, first signal, shutdown/restart and trusted
+reverse-proxy assembly:
+
+| Scenario                                  | Executable evidence                                                                                                                                                                                                              |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-36 — production fleet listener and CLI | `node e2e/fleet-listener-e2e.mjs` (24 assertions); `node e2e/fleet-listener-mutations.mjs` (24 reached forbidden observations and twelve copied-artifact behavior probes); `bash e2e/run-fleet-listener-e2e.sh` for Linux Docker |
+
+Actual built `agent setup` uses an isolated native OS-command peer, followed by
+the actual installed agent entry against the production listener. This is
+transport/setup composition evidence, not native systemd/LaunchAgent lifecycle
+acceptance. The proxy fixture terminates TLS only; it never replaces fleet APIs.
+The scenario prints actual platform and binary identity and deletes private test
+credentials. See TC-36 for every named assertion, mutation and OS boundary.

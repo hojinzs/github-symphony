@@ -10,6 +10,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@gh-symphony/fleet-control-plane/runtime": resolve(
+        packageRoot,
+        "../fleet-control-plane/src/runtime.ts"
+      ),
       "@gh-symphony/management-agent": resolve(
         packageRoot,
         "../management-agent/src/index.ts"

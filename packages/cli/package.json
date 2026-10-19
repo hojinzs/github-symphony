@@ -27,6 +27,7 @@
   },
   "files": [
     "dist",
+    "assets",
     "README.md",
     "LICENSE"
   ],
@@ -52,21 +53,23 @@
   "dependencies": {
     "@clack/prompts": "^0.9.1",
     "commander": "^14.0.1",
-    "liquidjs": "^10.25.0"
+    "liquidjs": "^10.25.0",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
-    "@gh-symphony/core": "workspace:*",
     "@gh-symphony/control-plane": "workspace:*",
+    "@gh-symphony/core": "workspace:*",
     "@gh-symphony/dashboard": "workspace:*",
+    "@gh-symphony/fleet-control-plane": "workspace:*",
+    "@gh-symphony/management-agent": "workspace:*",
+    "@gh-symphony/management-protocol": "workspace:*",
     "@gh-symphony/orchestrator": "workspace:*",
     "@gh-symphony/runtime-claude": "workspace:*",
     "@gh-symphony/runtime-codex": "workspace:*",
-    "@gh-symphony/tracker-github": "workspace:*",
     "@gh-symphony/tool-github-graphql": "workspace:*",
     "@gh-symphony/tool-linear-graphql": "workspace:*",
+    "@gh-symphony/tracker-github": "workspace:*",
     "@gh-symphony/worker": "workspace:*",
-    "tsup": "^8.5.1",
-    "@gh-symphony/management-agent": "workspace:*",
-    "@gh-symphony/management-protocol": "workspace:*"
+    "tsup": "^8.5.1"
   }
 }

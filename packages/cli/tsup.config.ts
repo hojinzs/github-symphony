@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, cpSync, mkdirSync, copyFileSync } from "node:fs";
 import { defineConfig } from "tsup";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -17,6 +17,8 @@ export default defineConfig({
   },
   format: ["esm"],
   target: "node24",
+  // sqlite is a prefix-only Node builtin, not the npm sqlite package.
+  removeNodeProtocol: false,
   outDir: "dist",
   clean: true,
   splitting: true,
@@ -31,6 +33,14 @@ export default defineConfig({
     js: "#!/usr/bin/env node",
   },
   noExternal: [/^@gh-symphony\//],
+  async onSuccess() {
+    cpSync("../fleet-control-plane/assets", "assets", { recursive: true });
+    mkdirSync("dist/browser", { recursive: true });
+    copyFileSync(
+      "../fleet-control-plane/dist/browser/run-log-client.js",
+      "dist/browser/run-log-client.js"
+    );
+  },
   define: {
     __CLI_VERSION__: JSON.stringify(pkg.version),
   },

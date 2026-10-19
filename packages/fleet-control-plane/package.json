@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "files": [
@@ -25,7 +29,8 @@
     "typecheck": "tsc -p tsconfig.typecheck.json"
   },
   "dependencies": {
-    "@gh-symphony/management-protocol": "workspace:*"
+    "@gh-symphony/management-protocol": "workspace:*",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "esbuild": "^0.27.3"
