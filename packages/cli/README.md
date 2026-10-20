@@ -535,7 +535,9 @@ failures report once and exit with code 1, releasing locks and stopping the serv
 Valid OTLP edits require
 restart; additive JSON status reports applied versus pending settings and safe
 exporter health separately from coordination errors. See the
-[OTLP configuration contract](../../docs/configuration.md#otlp-workflow-policy-exporter-support-pending).
+[OTLP configuration contract](../../docs/configuration.md#otlp-workflow-policy).
+
+OTLP release references: [accepted extension ADR](../../docs/adr/2026-10-19_workflow-owned-otlp-export.md) · [release checklist and independent evidence](../../docs/reports/2026-10-19-otlp-release-verification.md) · [token support, cardinality and loss expectations](../../docs/configuration.md#otlp-token-support-and-cardinality).
 
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony project start --project-dir <path> --once`: it resolves the active managed project, reads a target issue through the configured tracker integration, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker. GitHub projects retain the GitHub Project read path and require `owner/repo#number` for explicit issues; Linear projects read through the Linear adapter, use identifiers such as `DEV-54`, and do not require a GitHub Project binding.
 

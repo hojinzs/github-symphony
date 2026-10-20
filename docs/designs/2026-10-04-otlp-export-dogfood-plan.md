@@ -1,6 +1,6 @@
 # OTLP export: approval and supervised dogfood plan
 
-- **Status:** Draft
+- **Status:** Shipped (implementation); [release verification and documentation closeout #998](../reports/2026-10-19-otlp-release-verification.md). Original proposal below is historical.
 - **Date:** 2026-10-04
 - **Symphony Layers:** Configuration, Observability, Coordination, Execution, Integration, Policy
 - **Parent:** [#794](https://github.com/hojinzs/github-symphony/issues/794)

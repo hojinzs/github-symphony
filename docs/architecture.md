@@ -339,6 +339,11 @@ the upstream Symphony specification.
 
 - CLI OTLP diagnostics: `packages/cli/src/otlp-diagnostics.ts` validates with the SDK-free core resolver and performs only explicitly requested enabled HTTP probes with a three-second budget per signal. `doctor.ts` exposes safe descriptors and outcomes; `status.ts` renders applied/pending settings and restart requirements. `logs.ts` consumes the shared event severity contract, preserving existing filters.
 
+The [accepted OTLP ADR](adr/2026-10-19_workflow-owned-otlp-export.md) fixes this
+Configuration/Observability extension boundary. The
+[release checklist](reports/2026-10-19-otlp-release-verification.md) links OT-14
+receipt, OT-15 delivery and owner-approved performance acceptance independently.
+
 - Internal lifecycle owner: `packages/orchestrator/src/observability/lifecycle.ts` freezes startup transport settings, compares validated reload candidates privately (including header values), and exposes safe applied/pending descriptors. Disable edits retain the active startup provider until restart; revert clears pending state. Publication and shutdown failures remain isolated from coordination health. Shutdown stops offers and gives the owned pipeline one five-second deadline. The service initializes the SDK-free owner before dispatch and installs Logs at the existing post-append FS store boundary and Metrics at the committed snapshot/tick boundary. `observability/resource-validation.ts` applies provider resource limits before last-known-good persistence without loading the SDK. `observability/pipeline.ts` lazily composes both providers with one resource UUID, samples Logs loss deltas once into Metrics, and projects bounded per-signal diagnostics. Status uses an orchestrator-owned additive field preserved by existing readers; no core contract changes. The library production capability defaults off; audited CLI startup supplies the capability and its release version through H’s existing input. Tests may inject providers.
 
 - C10 read observability: the ephemeral result registry retains terminal results

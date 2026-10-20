@@ -804,6 +804,10 @@ values from leaking into new runs.
 
 ### OTLP workflow policy
 
+Release decision: [accepted ADR](adr/2026-10-19_workflow-owned-otlp-export.md).
+Independent delivery, Collector and performance evidence is indexed in the
+[release verification record](reports/2026-10-19-otlp-release-verification.md).
+
 The optional `observability.otlp` mapping is parsed structurally by the shared
 workflow parser. It defaults to disabled; ambient `OTEL_*` variables do not
 enable export. The orchestrator contains a pinned official Logs SDK and bounded
@@ -824,6 +828,23 @@ observability:
     headers:
       Authorization: $COLLECTOR_AUTH
 ```
+
+Signal endpoints are exact URLs. For a Collector behind a path prefix, use:
+
+```yaml
+observability:
+  otlp:
+    enabled: true
+    logs:
+      endpoint: https://collector.example.net/tenant/v1/logs
+    metrics:
+      endpoint: https://collector.example.net/tenant/v1/metrics
+```
+
+This does not append another signal suffix. With a general endpoint of
+`https://collector.example.net/tenant`, the paths become `/tenant/v1/logs` and
+`/tenant/v1/metrics`. Configure authentication with dedicated references as in
+the first example; never place secrets in committed URLs.
 
 Set `COLLECTOR_AUTH` in the project's protected `.env` or process environment;
 use a dedicated name distinct from tracker/agent credentials. Logs and Metrics
@@ -920,6 +941,32 @@ endpoint, protocol, header names, resource metadata, auth-reference names and
 unsupported environment names, never header values. Resolved transports belong
 in owner-local memory. The shared loader retains its hashed environment digest
 and last-known-good structural policy, without resolving exporter credentials.
+
+### OTLP token support and cardinality
+
+Codex measured absolute token totals, including valid zero, are eligible for
+export. Missing/unknown provenance omits token series; it is not a measured zero.
+Claude print usage is not interpreted and does not create token series. The
+`symphony.tokens.supported{runtime="codex"}=1` and
+`symphony.tokens.supported{runtime="claude"}=0` gauge points distinguish runtime
+support from observed usage; see the
+[metric projection catalog](architecture.md#6-observability--events-and-status-surfaces).
+
+Metric attributes use fixed bounded enums rather than issue/run/session/turn IDs,
+model names or arbitrary tracker labels. For example, aggregate running counts
+by project/process resource identity rather than adding `issue_id=998` as a
+metric label. Put correlation IDs in structured Logs. At most 16 custom scalar
+resource keys are allowed; reserved identity keys do not count toward this limit.
+Reserved identity keys are accepted when they match the runtime-owned value and
+rejected when they conflict; `service.instance.id` is always rejected.
+Issue/run/session/turn resource keys are always rejected. Each owner has a fresh
+process UUID: select the latest incarnation per project for history gauges rather than summing across UUIDs.
+`total` tokens are an alternative aggregate; do not add them to input/output.
+
+Graceful shutdown is a bounded best effort, not a delivery acknowledgement.
+The shared five-second deadline may discard queued/in-flight telemetry; forced
+termination may lose all pending export. Durable local records survive according
+to local storage policy, but they are never replayed into OTLP on restart.
 
 The internal [management protocol](../packages/management-protocol/README.md)
 package exports fixed v1 wire/capacity contracts. It introduces no runtime
