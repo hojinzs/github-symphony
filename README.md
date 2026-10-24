@@ -295,6 +295,9 @@ Doctor shares the runtime’s SDK-free OTLP credential ownership and resource va
 Remediation reports fixed validation reasons without endpoint or header values; unknown
 errors retain generic guidance. Custom resource values must be finite scalars, and
 `service.instance.id` is reserved for the runtime. Disabled checks never probe OTLP.
+Ambient resource conflicts, secrets and overflow are discarded with key/reason
+notices in doctor and status; YAML remains strict. Blank OTLP transport environment
+values fall through precedence, and `OTEL_SDK_DISABLED=" TRUE "` vetoes export.
 
 Optional `observability.otlp` workflow policy defaults to disabled. Set
 `enabled: true` with an HTTP/protobuf endpoint to export Logs and Metrics through

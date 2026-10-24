@@ -137,6 +137,11 @@ export function renderOtlpStatus(
     `  OTLP: ${telemetry.state}`,
     `    Applied: ${describe(telemetry.applied)}`,
     `    Pending: ${telemetry.pending ? describe(telemetry.pending) : "none"}`,
+    ...[telemetry.applied, telemetry.pending].flatMap((value) =>
+      (value?.discardedEnvironmentResources ?? []).map(
+        ({ key, reason }) => `    Discarded ambient resource ${key}: ${reason}`
+      )
+    ),
     ...(telemetry.restartRequired
       ? [
           "    Restart required; the applied exporter remains active until restart.",

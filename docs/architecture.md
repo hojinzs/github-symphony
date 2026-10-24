@@ -99,7 +99,9 @@ the tracker adapter:
 - Workflow `server.port` configuration and the `project start --port` / `--http`
   status-API options: `packages/core/src/workflow/`,
   `packages/cli/src/commands/start.ts`
-- SDK-free owner-side OTLP resolution: `packages/core/src/workflow/otlp-resolver.ts`; explicit effective-environment input, precedence and transport validation, with secret-free diagnostics. The orchestrator invokes it before dispatch; shared loaders never resolve credentials and exporter activation remains separate.
+- SDK-free owner-side OTLP resolution: `packages/core/src/workflow/otlp-resolver.ts`; explicit effective-environment input, precedence and transport validation, with secret-free diagnostics. Ambient resources are filtered through the shared
+  resource identity policy, with key/reason discard notices; YAML remains strict
+  and blank transport environment values fall through precedence. The orchestrator invokes it before dispatch; shared loaders never resolve credentials and exporter activation remains separate.
 - Structural OTLP policy and reference provenance: `packages/core/src/workflow/otlp.ts`; shared parsing never reads exporter environment values or activates export.
 - Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
 - MCP declarations are resolved at the host boundary. Codex advertises adapter tools through dynamic-tool schemas without `config.mcp_servers`; Claude's worker starts a loopback HTTP MCP service and generates an `mcp.json` containing only its URL and ephemeral session capability. Repository/project subprocess entries are not exposed to either coding-agent child.
@@ -320,6 +322,11 @@ No management protocol, tracker policy, or fleet behavior is added to
   independently constructed agent-child boundary.
 
 ### 6. Observability — events and status surfaces
+
+- Resource validation in `packages/orchestrator/src/observability/resource-validation.ts`
+  uses the core resource identity policy for strict owner checks. Core filters
+  ambient conflicts and overflow before these checks; lifecycle status refreshes
+  discard diagnostics even when effective exporter settings stay unchanged.
 
 - C23 fleet foreground startup emits `fleet-ready` and serves configured-Host `/healthz` only after successful bind and recovery. Configuration, storage, TLS and bind failures exit with contextual diagnostics, without port fallback. These fleet signals do not change orchestrator status or telemetry contracts.
 

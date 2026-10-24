@@ -740,6 +740,9 @@ Doctor shares the runtime’s SDK-free OTLP credential ownership and resource va
 Remediation reports fixed validation reasons without endpoint or header values; unknown
 errors retain generic guidance. Custom resource values must be finite scalars, and
 `service.instance.id` is reserved for the runtime. Disabled checks never probe OTLP.
+Ambient resource conflicts, secrets and overflow are discarded with key/reason
+notices in doctor and status; YAML remains strict. Blank OTLP transport environment
+values fall through precedence, and `OTEL_SDK_DISABLED=" TRUE "` vetoes export.
 
 `gh-symphony doctor` validates the project's `observability.otlp` settings using
 its effective environment without loading an OpenTelemetry SDK or contacting the

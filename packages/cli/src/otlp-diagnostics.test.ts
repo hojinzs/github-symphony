@@ -340,3 +340,29 @@ it.each([
     })
   ).rejects.toThrow("distinct exporter credential name");
 });
+
+it("reports discarded ambient keys in doctor and status without values", async () => {
+  const result = await inspectOtlp(policy(), {
+    COLLECTOR_SECRET: "secret",
+    OTEL_SERVICE_NAME: "CANARY_AMBIENT",
+    OTEL_RESOURCE_ATTRIBUTES:
+      "service.instance.id=CANARY_AMBIENT,symphony.max_token=CANARY_AMBIENT",
+  });
+  expect(result.configuration.enabled).toBe(true);
+  const text = renderOtlpStatus({
+    state: "healthy",
+    applied: result.configuration,
+    pending: null,
+    restartRequired: false,
+  }).join("\n");
+  expect(text).toContain(
+    "Discarded ambient resource service.name: reserved identity"
+  );
+  expect(text).toContain(
+    "Discarded ambient resource service.instance.id: reserved identity"
+  );
+  expect(text).toContain(
+    "Discarded ambient resource symphony.max_token: secret-bearing attribute"
+  );
+  expect(JSON.stringify([result, text])).not.toContain("CANARY_AMBIENT");
+});

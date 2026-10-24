@@ -72,6 +72,7 @@ try {
   assert.equal(constructions, 0);
   await disabled.shutdown();
   await update(true);
+  process.env.OTEL_SERVICE_NAME = "CANARY_AMBIENT";
   service = new OrchestratorService(store, project, {
     stderr: { write: (message) => warnings.push(message) },
     telemetry: {
@@ -107,6 +108,36 @@ try {
     assert.equal(response.status, 200);
     return response.json();
   };
+  for (const value of [
+    undefined,
+    "service.instance.id=CANARY_AMBIENT",
+    "",
+    "a=CANARY_AMBIENT,",
+    "symphony.max_token=CANARY_AMBIENT",
+    Array.from({ length: 20 }, (_, i) => `k8s.key${i}=safe`).join(","),
+  ]) {
+    if (value === undefined) delete process.env.OTEL_RESOURCE_ATTRIBUTES;
+    else process.env.OTEL_RESOURCE_ATTRIBUTES = value;
+    await service.runOnce();
+    const state = await readStatus();
+    reached("ambient resource reload");
+    if (probe === "ambient-resource") state.telemetry.enabled = false;
+    assert.equal(state.telemetry.enabled, true);
+    assert.equal(state.workflow.usedLastKnownGood, false);
+    const descriptor = state.telemetry.pending ?? state.telemetry.applied;
+    assert.ok(
+      descriptor.discardedEnvironmentResources.some(
+        ({ key, reason }) =>
+          key === "service.name" && reason === "reserved identity"
+      )
+    );
+    if (value !== undefined)
+      assert.ok(descriptor.discardedEnvironmentResources.length > 1);
+    assert.equal(JSON.stringify(state).includes("CANARY_AMBIENT"), false);
+  }
+  delete process.env.OTEL_SERVICE_NAME;
+  delete process.env.OTEL_RESOURCE_ATTRIBUTES;
+  await service.runOnce();
   await mkdir(store.runDir("r", "p"), { recursive: true });
   await store.appendRunEvent("r", {
     at: new Date().toISOString(),
@@ -185,6 +216,7 @@ try {
       ([key]) => !key.startsWith("SYMPHONY_") && !key.startsWith("OTEL_")
     )
   );
+  env.OTEL_SERVICE_NAME = "CANARY_AMBIENT";
   const started = await execute(
     process.execPath,
     [
@@ -263,6 +295,30 @@ try {
       output,
       /endpoint-user|endpoint-password|secret-project-auth/
     );
+  }
+  for (const json of [false, true]) {
+    await writeFile(
+      doctorWorkflow,
+      `---\ntracker:\n  kind: file\n  provider:\n    path: ${issues}\nobservability:\n  otlp:\n    enabled: true\n    endpoint: ${endpoint}\n---\nWork.\n`
+    );
+    let diagnostic;
+    try {
+      diagnostic = await execute(
+        process.execPath,
+        [cli, "--config", cliConfig, ...(json ? ["--json"] : []), "doctor"],
+        { cwd: cliProject, env, timeout: 15000 }
+      );
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      diagnostic = error;
+    }
+    let output = diagnostic.stdout + diagnostic.stderr;
+    if (probe === "ambient-doctor")
+      output = output.replaceAll("service.name", "removed");
+    reached(`doctor ambient discard json=${json}`);
+    assert.match(output, /service.name/);
+    assert.match(output, /reserved identity/);
+    assert.doesNotMatch(output, /CANARY_AMBIENT/);
   }
   console.log("OTLP H/I lifecycle contract passed");
 } finally {

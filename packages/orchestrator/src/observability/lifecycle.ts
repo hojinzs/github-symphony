@@ -82,6 +82,7 @@ export async function createTelemetryLifecycle(
     ? await startup.createPipeline!(applied)
     : undefined;
   const appliedSettings = settings(applied);
+  let appliedDiagnostics = applied.diagnostics;
   let pending: OtlpSafeDescriptor | null = null;
   let pendingSettings: string | null = null;
   // Owner diagnostic/shutdown failures are sticky for this process lifetime;
@@ -105,11 +106,17 @@ export async function createTelemetryLifecycle(
     reload(candidate: ResolvedOtlpConfiguration): void {
       const next = settings(candidate);
       if (next === appliedSettings) {
+        appliedDiagnostics = freezeEvent(
+          structuredClone(candidate.diagnostics)
+        );
         pending = null;
         pendingSettings = null;
         return;
       }
-      if (next === pendingSettings) return;
+      if (next === pendingSettings) {
+        pending = freezeEvent(structuredClone(candidate.diagnostics));
+        return;
+      }
       pendingSettings = next;
       pending = freezeEvent(structuredClone(candidate.diagnostics));
       offerBestEffort(() =>
@@ -166,7 +173,7 @@ export async function createTelemetryLifecycle(
             ? "degraded"
             : "healthy",
         supportedSignals: ["logs", "metrics"],
-        applied: structuredClone(applied.diagnostics),
+        applied: structuredClone(appliedDiagnostics),
         pending: pending ? structuredClone(pending) : null,
         restartRequired: pending !== null,
         signals: structuredClone(signals),
