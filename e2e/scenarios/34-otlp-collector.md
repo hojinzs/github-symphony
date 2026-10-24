@@ -63,3 +63,18 @@ protocol failures beyond this scenario (partial success, stalls and recovery).
 Operator/CI must run this Docker scenario and link its attributable receipt
 before Epic closure. Dogfood delivery and Collector receipt are separate gates;
 this scenario supplies no production-reachability or dogfood claim.
+
+## OT-09 auth removal regression (#1095)
+
+1. Start a project daemon with OTLP enabled, an empty file-tracker issue list,
+   and `Authorization: $OTLP_AUTH` resolved only from the project `.env`.
+2. After startup, remove `OTLP_AUTH` from `.env`, retaining reserved
+   `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_LOGS_HEADERS` canaries.
+3. Add a Ready issue. Verify an invalid workflow reload diagnostic naming
+   `OTLP_AUTH`, last-known-good fallback, successful dispatch and no failed run.
+4. Verify the worker has none of the three credential variables and the applied
+   exporter remains unchanged. Stop the daemon gracefully.
+
+The deterministic service regression `OT-09 dispatches with LKG after enabled
+exporter auth disappears` covers this sequence and its dispatch mutation.
+The Collector runner remains the independent Docker transport/dispatch check.

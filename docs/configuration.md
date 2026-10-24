@@ -870,6 +870,11 @@ identical candidates suppress warnings; reverting to applied settings clears
 pending state. Credential value changes participate in private memory comparison;
 no secret comparison digest is persisted or published. Invalid reloads keep the
 last-known-good workflow and leave applied/pending exporter settings unchanged.
+If an exporter auth variable is removed from the project `.env` after startup,
+the reload reports the unresolved reference while dispatch continues using that
+last-known-good workflow. Worker startup validates credential names without
+resolving exporter values; previously registered exporter credential names remain
+stripped from worker, hook and publish environments until restart.
 
 Committed project status and `/api/v1/state` have an additive `telemetry` field:
 `enabled`, `state`, `supportedSignals`, safe `applied`/`pending` descriptors,

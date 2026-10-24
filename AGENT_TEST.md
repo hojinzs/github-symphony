@@ -919,3 +919,9 @@ transport/setup composition evidence, not native systemd/LaunchAgent lifecycle
 acceptance. The proxy fixture terminates TLS only; it never replaces fleet APIs.
 The scenario prints actual platform and binary identity and deletes private test
 credentials. See TC-36 for every named assertion, mutation and OS boundary.
+
+### OT-09 disappearing exporter auth (#1095)
+
+| Case                                                                                                      | Coverage                                                                              | Docker confirmation                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Enabled exporter auth removed after startup: invalid reload, LKG dispatch and stripped worker credentials | `service.test.ts`: `OT-09 dispatches with LKG after enabled exporter auth disappears` | [Auth removal TC](e2e/scenarios/34-otlp-collector.md#ot-09-auth-removal-regression-1095); `bash e2e/run-otlp-collector-e2e.sh` checks Collector transport and dispatch |
