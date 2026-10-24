@@ -18031,6 +18031,98 @@ Prefer focused changes.
     }
   });
 
+  it("OT-09 dispatches with LKG after enabled exporter auth disappears", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "tracker-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-otlp-auth-loss-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  provider:
+    project_id: project-123
+    state_field: Status
+  active_states: [Todo]
+hooks:
+  after_create: hooks/after_create.sh
+observability:
+  otlp:
+    enabled: true
+    endpoint: http://localhost:4318
+    headers:
+      Authorization: $OTLP_AUTH
+---
+Prompt`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const envPath = join(store.projectDir(projectConfig.projectId), ".env");
+    await writeFile(
+      envPath,
+      "OTLP_AUTH=export-secret\nOTEL_EXPORTER_OTLP_HEADERS=x=secret\nOTEL_EXPORTER_OTLP_LOGS_HEADERS=x=secret\n"
+    );
+    const fetchImpl = vi.fn().mockResolvedValue(createEmptyTrackerResponse());
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 4306, unref: vi.fn() });
+    const createPipeline = vi
+      .fn()
+      .mockResolvedValue({ shutdown: async () => {} });
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      telemetry: { createPipeline },
+      fetchImpl,
+      spawnImpl: spawnImpl as never,
+      stderr,
+    });
+    const loader = service as unknown as {
+      loadProjectWorkflow: (
+        project: typeof projectConfig,
+        repo: RepositoryRef
+      ) => Promise<WorkflowResolution>;
+    };
+    await service.runOnce();
+    expect(createPipeline).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    const original = await loader.loadProjectWorkflow(
+      projectConfig,
+      repository
+    );
+    expect(original.isValid).toBe(true);
+
+    await writeFile(
+      envPath,
+      "OTEL_EXPORTER_OTLP_HEADERS=x=secret\nOTEL_EXPORTER_OTLP_LOGS_HEADERS=x=secret\n"
+    );
+    const invalid = await loader.loadProjectWorkflow(projectConfig, repository);
+    expect(invalid).toMatchObject({
+      isValid: false,
+      usedLastKnownGood: true,
+      workflow: original.workflow,
+      validationError: expect.stringContaining("OTLP_AUTH"),
+    });
+    fetchImpl.mockResolvedValue(createTrackerResponse(repository));
+    await service.runOnce();
+
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    const env = spawnImpl.mock.calls[0]?.[2]?.env;
+    expect(env?.OTLP_AUTH).toBeUndefined();
+    expect(env?.OTEL_EXPORTER_OTLP_HEADERS).toBeUndefined();
+    expect(env?.OTEL_EXPORTER_OTLP_LOGS_HEADERS).toBeUndefined();
+    expect(createPipeline).toHaveBeenCalledTimes(1);
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining("failed to reload WORKFLOW.md")
+    );
+    const runs = await store.loadAllRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ status: "running", lastError: null });
+  });
+
   it.each(["shared-name", "missing-endpoint"])(
     "OT-09 preserves LKG across exporter %s reload faults",
     async (fault) => {

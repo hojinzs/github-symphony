@@ -3559,10 +3559,6 @@ export class OrchestratorService {
       workflow.workflow,
       resolveTrackerSecretEnvironmentNames(trackerAdapter)
     );
-    resolveOtlpConfiguration(workflow.workflow.observability?.otlp, {
-      ...projectEnvironment,
-      ...process.env,
-    });
     const workerCredentials =
       trackerAdapter.resolveWorkerCredentials?.(tenant, {
         project: projectEnvironment,

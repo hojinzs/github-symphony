@@ -307,6 +307,9 @@ failures cannot fail a tick or mark coordination unhealthy. CLI startup supplies
 the internal capability and release version after clean-install/performance gates;
 independent library owners retain the default rejection guard. Construction
 failures report once and exit with code 1, releasing locks and stopping the service.
+If an exporter auth reference stops resolving after startup, reload diagnostics
+report the invalid policy while dispatch continues with the last-known-good
+workflow and exporter credentials remain stripped from child environments.
 Valid OTLP edits require
 restart; additive JSON status reports applied versus pending settings and safe
 exporter health separately from coordination errors. See the
