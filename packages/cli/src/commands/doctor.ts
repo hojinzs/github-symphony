@@ -2330,12 +2330,19 @@ export async function runDoctorDiagnostics(
       const failed = Object.values(details.probe).some(
         (value) => !/^HTTP 2\d\d$/.test(value)
       );
+      const discarded = (
+        details.configuration.discardedEnvironmentResources ?? []
+      )
+        .map(
+          ({ key, reason }) => `Discarded ambient resource ${key}: ${reason}.`
+        )
+        .join(" ");
       checks.push(
         failed
           ? warnCheck(
               "otlp",
               "OTLP configuration",
-              "Configuration valid; connectivity probe did not succeed. HTTP success does not prove Collector receipt.",
+              `Configuration valid; connectivity probe did not succeed. HTTP success does not prove Collector receipt. ${discarded}`,
               undefined,
               details
             )
@@ -2343,7 +2350,7 @@ export async function runDoctorDiagnostics(
               "otlp",
               "OTLP configuration",
               details.configuration.enabled
-                ? "Enabled configuration valid. Probe HTTP success does not prove Collector receipt."
+                ? `Enabled configuration valid. Probe HTTP success does not prove Collector receipt. ${discarded}`
                 : "Disabled; no OTLP connection attempted.",
               details
             )

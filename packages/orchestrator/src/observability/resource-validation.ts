@@ -1,3 +1,4 @@
+import { otlpResourceAttributeRejection } from "@gh-symphony/core";
 import { OtlpValidationError } from "../otlp-validation-error.js";
 import type { ProjectResourceIdentity } from "./resource.js";
 
@@ -20,14 +21,7 @@ export function resolveProjectResourceAttributes(
   )
     throw new OtlpValidationError("resource-limit");
   for (const [key, value] of Object.entries(custom)) {
-    if (
-      key === "service.instance.id" ||
-      (Object.hasOwn(reserved, key) &&
-        reserved[key as keyof typeof reserved] !== value) ||
-      /(?:^|\.)(?:issue|run|session|turn)(?:\.|$)/i.test(key) ||
-      !["string", "number", "boolean"].includes(typeof value) ||
-      (typeof value === "number" && !Number.isFinite(value))
-    )
+    if (otlpResourceAttributeRejection(key, value, reserved) !== null)
       throw new OtlpValidationError("resource-attribute");
   }
   return { ...custom, ...reserved };

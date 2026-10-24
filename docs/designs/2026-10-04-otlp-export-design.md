@@ -150,7 +150,8 @@ store the entire `Bearer ...` value in the referenced variable. `$VAR` matches
 the upstream environment indirection contract; `env:` is an existing local
 parser extension. Whole header-list strings must be references, not literals.
 References in resource strings use the same resolver, then the normal redactor;
-secret-bearing resource values are rejected, not exported.
+secret-bearing YAML resource values are rejected, while ambient attributes are
+discarded with key-only diagnostics. Neither is exported.
 
 Resolve one immutable effective environment from project `.env`, then overlay
 host process environment, matching existing daemon and CLI diagnostics. For each
@@ -160,7 +161,8 @@ signal URLs. For protocol the default is `http/protobuf`; for headers empty.
 Signal env means `OTEL_EXPORTER_OTLP_LOGS_*` or `_METRICS_*` for ENDPOINT, PROTOCOL,
 HEADERS. Resource merge is `OTEL_RESOURCE_ATTRIBUTES`, then
 `OTEL_SERVICE_NAME` for service name, then YAML user attributes; reserved identity
-keys below cannot be overridden (equal values allowed, conflicts invalid).
+keys below cannot be overridden. YAML equal values are allowed and conflicts
+are invalid; ambient reserved keys are discarded because identity is runtime-owned.
 Explicit YAML general configuration wins over a signal env value: this is
 programmatic workflow policy, not an SDK doing its own env lookup. Pass resolved
 options to SDK instances so they cannot independently reverse this order.
@@ -170,11 +172,15 @@ environment values or endpoints exist. Validate provided structural field types
 but skip reference resolution/transport validation while disabled, so missing
 auth does not break a disabled workflow. Activation requires `enabled: true`;
 there is no new `OTEL_*` enable flag. `OTEL_SDK_DISABLED=true` is an additional
-veto. `OTEL_LOGS_EXPORTER`, `OTEL_METRICS_EXPORTER`, traces env, compression,
+veto after trimming whitespace and lowercasing. `OTEL_LOGS_EXPORTER`, `OTEL_METRICS_EXPORTER`, traces env, compression,
 mTLS file env and temporality env do not configure this explicit v1 pipeline;
 doctor lists these as unsupported without values. OS trust/TLS applies; no
-custom mTLS configuration is claimed. Empty configured transport strings are
-invalid rather than a silent fallback. When disabled, unsupported ambient
+custom mTLS configuration is claimed. Empty or whitespace-only ambient
+`OTEL_EXPORTER_OTLP_*` strings are unset and fall through precedence. Empty
+configured YAML transport strings remain invalid, including resolved references.
+This intentionally aligns empty environment handling with the
+[OTel environment-variable specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/);
+workflow precedence and activation remain repository-specific extensions. When disabled, unsupported ambient
 transport settings do not become errors.
 
 ### URL rules
@@ -329,6 +335,18 @@ Custom resource attributes are limited to 16 configured scalar keys, may not
 use reserved identity keys with conflicting values, and must not contain issue,
 run, session or turn identifiers. Operators own the cardinality of approved
 static deployment values.
+
+Ambient resource input never invalidates valid workflow policy. Blank
+`OTEL_RESOURCE_ATTRIBUTES` is unset; malformed lists are discarded in full.
+Discard individual ambient reserved identity keys, forbidden identity segments,
+secret-bearing attributes, and custom keys beyond 16. YAML entries take
+precedence and consume the custom-key budget first; ambient entries fill the
+remaining slots in list order. `OTEL_SERVICE_NAME` cannot replace runtime identity.
+Doctor/status record key names and fixed discard reasons without values, including
+notices refreshed on diagnostic-only reloads. YAML remains strict. Whole-value
+parse discard and empty-as-unset intentionally align with the OTel environment
+specification; resource restrictions remain repository policy. There is no
+intentional divergence from upstream Symphony, which remains untouched.
 
 ## Metrics catalog
 

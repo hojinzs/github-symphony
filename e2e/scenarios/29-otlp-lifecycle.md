@@ -58,3 +58,13 @@ credentials must remain absent. `doctor-secret` and `doctor-reason` probes reach
 and fail those assertions. Unit parity cases also cover SDK-free ownership, finite
 scalar resources and reserved instance identity; existing disabled and worker SDK
 package guards remain required.
+
+## Ambient OTEL resource isolation (#1096)
+
+The same runner verifies enabled startup with a foreign ambient service name and
+reloads with instance identity, empty/malformed resource lists, secret-like keys,
+and 20 Kubernetes attributes. Each keeps valid workflow state and enabled export,
+with key/reason diagnostics and no canary values in HTTP status. Installed CLI
+doctor text and JSON also show the discard. The `ambient-resource` and
+`ambient-doctor` probes plant forbidden output/state and must fail after their
+reached markers.

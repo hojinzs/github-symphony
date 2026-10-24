@@ -24,6 +24,7 @@ export type OtlpSafeDescriptor = {
   resourceAttributes: Record<string, string | number | boolean>;
   authReferenceNames: string[];
   unsupportedEnvironmentNames: string[];
+  discardedEnvironmentResources?: { key: string; reason: string }[];
 };
 /** Contains secrets: owner-local memory only, never persist or expose this object. */
 export type ResolvedOtlpConfiguration = {
@@ -33,6 +34,36 @@ export type ResolvedOtlpConfiguration = {
   resourceAttributes: Record<string, string | number | boolean>;
   diagnostics: OtlpSafeDescriptor;
 };
+
+/** One resource identity policy shared by ambient filtering and owner validation. */
+export const OTLP_RESERVED_RESOURCE_KEYS = [
+  "service.name",
+  "service.version",
+  "service.instance.id",
+  "symphony.project.id",
+  "symphony.project.slug",
+  "symphony.tracker.kind",
+] as const;
+
+export function otlpResourceAttributeRejection(
+  key: string,
+  value: unknown,
+  reserved?: Record<string, string>
+): string | null {
+  if (
+    (OTLP_RESERVED_RESOURCE_KEYS as readonly string[]).includes(key) &&
+    (!reserved || key === "service.instance.id" || reserved[key] !== value)
+  )
+    return "reserved identity";
+  if (/(?:^|\.)(?:issue|run|session|turn)(?:\.|$)/i.test(key))
+    return "forbidden identity segment";
+  if (
+    !["string", "number", "boolean"].includes(typeof value) ||
+    (typeof value === "number" && !Number.isFinite(value))
+  )
+    return "invalid scalar";
+  return null;
+}
 
 function fail(path: string, reason: string): never {
   throw new WorkflowValidationError(
@@ -137,13 +168,23 @@ export function resolveOtlpConfiguration(
   raw: WorkflowOtlpPolicy | null | undefined,
   effectiveEnv: NodeJS.ProcessEnv
 ): ResolvedOtlpConfiguration {
+  // Empty ambient transport settings are unset; YAML remains unmodified/strict.
+  const transportEnv = Object.fromEntries(
+    Object.entries(effectiveEnv).map(([key, value]) => [
+      key,
+      key.startsWith("OTEL_EXPORTER_OTLP_") && !value?.trim()
+        ? undefined
+        : value,
+    ])
+  );
   const enabled =
     raw?.enabled === true &&
-    effectiveEnv.OTEL_SDK_DISABLED?.toLowerCase() !== "true";
+    effectiveEnv.OTEL_SDK_DISABLED?.trim().toLowerCase() !== "true";
   const diagnostics: OtlpSafeDescriptor = {
     enabled,
     disabledReason: enabled ? null : raw?.enabled ? "sdk-disabled" : "workflow",
     signals: {},
+    discardedEnvironmentResources: [],
     resourceAttributes: {},
     authReferenceNames: [...(raw?.authReferenceNames ?? [])],
     unsupportedEnvironmentNames: Object.keys(effectiveEnv)
@@ -172,8 +213,8 @@ export function resolveOtlpConfiguration(
     const selectedEndpoint =
       signalEndpoint ??
       generalEndpoint ??
-      effectiveEnv[prefix + "ENDPOINT"] ??
-      effectiveEnv.OTEL_EXPORTER_OTLP_ENDPOINT;
+      transportEnv[prefix + "ENDPOINT"] ??
+      transportEnv.OTEL_EXPORTER_OTLP_ENDPOINT;
     if (selectedEndpoint === undefined)
       fail(`${path}.endpoint`, "is required when enabled");
     const endpointIsYaml =
@@ -181,7 +222,7 @@ export function resolveOtlpConfiguration(
     const isBase =
       signalEndpoint === undefined &&
       (generalEndpoint !== undefined ||
-        effectiveEnv[prefix + "ENDPOINT"] === undefined);
+        transportEnv[prefix + "ENDPOINT"] === undefined);
     const resolvedEndpoint = endpoint(
       endpointIsYaml
         ? resolveEnvironmentValue(
@@ -197,8 +238,8 @@ export function resolveOtlpConfiguration(
     const protocol =
       yaml?.protocol ??
       raw.protocol ??
-      effectiveEnv[prefix + "PROTOCOL"] ??
-      effectiveEnv.OTEL_EXPORTER_OTLP_PROTOCOL ??
+      transportEnv[prefix + "PROTOCOL"] ??
+      transportEnv.OTEL_EXPORTER_OTLP_PROTOCOL ??
       "http/protobuf";
     if (protocol !== "http/protobuf")
       fail(`${path}.protocol`, "supports only http/protobuf");
@@ -206,16 +247,16 @@ export function resolveOtlpConfiguration(
     const headers =
       yamlHeaders !== undefined
         ? resolveHeaders(yamlHeaders, effectiveEnv, `${path}.headers`, true)
-        : effectiveEnv[prefix + "HEADERS"] !== undefined
+        : transportEnv[prefix + "HEADERS"] !== undefined
           ? resolveHeaders(
-              effectiveEnv[prefix + "HEADERS"]!,
+              transportEnv[prefix + "HEADERS"]!,
               effectiveEnv,
               `${path}.headers`,
               false
             )
-          : effectiveEnv.OTEL_EXPORTER_OTLP_HEADERS !== undefined
+          : transportEnv.OTEL_EXPORTER_OTLP_HEADERS !== undefined
             ? resolveHeaders(
-                effectiveEnv.OTEL_EXPORTER_OTLP_HEADERS,
+                transportEnv.OTEL_EXPORTER_OTLP_HEADERS,
                 effectiveEnv,
                 `${path}.headers`,
                 false
@@ -228,15 +269,7 @@ export function resolveOtlpConfiguration(
       headerNames: Object.keys(headers).sort(),
     };
   }
-  const resources: Record<string, string | number | boolean> =
-    effectiveEnv.OTEL_RESOURCE_ATTRIBUTES === undefined
-      ? {}
-      : parseList(
-          effectiveEnv.OTEL_RESOURCE_ATTRIBUTES,
-          "observability.otlp.resource_attributes"
-        );
-  if (effectiveEnv.OTEL_SERVICE_NAME !== undefined)
-    resources["service.name"] = effectiveEnv.OTEL_SERVICE_NAME;
+  const resources: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(raw.resourceAttributes)) {
     resources[key] =
       typeof value === "string"
@@ -247,9 +280,6 @@ export function resolveOtlpConfiguration(
           )
         : value;
   }
-  // TODO(slice D): enforce reserved identity conflicts and the 16 custom-key
-  // limit from docs/designs/2026-10-04-otlp-export-design.md (Resource identity)
-  // when orchestrator-owned identity values are available.
   for (const [key, value] of Object.entries(resources)) {
     const redacted = redactObservabilitySecretsWithStats({ [key]: value });
     if (redacted.redactions.length)
@@ -257,6 +287,47 @@ export function resolveOtlpConfiguration(
         "observability.otlp.resource_attributes",
         `must not contain secrets (attribute ${JSON.stringify(key)})`
       );
+  }
+  const discard = (key: string, reason: string) =>
+    diagnostics.discardedEnvironmentResources!.push({ key, reason });
+  let ambient: Record<string, string> = {};
+  if (effectiveEnv.OTEL_RESOURCE_ATTRIBUTES !== undefined) {
+    try {
+      ambient = parseList(
+        effectiveEnv.OTEL_RESOURCE_ATTRIBUTES,
+        "OTEL_RESOURCE_ATTRIBUTES"
+      );
+    } catch {
+      discard(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        effectiveEnv.OTEL_RESOURCE_ATTRIBUTES.trim()
+          ? "malformed value"
+          : "empty value (unset)"
+      );
+    }
+  }
+  if (effectiveEnv.OTEL_SERVICE_NAME !== undefined) {
+    if (effectiveEnv.OTEL_SERVICE_NAME.trim())
+      ambient["service.name"] = effectiveEnv.OTEL_SERVICE_NAME;
+    else discard("OTEL_SERVICE_NAME", "empty value (unset)");
+  }
+  let customCount = Object.keys(resources).filter(
+    (key) => !(OTLP_RESERVED_RESOURCE_KEYS as readonly string[]).includes(key)
+  ).length;
+  for (const [key, value] of Object.entries(ambient)) {
+    const reason =
+      otlpResourceAttributeRejection(key, value) ??
+      (redactObservabilitySecretsWithStats({ [key]: value }).redactions.length
+        ? "secret-bearing attribute"
+        : null);
+    if (reason) discard(key, reason);
+    else if (Object.hasOwn(resources, key))
+      discard(key, "overridden by workflow");
+    else if (customCount >= 16) discard(key, "custom attribute limit (16)");
+    else {
+      resources[key] = value;
+      customCount++;
+    }
   }
   result.resourceAttributes = resources;
   diagnostics.resourceAttributes = { ...resources };

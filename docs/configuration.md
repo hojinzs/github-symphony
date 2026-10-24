@@ -906,8 +906,10 @@ overlaid by process values). Transport precedence is signal YAML, general YAML,
 signal environment, general environment, then default. Endpoint defaults are
 absent; protocol defaults to `http/protobuf`, headers to empty. General endpoints
 append `/v1/logs` or `/v1/metrics`; signal endpoints are complete URLs. Header
-maps replace the whole lower-precedence map. Invalid selected protocols or empty
-transport values fail instead of falling back. URLs reject credentials, queries
+maps replace the whole lower-precedence map. Empty or whitespace-only ambient
+`OTEL_EXPORTER_OTLP_*` values are unset and fall through to the next precedence
+level. Empty YAML transport strings (including resolved references) and invalid
+selected protocols remain errors. URLs reject credentials, queries
 and fragments; headers reject reserved names, duplicate names and CR/LF.
 
 The orchestrator invokes the owner resolver before dispatch and checks the
@@ -928,13 +930,29 @@ need no exporter values for ownership checks or stripping. Existing agent and
 tracker credentials remain available to their established consumers. This adds no
 credential broker and does not activate network export.
 
-`OTEL_SDK_DISABLED=true` vetoes enabled policy. Disabled policy resolves no
-references and ignores invalid ambient transport settings. Resources merge
-`OTEL_RESOURCE_ATTRIBUTES`, `OTEL_SERVICE_NAME`, then YAML; secret-bearing
-resources are rejected by the existing redactor, with only the offending key
-named in the error. Reserved identity key conflict validation and the 16 custom-key
-limit are validated by the SDK-free owner before last-known-good persistence and
-rechecked by orchestrator-owned providers (see the
+`OTEL_SDK_DISABLED` is trimmed and compared case-insensitively with `true` to
+veto enabled policy. Disabled policy resolves no references and ignores invalid
+ambient transport settings. YAML `resource_attributes` stay strict: secret-like
+attributes, reserved identity conflicts, forbidden issue/run/session/turn key
+segments and more than 16 custom keys remain validation errors.
+
+Ambient resources cannot invalidate otherwise valid workflow policy. A malformed
+`OTEL_RESOURCE_ATTRIBUTES` list (including trailing commas, duplicate keys or
+invalid percent encoding) is discarded in full; blank values are unset. Individual
+ambient attributes from that list or `OTEL_SERVICE_NAME` are discarded when they
+use runtime-reserved identity keys, forbidden key segments, or trigger secret
+redaction. YAML attributes take precedence and reserve their share of the 16-key
+custom limit; remaining ambient entries are admitted in list order up to that
+limit. Overflow entries are discarded. Runtime `service.name` stays `gh-symphony`.
+Doctor and status report discarded key names and fixed reasons, never discarded
+values. Diagnostic-only reloads refresh these notices without requiring restart.
+
+This intentionally aligns empty-environment and malformed-resource handling with
+the [OpenTelemetry environment-variable specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/).
+Workflow precedence, opt-in activation and the stricter resource identity/secret
+policy remain repository extensions; this does not alter the upstream Symphony
+specification. SDK-free owner validation runs before last-known-good persistence
+and is rechecked by orchestrator-owned providers (see the
 [design’s Resource identity section](designs/2026-10-04-otlp-export-design.md#resource-identity)).
 Safe diagnostics contain only
 endpoint, protocol, header names, resource metadata, auth-reference names and

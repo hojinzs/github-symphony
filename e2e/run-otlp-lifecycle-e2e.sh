@@ -13,12 +13,14 @@ cleanup() {
 trap cleanup EXIT
 cd "$ROOT_DIR"
 "${COMPOSE[@]}" run --build --rm --no-deps --entrypoint node symphony-e2e /app/e2e/otlp-lifecycle-contract.mjs
-for probe in pending-disable secret-diagnostic cli-capability doctor-secret doctor-reason; do
+for probe in ambient-doctor ambient-resource pending-disable secret-diagnostic cli-capability doctor-secret doctor-reason; do
   output=$(mktemp)
   if "${COMPOSE[@]}" run --rm --no-deps --entrypoint node symphony-e2e /app/e2e/otlp-lifecycle-contract.mjs "--probe=$probe" >"$output" 2>&1; then
     cat "$output"; rm -f "$output"; echo "Forbidden-condition probe unexpectedly passed: $probe" >&2; exit 1
   fi
   case "$probe" in
+    ambient-doctor) marker='reached: doctor ambient discard json=false' ;;
+    ambient-resource) marker='reached: ambient resource reload' ;;
     pending-disable) marker='reached: pending disable' ;;
     secret-diagnostic) marker='reached: secret-free output' ;;
     cli-capability) marker='reached: CLI production capability' ;;
