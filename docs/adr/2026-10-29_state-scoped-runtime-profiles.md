@@ -2,7 +2,7 @@
 
 - **Date**: 2026-10-29
 - **Status**: Proposed
-- **Symphony Layers**: Configuration, Coordination, Execution, Observability
+- **Symphony Layers**: Policy, Configuration, Coordination, Execution, Observability
 - **Related Spec**: `docs/symphony-spec.md` §5 (Workflow), §10 (Runtime), §13 (Runtime Snapshot)
 - **Related ADRs**: [2026-04-15 claude-print runtime support](2026-04-15_claude-print-runtime-support.md), [2026-08-28 agent tool isolation](2026-08-28_agent-tool-isolation.md)
 
@@ -150,7 +150,10 @@ function resolveRuntimeForState(
   `model`. `runtimeProfile` is immutable for the life of a run (see §7).
 - Skill injection writes to the skills directory of **every** runtime kind used
   by any profile, because one issue workspace can now host more than one
-  runtime across its lifetime.
+  runtime across its lifetime. `excludeRuntimeSkillsFromGit` must cover the
+  same set of destinations; today it runs only for the dispatched
+  `agentCommand`, so the other directory would show up as untracked content
+  and trip dirty-workspace handling or land in a commit.
 
 ### 6. Per-runtime concurrency (Coordination)
 
@@ -279,8 +282,9 @@ names only, and no tracker adapter changes.
    tests. Changeset.
 2. Orchestrator dispatch, per-runtime gate on candidate and retry paths, worker
    runtime selection, run record fields.
-3. In-run `runtime_profile_changed` exit, multi-runtime skill injection,
-   `doctor` / dashboard / `repo explain`, `docs/configuration.md` and
+3. In-run `runtime_profile_changed` exit, multi-runtime skill injection and
+   Git exclusion, `runtime.*` prompt template variables (Policy surface) with
+   render tests, `doctor` / dashboard / `repo explain`, `docs/configuration.md` and
    `docs/architecture.md` updates, Docker E2E covering a `Ready → In progress`
    profile switch under a full target-profile gate.
 
